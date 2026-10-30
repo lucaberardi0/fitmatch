@@ -3,6 +3,8 @@ import sys
 import argparse
 import json
 from fitmatch.service import ComparisonService
+from fitmatch.db import Database
+from fitmatch.crawler import CategoryCrawler
 
 # ANSI color codes
 RESET = "\033[0m"
@@ -88,6 +90,17 @@ def main():
     # Demo command
     demo_parser = subparsers.add_parser("demo", help="Esegue una ricerca di prova per verificare tutti i negozi")
 
+    # Index / Crawl command
+    index_parser = subparsers.add_parser("index", help="Esegue il crawler di categoria per popolare il database locale")
+    index_parser.add_argument("--limit", type=int, default=100, help="Numero max di articoli da indicizzare per negozio (default: 100)")
+
+    # Stats command
+    stats_parser = subparsers.add_parser("stats", help="Visualizza le statistiche del catalogo indicizzato")
+
+    # Catalog search command
+    cat_parser = subparsers.add_parser("catalog", help="Cerca istantaneamente nel catalogo indicizzato offline")
+    cat_parser.add_argument("query", type=str, nargs="?", default="", help="Filtro di ricerca (es. 'nike', 'asics', 'donna')")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -96,6 +109,7 @@ def main():
         sys.exit(0)
 
     service = ComparisonService()
+    db = Database()
 
     if args.command == "demo":
         print_banner()
@@ -103,6 +117,59 @@ def main():
         print(f"{CYAN}Avvio scraping demo simultaneo su Cisalfa, Maxi Sport, Mister Running e Nencini Sport...{RESET}\n")
         results = service.search_and_compare(query=query, limit_per_store=6)
         format_search_results(results)
+
+    elif args.command == "index":
+        print_banner()
+        print(f"{CYAN}Avvio indicizzazione categorie running su tutti i 4 negozi (Target: {args.limit} per negozio)...{RESET}\n")
+        crawler = CategoryCrawler(db=db)
+        sync_res = crawler.run_full_sync(limit_per_store=args.limit)
+        print(f"\n{BOLD}{GREEN}✓ Indicizzazione completata con successo in {sync_res['duration_seconds']}s!{RESET}")
+        print(f"Totale offerte indicizzate nel database: {BOLD}{sync_res['total_crawled']}{RESET}\n")
+        stats = sync_res["catalog_stats"]
+        print(f"• Prodotti unici nel catalogo: {BOLD}{stats['total_products']}{RESET}")
+        print(f"• Prodotti presenti su più negozi: {BOLD}{GREEN}{stats['multi_store_products']}{RESET}")
+        print(f"• Marchi rilevati: {BOLD}{stats['brands_count']}{RESET}\n")
+        print("Ripartizione per negozio:")
+        for s in stats["store_breakdown"]:
+            avg_disc = f" (Sconto medio: -{s['avg_discount']:.1f}%)" if s['avg_discount'] else ""
+            print(f"  - {s['store_name']:<18}: {BOLD}{s['count']:>4d} offerte{RESET}{avg_disc}")
+
+    elif args.command == "stats":
+        print_banner()
+        stats = db.get_stats()
+        print(f"{BOLD}STATISTICHE CATALOGO INDICIZZATO:{RESET}")
+        print(f"• Prodotti unici nel database: {BOLD}{stats['total_products']}{RESET}")
+        print(f"• Offerte totali salvate:      {BOLD}{stats['total_offers']}{RESET}")
+        print(f"• Prodotti multi-negozio:      {BOLD}{GREEN}{stats['multi_store_products']}{RESET}")
+        print(f"• Brand sportivi censiti:      {BOLD}{stats['brands_count']}{RESET}\n")
+
+        print(f"{BOLD}OFFERTE PER STORE:{RESET}")
+        for s in stats["store_breakdown"]:
+            avg_disc = f" (Sconto medio: -{s['avg_discount']:.1f}%)" if s['avg_discount'] else ""
+            print(f"  • {s['store_name']:<18}: {BOLD}{s['count']:>4d} capi{RESET} | Prezzo medio: €{s['avg_price']:.2f}{avg_disc}")
+
+        if stats["top_savings"]:
+            print(f"\n{BOLD}{GREEN}TOP 5 RISPARMI IDENTIFICATI NEL DATABASE:{RESET}")
+            for idx, item in enumerate(stats["top_savings"], 1):
+                print(f"  {idx}. {BOLD}{item['canonical_name']}{RESET} ({item['brand']})")
+                print(f"     Da {BOLD}€{item['min_price']:.2f}{RESET} a {BOLD}€{item['max_price']:.2f}{RESET} | Risparmio potenziale: {BOLD}{GREEN}€{item['savings']:.2f}{RESET} ({item['store_count']} negozi)")
+
+    elif args.command == "catalog":
+        print_banner()
+        print(f"{CYAN}Ricerca istantanea nel database indicizzato per: '{args.query}'...{RESET}\n")
+        items = db.search_indexed(args.query, limit=20)
+        if not items:
+            print(f"{YELLOW}Nessun prodotto trovato nel catalogo locale. Esegui prima 'python3 cli.py index'.{RESET}")
+            return
+        print(f"Trovati {BOLD}{len(items)}{RESET} prodotti nel database locale:\n")
+        for idx, item in enumerate(items, 1):
+            savings_str = f" {GREEN}(Risparmi fino a €{item['max_price'] - item['best_price']:.2f}){RESET}" if len(item['offers']) > 1 and item['max_price'] > item['best_price'] else ""
+            print(f"{BOLD}{idx}. {item['canonical_name']}{RESET} [{item['brand'] or 'N/A'}]")
+            print(f"   Prezzo migliore: {BOLD}€{item['best_price']:.2f}{RESET}{savings_str} - {len(item['offers'])} offerte disponibili")
+            for o in item["offers"]:
+                disc = f" (-{o['discount_pct']:.0f}%)" if o['discount_pct'] else ""
+                print(f"     • {o['store_name']:<16}: €{o['current_price']:>6.2f}{disc}  {DIM}{o['product_url'][:70]}...{RESET}")
+            print()
 
     elif args.command == "search":
         if not args.json:
