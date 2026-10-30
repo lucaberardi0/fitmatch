@@ -77,12 +77,13 @@ def ai_advise(
 @app.get("/api/search", response_model=SearchResult)
 def search_live(
     q: str = Query(..., min_length=2, description="Product search query (e.g. 'nike pegasus', 'asics nimbus')"),
+    size: Optional[str] = Query(None, description="Filter only offers having this size in stock (e.g. '43', '42.5', 'M')"),
     limit: int = Query(8, ge=1, le=25, description="Max products to fetch per store"),
     cache: bool = Query(True, description="Enable local caching to speed up repeated queries")
 ):
-    """Live multi-store federated search across all 4 retailers."""
+    """Live multi-store federated search across all 4 retailers with optional size verification."""
     try:
-        results = service.search_and_compare(query=q, limit_per_store=limit, use_cache=cache)
+        results = service.search_and_compare(query=q, size=size, limit_per_store=limit, use_cache=cache)
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

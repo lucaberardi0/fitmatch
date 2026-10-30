@@ -62,7 +62,8 @@ def format_search_results(res, max_groups: int = 15):
                 is_best = (offer.price == group.best_price)
                 badge = f" {BOLD}{GREEN}✓ PIÙ ECONOMICO{RESET}" if is_best else ""
                 discount = f" {YELLOW}(-{offer.discount_pct:.0f}%){RESET}" if offer.discount_pct else ""
-                print(f"     • {offer.store_name:<16}: {BOLD}€{offer.price:>6.2f}{RESET}{discount}{badge}")
+                sizes_info = f" {DIM}(Taglie: {', '.join(offer.available_sizes[:6])}{'..' if len(offer.available_sizes) > 6 else ''}){RESET}" if offer.available_sizes else ""
+                print(f"     • {offer.store_name:<16}: {BOLD}€{offer.price:>6.2f}{RESET}{discount}{badge}{sizes_info}")
                 print(f"       {DIM}Link: {offer.url}{RESET}")
 
     if single_store:
@@ -84,6 +85,7 @@ def main():
     # Search command
     search_parser = subparsers.add_parser("search", help="Cerca e confronta un prodotto tra tutti i negozi")
     search_parser.add_argument("query", type=str, help="Termine di ricerca (es. 'nike pegasus', 'asics nimbus')")
+    search_parser.add_argument("--size", type=str, default=None, help="Filtra solo offerte con la taglia disponibile (es. '43', '42.5', 'M')")
     search_parser.add_argument("--limit", type=int, default=8, help="Numero max di prodotti per negozio (default: 8)")
     search_parser.add_argument("--json", action="store_true", help="Output in formato JSON")
     search_parser.add_argument("--cache", action="store_true", help="Usa cache locale se disponibile")
@@ -215,12 +217,14 @@ def main():
         print("\n" + "─" * 100)
 
     elif args.command == "search":
+        size_str = f" [Taglia: {args.size}]" if args.size else ""
         if not args.json:
             print_banner()
-            print(f"{CYAN}Ricerca in corso per '{args.query}' su tutti i negozi...{RESET}")
+            print(f"{CYAN}Ricerca in corso per '{args.query}'{size_str} su tutti i negozi...{RESET}")
 
         results = service.search_and_compare(
             query=args.query,
+            size=args.size,
             limit_per_store=args.limit,
             use_cache=args.cache
         )

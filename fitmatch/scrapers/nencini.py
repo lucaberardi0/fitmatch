@@ -99,3 +99,17 @@ class NenciniSportScraper(BaseScraper):
                 continue
 
         return offers
+
+    def fetch_sizes(self, product_url: str) -> List[str]:
+        """Extract available sizes from Nencini product detail page."""
+        self._ensure_session()
+        html = self._fetch_html(product_url)
+        if not html:
+            return []
+        soup = BeautifulSoup(html, "html.parser")
+        sizes = [
+            el.get_text(strip=True).replace(",", ".")
+            for el in soup.select(".gescat_detail_info_size .desc_size")
+            if el.get_text(strip=True)
+        ]
+        return sorted(list(set(sizes)))

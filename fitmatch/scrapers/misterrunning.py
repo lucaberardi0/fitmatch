@@ -16,7 +16,7 @@ class MisterRunningScraper(BaseScraper):
             "key": self.clerk_key,
             "query": query,
             "limit": limit,
-            "attributes": json.dumps(["name", "price", "list_price", "image", "url", "brand", "id"])
+            "attributes": json.dumps(["name", "price", "list_price", "image", "url", "brand", "id", "sizes"])
         }
         data = self._fetch_json(self.api_url, params=params)
         if not data or not isinstance(data, dict):
@@ -37,6 +37,8 @@ class MisterRunningScraper(BaseScraper):
                 brand = p.get("brand")
                 image = p.get("image")
                 pid = str(p.get("id")) if p.get("id") else None
+                raw_sizes = p.get("sizes", [])
+                sizes = [str(s).strip() for s in raw_sizes if s]
 
                 offers.append(
                     Offer(
@@ -49,6 +51,7 @@ class MisterRunningScraper(BaseScraper):
                         original_price=orig_price,
                         url=url,
                         image_url=image,
+                        available_sizes=sizes,
                         in_stock=True
                     )
                 )

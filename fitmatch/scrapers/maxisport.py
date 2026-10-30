@@ -92,3 +92,28 @@ class MaxiSportScraper(BaseScraper):
                 continue
 
         return offers
+
+    def fetch_sizes(self, product_url: str) -> List[str]:
+        """Extract available sizes from Maxi Sport jsonConfig."""
+        html = self._fetch_html(product_url)
+        if not html:
+            return []
+        import json, re
+        soup = BeautifulSoup(html, "html.parser")
+        for s in soup.find_all("script"):
+            if s.string and "data-role=swatch-options" in s.string:
+                m = re.search(r"\"jsonConfig\":\s*(\{.*?\})\s*,\s*\"jsonSwatchConfig\"", s.string)
+                if m:
+                    try:
+                        cfg = json.loads(m.group(1))
+                        for attr_id, attr_data in cfg.get("attributes", {}).items():
+                            label = attr_data.get("label", "").lower()
+                            if "taglia" in label or "size" in label:
+                                return [
+                                    opt["label"].strip().replace(",", ".")
+                                    for opt in attr_data.get("options", [])
+                                    if len(opt.get("products", [])) > 0
+                                ]
+                    except Exception:
+                        pass
+        return []

@@ -97,3 +97,16 @@ class CisalfaScraper(BaseScraper):
                 continue
 
         return offers
+
+    def fetch_sizes(self, product_url: str) -> List[str]:
+        """Extract available sizes from Cisalfa product detail page."""
+        html = self._fetch_html(product_url)
+        if not html:
+            return []
+        soup = BeautifulSoup(html, "html.parser")
+        sizes = []
+        for el in soup.select(".size-attribute.cc-available"):
+            val = el.get("data-display-value")
+            if val:
+                sizes.append(val.strip().replace(",", "."))
+        return sizes

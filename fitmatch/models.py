@@ -3,6 +3,14 @@ from typing import Optional, List
 from datetime import datetime
 
 
+EU_TO_US_MEN = {
+    "39": "6.5", "40": "7", "40.5": "7.5", "41": "8", "42": "8.5",
+    "42.5": "9", "43": "9.5", "44": "10", "44.5": "10.5", "45": "11",
+    "45.5": "11.5", "46": "12", "47": "12.5", "47.5": "13", "48": "13.5"
+}
+US_TO_EU_MEN = {v: k for k, v in EU_TO_US_MEN.items()}
+
+
 class Offer(BaseModel):
     """Represents a specific product offer found on a retailer store."""
     store_id: str
@@ -15,8 +23,23 @@ class Offer(BaseModel):
     currency: str = "EUR"
     url: str
     image_url: Optional[str] = None
+    available_sizes: List[str] = Field(default_factory=list)
     in_stock: bool = True
     scraped_at: datetime = Field(default_factory=datetime.now)
+
+    def matches_size(self, target_size: Optional[str]) -> bool:
+        """Check if requested size is available, handling EU <-> US conversions."""
+        if not target_size or not self.available_sizes:
+            return True  # If no size filter or sizes not fetched yet, keep
+        req = target_size.strip().replace(",", ".").upper()
+        candidates = {req}
+        if req in EU_TO_US_MEN:
+            candidates.add(EU_TO_US_MEN[req])
+        if req in US_TO_EU_MEN:
+            candidates.add(US_TO_EU_MEN[req])
+
+        norm_avail = {s.strip().replace(",", ".").upper() for s in self.available_sizes}
+        return bool(candidates.intersection(norm_avail))
 
     @computed_field
     @property

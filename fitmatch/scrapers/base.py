@@ -32,6 +32,10 @@ class BaseScraper(ABC):
         """Search the store catalog for a given query and return a list of Offers."""
         pass
 
+    def fetch_sizes(self, product_url: str) -> List[str]:
+        """Fetch available in-stock sizes from the product detail page."""
+        return []
+
     def _fetch_html(self, url: str, params: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Fetch HTML content with Chrome impersonation."""
         try:

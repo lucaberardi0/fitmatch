@@ -48,7 +48,13 @@ class AIShoppingAdvisor:
         if price_match:
             max_price = float(price_match.group(1))
 
-        # 2. Gender extraction
+        # 2. Size extraction (es. 'taglia 43', 'numero 42.5', 'porto il 44', 'taglia M')
+        size = None
+        size_match = re.search(r"(?:taglia|numero|misura|porto\s*(?:il|la)?)\s*([0-9]{2}(?:[\.,][0-9])?|[xXsSmMlL]{1,3})", text)
+        if size_match:
+            size = size_match.group(1).replace(",", ".")
+
+        # 3. Gender extraction
         gender = "Unisex"
         if re.search(r"\b(donna|ragazza|femmin[eia]|wmns?)\b", text):
             gender = "Donna"
@@ -86,6 +92,7 @@ class AIShoppingAdvisor:
         return {
             "raw_query": user_query,
             "max_price": max_price,
+            "size": size,
             "gender": gender,
             "weight_kg": weight_kg,
             "surface": surface,
@@ -106,9 +113,14 @@ class AIShoppingAdvisor:
         recommendations = []
         all_candidate_offers = []
 
-        # Query live stores for the target models
+        # Query live stores for the target models with optional size filtering
         for model in target_models[:3]:
-            res = self.service.search_and_compare(query=model, limit_per_store=4, use_cache=True)
+            res = self.service.search_and_compare(
+                query=model,
+                size=params["size"],
+                limit_per_store=4,
+                use_cache=True
+            )
             for group in res.matched_products:
                 # Apply budget filter if specified
                 if params["max_price"] and group.best_price and group.best_price > params["max_price"]:
@@ -152,6 +164,8 @@ class AIShoppingAdvisor:
             reasons.append("Per lo sterrato abbiamo selezionato modelli con suola con grip artigliato e tomaia protettiva anti-sassi.")
         if params["max_price"]:
             reasons.append(f"Tutti i modelli proposti rispettano il tuo budget di **{params['max_price']:.0f} €**.")
+        if params["size"]:
+            reasons.append(f"Tutte le offerte visualizzate hanno la taglia **{params['size']}** effettivamente disponibile in stock.")
 
         return {
             "user_profile": params,
