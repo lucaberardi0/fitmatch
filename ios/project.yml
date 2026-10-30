@@ -1,0 +1,20 @@
+name: FitMatch
+options:
+  bundleIdPrefix: com.fitmatch
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  SWIFT_VERSION: "5.0"
+targets:
+  FitMatch:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: FitMatch
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.fitmatch.app
+      INFOPLIST_FILE: FitMatch/Info.plist
+      GENERATE_INFOPLIST_FILE: false
+      TARGETED_DEVICE_FAMILY: "1"
+      SWIFT_OPTIMIZATION_LEVEL: "-Onone"
