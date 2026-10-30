@@ -49,7 +49,7 @@ struct ProductCardView: View {
 
                     Spacer()
 
-                    WishlistButton()
+                    WishlistButton(product: product)
                 }
                 .padding(8)
             }

@@ -58,22 +58,29 @@ struct SizeChip: View {
 }
 
 struct WishlistButton: View {
-    @State private var isFavorite = false
+    let product: MatchedProduct
+    var size: String? = nil
+    @ObservedObject private var wishlist = WishlistManager.shared
+
+    private var isFavorite: Bool {
+        wishlist.isFavorite(product.canonical_name)
+    }
 
     var body: some View {
         Button(action: {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                isFavorite.toggle()
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) {
+                wishlist.toggleFavorite(product: product, selectedSize: size)
             }
         }) {
             Circle()
-                .fill(Color.white.opacity(0.92))
-                .frame(width: 32, height: 32)
-                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+                .fill(Color.white.opacity(0.95))
+                .frame(width: 34, height: 34)
+                .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
                 .overlay(
                     Image(systemName: isFavorite ? "heart.fill" : "heart")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(isFavorite ? .red : .primary)
+                        .scaleEffect(isFavorite ? 1.1 : 1.0)
                 )
         }
         .buttonStyle(.plain)

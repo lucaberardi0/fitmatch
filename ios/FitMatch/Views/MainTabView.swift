@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainTabView: View {
     @State private var selectedTab = 0
+    @ObservedObject private var wishlist = WishlistManager.shared
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -22,6 +23,13 @@ struct MainTabView: View {
                     Label("Offerte", systemImage: "flame.fill")
                 }
                 .tag(2)
+
+            WishlistView()
+                .tabItem {
+                    Label("Preferiti", systemImage: "heart.fill")
+                }
+                .badge(wishlist.items.isEmpty ? 0 : wishlist.items.count)
+                .tag(3)
         }
         .tint(.shopPurple)
     }

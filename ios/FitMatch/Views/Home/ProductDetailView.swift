@@ -3,6 +3,8 @@ import SwiftUI
 struct ProductDetailView: View {
     let product: MatchedProduct
     @State private var selectedOfferIndex: Int = 0
+    @State private var showingAlertSheet: Bool = false
+    @ObservedObject private var wishlist = WishlistManager.shared
     @Environment(\.dismiss) private var dismiss
 
     var currentOffer: Offer? {
@@ -10,6 +12,10 @@ struct ProductDetailView: View {
             return product.offers[selectedOfferIndex]
         }
         return product.bestOffer
+    }
+
+    private var wishlistItem: WishlistItem? {
+        wishlist.getItem(product.canonical_name)
     }
 
     var body: some View {
@@ -38,7 +44,7 @@ struct ProductDetailView: View {
                             .cornerRadius(20)
                         }
 
-                        WishlistButton()
+                        WishlistButton(product: product)
                             .padding(16)
                     }
                     .padding(.horizontal, 16)
@@ -101,6 +107,60 @@ struct ProductDetailView: View {
                         .cornerRadius(12)
                         .padding(.horizontal, 16)
                     }
+
+                    // Price Drop Alert Interactive Pill
+                    Button(action: { showingAlertSheet = true }) {
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill((wishlistItem?.isAlertEnabled ?? false) ? Color.shopPurple : Color(.systemGray5))
+                                .frame(width: 36, height: 36)
+                                .overlay(
+                                    Image(systemName: (wishlistItem?.isAlertEnabled ?? false) ? "bell.fill" : "bell")
+                                        .font(.system(size: 15))
+                                        .foregroundColor((wishlistItem?.isAlertEnabled ?? false) ? .white : .primary)
+                                )
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let item = wishlistItem, item.isAlertEnabled {
+                                    Text("ALERT CALO PREZZO ATTIVO")
+                                        .font(.system(size: 10, weight: .black))
+                                        .foregroundColor(.shopPurple)
+                                    if let target = item.formattedTargetPrice {
+                                        Text("Notifica se scende sotto \(target)")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(.primary)
+                                    } else {
+                                        Text("Notifica su qualsiasi calo di prezzo")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(.primary)
+                                    }
+                                } else {
+                                    Text("AVVISAMI SE SCENDE IL PREZZO")
+                                        .font(.system(size: 10, weight: .black))
+                                        .foregroundColor(.secondary)
+                                    Text("Configura un alert per ricevere una notifica istantanea")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.primary)
+                                }
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.secondarySystemGroupedBackground))
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.shopBorder, lineWidth: 1)
+                        )
+                        .padding(.horizontal, 16)
+                    }
+                    .buttonStyle(.plain)
 
                     // Offers Selector List
                     VStack(alignment: .leading, spacing: 12) {
@@ -210,5 +270,8 @@ struct ProductDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .background(Color(.systemBackground))
+        .sheet(isPresented: $showingAlertSheet) {
+            PriceAlertSheet(product: product)
+        }
     }
 }
