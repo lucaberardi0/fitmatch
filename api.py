@@ -4,6 +4,7 @@ from typing import Optional
 from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.crawler import CategoryCrawler
+from fitmatch.ai_advisor import AIShoppingAdvisor
 from fitmatch.models import SearchResult
 
 app = FastAPI(
@@ -23,6 +24,9 @@ app.add_middleware(
 
 service = ComparisonService()
 db = Database()
+
+
+advisor = AIShoppingAdvisor(service=service, db=db)
 
 
 @app.get("/health")
@@ -60,6 +64,14 @@ def search_local_catalog(
         "query": q,
         "results": db.search_indexed(query=q, limit=limit)
     }
+
+
+@app.get("/api/ai/advise")
+def ai_advise(
+    prompt: str = Query(..., min_length=4, description="Natural language shopper needs (e.g. 'peso 85kg corro su asfalto sotto i 140 euro')")
+):
+    """AI Shopper: translates natural language runner profiles into optimal models and live bargains."""
+    return advisor.advise(prompt)
 
 
 @app.get("/api/search", response_model=SearchResult)

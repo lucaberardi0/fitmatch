@@ -5,6 +5,7 @@ import json
 from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.crawler import CategoryCrawler
+from fitmatch.ai_advisor import AIShoppingAdvisor
 
 # ANSI color codes
 RESET = "\033[0m"
@@ -101,6 +102,10 @@ def main():
     cat_parser = subparsers.add_parser("catalog", help="Cerca istantaneamente nel catalogo indicizzato offline")
     cat_parser.add_argument("query", type=str, nargs="?", default="", help="Filtro di ricerca (es. 'nike', 'asics', 'donna')")
 
+    # AI Ask command
+    ask_parser = subparsers.add_parser("ask", help="Interroga l'Assistente AI con esigenze in linguaggio naturale")
+    ask_parser.add_argument("prompt", type=str, help="Esigenza dell'utente (es. 'peso 85kg corro su asfalto cerco scarpa comoda sotto i 140€')")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -170,6 +175,44 @@ def main():
                 disc = f" (-{o['discount_pct']:.0f}%)" if o['discount_pct'] else ""
                 print(f"     • {o['store_name']:<16}: €{o['current_price']:>6.2f}{disc}  {DIM}{o['product_url'][:70]}...{RESET}")
             print()
+
+    elif args.command == "ask":
+        print_banner()
+        print(f"{BOLD}💬 Richiesta Utente:{RESET} \"{args.prompt}\"")
+        print(f"{CYAN}Elaborazione profilo biomeccanico e ricerca delle offerte migliori...{RESET}\n")
+
+        advisor = AIShoppingAdvisor(service=service, db=db)
+        advice = advisor.advise(args.prompt)
+        p = advice["user_profile"]
+
+        print(f"{BOLD}🧠 ANALISI IA & PROFILAZIONE:{RESET}")
+        print(f"  • Categoria raccomandata: {BOLD}{CYAN}{advice['category_name']}{RESET}")
+        print(f"  • Genere rilevato:        {p['gender']}")
+        if p["weight_kg"]:
+            print(f"  • Peso runner:            {p['weight_kg']} kg")
+        print(f"  • Terreno d'uso:          {p['surface'].capitalize()}")
+        if p["max_price"]:
+            print(f"  • Vincolo di budget:      {GREEN}Max €{p['max_price']:.2f}{RESET}")
+
+        print(f"\n{BOLD}💡 MOTIVAZIONE TECNICA:{RESET}")
+        print(f"  {advice['biomechanical_reasoning']}\n")
+
+        if not advice["recommendations"]:
+            print(f"{YELLOW}Nessun modello trovato che rispetti rigorosamente tutti i filtri di budget.{RESET}")
+            return
+
+        print(f"{BOLD}{GREEN}★ I MODELLI RACCOMANDATI AL PREZZO PIÙ BASSO:{RESET}")
+        print("─" * 100)
+        for idx, rec in enumerate(advice["recommendations"], 1):
+            disc_str = f" {YELLOW}(-{rec['discount_pct']:.0f}%){RESET}" if rec['discount_pct'] else ""
+            print(f"\n{BOLD}{idx}. {rec['product_name']}{RESET} [{rec['brand'] or 'N/A'}]")
+            print(f"   Miglior prezzo attuale: {BOLD}{GREEN}€{rec['best_price']:.2f}{RESET}{disc_str} su {BOLD}{rec['best_store']}{RESET}")
+            if rec['cross_store_savings'] and rec['cross_store_savings'] > 0:
+                print(f"   {GREEN}✓ Risparmi fino a €{rec['cross_store_savings']:.2f} rispetto ad altri store!{RESET}")
+            print(f"   Tutte le opzioni a confronto:")
+            for o in rec["all_offers"]:
+                print(f"     • {o['store']:<16}: €{o['price']:>6.2f} -> {DIM}{o['url']}{RESET}")
+        print("\n" + "─" * 100)
 
     elif args.command == "search":
         if not args.json:
