@@ -17,37 +17,38 @@ struct AIAdvisorView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    // Header Card
+                    // Header Card in Shop Purple style
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Image(systemName: "sparkles")
                                 .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.yellow)
-                            Text("Coach IA di Shopping")
-                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(.white)
+                            Text("Coach IA Biomeccanico")
+                                .font(.system(size: 18, weight: .black))
                                 .foregroundColor(.white)
                         }
 
-                        Text("Descrivi come corri, il tuo peso, i tuoi obiettivi o il tuo budget. L'IA analizzerà il tuo profilo biomeccanico e troverà le offerte migliori tra tutti i negozi.")
+                        Text("Spiegaci le tue esigenze di corsa (peso, terreno, budget, taglia). L'IA deduce i modelli ideali e trova il prezzo più basso tra tutti i negozi partner.")
                             .font(.system(size: 13))
-                            .foregroundColor(.white.opacity(0.9))
+                            .foregroundColor(.white.opacity(0.92))
                     }
-                    .padding(16)
+                    .padding(18)
                     .background(
                         LinearGradient(
-                            colors: [Color.blue, Color.purple],
+                            colors: [Color.shopPurple, Color.shopDark],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
-                    .cornerRadius(16)
+                    .cornerRadius(20)
                     .padding(.horizontal, 16)
 
                     // Sample Quick Prompts
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("PROVA UNO DI QUESTI ESEMPI:")
+                        Text("ESEMPI RAPIDI DI RICHIESTA:")
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(.secondary)
+                            .tracking(0.5)
                             .padding(.horizontal, 16)
 
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -58,13 +59,16 @@ struct AIAdvisorView: View {
                                         askAdvisor()
                                     }) {
                                         Text(sample)
-                                            .font(.system(size: 12))
+                                            .font(.system(size: 12, weight: .medium))
                                             .foregroundColor(.primary)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 9)
                                             .background(Color(.secondarySystemGroupedBackground))
-                                            .cornerRadius(12)
-                                            .shadow(color: Color.black.opacity(0.04), radius: 3)
+                                            .cornerRadius(16)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 16)
+                                                    .stroke(Color.shopBorder, lineWidth: 1)
+                                            )
                                     }
                                 }
                             }
@@ -76,8 +80,9 @@ struct AIAdvisorView: View {
                     if isLoading {
                         VStack(spacing: 12) {
                             ProgressView()
+                                .tint(.shopPurple)
                                 .scaleEffect(1.2)
-                            Text("Analisi biomeccanica e scansione negozi in corso...")
+                            Text("Analisi biomeccanica e verifica taglie in corso...")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.secondary)
                         }
@@ -100,7 +105,7 @@ struct AIAdvisorView: View {
                                 HStack {
                                     Image(systemName: "figure.run.circle.fill")
                                         .font(.system(size: 20))
-                                        .foregroundColor(.blue)
+                                        .foregroundColor(.shopPurple)
                                     Text(advice.category_name)
                                         .font(.system(size: 16, weight: .bold))
                                 }
@@ -112,11 +117,17 @@ struct AIAdvisorView: View {
                             }
                             .padding(16)
                             .background(Color(.secondarySystemGroupedBackground))
-                            .cornerRadius(14)
+                            .cornerRadius(16)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(Color.shopBorder, lineWidth: 1)
+                            )
 
                             // Recommended Models Cards
-                            Text("I Modelli Consigliati al Miglior Prezzo:")
-                                .font(.system(size: 16, weight: .bold))
+                            Text("I MODELLI CONSIGLIATI AL MIGLIOR PREZZO:")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.secondary)
+                                .tracking(0.5)
 
                             ForEach(advice.recommendations) { rec in
                                 VStack(alignment: .leading, spacing: 10) {
@@ -132,15 +143,15 @@ struct AIAdvisorView: View {
                                         }
                                         Spacer()
                                         if let store = rec.best_store {
-                                            StoreBadge(storeName: store)
+                                            ShopStoreLogo(storeName: store)
                                         }
                                     }
 
                                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                                         if let price = rec.best_price {
                                             Text(String(format: "€%.2f", price))
-                                                .font(.system(size: 20, weight: .heavy))
-                                                .foregroundColor(.green)
+                                                .font(.system(size: 20, weight: .black))
+                                                .foregroundColor(.primary)
                                         }
                                         if let orig = rec.original_price, let p = rec.best_price, orig > p {
                                             Text(String(format: "€%.2f", orig))
@@ -156,28 +167,32 @@ struct AIAdvisorView: View {
                                     if let savings = rec.cross_store_savings, savings > 1.0 {
                                         Text("✓ Risparmi fino a \(String(format: "€%.2f", savings)) confrontando i negozi!")
                                             .font(.system(size: 12, weight: .bold))
-                                            .foregroundColor(.green)
+                                            .foregroundColor(.shopPurple)
                                     }
 
                                     if let link = rec.link, let url = URL(string: link) {
                                         Link(destination: url) {
                                             HStack {
-                                                Text("Vedi offerta su \(rec.best_store ?? "Store")")
+                                                Text("Acquista su \(rec.best_store ?? "Store")")
                                                     .font(.system(size: 13, weight: .bold))
                                                 Spacer()
                                                 Image(systemName: "arrow.up.right.square")
                                             }
                                             .foregroundColor(.white)
-                                            .padding(.vertical, 8)
-                                            .padding(.horizontal, 12)
-                                            .background(Color.green)
-                                            .cornerRadius(8)
+                                            .padding(.vertical, 10)
+                                            .padding(.horizontal, 14)
+                                            .background(Color.shopPurple)
+                                            .cornerRadius(12)
                                         }
                                     }
                                 }
-                                .padding(14)
+                                .padding(16)
                                 .background(Color(.secondarySystemGroupedBackground))
-                                .cornerRadius(14)
+                                .cornerRadius(16)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .stroke(Color.shopBorder, lineWidth: 1)
+                                )
                             }
                         }
                         .padding(.horizontal, 16)
@@ -185,21 +200,21 @@ struct AIAdvisorView: View {
                 }
                 .padding(.vertical, 16)
             }
-            .navigationTitle("Assistente IA 🤖")
-            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Coach IA 🤖")
+            .background(Color(.systemBackground))
             .safeAreaInset(edge: .bottom) {
                 // Input Bar
-                HStack(spacing: 8) {
-                    TextField("Descrivi cosa cerchi (es. peso, budget, taglia)...", text: $promptText)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(Color(.secondarySystemGroupedBackground))
-                        .cornerRadius(20)
+                HStack(spacing: 10) {
+                    TextField("Chiedi al Coach (es. peso, asfalto, budget)...", text: $promptText)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(24)
 
                     Button(action: askAdvisor) {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(promptText.trimmingCharacters(in: .whitespaces).isEmpty ? .gray : .blue)
+                            .font(.system(size: 34))
+                            .foregroundColor(promptText.trimmingCharacters(in: .whitespaces).isEmpty ? .gray : .shopPurple)
                     }
                     .disabled(promptText.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
                 }

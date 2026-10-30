@@ -3,29 +3,8 @@ import SwiftUI
 struct StoreBadge: View {
     let storeName: String
 
-    var color: Color {
-        switch storeName.lowercased() {
-        case let s where s.contains("cisalfa"):
-            return .red
-        case let s where s.contains("maxi"):
-            return .orange
-        case let s where s.contains("mister"):
-            return .blue
-        case let s where s.contains("nencini"):
-            return .green
-        default:
-            return .purple
-        }
-    }
-
     var body: some View {
-        Text(storeName)
-            .font(.system(size: 11, weight: .bold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.85))
-            .cornerRadius(6)
+        ShopStoreLogo(storeName: storeName)
     }
 }
 
@@ -35,26 +14,26 @@ struct DiscountBadge: View {
     var body: some View {
         Text(discountText)
             .font(.system(size: 11, weight: .bold))
-            .foregroundColor(.white)
+            .foregroundColor(.shopPurple)
             .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(Color.red)
-            .cornerRadius(6)
+            .padding(.vertical, 2)
+            .background(Color.shopPurpleLight)
+            .cornerRadius(4)
     }
 }
 
 struct BestPriceBadge: View {
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 10))
+            Image(systemName: "sparkles")
+                .font(.system(size: 9, weight: .bold))
             Text("MIGLIOR PREZZO")
-                .font(.system(size: 10, weight: .heavy))
+                .font(.system(size: 9, weight: .black))
         }
         .foregroundColor(.white)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.green)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Color.shopPurple)
         .cornerRadius(6)
     }
 }
@@ -67,13 +46,36 @@ struct SizeChip: View {
         Text(size)
             .font(.system(size: 13, weight: isSelected ? .bold : .medium))
             .foregroundColor(isSelected ? .white : .primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(isSelected ? Color.blue : Color(.systemGray6))
-            .cornerRadius(8)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(isSelected ? Color.shopDark : Color(.systemGray6))
+            .cornerRadius(20) // Shop pill shape
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(isSelected ? Color.shopDark : Color.clear, lineWidth: 1)
             )
+    }
+}
+
+struct WishlistButton: View {
+    @State private var isFavorite = false
+
+    var body: some View {
+        Button(action: {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                isFavorite.toggle()
+            }
+        }) {
+            Circle()
+                .fill(Color.white.opacity(0.92))
+                .frame(width: 32, height: 32)
+                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+                .overlay(
+                    Image(systemName: isFavorite ? "heart.fill" : "heart")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(isFavorite ? .red : .primary)
+                )
+        }
+        .buttonStyle(.plain)
     }
 }

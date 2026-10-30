@@ -10,6 +10,7 @@
 		0868BFDF8B0B1B89D6D97BB5 /* ProductDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE97964EC21F194E375A1D8A /* ProductDetailView.swift */; };
 		135B70A20A222A2514C8953D /* Badges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20254DFCB0EF57AEB2F80CB7 /* Badges.swift */; };
 		36FB1E76CA79F8495D334DD9 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59465A97DD7CC5F1AEE3FD73 /* MainTabView.swift */; };
+		5781B1730832EF60A1465196 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 081867455313440F0DFE628F /* Theme.swift */; };
 		9FA6E1EB09B4E068B2447D88 /* FitMatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 014DB574F6923400DE4EC660 /* FitMatchApp.swift */; };
 		B989DA72112CF11A041FC02F /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 395FFCA471A337B896E62006 /* HomeView.swift */; };
 		BBB92065D1E3818808146B53 /* AIAdvisorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11BE2D478D1A5BD911FDA8D /* AIAdvisorView.swift */; };
@@ -21,6 +22,7 @@
 
 /* Begin PBXFileReference section */
 		014DB574F6923400DE4EC660 /* FitMatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FitMatchApp.swift; sourceTree = "<group>"; };
+		081867455313440F0DFE628F /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		20254DFCB0EF57AEB2F80CB7 /* Badges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Badges.swift; sourceTree = "<group>"; };
 		255647D17367B34B0275293B /* ProductModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductModels.swift; sourceTree = "<group>"; };
 		3383A60980E52BBE4FB22597 /* ProductCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductCardView.swift; sourceTree = "<group>"; };
@@ -111,6 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				20254DFCB0EF57AEB2F80CB7 /* Badges.swift */,
+				081867455313440F0DFE628F /* Theme.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -190,6 +193,7 @@
 				F9E4C753F06B523A63F23309 /* ProductCardView.swift in Sources */,
 				0868BFDF8B0B1B89D6D97BB5 /* ProductDetailView.swift in Sources */,
 				DB801E209CBDE5B967F40ACC /* ProductModels.swift in Sources */,
+				5781B1730832EF60A1465196 /* Theme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

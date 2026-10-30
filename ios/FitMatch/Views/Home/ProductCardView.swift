@@ -4,122 +4,111 @@ struct ProductCardView: View {
     let product: MatchedProduct
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
+            // Image Frame with Floating Badges
             ZStack(alignment: .topTrailing) {
-                // Product Image
-                if let imageUrl = product.image_url, let url = URL(string: imageUrl) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFit()
-                                .frame(height: 160)
-                                .frame(maxWidth: .infinity)
-                                .background(Color(.systemBackground))
-                        case .failure:
-                            imagePlaceholder
-                        case .empty:
-                            ProgressView()
-                                .frame(height: 160)
-                                .frame(maxWidth: .infinity)
-                        @unknown default:
-                            imagePlaceholder
-                        }
-                    }
-                    .cornerRadius(12)
-                } else {
-                    imagePlaceholder
-                }
+                // Product Image Container
+                ZStack {
+                    Color(.systemGray6).opacity(0.6)
 
-                // Multi-store badge
-                if product.offers.count > 1 {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 9, weight: .bold))
-                        Text("\(product.offers.count) NEGOZI")
-                            .font(.system(size: 10, weight: .bold))
+                    if let imageUrl = product.image_url, let url = URL(string: imageUrl) {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                                    .padding(8)
+                            case .failure:
+                                imagePlaceholder
+                            case .empty:
+                                ProgressView()
+                            @unknown default:
+                                imagePlaceholder
+                            }
+                        }
+                    } else {
+                        imagePlaceholder
                     }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.blue)
-                    .cornerRadius(8)
-                    .padding(8)
                 }
+                .frame(height: 155)
+                .frame(maxWidth: .infinity)
+                .cornerRadius(14)
+
+                // Top Floating Overlays
+                HStack {
+                    if product.offers.count > 1 {
+                        Text("\(product.offers.count) STORES")
+                            .font(.system(size: 9, weight: .black))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.shopDark.opacity(0.85))
+                            .cornerRadius(5)
+                    }
+
+                    Spacer()
+
+                    WishlistButton()
+                }
+                .padding(8)
             }
 
-            // Brand & Name
-            VStack(alignment: .leading, spacing: 3) {
+            // Info Section
+            VStack(alignment: .leading, spacing: 4) {
+                // Brand
                 if let brand = product.brand {
                     Text(brand.uppercased())
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.secondary)
+                        .tracking(0.5)
                 }
 
+                // Canonical Name
                 Text(product.canonical_name)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
                     .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+                    .frame(height: 36, alignment: .topLeading)
 
-            // Prices & Savings
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(product.formattedBestPrice)
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundColor(.green)
+                // Prices
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(product.formattedBestPrice)
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
 
-                    if let best = product.bestOffer, let orig = best.formattedOriginalPrice {
-                        Text(orig)
-                            .font(.system(size: 13))
-                            .strikethrough()
-                            .foregroundColor(.secondary)
-
-                        if let badge = best.discountBadge {
+                        if let best = product.bestOffer, let badge = best.discountBadge {
                             DiscountBadge(discountText: badge)
                         }
                     }
-                }
 
-                if let best = product.bestOffer {
-                    HStack(spacing: 4) {
-                        Text("da")
-                            .font(.system(size: 12))
+                    if let best = product.bestOffer, let orig = best.formattedOriginalPrice {
+                        Text(orig)
+                            .font(.system(size: 11))
+                            .strikethrough()
                             .foregroundColor(.secondary)
-                        StoreBadge(storeName: best.store_name)
                     }
                 }
 
-                if let savings = product.formattedSavings {
-                    HStack(spacing: 4) {
-                        Image(systemName: "tag.fill")
-                            .font(.system(size: 10))
-                        Text(savings)
-                            .font(.system(size: 11, weight: .bold))
-                    }
-                    .foregroundColor(.green)
-                    .padding(.top, 2)
+                // Store
+                if let best = product.bestOffer {
+                    ShopStoreLogo(storeName: best.store_name)
+                        .padding(.top, 2)
                 }
             }
+            .padding(.horizontal, 2)
         }
-        .padding(12)
-        .background(Color(.secondarySystemGroupedBackground))
+        .padding(6)
+        .background(Color.shopCardBg)
         .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
     }
 
     private var imagePlaceholder: some View {
-        Rectangle()
-            .fill(Color(.systemGray6))
-            .frame(height: 160)
-            .frame(maxWidth: .infinity)
-            .overlay(
-                Image(systemName: "shoeprints.fill")
-                    .font(.system(size: 36))
-                    .foregroundColor(.secondary)
-            )
-            .cornerRadius(12)
+        Image(systemName: "shoeprints.fill")
+            .font(.system(size: 32))
+            .foregroundColor(.secondary.opacity(0.5))
     }
 }

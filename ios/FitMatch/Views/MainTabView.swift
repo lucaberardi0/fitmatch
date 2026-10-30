@@ -7,7 +7,7 @@ struct MainTabView: View {
         TabView(selection: $selectedTab) {
             HomeView()
                 .tabItem {
-                    Label("Confronto", systemImage: "magnifyingglass")
+                    Label("Shop", systemImage: "bag.fill")
                 }
                 .tag(0)
 
@@ -19,10 +19,10 @@ struct MainTabView: View {
 
             DealsView()
                 .tabItem {
-                    Label("Top Risparmi", systemImage: "flame.fill")
+                    Label("Offerte", systemImage: "flame.fill")
                 }
                 .tag(2)
         }
-        .tint(.blue)
+        .tint(.shopPurple)
     }
 }
