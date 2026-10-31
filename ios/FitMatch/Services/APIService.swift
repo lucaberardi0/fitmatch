@@ -56,4 +56,14 @@ class APIService: ObservableObject {
         }
         return try JSONDecoder().decode(CatalogStatsResponse.self, from: data)
     }
+
+    func getStoreShowcases() async throws -> [StoreShowcase] {
+        guard let url = URL(string: "\(baseURL)/api/stores/showcase") else { throw URLError(.badURL) }
+        let (data, response) = try await session.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        let decoded = try JSONDecoder().decode(StoreShowcaseResponse.self, from: data)
+        return decoded.showcases
+    }
 }

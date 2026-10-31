@@ -48,6 +48,14 @@ def get_stores():
     }
 
 
+@app.get("/api/stores/showcase")
+def get_store_showcases(limit: int = Query(6, ge=1, le=20)):
+    """Retrieve Shopify Shop-style featured merchant showcase cards with top products."""
+    return {
+        "showcases": db.get_store_showcases(limit_per_store=limit)
+    }
+
+
 @app.get("/api/stats")
 def get_catalog_stats():
     """Retrieve indexed database overview statistics and price gap metrics."""

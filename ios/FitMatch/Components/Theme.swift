@@ -17,6 +17,7 @@ extension Color {
 struct ShopStoreLogo: View {
     let storeName: String
     var showVerified: Bool = true
+    var showLabel: Bool = true
     var size: CGFloat = 16
 
     var initials: String {
@@ -49,19 +50,21 @@ struct ShopStoreLogo: View {
                     .frame(width: size, height: size)
 
                 Text(initials)
-                    .font(.system(size: size * 0.45, weight: .black, design: .rounded))
+                    .font(.system(size: size * 0.42, weight: .black, design: .rounded))
                     .foregroundColor(.white)
             }
 
-            Text(storeName)
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundColor(.shopDark)
-                .lineLimit(1)
+            if showLabel {
+                Text(storeName)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(.shopDark)
+                    .lineLimit(1)
 
-            if showVerified {
-                Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.shopPurple)
+                if showVerified {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.shopPurple)
+                }
             }
         }
     }

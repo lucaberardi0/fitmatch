@@ -230,3 +230,47 @@ class Database:
                 prod["offers"] = [dict(o) for o in offer_cur.fetchall()]
 
             return products
+
+    def get_store_showcases(self, limit_per_store: int = 6) -> List[Dict[str, Any]]:
+        """Return curated product highlights for each store (Shop-style merchant showcase)."""
+        ratings = {
+            "cisalfa": "4.8",
+            "maxisport": "4.9",
+            "misterrunning": "4.9",
+            "nencini": "4.7",
+            "top4running": "4.8",
+            "runningwarehouse": "4.9"
+        }
+        with self.get_connection() as conn:
+            stores = conn.execute("""
+                SELECT store_id, store_name, COUNT(*) as total_offers, AVG(discount_pct) as avg_discount
+                FROM store_offers
+                GROUP BY store_id, store_name
+                ORDER BY total_offers DESC, store_name ASC
+            """).fetchall()
+
+            result = []
+            for s in stores:
+                sid, sname = s["store_id"], s["store_name"]
+                prods_cur = conn.execute("""
+                    SELECT o.id, o.raw_title as title, p.brand, COALESCE(o.image_url, p.image_url) as image_url,
+                           o.current_price, o.original_price, o.discount_pct, o.product_url, p.canonical_name,
+                           p.id as product_id
+                    FROM store_offers o
+                    JOIN products p ON o.product_id = p.id
+                    WHERE o.store_id = ? AND o.image_url IS NOT NULL AND o.image_url != ''
+                    ORDER BY o.discount_pct DESC, o.current_price ASC
+                    LIMIT ?
+                """, (sid, limit_per_store))
+
+                products = [dict(r) for r in prods_cur.fetchall()]
+                result.append({
+                    "store_id": sid,
+                    "store_name": sname,
+                    "total_offers": s["total_offers"],
+                    "avg_discount": round(s["avg_discount"] or 0, 1),
+                    "rating": ratings.get(sid, "4.8"),
+                    "products": products
+                })
+
+            return result

@@ -6,12 +6,14 @@ struct HomeView: View {
     @State private var selectedSize: String? = nil
     @State private var selectedStoreFilter: String? = nil
     @State private var products: [MatchedProduct] = []
+    @State private var showcases: [StoreShowcase] = []
     @State private var isLoading = false
+    @State private var isShowcasesLoading = false
     @State private var errorMessage: String? = nil
 
     private let availableSizes = ["Tutte", "40", "41", "42", "42.5", "43", "44", "44.5", "45", "46"]
     private let quickSearches = ["Tutti", "Nike Pegasus", "Asics Nimbus", "Hoka Clifton", "Brooks Ghost", "Saucony Triumph", "Trail GTX"]
-    
+
     // The 6 verified partner stores
     private let partnerStores: [(name: String, color: Color, initials: String, rating: String)] = [
         ("Cisalfa Sport", Color(red: 227/255, green: 28/255, blue: 37/255), "CS", "4.8"),
@@ -36,10 +38,17 @@ struct HomeView: View {
         return products
     }
 
+    var filteredShowcases: [StoreShowcase] {
+        if let store = selectedStoreFilter {
+            return showcases.filter { $0.store_name.lowercased().contains(store.lowercased()) }
+        }
+        return showcases
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 20) {
                     // 1. Top Shop-style Header & Wordmark
                     HStack {
                         HStack(spacing: 6) {
@@ -236,7 +245,40 @@ struct HomeView: View {
                         .padding(.horizontal, 16)
                     }
 
-                    // 6. Feed Content
+                    // 6. Shopify Shop-Style Store Showcase Cards (Card per ciascun negozio con prodotti)
+                    if !filteredShowcases.isEmpty {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack {
+                                Text("NEGOZI IN EVIDENZA")
+                                    .font(.system(size: 11, weight: .black))
+                                    .foregroundColor(.shopTextMuted)
+                                    .tracking(0.6)
+
+                                Spacer()
+
+                                Text("\(filteredShowcases.count) Store attivi")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.shopPurple)
+                            }
+                            .padding(.horizontal, 16)
+
+                            VStack(spacing: 16) {
+                                ForEach(filteredShowcases) { showcase in
+                                    StoreShowcaseCard(
+                                        showcase: showcase,
+                                        onSelectStore: { storeName in
+                                            withAnimation {
+                                                selectedStoreFilter = storeName
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                        }
+                    }
+
+                    // 7. Multi-Store Matched Products Feed
                     if isLoading {
                         VStack(spacing: 12) {
                             ProgressView()
@@ -247,7 +289,7 @@ struct HomeView: View {
                                 .foregroundColor(.shopTextMuted)
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 60)
+                        .padding(.vertical, 40)
                     } else if let error = errorMessage {
                         VStack(spacing: 12) {
                             Image(systemName: "wifi.exclamationmark")
@@ -264,28 +306,12 @@ struct HomeView: View {
                             .foregroundColor(.shopPurple)
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 40)
-                    } else if filteredProducts.isEmpty {
-                        VStack(spacing: 10) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 40))
-                                .foregroundColor(.shopTextMuted.opacity(0.4))
-                            Text("Nessun modello trovato")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.shopDark)
-                            Text("Prova a cercare con un altro brand o rimuovi il filtro negozio/taglia.")
-                                .font(.system(size: 13))
-                                .foregroundColor(.shopTextMuted)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 32)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 60)
-                    } else {
-                        // 2-Column Product Grid (Shopify Shop Style)
+                        .padding(.vertical, 30)
+                    } else if !filteredProducts.isEmpty {
+                        // 2-Column Product Grid
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text("\(filteredProducts.count) MODELLI TROVATI")
+                                Text("TUTTI I MODELLI A CONFRONTO (\(filteredProducts.count))")
                                     .font(.system(size: 11, weight: .black))
                                     .foregroundColor(.shopTextMuted)
                                     .tracking(0.6)
@@ -313,11 +339,32 @@ struct HomeView: View {
             }
             .background(Color.shopSurface.ignoresSafeArea())
             .refreshable {
+                fetchShowcases()
                 performSearch()
             }
             .onAppear {
+                if showcases.isEmpty {
+                    fetchShowcases()
+                }
                 if products.isEmpty {
                     performSearch()
+                }
+            }
+        }
+    }
+
+    private func fetchShowcases() {
+        isShowcasesLoading = true
+        Task {
+            do {
+                let sc = try await api.getStoreShowcases()
+                await MainActor.run {
+                    self.showcases = sc
+                    self.isShowcasesLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.isShowcasesLoading = false
                 }
             }
         }
