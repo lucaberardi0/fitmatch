@@ -143,6 +143,7 @@ struct WishlistView: View {
                     }
                 }
             }
+            .background(Color.shopSurface.ignoresSafeArea())
             .navigationTitle("Preferiti & Alert")
             .sheet(item: $itemToEditAlert) { item in
                 // Build a temporary MatchedProduct to configure alert

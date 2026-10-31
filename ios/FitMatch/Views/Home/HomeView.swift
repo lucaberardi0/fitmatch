@@ -4,17 +4,22 @@ struct HomeView: View {
     @StateObject private var api = APIService.shared
     @State private var searchText = "Nike Pegasus"
     @State private var selectedSize: String? = nil
+    @State private var selectedStoreFilter: String? = nil
     @State private var products: [MatchedProduct] = []
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
 
     private let availableSizes = ["Tutte", "40", "41", "42", "42.5", "43", "44", "44.5", "45", "46"]
-    private let quickSearches = ["Tutti", "Nike Pegasus", "Hoka Bondi", "Asics Nimbus", "Brooks Ghost", "Trail GTX"]
-    private let partnerStores = [
-        ("Cisalfa Sport", Color.red, "CS"),
-        ("Maxi Sport", Color.orange, "MS"),
-        ("Mister Running", Color.blue, "MR"),
-        ("Nencini Sport", Color(red: 0, green: 0.55, blue: 0.3), "NS")
+    private let quickSearches = ["Tutti", "Nike Pegasus", "Asics Nimbus", "Hoka Clifton", "Brooks Ghost", "Saucony Triumph", "Trail GTX"]
+    
+    // The 6 verified partner stores
+    private let partnerStores: [(name: String, color: Color, initials: String, rating: String)] = [
+        ("Cisalfa Sport", Color(red: 227/255, green: 28/255, blue: 37/255), "CS", "4.8"),
+        ("Maxi Sport", Color(red: 245/255, green: 130/255, blue: 32/255), "MS", "4.9"),
+        ("Mister Running", Color(red: 0/255, green: 114/255, blue: 206/255), "MR", "4.9"),
+        ("Nencini Sport", Color(red: 0/255, green: 140/255, blue: 70/255), "NS", "4.7"),
+        ("Top4Running", Color(red: 0/255, green: 185/255, blue: 241/255), "T4", "4.8"),
+        ("Running Warehouse", Color(red: 10/255, green: 55/255, blue: 140/255), "RW", "4.9")
     ]
 
     private let columns = [
@@ -22,43 +27,60 @@ struct HomeView: View {
         GridItem(.flexible(), spacing: 12)
     ]
 
+    var filteredProducts: [MatchedProduct] {
+        if let store = selectedStoreFilter {
+            return products.filter { p in
+                p.offers.contains { $0.store_name.lowercased().contains(store.lowercased()) }
+            }
+        }
+        return products
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    // Top Shop-style Header & Brand Row
+                    // 1. Top Shop-style Header & Wordmark
                     HStack {
-                        VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
                             Text("Shop")
-                                .font(.system(size: 28, weight: .black, design: .rounded))
+                                .font(.system(size: 30, weight: .black, design: .rounded))
                                 .foregroundColor(.shopDark)
-                            + Text(" by FitMatch")
-                                .font(.system(size: 15, weight: .bold))
+
+                            Text("COMPARATORE")
+                                .font(.system(size: 9, weight: .heavy, design: .rounded))
                                 .foregroundColor(.shopPurple)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.shopPurpleLight)
+                                .cornerRadius(6)
                         }
 
                         Spacer()
 
-                        Circle()
-                            .fill(Color(.systemGray6))
-                            .frame(width: 38, height: 38)
-                            .overlay(
-                                Image(systemName: "bell")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(.primary)
-                            )
+                        NavigationLink(destination: DealsView()) {
+                            Circle()
+                                .fill(Color.shopSurface)
+                                .frame(width: 40, height: 40)
+                                .overlay(
+                                    Image(systemName: "flame.fill")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundColor(Color.orange)
+                                )
+                        }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 4)
+                    .padding(.top, 6)
 
-                    // Shop Search Bar
+                    // 2. Shop Signature Search Bar
                     HStack(spacing: 10) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.shopTextMuted)
 
-                        TextField("Cerca modelli, brand o sport...", text: $searchText)
+                        TextField("Cerca scarpe, brand o modello...", text: $searchText)
                             .font(.system(size: 15))
+                            .foregroundColor(.shopDark)
                             .onSubmit {
                                 performSearch()
                             }
@@ -68,62 +90,98 @@ struct HomeView: View {
                                 searchText = ""
                             }) {
                                 Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.shopTextMuted)
                             }
                         }
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
-                    .background(Color(.systemGray6).opacity(0.8))
-                    .cornerRadius(24)
+                    .background(Color.shopSurface)
+                    .cornerRadius(24) // Shop capsule
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24)
+                            .stroke(Color.shopBorder, lineWidth: 1)
+                    )
                     .padding(.horizontal, 16)
 
-                    // Partner Stores Horizontal Carousel
+                    // 3. Verified Partner Retailers Carousel (6 Stores)
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("NEGOZI PARTNER VERIFICATI")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.secondary)
-                            .tracking(0.5)
-                            .padding(.horizontal, 16)
+                        HStack {
+                            Text("NEGOZI VERIFICATI (\(partnerStores.count))")
+                                .font(.system(size: 11, weight: .black))
+                                .foregroundColor(.shopTextMuted)
+                                .tracking(0.6)
+                            Spacer()
+                            if selectedStoreFilter != nil {
+                                Button("Tutti i negozi") {
+                                    withAnimation { selectedStoreFilter = nil }
+                                }
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.shopPurple)
+                            }
+                        }
+                        .padding(.horizontal, 16)
 
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 14) {
-                                ForEach(partnerStores, id: \.0) { store in
-                                    HStack(spacing: 8) {
-                                        Circle()
-                                            .fill(store.1)
-                                            .frame(width: 26, height: 26)
-                                            .overlay(
-                                                Text(store.2)
-                                                    .font(.system(size: 10, weight: .black))
-                                                    .foregroundColor(.white)
-                                            )
+                            HStack(spacing: 12) {
+                                ForEach(partnerStores, id: \.name) { store in
+                                    let isSelected = selectedStoreFilter?.lowercased() == store.name.lowercased()
 
-                                        Text(store.0)
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundColor(.primary)
+                                    Button(action: {
+                                        withAnimation {
+                                            selectedStoreFilter = isSelected ? nil : store.name
+                                        }
+                                    }) {
+                                        HStack(spacing: 8) {
+                                            ZStack {
+                                                Circle()
+                                                    .fill(store.color)
+                                                    .frame(width: 28, height: 28)
+
+                                                Text(store.initials)
+                                                    .font(.system(size: 11, weight: .black, design: .rounded))
+                                                    .foregroundColor(.white)
+                                            }
+
+                                            VStack(alignment: .leading, spacing: 1) {
+                                                HStack(spacing: 3) {
+                                                    Text(store.name)
+                                                        .font(.system(size: 12, weight: .bold))
+                                                        .foregroundColor(isSelected ? .white : .shopDark)
+                                                    Image(systemName: "checkmark.seal.fill")
+                                                        .font(.system(size: 9))
+                                                        .foregroundColor(isSelected ? .white : .shopPurple)
+                                                }
+
+                                                Text("★ \(store.rating)")
+                                                    .font(.system(size: 10, weight: .medium))
+                                                    .foregroundColor(isSelected ? .white.opacity(0.8) : .shopTextMuted)
+                                            }
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(isSelected ? Color.shopPurple : Color.white)
+                                        .cornerRadius(20)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 20)
+                                                .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: 1)
+                                        )
+                                        .shadow(color: isSelected ? Color.shopPurple.opacity(0.2) : Color.black.opacity(0.02), radius: 3, y: 1)
                                     }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(Color(.secondarySystemGroupedBackground))
-                                    .cornerRadius(20)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 20)
-                                            .stroke(Color.shopBorder, lineWidth: 1)
-                                    )
                                 }
                             }
                             .padding(.horizontal, 16)
                         }
                     }
 
-                    // Size Filter Bar
+                    // 4. Taglie in Stock (Size Chips)
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text("TAGLIE IN STOCK")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.secondary)
-                                .tracking(0.5)
+                                .font(.system(size: 11, weight: .black))
+                                .foregroundColor(.shopTextMuted)
+                                .tracking(0.6)
                             Spacer()
                             if selectedSize != nil {
                                 Button("Azzera") {
@@ -152,7 +210,7 @@ struct HomeView: View {
                         }
                     }
 
-                    // Quick Search Category Tags
+                    // 5. Category Quick Filter Pills
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(quickSearches, id: \.self) { term in
@@ -163,26 +221,30 @@ struct HomeView: View {
                                 }) {
                                     Text(term)
                                         .font(.system(size: 13, weight: isSelected ? .bold : .medium))
-                                        .foregroundColor(isSelected ? .white : .primary)
+                                        .foregroundColor(isSelected ? .white : .shopDark)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 7)
-                                        .background(isSelected ? Color.shopPurple : Color(.systemGray6))
+                                        .background(isSelected ? Color.shopDark : Color.shopSurface)
                                         .cornerRadius(18)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 18)
+                                                .stroke(isSelected ? Color.shopDark : Color.shopBorder, lineWidth: 1)
+                                        )
                                 }
                             }
                         }
                         .padding(.horizontal, 16)
                     }
 
-                    // Feed Section
+                    // 6. Feed Content
                     if isLoading {
                         VStack(spacing: 12) {
                             ProgressView()
                                 .tint(.shopPurple)
                                 .scaleEffect(1.2)
-                            Text("Cerco il prezzo più basso sui 4 store...")
+                            Text("Scansione simultanea sui 6 store partner...")
                                 .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.shopTextMuted)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 60)
@@ -193,51 +255,49 @@ struct HomeView: View {
                                 .foregroundColor(.orange)
                             Text(error)
                                 .font(.system(size: 13))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.shopTextMuted)
                                 .multilineTextAlignment(.center)
                             Button("Riprova") {
                                 performSearch()
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.shopPurple)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.shopPurple)
                         }
-                        .padding(20)
-                    } else if products.isEmpty {
-                        VStack(spacing: 12) {
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
+                    } else if filteredProducts.isEmpty {
+                        VStack(spacing: 10) {
                             Image(systemName: "magnifyingglass")
-                                .font(.system(size: 36))
-                                .foregroundColor(.secondary)
-                            Text("Nessuna offerta trovata")
+                                .font(.system(size: 40))
+                                .foregroundColor(.shopTextMuted.opacity(0.4))
+                            Text("Nessun modello trovato")
                                 .font(.system(size: 16, weight: .bold))
-                            Text("Prova a cercare un altro modello o a cambiare taglia.")
+                                .foregroundColor(.shopDark)
+                            Text("Prova a cercare con un altro brand o rimuovi il filtro negozio/taglia.")
                                 .font(.system(size: 13))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.shopTextMuted)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 60)
                     } else {
-                        // 2-Column Product Grid (Shopify "Shop" layout)
+                        // 2-Column Product Grid (Shopify Shop Style)
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text("\(products.count) PRODOTTI TROVATI")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.secondary)
-                                    .tracking(0.5)
-
+                                Text("\(filteredProducts.count) MODELLI TROVATI")
+                                    .font(.system(size: 11, weight: .black))
+                                    .foregroundColor(.shopTextMuted)
+                                    .tracking(0.6)
                                 Spacer()
-
-                                HStack(spacing: 4) {
-                                    Image(systemName: "arrow.up.arrow.down")
-                                        .font(.system(size: 11))
-                                    Text("Miglior Prezzo")
-                                        .font(.system(size: 11, weight: .bold))
-                                }
-                                .foregroundColor(.shopPurple)
+                                Text("Comparati su 6 Negozi")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.shopPurple)
                             }
                             .padding(.horizontal, 16)
 
-                            LazyVGrid(columns: columns, spacing: 16) {
-                                ForEach(products) { product in
+                            LazyVGrid(columns: columns, spacing: 14) {
+                                ForEach(filteredProducts) { product in
                                     NavigationLink(destination: ProductDetailView(product: product)) {
                                         ProductCardView(product: product)
                                     }
@@ -247,11 +307,11 @@ struct HomeView: View {
                             .padding(.horizontal, 16)
                         }
                     }
+
+                    Spacer(minLength: 40)
                 }
-                .padding(.bottom, 24)
             }
-            .background(Color(.systemBackground))
-            .toolbar(.hidden, for: .navigationBar)
+            .background(Color.shopSurface.ignoresSafeArea())
             .refreshable {
                 performSearch()
             }
@@ -270,12 +330,16 @@ struct HomeView: View {
 
         Task {
             do {
-                let results = try await api.search(query: searchText, size: selectedSize)
-                self.products = results
-                self.isLoading = false
+                let res = try await api.search(query: searchText, size: selectedSize)
+                await MainActor.run {
+                    self.products = res
+                    self.isLoading = false
+                }
             } catch {
-                self.errorMessage = "Impossibile collegarsi al backend. Assicurati che api.py sia attivo."
-                self.isLoading = false
+                await MainActor.run {
+                    self.errorMessage = "Impossibile collegarsi al server FitMatch. Verifica che il backend sia attivo su http://localhost:8000."
+                    self.isLoading = false
+                }
             }
         }
     }

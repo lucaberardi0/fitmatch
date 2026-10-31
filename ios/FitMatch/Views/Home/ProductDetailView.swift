@@ -22,56 +22,81 @@ struct ProductDetailView: View {
         ZStack(alignment: .bottom) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Hero Image in Shop Style
+                    // 1. Hero Image in Shop Style
                     ZStack(alignment: .topTrailing) {
-                        if let imageUrl = product.image_url, let url = URL(string: imageUrl) {
-                            AsyncImage(url: url) { phase in
-                                if let image = phase.image {
-                                    image
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(height: 280)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 16)
-                                        .background(Color(.systemGray6).opacity(0.5))
-                                } else {
-                                    Rectangle()
-                                        .fill(Color(.systemGray6))
-                                        .frame(height: 280)
-                                        .frame(maxWidth: .infinity)
+                        ZStack {
+                            Color.shopSurface
+
+                            if let imageUrl = product.image_url, let url = URL(string: imageUrl) {
+                                AsyncImage(url: url) { phase in
+                                    if let image = phase.image {
+                                        image
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(height: 290)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 20)
+                                    } else {
+                                        Rectangle()
+                                            .fill(Color.shopSurface)
+                                            .frame(height: 290)
+                                            .frame(maxWidth: .infinity)
+                                    }
                                 }
                             }
-                            .cornerRadius(20)
                         }
+                        .cornerRadius(22)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22)
+                                .stroke(Color.shopBorder, lineWidth: 1)
+                        )
 
-                        WishlistButton(product: product)
-                            .padding(16)
+                        // Floating Top Action Buttons
+                        HStack(spacing: 10) {
+                            Button(action: {
+                                showingAlertSheet = true
+                            }) {
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 38, height: 38)
+                                    .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+                                    .overlay(
+                                        Image(systemName: wishlistItem?.isAlertEnabled == true ? "bell.badge.fill" : "bell")
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundColor(wishlistItem?.isAlertEnabled == true ? .shopPurple : .shopDark)
+                                    )
+                            }
+
+                            WishlistButton(product: product)
+                        }
+                        .padding(14)
                     }
                     .padding(.horizontal, 16)
 
-                    // Title & Brand
+                    // 2. Brand & Canonical Title
                     VStack(alignment: .leading, spacing: 6) {
                         if let brand = product.brand {
                             Text(brand.uppercased())
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundColor(.shopPurple)
-                                .tracking(0.8)
+                                .tracking(1.0)
                         }
 
                         Text(product.canonical_name)
                             .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundColor(.primary)
+                            .foregroundColor(.shopDark)
 
+                        // Price Block
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
                             Text(product.formattedBestPrice)
-                                .font(.system(size: 26, weight: .black))
-                                .foregroundColor(.primary)
+                                .font(.system(size: 28, weight: .black, design: .rounded))
+                                .foregroundColor(.shopDark)
 
                             if let best = product.bestOffer, let orig = best.formattedOriginalPrice {
                                 Text(orig)
                                     .font(.system(size: 16))
                                     .strikethrough()
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(.shopTextMuted)
 
                                 if let badge = best.discountBadge {
                                     DiscountBadge(discountText: badge)
@@ -81,94 +106,55 @@ struct ProductDetailView: View {
                     }
                     .padding(.horizontal, 16)
 
-                    // Cross-Store Savings Callout (Shop signature banner)
+                    // 3. Cross-Store Savings Sparkle Banner (Shop Signature Feature)
                     if let savings = product.cross_store_savings, savings > 1.0 {
-                        HStack(spacing: 12) {
-                            Circle()
-                                .fill(Color.shopPurpleLight)
-                                .frame(width: 36, height: 36)
-                                .overlay(
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundColor(.shopPurple)
-                                )
+                        HStack(spacing: 14) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.shopPurpleLight)
+                                    .frame(width: 42, height: 42)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("CONFRONTO PREZZI ATTIVO")
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(.shopPurple)
+                            }
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("CONFRONTO PREZZI MULTI-STORE")
                                     .font(.system(size: 10, weight: .black))
                                     .foregroundColor(.shopPurple)
-                                Text("Risparmi fino a \(String(format: "€%.2f", savings)) confrontando i negozi!")
-                                    .font(.system(size: 13, weight: .bold))
+                                    .tracking(0.5)
+
+                                Text("Risparmi fino a \(String(format: "€%.2f", savings)) scegliendo l'offerta migliore tra i 6 negozi partner.")
+                                    .font(.system(size: 12.5, weight: .medium))
+                                    .foregroundColor(.shopDark)
+                                    .lineLimit(2)
                             }
                         }
-                        .padding(12)
+                        .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.shopPurpleLight.opacity(0.6))
-                        .cornerRadius(12)
-                        .padding(.horizontal, 16)
-                    }
-
-                    // Price Drop Alert Interactive Pill
-                    Button(action: { showingAlertSheet = true }) {
-                        HStack(spacing: 12) {
-                            Circle()
-                                .fill((wishlistItem?.isAlertEnabled ?? false) ? Color.shopPurple : Color(.systemGray5))
-                                .frame(width: 36, height: 36)
-                                .overlay(
-                                    Image(systemName: (wishlistItem?.isAlertEnabled ?? false) ? "bell.fill" : "bell")
-                                        .font(.system(size: 15))
-                                        .foregroundColor((wishlistItem?.isAlertEnabled ?? false) ? .white : .primary)
-                                )
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                if let item = wishlistItem, item.isAlertEnabled {
-                                    Text("ALERT CALO PREZZO ATTIVO")
-                                        .font(.system(size: 10, weight: .black))
-                                        .foregroundColor(.shopPurple)
-                                    if let target = item.formattedTargetPrice {
-                                        Text("Notifica se scende sotto \(target)")
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundColor(.primary)
-                                    } else {
-                                        Text("Notifica su qualsiasi calo di prezzo")
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundColor(.primary)
-                                    }
-                                } else {
-                                    Text("AVVISAMI SE SCENDE IL PREZZO")
-                                        .font(.system(size: 10, weight: .black))
-                                        .foregroundColor(.secondary)
-                                    Text("Configura un alert per ricevere una notifica istantanea")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(.primary)
-                                }
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(.secondarySystemGroupedBackground))
-                        .cornerRadius(12)
+                        .cornerRadius(16)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.shopBorder, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.shopPurple.opacity(0.18), lineWidth: 1)
                         )
                         .padding(.horizontal, 16)
                     }
-                    .buttonStyle(.plain)
 
-                    // Offers Selector List
+                    // 4. Comparison Cards (The 6 Retailers)
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("PREZZI DISPONIBILI NEI NEGOZI PARTNER")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.secondary)
-                            .tracking(0.5)
-                            .padding(.horizontal, 16)
+                        HStack {
+                            Text("OFFERTE DISPONIBILI (\(product.offers.count))")
+                                .font(.system(size: 11, weight: .black))
+                                .foregroundColor(.shopTextMuted)
+                                .tracking(0.6)
+                            Spacer()
+                            Text("Ordina per prezzo")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.shopPurple)
+                        }
+                        .padding(.horizontal, 16)
 
                         VStack(spacing: 10) {
                             ForEach(Array(product.offers.enumerated()), id: \.offset) { index, offer in
@@ -179,46 +165,64 @@ struct ProductDetailView: View {
                                     selectedOfferIndex = index
                                 }) {
                                     HStack(spacing: 12) {
-                                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 18))
-                                            .foregroundColor(isSelected ? .shopPurple : .secondary)
+                                        // Store Logo with verified check
+                                        ShopStoreLogo(storeName: offer.store_name, showVerified: true, size: 24)
 
-                                        VStack(alignment: .leading, spacing: 4) {
+                                        Spacer()
+
+                                        // Pricing & Badge
+                                        VStack(alignment: .trailing, spacing: 3) {
                                             HStack(spacing: 6) {
-                                                StoreBadge(storeName: offer.store_name)
                                                 if isBest {
                                                     BestPriceBadge()
+                                                }
+                                                Text(offer.formattedPrice)
+                                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                                    .foregroundColor(.shopDark)
+                                            }
+
+                                            if let orig = offer.formattedOriginalPrice {
+                                                HStack(spacing: 4) {
+                                                    Text(orig)
+                                                        .font(.system(size: 11))
+                                                        .strikethrough()
+                                                        .foregroundColor(.shopTextMuted)
+                                                    if let badge = offer.discountBadge {
+                                                        Text(badge)
+                                                            .font(.system(size: 10, weight: .bold))
+                                                            .foregroundColor(.shopPurple)
+                                                    }
                                                 }
                                             }
 
                                             if let sizes = offer.available_sizes, !sizes.isEmpty {
-                                                Text("Taglie: \(sizes.prefix(5).joined(separator: ", "))\(sizes.count > 5 ? ".." : "")")
-                                                    .font(.system(size: 11))
-                                                    .foregroundColor(.secondary)
+                                                Text("Taglie: " + sizes.prefix(3).joined(separator: ", "))
+                                                    .font(.system(size: 10))
+                                                    .foregroundColor(.shopTextMuted)
                                             }
                                         }
 
-                                        Spacer()
-
-                                        VStack(alignment: .trailing, spacing: 2) {
-                                            Text(offer.formattedPrice)
-                                                .font(.system(size: 16, weight: .heavy))
-                                                .foregroundColor(isBest ? .shopPurple : .primary)
-
-                                            if let orig = offer.formattedOriginalPrice {
-                                                Text(orig)
-                                                    .font(.system(size: 11))
-                                                    .strikethrough()
-                                                    .foregroundColor(.secondary)
-                                            }
-                                        }
+                                        // Radio selection checkmark
+                                        Circle()
+                                            .fill(isSelected ? Color.shopPurple : Color.clear)
+                                            .frame(width: 20, height: 20)
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: 1.5)
+                                            )
+                                            .overlay(
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 10, weight: .bold))
+                                                    .foregroundColor(.white)
+                                                    .opacity(isSelected ? 1 : 0)
+                                            )
                                     }
                                     .padding(14)
-                                    .background(Color(.secondarySystemGroupedBackground))
+                                    .background(isSelected ? Color.shopPurpleLight.opacity(0.3) : Color.white)
                                     .cornerRadius(14)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 14)
-                                            .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: isSelected ? 2 : 1)
+                                            .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: isSelected ? 1.5 : 1)
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -227,49 +231,104 @@ struct ProductDetailView: View {
                         .padding(.horizontal, 16)
                     }
 
-                    Spacer()
-                        .frame(height: 100) // Space for sticky bottom bar
+                    // 5. Shop Trust & Shipping Guarantees
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("GARANZIE DI ACQUISTO")
+                            .font(.system(size: 11, weight: .black))
+                            .foregroundColor(.shopTextMuted)
+                            .tracking(0.6)
+                            .padding(.horizontal, 16)
+
+                        HStack(spacing: 12) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "shield.checkmark.fill")
+                                    .foregroundColor(.shopGreen)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Negozi Verificati")
+                                        .font(.system(size: 12, weight: .bold))
+                                    Text("Rivenditori ufficiali")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Color.white)
+                            .cornerRadius(12)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.shopBorder, lineWidth: 1))
+
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .foregroundColor(.shopPurple)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Reso Garantito")
+                                        .font(.system(size: 12, weight: .bold))
+                                    Text("Fino a 30 giorni")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Color.white)
+                            .cornerRadius(12)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.shopBorder, lineWidth: 1))
+                        }
+                        .padding(.horizontal, 16)
+                    }
+
+                    Spacer(minLength: 100)
                 }
-                .padding(.vertical, 12)
+                .padding(.top, 10)
             }
 
-            // Sticky Bottom Shop-style CTA Bar
-            if let offer = currentOffer, let url = URL(string: offer.url) {
+            // 6. Sticky Floating Bottom Bar (Shop Pay Style)
+            if let offer = currentOffer {
                 VStack(spacing: 0) {
                     Divider()
+                        .background(Color.shopBorder)
 
-                    HStack(spacing: 14) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Totale da")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                            Text(offer.formattedPrice)
-                                .font(.system(size: 20, weight: .black))
+                    HStack(spacing: 12) {
+                        // Quick Price Alert Bell Button
+                        Button(action: {
+                            showingAlertSheet = true
+                        }) {
+                            Circle()
+                                .fill(Color.shopSurface)
+                                .frame(width: 48, height: 48)
+                                .overlay(
+                                    Image(systemName: wishlistItem?.isAlertEnabled == true ? "bell.badge.fill" : "bell.fill")
+                                        .font(.system(size: 17))
+                                        .foregroundColor(wishlistItem?.isAlertEnabled == true ? .shopPurple : .shopDark)
+                                )
                         }
 
-                        Link(destination: url) {
-                            HStack {
-                                Image(systemName: "bag.fill")
-                                    .font(.system(size: 14))
-                                Text("Acquista su \(offer.store_name)")
-                                    .font(.system(size: 15, weight: .bold))
+                        // Giant Shop-Pay Style Primary Button
+                        if let url = URL(string: offer.url) {
+                            Link(destination: url) {
+                                HStack(spacing: 6) {
+                                    Text("Acquista a \(offer.formattedPrice) su \(offer.store_name)")
+                                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                                        .lineLimit(1)
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 13, weight: .bold))
+                                }
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 50)
+                                .background(Color.shopPurple)
+                                .cornerRadius(25) // Shop pill button
+                                .shadow(color: Color.shopPurple.opacity(0.35), radius: 8, x: 0, y: 4)
                             }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.shopPurple) // Shopify Shop signature CTA button
-                            .cornerRadius(25)
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                    .padding(.bottom, 20)
-                    .background(.ultraThinMaterial)
+                    .padding(.vertical, 10)
+                    .background(Color.white.ignoresSafeArea(edges: .bottom))
                 }
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .background(Color(.systemBackground))
         .sheet(isPresented: $showingAlertSheet) {
             PriceAlertSheet(product: product)
         }
