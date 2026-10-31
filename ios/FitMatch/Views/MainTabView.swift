@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @State private var selectedTab = 0
+    @State private var selectedTab = 1
     @ObservedObject private var wishlist = WishlistManager.shared
 
     var body: some View {
@@ -12,9 +12,9 @@ struct MainTabView: View {
                 }
                 .tag(0)
 
-            AIAdvisorView()
+            SearchView()
                 .tabItem {
-                    Label("Coach IA", systemImage: "sparkles")
+                    Label("Cerca Prezzo", systemImage: "magnifyingglass")
                 }
                 .tag(1)
 

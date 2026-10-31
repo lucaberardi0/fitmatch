@@ -48,6 +48,32 @@ class APIService: ObservableObject {
         return try JSONDecoder().decode(AIAdviceResponse.self, from: data)
     }
 
+    func searchCatalog(query: String = "", category: String? = nil, limit: Int = 40) async throws -> [MatchedProduct] {
+        var components = URLComponents(string: "\(baseURL)/api/catalog")!
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ]
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: trimmed))
+        }
+        if let cat = category, !cat.isEmpty, cat != "all", cat != "tutti" {
+            queryItems.append(URLQueryItem(name: "category", value: cat))
+        }
+        components.queryItems = queryItems
+
+        guard let url = components.url else { throw URLError(.badURL) }
+        let (data, response) = try await session.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        struct CatalogResultResponse: Decodable {
+            let results: [MatchedProduct]
+        }
+        let decoded = try JSONDecoder().decode(CatalogResultResponse.self, from: data)
+        return decoded.results
+    }
+
     func getStats() async throws -> CatalogStatsResponse {
         guard let url = URL(string: "\(baseURL)/api/stats") else { throw URLError(.badURL) }
         let (data, response) = try await session.data(from: url)

@@ -228,7 +228,7 @@ class Database:
 
             for prod in products:
                 offer_cur = conn.execute("""
-                    SELECT store_id, store_name, current_price, original_price, discount_pct, product_url, image_url
+                    SELECT store_id, store_name, current_price, original_price, discount_pct, product_url, image_url, raw_title
                     FROM store_offers
                     WHERE product_id = ?
                     ORDER BY current_price ASC
@@ -241,6 +241,11 @@ class Database:
                     price = float(o["current_price"])
                     cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
                     is_free = (cost == 0.0)
+                    o["price"] = price
+                    o["url"] = o["product_url"]
+                    o["title"] = o.get("raw_title") or prod["canonical_name"]
+                    o["brand"] = prod.get("brand")
+                    o["in_stock"] = True
                     o["shipping_cost"] = cost
                     o["total_price"] = round(price + cost, 2)
                     o["is_free_shipping"] = is_free
@@ -250,6 +255,11 @@ class Database:
                     offers.append(o)
 
                 prod["offers"] = offers
+                prod["highest_price"] = prod.get("max_price")
+                if prod.get("max_price") and prod.get("best_price"):
+                    prod["cross_store_savings"] = round(prod["max_price"] - prod["best_price"], 2)
+                else:
+                    prod["cross_store_savings"] = 0.0
 
             return products
 
