@@ -56,7 +56,7 @@ struct SearchView: View {
     ]
 
     private let partnerStores = [
-        "Tutti", "Cisalfa Sport", "Maxi Sport", "Mister Running", "Nencini Sport",
+        "Tutti", "Decathlon", "Cisalfa Sport", "Maxi Sport", "Mister Running", "Nencini Sport",
         "Top4Running", "Running Warehouse", "Deporvillage", "Alltricks"
     ]
 
