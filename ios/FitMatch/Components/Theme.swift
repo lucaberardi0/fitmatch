@@ -4,6 +4,7 @@ extension Color {
     // Shopify "Shop" official design system color palette
     static let shopPurple = Color(red: 90/255, green: 49/255, blue: 244/255)       // #5A31F4
     static let shopPurpleLight = Color(red: 241/255, green: 238/255, blue: 254/255)// #F1EEFE
+    static let shopPurpleDark = Color(red: 67/255, green: 30/255, blue: 204/255)   // #431ECC
     static let shopDark = Color(red: 17/255, green: 17/255, blue: 20/255)           // #111114
     static let shopTextMuted = Color(red: 113/255, green: 113/255, blue: 122/255)  // #71717A
     static let shopSurface = Color(red: 247/255, green: 247/255, blue: 250/255)    // #F7F7FA canvas background
@@ -12,7 +13,10 @@ extension Color {
     static let shopGreen = Color(red: 0/255, green: 138/255, blue: 72/255)          // #008A48
     static let shopGreenLight = Color(red: 230/255, green: 247/255, blue: 236/255) // #E6F7EC
     static let shopYellow = Color(red: 255/255, green: 179/255, blue: 0/255)
+    static let shopOrange = Color(red: 255/255, green: 122/255, blue: 0/255)
 }
+
+// MARK: - Shop Store Logo Component for 8 Verified Retailers
 
 struct ShopStoreLogo: View {
     let storeName: String
@@ -22,6 +26,8 @@ struct ShopStoreLogo: View {
 
     var assetName: String? {
         let s = storeName.lowercased()
+        if s.contains("end") { return "store_end" }
+        if s.contains("arc") { return "store_arcteryx" }
         if s.contains("cisalfa") { return "store_cisalfa" }
         if s.contains("maxi") { return "store_maxisport" }
         if s.contains("mister") { return "store_misterrunning" }
@@ -35,6 +41,8 @@ struct ShopStoreLogo: View {
 
     var initials: String {
         let s = storeName.lowercased()
+        if s.contains("end") { return "END." }
+        if s.contains("arc") { return "ARC" }
         if s.contains("cisalfa") { return "CS" }
         if s.contains("maxi") { return "MS" }
         if s.contains("mister") { return "MR" }

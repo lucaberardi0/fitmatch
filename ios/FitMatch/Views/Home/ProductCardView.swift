@@ -5,7 +5,7 @@ struct ProductCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 1. Image Container with Floating Overlays
+            // 1. Image Container with Floating Overlays (Shop Style)
             ZStack(alignment: .topTrailing) {
                 ZStack {
                     Color.shopSurface
@@ -35,18 +35,10 @@ struct ProductCardView: View {
                 .frame(maxWidth: .infinity)
                 .cornerRadius(14)
 
-                // Top Floating Elements
+                // Top Floating Overlays
                 HStack(alignment: .top) {
                     if product.offers.count > 1 {
-                        HStack(spacing: 3) {
-                            Text("\(product.offers.count) STORES")
-                                .font(.system(size: 9, weight: .black, design: .rounded))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3.5)
-                        .background(Color.shopDark.opacity(0.85))
-                        .cornerRadius(6)
+                        StoreCountBadge(count: product.offers.count)
                     } else if let best = product.bestOffer, let badge = best.discountBadge {
                         DiscountBadge(discountText: badge)
                     }
@@ -61,7 +53,7 @@ struct ProductCardView: View {
 
             // 2. Info Content
             VStack(alignment: .leading, spacing: 5) {
-                // Store Pill with Verified Badge
+                // Best Store Pill with Verified Badge
                 if let best = product.bestOffer {
                     ShopStoreLogo(storeName: best.store_name, showVerified: true, size: 13)
                 }
@@ -74,7 +66,7 @@ struct ProductCardView: View {
                     .lineSpacing(1.5)
                     .frame(height: 38, alignment: .topLeading)
 
-                // Price Section (Shop Style)
+                // Price Section
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(product.formattedBestPrice)
@@ -89,7 +81,7 @@ struct ProductCardView: View {
                         }
                     }
 
-                    // Savings Pill if multi-store comparison found savings
+                    // Cross-Store Savings Pill or Discount Badge
                     if let savings = product.cross_store_savings, savings > 1.0 {
                         SavingsPill(amountText: "Risparmi €\(String(format: "%.0f", savings))")
                     } else if let best = product.bestOffer, let badge = best.discountBadge {
@@ -109,7 +101,7 @@ struct ProductCardView: View {
                     }
                 }
 
-                // Sizes availability preview
+                // Available Sizes
                 if let best = product.bestOffer, let sizes = best.available_sizes, !sizes.isEmpty {
                     Text("Taglie: " + sizes.prefix(4).joined(separator: ", ") + (sizes.count > 4 ? ".." : ""))
                         .font(.system(size: 10, weight: .medium))
@@ -128,14 +120,14 @@ struct ProductCardView: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.shopBorder, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
+        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
     }
 
     private var imagePlaceholder: some View {
         VStack(spacing: 6) {
             Image(systemName: "shoeprints.fill")
                 .font(.system(size: 26))
-                .foregroundColor(.shopTextMuted.opacity(0.5))
+                .foregroundColor(.shopTextMuted.opacity(0.4))
         }
     }
 }

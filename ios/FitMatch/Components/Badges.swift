@@ -56,6 +56,20 @@ struct BestPriceBadge: View {
     }
 }
 
+struct StoreCountBadge: View {
+    let count: Int
+
+    var body: some View {
+        Text("\(count) STORE")
+            .font(.system(size: 9, weight: .black, design: .rounded))
+            .foregroundColor(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3.5)
+            .background(Color.shopDark.opacity(0.85))
+            .cornerRadius(6)
+    }
+}
+
 struct SizeChip: View {
     let size: String
     let isSelected: Bool

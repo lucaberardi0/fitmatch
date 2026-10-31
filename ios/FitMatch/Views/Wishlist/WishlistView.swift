@@ -26,7 +26,7 @@ struct WishlistView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Top Filter Chips & Live Refresh Button
+                // Header & Filter Chips
                 if !wishlist.items.isEmpty {
                     VStack(spacing: 12) {
                         HStack {
@@ -39,7 +39,13 @@ struct WishlistView: View {
                                     }
                                 }()
 
-                                Button(action: { selectedFilter = filter }) {
+                                let isSelected = selectedFilter == filter
+
+                                Button(action: {
+                                    withAnimation(.spring(response: 0.25)) {
+                                        selectedFilter = filter
+                                    }
+                                }) {
                                     HStack(spacing: 4) {
                                         Text(filter.rawValue)
                                         if count > 0 {
@@ -47,16 +53,20 @@ struct WishlistView: View {
                                                 .font(.system(size: 11, weight: .bold))
                                                 .padding(.horizontal, 5)
                                                 .padding(.vertical, 1)
-                                                .background(selectedFilter == filter ? Color.white.opacity(0.3) : Color(.systemGray4))
+                                                .background(isSelected ? Color.white.opacity(0.3) : Color.shopBorder)
                                                 .cornerRadius(8)
                                         }
                                     }
-                                    .font(.system(size: 13, weight: selectedFilter == filter ? .bold : .medium))
-                                    .foregroundColor(selectedFilter == filter ? .white : .primary)
+                                    .font(.system(size: 13, weight: isSelected ? .bold : .medium, design: .rounded))
+                                    .foregroundColor(isSelected ? .white : .shopDark)
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 8)
-                                    .background(selectedFilter == filter ? Color.shopDark : Color(.systemGray6))
+                                    .background(isSelected ? Color.shopDark : Color.white)
                                     .cornerRadius(20)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 20)
+                                            .stroke(isSelected ? Color.shopDark : Color.shopBorder, lineWidth: 1)
+                                    )
                                 }
                             }
 
@@ -73,7 +83,7 @@ struct WishlistView: View {
                                         .tint(.shopPurple)
                                 } else {
                                     Image(systemName: "arrow.triangle.2.circlepath")
-                                        .font(.system(size: 15, weight: .bold))
+                                        .font(.system(size: 14, weight: .bold))
                                         .foregroundColor(.shopPurple)
                                 }
                             }
@@ -108,15 +118,15 @@ struct WishlistView: View {
                         Spacer()
                         Image(systemName: "line.3.horizontal.decrease.circle")
                             .font(.system(size: 40))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.shopTextMuted)
                         Text("Nessun articolo per questo filtro")
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.shopTextMuted)
                         Spacer()
                     }
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 14) {
+                        LazyVStack(spacing: 12) {
                             ForEach(filteredItems) { item in
                                 WishlistCard(
                                     item: item,
@@ -146,7 +156,6 @@ struct WishlistView: View {
             .background(Color.shopSurface.ignoresSafeArea())
             .navigationTitle("Preferiti & Alert")
             .sheet(item: $itemToEditAlert) { item in
-                // Build a temporary MatchedProduct to configure alert
                 let dummyMatched = MatchedProduct(
                     canonical_name: item.canonical_name,
                     brand: item.brand,
@@ -176,10 +185,11 @@ struct WishlistView: View {
 
             VStack(spacing: 8) {
                 Text("Nessun preferito salvato")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(.shopDark)
                 Text("Tocca l'icona del cuore sui prodotti per salvarli, monitorare i ribassi di prezzo e ricevere notifiche appena scendono.")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 13.5))
+                    .foregroundColor(.shopTextMuted)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             }
@@ -198,145 +208,132 @@ struct WishlistCard: View {
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(alignment: .top, spacing: 14) {
-                // Product Thumbnail
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                // Image Box
                 ZStack {
-                    Color(.systemGray6)
+                    Color.shopSurface
                     if let imgUrl = item.image_url, let url = URL(string: imgUrl) {
                         AsyncImage(url: url) { phase in
-                            if let image = phase.image {
-                                image.resizable().scaledToFit().padding(4)
+                            if let img = phase.image {
+                                img.resizable().scaledToFit().padding(4)
                             } else {
-                                Color(.systemGray5)
+                                Image(systemName: "shoeprints.fill")
+                                    .foregroundColor(.shopTextMuted.opacity(0.4))
                             }
                         }
+                    } else {
+                        Image(systemName: "shoeprints.fill")
+                            .foregroundColor(.shopTextMuted.opacity(0.4))
                     }
                 }
-                .frame(width: 84, height: 84)
-                .cornerRadius(14)
+                .frame(width: 72, height: 72)
+                .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.shopBorder, lineWidth: 0.8)
+                )
 
-                // Info
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        if let brand = item.brand {
-                            Text(brand.uppercased())
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        Button(action: onDelete) {
-                            Image(systemName: "trash")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                        }
+                // Info Content
+                VStack(alignment: .leading, spacing: 3) {
+                    if let brand = item.brand {
+                        Text(brand.uppercased())
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(.shopPurple)
                     }
 
                     Text(item.canonical_name)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.primary)
+                        .font(.system(size: 13.5, weight: .bold))
+                        .foregroundColor(.shopDark)
                         .lineLimit(2)
 
-                    // Price row
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    HStack(spacing: 6) {
                         Text(item.formattedCurrentPrice)
-                            .font(.system(size: 17, weight: .black))
-                            .foregroundColor(.primary)
+                            .font(.system(size: 16, weight: .heavy, design: .rounded))
+                            .foregroundColor(.shopDark)
 
                         if item.hasPriceDropped {
                             Text(item.formattedInitialPrice)
-                                .font(.system(size: 13))
+                                .font(.system(size: 11.5))
                                 .strikethrough()
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.shopTextMuted)
 
                             if let savings = item.formattedSavingsSinceAdded {
-                                Text(savings)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.green)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.green.opacity(0.12))
-                                    .cornerRadius(6)
+                                SavingsPill(amountText: "Calato di \(savings)")
                             }
                         }
                     }
 
                     if let store = item.bestStore {
-                        Text("Miglior prezzo su \(store)")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                        ShopStoreLogo(storeName: store, showVerified: true, size: 12)
+                            .padding(.top, 2)
                     }
-                }
-            }
-
-            Divider()
-
-            // Alert Status & Quick Action Buttons
-            HStack {
-                // Alert Pill
-                Button(action: onEditAlert) {
-                    HStack(spacing: 5) {
-                        Image(systemName: item.isAlertEnabled ? "bell.fill" : "bell.slash")
-                            .font(.system(size: 11))
-                            .foregroundColor(item.isAlertEnabled ? .shopPurple : .secondary)
-
-                        if item.isAlertEnabled, let target = item.formattedTargetPrice {
-                            Text("Alert: < \(target)")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.shopPurple)
-                        } else {
-                            Text(item.isAlertEnabled ? "Alert attivo" : "Alert disattivato")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(item.isAlertEnabled ? Color.shopPurpleLight : Color(.systemGray6))
-                    .cornerRadius(12)
                 }
 
                 Spacer()
 
-                // Test simulation button
-                Button(action: onSimulateDrop) {
-                    HStack(spacing: 3) {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 10))
-                        Text("Simula calo")
-                            .font(.system(size: 11, weight: .semibold))
+                // Actions: Alert & Delete
+                VStack(spacing: 8) {
+                    Button(action: onEditAlert) {
+                        Image(systemName: item.isAlertEnabled ? "bell.badge.fill" : "bell")
+                            .font(.system(size: 15))
+                            .foregroundColor(item.isAlertEnabled ? .shopPurple : .shopTextMuted)
+                            .frame(width: 32, height: 32)
+                            .background(item.isAlertEnabled ? Color.shopPurpleLight : Color.shopSurface)
+                            .clipShape(Circle())
                     }
-                    .foregroundColor(.orange)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(Color.orange.opacity(0.12))
-                    .cornerRadius(12)
-                }
 
-                // Buy link if available
-                if let urlString = item.bestStoreUrl, let url = URL(string: urlString) {
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 13))
+                            .foregroundColor(.shopTextMuted)
+                            .frame(width: 32, height: 32)
+                            .background(Color.shopSurface)
+                            .clipShape(Circle())
+                    }
+                }
+            }
+
+            // Bottom Action Bar: Direct Link to Retailer Offer
+            if let storeUrl = item.bestStoreUrl, let url = URL(string: storeUrl) {
+                Divider()
+
+                HStack {
+                    if let target = item.formattedTargetPrice {
+                        HStack(spacing: 3) {
+                            Image(systemName: "bell.fill")
+                                .font(.system(size: 10))
+                            Text("Alert attivo: sotto \(target)")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(.shopPurple)
+                    }
+
+                    Spacer()
+
                     Link(destination: url) {
                         HStack(spacing: 4) {
-                            Text("Compra")
+                            Text("Vedi su \(item.bestStore ?? "Store")")
                                 .font(.system(size: 12, weight: .bold))
                             Image(systemName: "arrow.up.right")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: 10, weight: .bold))
                         }
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Color.shopDark)
+                        .background(Color.shopPurple)
                         .cornerRadius(14)
                     }
                 }
             }
         }
         .padding(14)
-        .background(Color(.systemBackground))
+        .background(Color.white)
         .cornerRadius(18)
         .overlay(
             RoundedRectangle(cornerRadius: 18)
-                .stroke(Color(.systemGray5), lineWidth: 1)
+                .stroke(Color.shopBorder, lineWidth: 1)
         )
+        .shadow(color: Color.black.opacity(0.02), radius: 4, x: 0, y: 1)
     }
 }

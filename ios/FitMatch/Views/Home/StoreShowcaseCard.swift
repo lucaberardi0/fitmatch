@@ -69,17 +69,27 @@ struct StoreShowcaseCard: View {
                                     ZStack {
                                         Color.shopSurface
 
-                                        if let imgUrl = item.image_url, let url = URL(string: imgUrl) {
+                                        if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
                                             AsyncImage(url: url) { phase in
                                                 if let img = phase.image {
                                                     img
                                                         .resizable()
                                                         .scaledToFit()
                                                         .padding(6)
+                                                } else if phase.error != nil {
+                                                    Image(systemName: "tag.fill")
+                                                        .font(.system(size: 24))
+                                                        .foregroundColor(.shopTextMuted.opacity(0.35))
                                                 } else {
-                                                    Color.shopSurface
+                                                    ProgressView()
+                                                        .controlSize(.mini)
+                                                        .tint(.shopPurple)
                                                 }
                                             }
+                                        } else {
+                                            Image(systemName: "tag.fill")
+                                                .font(.system(size: 24))
+                                                .foregroundColor(.shopTextMuted.opacity(0.35))
                                         }
                                     }
                                     .frame(width: 110, height: 105)
@@ -117,21 +127,27 @@ struct StoreShowcaseCard: View {
                                                 .foregroundColor(.shopTextMuted)
                                         }
                                     }
+
+                                    if let shp = item.shipping_label {
+                                        Text(shp)
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundColor(item.is_free_shipping == true ? .shopGreen : .shopTextMuted)
+                                    }
                                 }
                             }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PlainButtonStyle())
                     }
                 }
             }
         }
-        .padding(14)
+        .padding(16)
         .background(Color.white)
-        .cornerRadius(18)
+        .cornerRadius(20)
         .overlay(
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: 20)
                 .stroke(Color.shopBorder, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
+        .shadow(color: Color.black.opacity(0.02), radius: 6, x: 0, y: 2)
     }
 }
