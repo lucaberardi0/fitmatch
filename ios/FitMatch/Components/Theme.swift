@@ -20,6 +20,8 @@ struct ShopStoreLogo: View {
         case let s where s.contains("maxi"): return "MS"
         case let s where s.contains("mister"): return "MR"
         case let s where s.contains("nencini"): return "NS"
+        case let s where s.contains("top4"): return "T4"
+        case let s where s.contains("running warehouse") || s.contains("warehouse"): return "RW"
         default: return "FM"
         }
     }
@@ -30,6 +32,8 @@ struct ShopStoreLogo: View {
         case let s where s.contains("maxi"): return .orange
         case let s where s.contains("mister"): return .blue
         case let s where s.contains("nencini"): return Color(red: 0, green: 0.55, blue: 0.3)
+        case let s where s.contains("top4"): return Color(red: 0.1, green: 0.75, blue: 0.95)
+        case let s where s.contains("running warehouse") || s.contains("warehouse"): return Color(red: 0.05, green: 0.25, blue: 0.65)
         default: return .shopPurple
         }
     }

@@ -10,6 +10,8 @@ Motore di scraping multi-store e comparazione prezzi in tempo reale specializzat
 2. **Maxi Sport** (`maxisport.com`): Grande specialista sneaker e running (architettura Magento).
 3. **Mister Running** (`misterrunning.com`): E-commerce specializzato #1 in Italia nella corsa (API REST Clerk ultra-rapida).
 4. **Nencini Sport** (`nencinisport.it`): Storica catena sportiva multi-marca (session warmup con CSRF e attributi GTM).
+5. **Top4Running** (`top4running.it`): Gigante europeo specializzato nella corsa (API Luigi's Box ad alte prestazioni).
+6. **Running Warehouse Europe** (`runningwarehouse.eu`): Store globale leader nel running (prezzi EUR con IVA italiana e catalogo GTM).
 
 ---
 
@@ -26,6 +28,8 @@ fitmatch/
 │   │   ├── maxisport.py       # Scraper Maxi Sport
 │   │   ├── misterrunning.py   # Scraper Mister Running (Clerk API)
 │   │   ├── nencini.py         # Scraper Nencini Sport (con session warmup)
+│   │   ├── top4running.py     # Scraper Top4Running (Luigi's Box API)
+│   │   ├── runningwarehouse.py# Scraper Running Warehouse Europe (VAT IT + GTM)
 │   │   └── registry.py        # Esecuzione parallela multi-thread (ThreadPoolExecutor)
 │   └── matcher/
 │       └── normalizer.py      # Entity resolution, estrazione brand, rimozione rumore e raggruppamento

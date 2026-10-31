@@ -10,6 +10,8 @@ from fitmatch.scrapers.cisalfa import CisalfaScraper
 from fitmatch.scrapers.maxisport import MaxiSportScraper
 from fitmatch.scrapers.misterrunning import MisterRunningScraper
 from fitmatch.scrapers.nencini import NenciniSportScraper
+from fitmatch.scrapers.top4running import Top4RunningScraper
+from fitmatch.scrapers.runningwarehouse import RunningWarehouseScraper
 
 logger = logging.getLogger("fitmatch.crawler")
 
@@ -24,6 +26,8 @@ class CategoryCrawler:
         self.maxisport = MaxiSportScraper()
         self.misterrunning = MisterRunningScraper()
         self.nencini = NenciniSportScraper()
+        self.top4running = Top4RunningScraper()
+        self.runningwarehouse = RunningWarehouseScraper()
 
     def crawl_cisalfa(self, max_items: int = 150) -> int:
         """Crawl Cisalfa running catalog with pagination (?start=0, 36, 72...)."""
@@ -391,8 +395,136 @@ class CategoryCrawler:
         logger.info(f"[Nencini Sport] Indexed {total_indexed} products.")
         return total_indexed
 
+    def crawl_top4running(self, max_items: int = 150) -> int:
+        """Crawl Top4Running catalog via Luigi's Box API."""
+        logger.info(f"[Top4Running] Starting catalog crawl (target: {max_items} items)...")
+        total_indexed = 0
+        queries = ["running", "scarpe", "trail", "maratona"]
+
+        for q in queries:
+            if total_indexed >= max_items:
+                break
+            offers = self.top4running.search(query=q, limit=min(max_items - total_indexed, 50))
+            for offer in offers:
+                try:
+                    cluster_key = self.normalizer.extract_cluster_key(offer)
+                    canonical_base, _ = self.normalizer.clean_title(offer.title)
+                    gender = self.normalizer.extract_gender(offer.title, offer.url)
+                    brand = offer.brand or self.normalizer.extract_brand(offer.title)
+                    canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
+
+                    self.db.upsert_product_and_offer(
+                        cluster_key=cluster_key,
+                        canonical_name=canonical,
+                        brand=brand,
+                        category="running_shoes",
+                        gender=gender,
+                        offer=offer
+                    )
+                    total_indexed += 1
+                    if total_indexed >= max_items:
+                        break
+                except Exception:
+                    continue
+
+        logger.info(f"[Top4Running] Indexed {total_indexed} products.")
+        return total_indexed
+
+    def crawl_runningwarehouse(self, max_items: int = 150) -> int:
+        """Crawl Running Warehouse Europe catalog."""
+        logger.info(f"[Running Warehouse] Starting catalog crawl (target: {max_items} items)...")
+        total_indexed = 0
+        cat_urls = [
+            "https://www.runningwarehouse.eu/catpage-RWMRSSALE-EN.html",
+            "https://www.runningwarehouse.eu/catpage-RWWRSSALE-EN.html"
+        ]
+
+        for cat_url in cat_urls:
+            if total_indexed >= max_items:
+                break
+            html = self.runningwarehouse._fetch_html(cat_url)
+            if not html:
+                continue
+
+            soup = BeautifulSoup(html, "html.parser")
+            cells = soup.select(".cattable-wrap-cell")
+
+            for cell in cells:
+                try:
+                    title = cell.get("data-gtm_impression_name")
+                    link_el = cell.select_one("a.cattable-wrap-cell-imgwrap-inner, a")
+                    if not link_el or not link_el.get("href"):
+                        continue
+                    href = link_el["href"]
+                    product_url = urllib.parse.urljoin(self.runningwarehouse.base_url, href)
+
+                    if not title:
+                        title = link_el.get_text(strip=True)
+                    if not title:
+                        continue
+
+                    raw_brand = cell.get("data-gtm_impression_brand") or ""
+                    import re
+                    brand = re.sub(r"(?i)\s*(running|footwear|padel|tennis|-.*)$", "", raw_brand).strip()
+                    brand = self.normalizer.extract_brand(title, brand)
+
+                    price = self.runningwarehouse.parse_price(cell.get("data-gtm_impression_price"))
+                    if not price:
+                        m_p = re.search(r"(\d+[\.,]\d{2})\s*€", cell.text)
+                        if m_p:
+                            price = self.runningwarehouse.parse_price(m_p.group(1))
+                    if not price:
+                        continue
+
+                    orig_price = None
+                    m_srp = re.search(r"SRP\s*(\d+[\.,]\d{2})", cell.text)
+                    if m_srp:
+                        orig_price = self.runningwarehouse.parse_price(m_srp.group(1))
+
+                    img_el = cell.select_one("img")
+                    img_url = img_el.get("src") if img_el else None
+                    if img_url and "nw=210" in img_url:
+                        img_url = img_url.replace("nw=210", "nw=500")
+
+                    pid = cell.get("data-code")
+
+                    offer = Offer(
+                        store_id=self.runningwarehouse.store_id,
+                        store_name=self.runningwarehouse.store_name,
+                        product_id=pid,
+                        title=title,
+                        brand=brand,
+                        price=price,
+                        original_price=orig_price,
+                        url=product_url,
+                        image_url=img_url,
+                        in_stock=True
+                    )
+
+                    cluster_key = self.normalizer.extract_cluster_key(offer)
+                    canonical_base, _ = self.normalizer.clean_title(offer.title)
+                    gender = self.normalizer.extract_gender(offer.title, offer.url)
+                    canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
+
+                    self.db.upsert_product_and_offer(
+                        cluster_key=cluster_key,
+                        canonical_name=canonical,
+                        brand=brand,
+                        category="running_shoes",
+                        gender=gender,
+                        offer=offer
+                    )
+                    total_indexed += 1
+                    if total_indexed >= max_items:
+                        break
+                except Exception:
+                    continue
+
+        logger.info(f"[Running Warehouse] Indexed {total_indexed} products.")
+        return total_indexed
+
     def run_full_sync(self, limit_per_store: int = 150) -> Dict[str, Any]:
-        """Run crawling across all 4 stores and populate the database."""
+        """Run crawling across all 6 stores and populate the database."""
         start_time = time.time()
         counts = {}
 
@@ -400,6 +532,8 @@ class CategoryCrawler:
         counts["maxisport"] = self.crawl_maxisport(max_items=limit_per_store)
         counts["misterrunning"] = self.crawl_misterrunning(max_items=limit_per_store)
         counts["nencini"] = self.crawl_nencini(max_items=limit_per_store)
+        counts["top4running"] = self.crawl_top4running(max_items=limit_per_store)
+        counts["runningwarehouse"] = self.crawl_runningwarehouse(max_items=limit_per_store)
 
         elapsed = round(time.time() - start_time, 2)
         stats = self.db.get_stats()
