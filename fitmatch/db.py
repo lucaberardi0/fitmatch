@@ -284,7 +284,18 @@ class Database:
                 "rating": "4.8",
                 "review_count": "18.2k recensioni",
                 "description": "Leader italiano nella vendita di abbigliamento, calzature e attrezzature sportive dei migliori marchi mondiali.",
-                "badges": ["Rivenditore Ufficiale", "Spedizione Rapida", "Reso 30 Giorni", "Garanzia Italia"]
+                "full_description": "Fondata nel 1977, Cisalfa Sport è la catena di articoli sportivi numero uno in Italia con oltre 160 megastore fisici. Offre la massima sicurezza per gli acquisti con garanzia ufficiale, prodotti 100% autentici dei top brand (Nike, adidas, Asics, Hoka) e la possibilità di effettuare resi e cambi sia online che comodamente in qualsiasi punto vendita sul territorio nazionale.",
+                "badges": ["Rivenditore Ufficiale", "160+ Negozi in Italia", "Reso 30 Giorni", "Garanzia Italia"],
+                "highlights": ["160+ Punti Vendita Fisici", "Reso Facile in Negozio", "Top Brand Certificati"],
+                "location": "Sede & Magazzino Centrale: Curno (BG), Italia",
+                "shipping_info": "Spedizione espressa 24/48h con BRT e GLS",
+                "return_policy": "30 giorni per reso online o in qualsiasi negozio",
+                "rating_breakdown": {
+                    "score": 4.8,
+                    "positive_pct": "96%",
+                    "review_count": "18.200+",
+                    "platform": "Trustpilot / Feedaty"
+                }
             },
             "maxisport": {
                 "name": "Maxi Sport",
@@ -292,7 +303,18 @@ class Database:
                 "rating": "4.9",
                 "review_count": "24.5k recensioni",
                 "description": "Oltre 30 anni di passione sport & street style con le ultime novità running, trail e moda sportswear.",
-                "badges": ["Spedizione Rapida", "Reso Gratuito", "Rivenditore Autorizzato", "Assistenza Dedicata"]
+                "full_description": "Maxi Sport è una delle eccellenze italiane nel retail specializzato sport e lifestyle con megastore moderni in Lombardia e un e-commerce pluripremiato. Uno staff di oltre 200 tecnici ed esperti seleziona con cura ogni modello per assicurare al cliente la miglior scarpa per il proprio appoggio e stile di corsa, garantendo trasparenza e resi rapidi.",
+                "badges": ["Spedizione Rapida", "Reso Gratuito", "Rivenditore Autorizzato", "Assistenza Dedicata"],
+                "highlights": ["Consulenza Tecnica Running", "Reso Rapido & Gratuito", "Oltre 30 Anni di Esperienza"],
+                "location": "Sede & Hub Logistico: Merate (LC), Italia",
+                "shipping_info": "Spedizione gratuita sopra i 50€ in 24/48 ore con GLS/DHL",
+                "return_policy": "Reso facile entro 30 giorni",
+                "rating_breakdown": {
+                    "score": 4.9,
+                    "positive_pct": "98%",
+                    "review_count": "24.500+",
+                    "platform": "Feedaty / Recensioni Certificate"
+                }
             },
             "misterrunning": {
                 "name": "Mister Running",
@@ -300,7 +322,18 @@ class Database:
                 "rating": "4.9",
                 "review_count": "15.1k recensioni",
                 "description": "Lo specialista online del running con la più vasta gamma di scarpe tecniche, abbigliamento e accessori.",
-                "badges": ["Spedizione 24/48h", "Prezzo Minimo Garantito", "Reso 14 Giorni", "100% Originale"]
+                "full_description": "Mister Running è il portale specializzato leader in Europa per atleti, podisti e maratoneti. Gestito da runner professionisti ed entusiasti della disciplina, il catalogo comprende le ultime novità di scarpe da gara in carbonio, modelli daily training e trail con disponibilità reale in magazzino, miglior prezzo garantito e spedizioni veloci con tracciamento in tempo reale.",
+                "badges": ["Spedizione 24/48h", "Prezzo Minimo Garantito", "Reso 14 Giorni", "100% Originale"],
+                "highlights": ["Specialista Tecnico Running", "Stock 100% Reale", "Spedizione Espressa 24h"],
+                "location": "Sede & Magazzino Centrale: Cosenza, Italia",
+                "shipping_info": "Corriere Espresso DHL/UPS in 24-48h",
+                "return_policy": "Reso garantito e rimborso immediato",
+                "rating_breakdown": {
+                    "score": 4.9,
+                    "positive_pct": "98%",
+                    "review_count": "15.100+",
+                    "platform": "Trustpilot / Trusted Shops"
+                }
             },
             "nencini": {
                 "name": "Nencini Sport",
@@ -308,7 +341,18 @@ class Database:
                 "rating": "4.7",
                 "review_count": "9.8k recensioni",
                 "description": "Punto di riferimento toscano e online per lo sport con offerte esclusive outlet e migliori marche.",
-                "badges": ["Outlet & Novità", "Consegna Espressa", "Pagamenti Sicuri", "Garanzia Ufficiale"]
+                "full_description": "Nato nel 1954 in Toscana, Nencini Sport unisce una lunga tradizione familiare a una moderna piattaforma online. Punto di forza è l'ampiezza dell'assortimento con offerte outlet esclusive e sconti continuativi sui modelli di fine serie e nuovi arrivi, con la sicurezza di prodotti rigorosamente originali e un servizio clienti sempre attivo.",
+                "badges": ["Outlet & Novità", "Consegna Espressa", "Pagamenti Sicuri", "Garanzia Ufficiale"],
+                "highlights": ["Tradizione dal 1954", "Grandi Sconti Outlet", "Assistenza Clienti Telefonica"],
+                "location": "Sede & Magazzino: Calenzano (FI), Italia",
+                "shipping_info": "Consegna con corriere espresso BRT in 24/48h",
+                "return_policy": "30 giorni per reso e cambio taglia",
+                "rating_breakdown": {
+                    "score": 4.7,
+                    "positive_pct": "94%",
+                    "review_count": "9.800+",
+                    "platform": "Trustpilot / E-Commerce Sicuro"
+                }
             },
             "top4running": {
                 "name": "Top4Running",
@@ -316,7 +360,18 @@ class Database:
                 "rating": "4.8",
                 "review_count": "11.3k recensioni",
                 "description": "La destinazione europea per runner, atleti da pista e maratoneti con scarpe racing d'élite.",
-                "badges": ["Top Club Sconti", "Scarpe da Gara", "Reso 30 Giorni", "Spedizione Veloce"]
+                "full_description": "Top4Running fa parte di Top4Sport, uno dei network sportivi più all'avanguardia in Europa. Dedicato a chi vive la corsa come una passione seria, dalle gare su pista alle ultra-maratone, collabora direttamente con i dipartimenti racing di Nike, Asics e adidas per portare in anteprima le scarpe da record, unendo tecnologia all'esperienza del Top4Running Club.",
+                "badges": ["Top Club Sconti", "Scarpe da Gara", "Reso 30 Giorni", "Spedizione Veloce"],
+                "highlights": ["Anteprime Super-Shoes", "Top4Running Club Vantaggi", "Community Atleti Internazionali"],
+                "location": "Hub Logistico Centrale: Praga, Unione Europea",
+                "shipping_info": "Spedizione tracciata internazionale in 48/72h con DPD/BRT",
+                "return_policy": "30 giorni di reso semplice e sicuro",
+                "rating_breakdown": {
+                    "score": 4.8,
+                    "positive_pct": "96%",
+                    "review_count": "11.300+",
+                    "platform": "Trustpilot / Heureka Certified"
+                }
             },
             "runningwarehouse": {
                 "name": "Running Warehouse Europe",
@@ -324,7 +379,18 @@ class Database:
                 "rating": "4.9",
                 "review_count": "32.0k recensioni",
                 "description": "Il colosso globale del running con la selezione tecnica più approfondita per maratona, trail e ultra.",
-                "badges": ["Catalogo Globale", "Consulenza Tecnica", "Reso 60 Giorni", "Stock Certificato"]
+                "full_description": "Nato in California e affermatosi in tutto il mondo, Running Warehouse Europe è considerato dalla community podistica il punto di riferimento assoluto per ampiezza di taglie, schede tecniche dettagliate (drop, peso al grammo, altezza suola) e un servizio post-vendita leggendario, che include una politica di reso fino a 60 giorni.",
+                "badges": ["Catalogo Globale", "Consulenza Tecnica", "Reso 60 Giorni", "Stock Certificato"],
+                "highlights": ["Schede Tecniche al Millimetro", "Reso Record 60 Giorni", "Assortimento Taglie Unico"],
+                "location": "Hub Europeo: Schutterwald, Germania (UE)",
+                "shipping_info": "Spedizione celere con UPS / DHL in 48h con tracking dettagliato",
+                "return_policy": "Fino a 60 giorni per il reso gratuito o cambio",
+                "rating_breakdown": {
+                    "score": 4.9,
+                    "positive_pct": "99%",
+                    "review_count": "32.000+",
+                    "platform": "Trustpilot / Trusted Shops Global"
+                }
             }
         }
 
@@ -390,7 +456,13 @@ class Database:
                 "rating": info["rating"],
                 "review_count": info["review_count"],
                 "description": info["description"],
+                "full_description": info.get("full_description"),
                 "badges": info["badges"],
+                "highlights": info.get("highlights", []),
+                "location": info.get("location"),
+                "shipping_info": info.get("shipping_info"),
+                "return_policy": info.get("return_policy"),
+                "rating_breakdown": info.get("rating_breakdown"),
                 "total_offers": total_offers,
                 "avg_discount": avg_discount,
                 "min_price": min_price,

@@ -9,6 +9,7 @@ struct StoreDetailView: View {
     @State private var errorMessage: String?
     @State private var searchQuery: String = ""
     @State private var selectedSort: String = "discount"
+    @State private var isDescriptionExpanded: Bool = false
 
     private let api = APIService.shared
     private let columns = [
@@ -53,6 +54,9 @@ struct StoreDetailView: View {
 
                         // MARK: - Store Key Stats
                         storeStatsSection(details: details)
+
+                        // MARK: - Store Rating & About Card
+                        storeRatingAndAboutCard(details: details)
 
                         // MARK: - Search & Sort Controls
                         filterSection(storeName: details.store_name)
@@ -287,6 +291,174 @@ struct StoreDetailView: View {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(Color.shopBorder, lineWidth: 0.8)
         )
+    }
+
+    // MARK: - Store Rating & About Card (Shopify Shop Merchant Trust Section)
+    private func storeRatingAndAboutCard(details: StoreDetailResponse) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header bar
+            HStack {
+                HStack(spacing: 5) {
+                    Image(systemName: "shield.checkerboard")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.shopPurple)
+                    Text("AFFIDABILITÀ & CHI SIAMO")
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundColor(.shopTextMuted)
+                        .tracking(0.6)
+                }
+
+                Spacer()
+
+                if let platform = details.rating_breakdown?.platform {
+                    Text(platform)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.shopDark)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.shopSurface)
+                        .cornerRadius(6)
+                }
+            }
+
+            // Rating Score & Satisfaction Bar
+            HStack(spacing: 16) {
+                // Large Score
+                VStack(spacing: 2) {
+                    Text(details.rating)
+                        .font(.system(size: 34, weight: .black, design: .rounded))
+                        .foregroundColor(.shopDark)
+
+                    HStack(spacing: 2) {
+                        ForEach(0..<5) { _ in
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.shopYellow)
+                        }
+                    }
+                }
+                .padding(.trailing, 4)
+
+                // Breakdown text & Positive %
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "hand.thumbsup.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.shopGreen)
+                        Text("\(details.rating_breakdown?.positive_pct ?? "98%") acquirenti soddisfatti")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.shopDark)
+                    }
+
+                    Text("\(details.rating_breakdown?.review_count ?? details.review_count) recensioni verificate di runner e sportivi")
+                        .font(.system(size: 11.5))
+                        .foregroundColor(.shopTextMuted)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+            }
+            .padding(.vertical, 2)
+
+            // Trust highlights chips
+            if let highlights = details.highlights, !highlights.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(highlights, id: \.self) { highlight in
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.shopGreen)
+                                Text(highlight)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.shopDark)
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(Color.shopGreenLight)
+                            .cornerRadius(8)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+                .background(Color.shopBorder.opacity(0.8))
+
+            // Chi siamo (Description)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Chi siamo")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.shopDark)
+
+                let desc = details.full_description ?? details.description
+                Text(desc)
+                    .font(.system(size: 12.5))
+                    .foregroundColor(.shopTextMuted)
+                    .lineSpacing(2)
+                    .lineLimit(isDescriptionExpanded ? nil : 3)
+
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isDescriptionExpanded.toggle()
+                    }
+                }) {
+                    HStack(spacing: 3) {
+                        Text(isDescriptionExpanded ? "Mostra meno" : "Leggi tutta la storia")
+                            .font(.system(size: 11.5, weight: .bold))
+                        Image(systemName: isDescriptionExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundColor(.shopPurple)
+                    .padding(.top, 2)
+                }
+            }
+
+            // Logistics & Policy details
+            VStack(spacing: 8) {
+                if let loc = details.location {
+                    infoRow(icon: "mappin.circle.fill", label: "Sede", value: loc)
+                }
+                if let shipping = details.shipping_info {
+                    infoRow(icon: "box.truck.fill", label: "Spedizione", value: shipping)
+                }
+                if let returns = details.return_policy {
+                    infoRow(icon: "arrow.uturn.backward.circle.fill", label: "Politica Resi", value: returns)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .padding(16)
+        .background(Color.shopCardBg)
+        .cornerRadius(18)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.shopBorder, lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.02), radius: 5, x: 0, y: 2)
+        .padding(.horizontal, 16)
+    }
+
+    private func infoRow(icon: String, label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.shopPurple)
+                .frame(width: 16)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label.uppercased())
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundColor(.shopTextMuted)
+
+                Text(value)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundColor(.shopDark)
+            }
+
+            Spacer()
+        }
     }
 
     // MARK: - Filter Section

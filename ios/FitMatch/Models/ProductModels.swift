@@ -182,6 +182,13 @@ struct StoreShowcaseResponse: Codable {
     let showcases: [StoreShowcase]
 }
 
+struct StoreRatingBreakdown: Codable {
+    let score: Double
+    let positive_pct: String
+    let review_count: String
+    let platform: String
+}
+
 struct StoreDetailResponse: Codable {
     let store_id: String
     let store_name: String
@@ -189,7 +196,13 @@ struct StoreDetailResponse: Codable {
     let rating: String
     let review_count: String
     let description: String
+    let full_description: String?
     let badges: [String]
+    let highlights: [String]?
+    let location: String?
+    let shipping_info: String?
+    let return_policy: String?
+    let rating_breakdown: StoreRatingBreakdown?
     let total_offers: Int
     let avg_discount: Double
     let min_price: Double
