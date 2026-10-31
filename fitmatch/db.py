@@ -220,6 +220,8 @@ class Database:
             cur = conn.execute(sql, params)
             products = [dict(r) for r in cur.fetchall()]
 
+            from fitmatch.models import STORE_SHIPPING_RULES
+
             for prod in products:
                 offer_cur = conn.execute("""
                     SELECT store_id, store_name, current_price, original_price, discount_pct, product_url, image_url
@@ -227,7 +229,23 @@ class Database:
                     WHERE product_id = ?
                     ORDER BY current_price ASC
                 """, (prod["id"],))
-                prod["offers"] = [dict(o) for o in offer_cur.fetchall()]
+                offers = []
+                for row in offer_cur.fetchall():
+                    o = dict(row)
+                    sid = o["store_id"].lower().strip()
+                    rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
+                    price = float(o["current_price"])
+                    cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+                    is_free = (cost == 0.0)
+                    o["shipping_cost"] = cost
+                    o["total_price"] = round(price + cost, 2)
+                    o["is_free_shipping"] = is_free
+                    o["shipping_label"] = "Spedizione Gratuita" if is_free else f"+{cost:.2f} € sped."
+                    o["free_shipping_threshold"] = rule["free_threshold"]
+                    o["courier"] = rule["courier"]
+                    offers.append(o)
+
+                prod["offers"] = offers
 
             return products
 
@@ -264,6 +282,19 @@ class Database:
                 """, (sid, limit_per_store))
 
                 products = [dict(r) for r in prods_cur.fetchall()]
+                from fitmatch.models import STORE_SHIPPING_RULES
+                rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
+                for p in products:
+                    price = float(p["current_price"])
+                    cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+                    is_free = (cost == 0.0)
+                    p["shipping_cost"] = cost
+                    p["total_price"] = round(price + cost, 2)
+                    p["is_free_shipping"] = is_free
+                    p["shipping_label"] = "Spedizione Gratuita" if is_free else f"+{cost:.2f} € sped."
+                    p["free_shipping_threshold"] = rule["free_threshold"]
+                    p["courier"] = rule["courier"]
+
                 result.append({
                     "store_id": sid,
                     "store_name": sname,
@@ -288,7 +319,8 @@ class Database:
                 "badges": ["Rivenditore Ufficiale", "160+ Negozi in Italia", "Reso 30 Giorni", "Garanzia Italia"],
                 "highlights": ["160+ Punti Vendita Fisici", "Reso Facile in Negozio", "Top Brand Certificati"],
                 "location": "Sede & Magazzino Centrale: Curno (BG), Italia",
-                "shipping_info": "Spedizione espressa 24/48h con BRT e GLS",
+                "shipping_info": "Spedizione standard 9,90 € • Gratuita da 99,00 € (o gratis con ritiro in negozio)",
+                "shipping_rule": {"standard": 9.90, "free_threshold": 99.0, "label": "Gratis da 99 €", "courier": "BRT / GLS"},
                 "return_policy": "30 giorni per reso online o in qualsiasi negozio",
                 "rating_breakdown": {
                     "score": 4.8,
@@ -307,7 +339,8 @@ class Database:
                 "badges": ["Spedizione Rapida", "Reso Gratuito", "Rivenditore Autorizzato", "Assistenza Dedicata"],
                 "highlights": ["Consulenza Tecnica Running", "Reso Rapido & Gratuito", "Oltre 30 Anni di Esperienza"],
                 "location": "Sede & Hub Logistico: Merate (LC), Italia",
-                "shipping_info": "Spedizione gratuita sopra i 50€ in 24/48 ore con GLS/DHL",
+                "shipping_info": "Spedizione standard 7,90 € • Gratuita in tutta Italia per ordini superiori a 99,00 €",
+                "shipping_rule": {"standard": 7.90, "free_threshold": 99.0, "label": "Gratis da 99 €", "courier": "GLS / DHL"},
                 "return_policy": "Reso facile entro 30 giorni",
                 "rating_breakdown": {
                     "score": 4.9,
@@ -326,7 +359,8 @@ class Database:
                 "badges": ["Spedizione 24/48h", "Prezzo Minimo Garantito", "Reso 14 Giorni", "100% Originale"],
                 "highlights": ["Specialista Tecnico Running", "Stock 100% Reale", "Spedizione Espressa 24h"],
                 "location": "Sede & Magazzino Centrale: Cosenza, Italia",
-                "shipping_info": "Corriere Espresso DHL/UPS in 24-48h",
+                "shipping_info": "Spedizione standard 4,90 € • Gratuita in tutta Italia per ordini da 49,00 €",
+                "shipping_rule": {"standard": 4.90, "free_threshold": 49.0, "label": "Gratis da 49 €", "courier": "DHL / UPS"},
                 "return_policy": "Reso garantito e rimborso immediato",
                 "rating_breakdown": {
                     "score": 4.9,
@@ -345,7 +379,8 @@ class Database:
                 "badges": ["Outlet & Novità", "Consegna Espressa", "Pagamenti Sicuri", "Garanzia Ufficiale"],
                 "highlights": ["Tradizione dal 1954", "Grandi Sconti Outlet", "Assistenza Clienti Telefonica"],
                 "location": "Sede & Magazzino: Calenzano (FI), Italia",
-                "shipping_info": "Consegna con corriere espresso BRT in 24/48h",
+                "shipping_info": "Spedizione standard 5,90 € • Gratuita per ordini superiori a 100,00 €",
+                "shipping_rule": {"standard": 5.90, "free_threshold": 100.0, "label": "Gratis da 100 €", "courier": "BRT Espresso"},
                 "return_policy": "30 giorni per reso e cambio taglia",
                 "rating_breakdown": {
                     "score": 4.7,
@@ -364,7 +399,8 @@ class Database:
                 "badges": ["Top Club Sconti", "Scarpe da Gara", "Reso 30 Giorni", "Spedizione Veloce"],
                 "highlights": ["Anteprime Super-Shoes", "Top4Running Club Vantaggi", "Community Atleti Internazionali"],
                 "location": "Hub Logistico Centrale: Praga, Unione Europea",
-                "shipping_info": "Spedizione tracciata internazionale in 48/72h con DPD/BRT",
+                "shipping_info": "Spedizione standard 4,90 € • Gratuita per ordini a partire da 75,00 €",
+                "shipping_rule": {"standard": 4.90, "free_threshold": 75.0, "label": "Gratis da 75 €", "courier": "DPD / BRT"},
                 "return_policy": "30 giorni di reso semplice e sicuro",
                 "rating_breakdown": {
                     "score": 4.8,
@@ -383,7 +419,8 @@ class Database:
                 "badges": ["Catalogo Globale", "Consulenza Tecnica", "Reso 60 Giorni", "Stock Certificato"],
                 "highlights": ["Schede Tecniche al Millimetro", "Reso Record 60 Giorni", "Assortimento Taglie Unico"],
                 "location": "Hub Europeo: Schutterwald, Germania (UE)",
-                "shipping_info": "Spedizione celere con UPS / DHL in 48h con tracking dettagliato",
+                "shipping_info": "Spedizione standard 10,00 € • Gratuita per l'Italia per ordini superiori a 59,00 €",
+                "shipping_rule": {"standard": 10.00, "free_threshold": 59.0, "label": "Gratis da 59 €", "courier": "UPS Standard"},
                 "return_policy": "Fino a 60 giorni per il reso gratuito o cambio",
                 "rating_breakdown": {
                     "score": 4.9,
@@ -448,6 +485,17 @@ class Database:
             """
             params.append(limit)
             prods = [dict(r) for r in conn.execute(sql, params).fetchall()]
+            rule = info.get("shipping_rule", {"standard": 4.90, "free_threshold": 50.0, "label": "Gratis da 50 €", "courier": "Corriere Espresso"})
+            for p in prods:
+                price = float(p["current_price"])
+                cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+                is_free = (cost == 0.0)
+                p["shipping_cost"] = cost
+                p["total_price"] = round(price + cost, 2)
+                p["is_free_shipping"] = is_free
+                p["shipping_label"] = "Spedizione Gratuita" if is_free else f"+{cost:.2f} € sped."
+                p["free_shipping_threshold"] = rule["free_threshold"]
+                p["courier"] = rule["courier"]
 
             return {
                 "store_id": sid,
@@ -461,6 +509,7 @@ class Database:
                 "highlights": info.get("highlights", []),
                 "location": info.get("location"),
                 "shipping_info": info.get("shipping_info"),
+                "shipping_rule": info.get("shipping_rule"),
                 "return_policy": info.get("return_policy"),
                 "rating_breakdown": info.get("rating_breakdown"),
                 "total_offers": total_offers,

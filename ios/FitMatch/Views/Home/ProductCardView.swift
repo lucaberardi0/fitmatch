@@ -95,6 +95,18 @@ struct ProductCardView: View {
                     } else if let best = product.bestOffer, let badge = best.discountBadge {
                         DiscountBadge(discountText: badge)
                     }
+
+                    // Shipping breakdown preview
+                    if let best = product.bestOffer {
+                        HStack(spacing: 3) {
+                            Image(systemName: "box.truck.fill")
+                                .font(.system(size: 8.5))
+                            Text(best.formattedShipping)
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .foregroundColor(best.isFreeShipping ? .shopGreen : .shopTextMuted)
+                        .padding(.top, 1)
+                    }
                 }
 
                 // Sizes availability preview

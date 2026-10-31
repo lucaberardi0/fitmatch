@@ -170,7 +170,7 @@ struct ProductDetailView: View {
 
                                         Spacer()
 
-                                        // Pricing & Badge
+                                        // Pricing & Badge with Real Shipping Breakdown
                                         VStack(alignment: .trailing, spacing: 3) {
                                             HStack(spacing: 6) {
                                                 if isBest {
@@ -178,6 +178,31 @@ struct ProductDetailView: View {
                                                 }
                                                 Text(offer.formattedPrice)
                                                     .font(.system(size: 16, weight: .bold, design: .rounded))
+                                                    .foregroundColor(.shopDark)
+                                            }
+
+                                            // Verified Shipping line & Total
+                                            HStack(spacing: 4) {
+                                                if offer.isFreeShipping {
+                                                    HStack(spacing: 3) {
+                                                        Image(systemName: "box.truck.fill")
+                                                            .font(.system(size: 8.5))
+                                                        Text("Sped. Gratis")
+                                                            .font(.system(size: 10, weight: .heavy))
+                                                    }
+                                                    .foregroundColor(.shopGreen)
+                                                    .padding(.horizontal, 5)
+                                                    .padding(.vertical, 2)
+                                                    .background(Color.shopGreenLight)
+                                                    .cornerRadius(4)
+                                                } else {
+                                                    Text(offer.formattedShipping)
+                                                        .font(.system(size: 10.5, weight: .medium))
+                                                        .foregroundColor(.shopTextMuted)
+                                                }
+
+                                                Text("• Totale \(offer.formattedTotalPrice)")
+                                                    .font(.system(size: 10.5, weight: .bold))
                                                     .foregroundColor(.shopDark)
                                             }
 
@@ -303,22 +328,32 @@ struct ProductDetailView: View {
                                 )
                         }
 
-                        // Giant Shop-Pay Style Primary Button
+                        // Giant Shop-Pay Style Primary Button with Shipping Context
                         if let url = URL(string: offer.url) {
-                            Link(destination: url) {
-                                HStack(spacing: 6) {
-                                    Text("Acquista a \(offer.formattedPrice) su \(offer.store_name)")
-                                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                                        .lineLimit(1)
-                                    Image(systemName: "arrow.up.right")
-                                        .font(.system(size: 13, weight: .bold))
+                            VStack(spacing: 5) {
+                                Link(destination: url) {
+                                    HStack(spacing: 6) {
+                                        Text("Acquista a \(offer.formattedPrice) su \(offer.store_name)")
+                                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                                            .lineLimit(1)
+                                        Image(systemName: "arrow.up.right")
+                                            .font(.system(size: 13, weight: .bold))
+                                    }
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 48)
+                                    .background(Color.shopPurple)
+                                    .cornerRadius(24) // Shop pill button
+                                    .shadow(color: Color.shopPurple.opacity(0.35), radius: 8, x: 0, y: 4)
                                 }
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(Color.shopPurple)
-                                .cornerRadius(25) // Shop pill button
-                                .shadow(color: Color.shopPurple.opacity(0.35), radius: 8, x: 0, y: 4)
+
+                                HStack(spacing: 4) {
+                                    Image(systemName: "box.truck.fill")
+                                        .font(.system(size: 10))
+                                    Text(offer.isFreeShipping ? "Spedizione gratuita inclusa" : "\(offer.formattedShipping) • Totale stimato: \(offer.formattedTotalPrice)")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundColor(.shopTextMuted)
                             }
                         }
                     }

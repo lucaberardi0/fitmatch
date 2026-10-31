@@ -635,6 +635,22 @@ struct StoreDetailView: View {
                             .strikethrough()
                     }
                 }
+
+                // Shipping info tag
+                HStack(spacing: 3) {
+                    Image(systemName: "box.truck.fill")
+                        .font(.system(size: 8.5))
+                    if item.is_free_shipping == true || (item.shipping_cost ?? 0) == 0 {
+                        Text("Sped. Gratis")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(.shopGreen)
+                    } else if let cost = item.shipping_cost {
+                        Text(String(format: "+€%.2f sped.", cost))
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundColor(.shopTextMuted)
+                    }
+                }
+                .foregroundColor((item.is_free_shipping == true || (item.shipping_cost ?? 0) == 0) ? .shopGreen : .shopTextMuted)
             }
             .padding(.horizontal, 4)
             .padding(.bottom, 6)

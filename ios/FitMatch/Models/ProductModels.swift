@@ -16,6 +16,47 @@ struct Offer: Identifiable, Codable, Hashable {
     let available_sizes: [String]?
     let in_stock: Bool?
 
+    // Verified real shipping fields
+    let shipping_cost: Double?
+    let total_price: Double?
+    let is_free_shipping: Bool?
+    let shipping_label: String?
+    let free_shipping_threshold: Double?
+    let courier: String?
+
+    var calculatedShippingCost: Double {
+        if let cost = shipping_cost { return cost }
+        let s = store_id.lowercased()
+        let threshold = (s.contains("cisalfa") || s.contains("maxi")) ? 99.0 :
+                        s.contains("nencini") ? 100.0 :
+                        s.contains("top4") ? 75.0 :
+                        s.contains("warehouse") ? 59.0 : 49.0
+        let standard = s.contains("cisalfa") ? 9.90 :
+                       s.contains("maxi") ? 7.90 :
+                       s.contains("warehouse") ? 10.00 :
+                       s.contains("nencini") ? 5.90 : 4.90
+        return price >= threshold ? 0.0 : standard
+    }
+
+    var calculatedTotalPrice: Double {
+        total_price ?? (price + calculatedShippingCost)
+    }
+
+    var isFreeShipping: Bool {
+        is_free_shipping ?? (calculatedShippingCost == 0.0)
+    }
+
+    var formattedShipping: String {
+        if isFreeShipping {
+            return "Sped. Gratis"
+        }
+        return String(format: "+ €%.2f sped.", calculatedShippingCost)
+    }
+
+    var formattedTotalPrice: String {
+        String(format: "€%.2f", calculatedTotalPrice)
+    }
+
     var formattedPrice: String {
         String(format: "€%.2f", price)
     }
@@ -125,6 +166,12 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
     let product_url: String
     let canonical_name: String
     let product_id: String?
+    let shipping_cost: Double?
+    let total_price: Double?
+    let is_free_shipping: Bool?
+    let shipping_label: String?
+    let free_shipping_threshold: Double?
+    let courier: String?
 
     var formattedPrice: String {
         String(format: "€%.2f", current_price)
@@ -154,7 +201,13 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
             url: product_url,
             image_url: image_url,
             available_sizes: [],
-            in_stock: true
+            in_stock: true,
+            shipping_cost: shipping_cost,
+            total_price: total_price,
+            is_free_shipping: is_free_shipping,
+            shipping_label: shipping_label,
+            free_shipping_threshold: free_shipping_threshold,
+            courier: courier
         )
         return MatchedProduct(
             canonical_name: canonical_name,

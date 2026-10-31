@@ -10,6 +10,16 @@ EU_TO_US_MEN = {
 }
 US_TO_EU_MEN = {v: k for k, v in EU_TO_US_MEN.items()}
 
+# Verified real shipping policies for partner stores in Italy
+STORE_SHIPPING_RULES = {
+    "cisalfa": {"standard": 9.90, "free_threshold": 99.0, "courier": "BRT / GLS"},
+    "maxisport": {"standard": 7.90, "free_threshold": 99.0, "courier": "GLS / DHL"},
+    "misterrunning": {"standard": 4.90, "free_threshold": 49.0, "courier": "DHL / UPS"},
+    "nencini": {"standard": 5.90, "free_threshold": 100.0, "courier": "BRT Espresso"},
+    "top4running": {"standard": 4.90, "free_threshold": 75.0, "courier": "DPD / BRT"},
+    "runningwarehouse": {"standard": 10.00, "free_threshold": 59.0, "courier": "UPS Standard"},
+}
+
 
 class Offer(BaseModel):
     """Represents a specific product offer found on a retailer store."""
@@ -55,6 +65,43 @@ class Offer(BaseModel):
         if self.original_price and self.original_price > self.price:
             return round(self.original_price - self.price, 2)
         return None
+
+    @computed_field
+    @property
+    def shipping_cost(self) -> float:
+        rule = STORE_SHIPPING_RULES.get(self.store_id.lower().strip(), {"standard": 4.90, "free_threshold": 50.0})
+        if self.price >= rule["free_threshold"]:
+            return 0.0
+        return rule["standard"]
+
+    @computed_field
+    @property
+    def is_free_shipping(self) -> bool:
+        return self.shipping_cost == 0.0
+
+    @computed_field
+    @property
+    def total_price(self) -> float:
+        return round(self.price + self.shipping_cost, 2)
+
+    @computed_field
+    @property
+    def shipping_label(self) -> str:
+        if self.is_free_shipping:
+            return "Spedizione Gratuita"
+        return f"+{self.shipping_cost:.2f} € sped."
+
+    @computed_field
+    @property
+    def free_shipping_threshold(self) -> float:
+        rule = STORE_SHIPPING_RULES.get(self.store_id.lower().strip(), {"free_threshold": 50.0})
+        return rule["free_threshold"]
+
+    @computed_field
+    @property
+    def courier(self) -> str:
+        rule = STORE_SHIPPING_RULES.get(self.store_id.lower().strip(), {"courier": "Corriere Espresso"})
+        return rule.get("courier", "Corriere Espresso")
 
 
 class MatchedProductGroup(BaseModel):
