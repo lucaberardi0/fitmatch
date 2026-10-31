@@ -31,6 +31,31 @@ class AIShoppingAdvisor:
             "name": "Trail Running & Sterrato",
             "description": "Battistrada tassellato e tomaia rinforzata per trazione e stabilità su rocce, fango e sentieri irregolari.",
             "models": ["hoka speedgoat", "brooks cascadia", "salomon xa pro", "asics trabuco"]
+        },
+        "gps_watch": {
+            "name": "GPS Smartwatch & Cardiofrequenzimetri",
+            "description": "Dispositivi GPS per monitorare frequenza cardiaca, passo al chilometro, VO2 max, navigazione percorsi e tempi di recupero.",
+            "models": ["garmin forerunner", "garmin fenix", "garmin edge", "polar vantage", "suunto"]
+        },
+        "hydration_gear": {
+            "name": "Zaini Idratazione & Gilet Trail",
+            "description": "Gilet ergonomici traspiranti con borracce morbide (soft flask) integrate per correre in autosufficienza fino alle lunghe distanze.",
+            "models": ["salomon active skin", "salomon adv skin", "camelbak"]
+        },
+        "eyewear": {
+            "name": "Occhiali Sportivi Tecnici",
+            "description": "Lenti ad alto contrasto (Prizm/fotocromatiche) e montature ultraleggere che non scivolano col sudore.",
+            "models": ["oakley radar", "oakley sutro", "bliz"]
+        },
+        "fitness_recovery": {
+            "name": "Fitness & Recupero Muscolare",
+            "description": "Dispositivi per massaggio a percussione, allentamento contratture e riscaldamento muscolare rapido.",
+            "models": ["theragun", "therabody"]
+        },
+        "nutrition": {
+            "name": "Nutrizione Sportiva & Energetici",
+            "description": "Carboidrati a rilascio graduale o istantaneo, gel isotonici e sali minerali per prevenire crampi e cali di glicogeno.",
+            "models": ["enervit gel", "enervit", "isocarb"]
         }
     }
 
@@ -74,13 +99,30 @@ class AIShoppingAdvisor:
         elif re.search(r"\b(pista|tartan)\b", text):
             surface = "pista"
 
-        # 5. Goal / Biomechanical profile
+        # 5. Goal / Biomechanical profile or Accessory Request
         is_waterproof = bool(re.search(r"\b(impermeabil[ei]|gtx|gore[\s-]tex|pioggia)\b", text))
         is_speed = bool(re.search(r"\b(veloc[ei]|reattiv[ae]|gara|maratona|mezza|ripetute|piastra)\b", text))
         is_cushion = bool(re.search(r"\b(ammortizzat[ae]|morbida?|comod[ae]|protettiv[ae]|ginocchi[ao]|schiena|tendin[ei])\b", text))
 
+        # Check if accessory is explicitly requested
+        is_gps = bool(re.search(r"\b(orolog[io]|smartwatch|gps|cardio|garmin|polar|suunto|coros|ciclocomputer)\b", text))
+        is_eyewear = bool(re.search(r"\b(occhial[ie]|lenti|oakley|sole|prizm)\b", text))
+        is_hydration = bool(re.search(r"\b(zain[oi]|gilet|flask|borracci[ae]|idratazione|camelbak)\b", text))
+        is_recovery = bool(re.search(r"\b(theragun|pistola|massaggi[ao]|recupero|contrattur[ae]|massaggiante)\b", text))
+        is_nutrition = bool(re.search(r"\b(gel|barrett[ae]|integrator[ei]|enervit|sali|maltodestrin[ae]|nutrizione)\b", text))
+
         # Assign category archetype
-        if surface == "trail":
+        if is_gps:
+            category = "gps_watch"
+        elif is_eyewear:
+            category = "eyewear"
+        elif is_hydration:
+            category = "hydration_gear"
+        elif is_recovery:
+            category = "fitness_recovery"
+        elif is_nutrition:
+            category = "nutrition"
+        elif surface == "trail":
             category = "trail_offroad"
         elif is_speed and not (weight_kg and weight_kg > 82):
             category = "speed_race"
@@ -132,8 +174,9 @@ class AIShoppingAdvisor:
 
                 best_offer = group.best_offer
                 if best_offer:
-                    # Filter out nutrition or cheap accessories (e.g. energy bars, socks under 35€)
-                    if best_offer.price < 35.0:
+                    # Filter out tiny accessories unless nutrition is explicitly requested
+                    min_price_threshold = 2.0 if params["category"] == "nutrition" else 20.0
+                    if best_offer.price < min_price_threshold:
                         continue
                     recommendations.append({
                         "product_name": group.canonical_name,

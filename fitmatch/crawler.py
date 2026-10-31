@@ -12,6 +12,8 @@ from fitmatch.scrapers.misterrunning import MisterRunningScraper
 from fitmatch.scrapers.nencini import NenciniSportScraper
 from fitmatch.scrapers.top4running import Top4RunningScraper
 from fitmatch.scrapers.runningwarehouse import RunningWarehouseScraper
+from fitmatch.scrapers.deporvillage import DeporvillageScraper
+from fitmatch.scrapers.alltricks import AlltricksScraper
 
 logger = logging.getLogger("fitmatch.crawler")
 
@@ -28,6 +30,8 @@ class CategoryCrawler:
         self.nencini = NenciniSportScraper()
         self.top4running = Top4RunningScraper()
         self.runningwarehouse = RunningWarehouseScraper()
+        self.deporvillage = DeporvillageScraper()
+        self.alltricks = AlltricksScraper()
 
     def crawl_cisalfa(self, max_items: int = 150) -> int:
         """Crawl Cisalfa running catalog with pagination (?start=0, 36, 72...)."""
@@ -523,8 +527,105 @@ class CategoryCrawler:
         logger.info(f"[Running Warehouse] Indexed {total_indexed} products.")
         return total_indexed
 
+    def _detect_category(self, title: str) -> str:
+        """Categorize product by title keywords into appropriate sports gear category."""
+        tl = title.lower()
+        if any(w in tl for w in ["garmin", "polar", "suunto", "coros", "smartwatch", "orologio", "gps", "cardio", "ciclocomputer", "fascia cardio"]):
+            return "gps_watch"
+        if any(w in tl for w in ["oakley", "occhiali", "lenti", "prizm", "bliz", "rudy", "maschera", "sunglasses"]):
+            return "eyewear"
+        if any(w in tl for w in ["zaino", "gilet", "adv skin", "active skin", "flask", "borraccia", "idratazione", "camelbak", "cintura"]):
+            return "hydration"
+        if any(w in tl for w in ["theragun", "massaggiante", "recupero", "loop band", "elastico", "manubri", "kettlebell", "foam roller", "tappetino"]):
+            return "fitness"
+        if any(w in tl for w in ["gel", "enervit", "isocarb", "barretta", "proteine", "integratore", "maltodestrine", "sali minerali", "sis "]):
+            return "nutrition"
+        if any(w in tl for w in ["casco", "pompa", "luce", "bici", "padel", "racchetta", "overgrip", "tubo palline"]):
+            return "gear"
+        return "running_shoes"
+
+    def crawl_deporvillage(self, max_items: int = 150) -> int:
+        """Crawl Deporvillage catalog via Algolia API, focusing on accessories, GPS & outdoor."""
+        logger.info(f"[Deporvillage] Starting catalog crawl (target: {max_items} items)...")
+        total_indexed = 0
+        queries = [
+            "garmin", "polar", "suunto", "oakley sutro", "oakley radar",
+            "salomon active skin", "theragun", "enervit", "casco poc", "nike pegasus"
+        ]
+
+        for q in queries:
+            if total_indexed >= max_items:
+                break
+            offers = self.deporvillage.search(query=q, limit=min(max_items - total_indexed, 25))
+            for offer in offers:
+                try:
+                    cluster_key = self.normalizer.extract_cluster_key(offer)
+                    canonical_base, _ = self.normalizer.clean_title(offer.title)
+                    gender = self.normalizer.extract_gender(offer.title, offer.url)
+                    brand = offer.brand or self.normalizer.extract_brand(offer.title)
+                    canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
+                    category = self._detect_category(offer.title)
+
+                    self.db.upsert_product_and_offer(
+                        cluster_key=cluster_key,
+                        canonical_name=canonical,
+                        brand=brand,
+                        category=category,
+                        gender=gender,
+                        offer=offer
+                    )
+                    total_indexed += 1
+                    if total_indexed >= max_items:
+                        break
+                except Exception as e:
+                    logger.debug(f"[Deporvillage] Upsert skip: {e}")
+                    continue
+
+        logger.info(f"[Deporvillage] Indexed {total_indexed} products.")
+        return total_indexed
+
+    def crawl_alltricks(self, max_items: int = 150) -> int:
+        """Crawl Alltricks catalog via Constructor.io API, focusing on cycling, GPS & fitness gear."""
+        logger.info(f"[Alltricks] Starting catalog crawl (target: {max_items} items)...")
+        total_indexed = 0
+        queries = [
+            "garmin edge", "garmin forerunner", "oakley radar", "casco poc",
+            "salomon gilet", "theragun", "polar", "enervit", "asics nimbus"
+        ]
+
+        for q in queries:
+            if total_indexed >= max_items:
+                break
+            offers = self.alltricks.search(query=q, limit=min(max_items - total_indexed, 25))
+            for offer in offers:
+                try:
+                    cluster_key = self.normalizer.extract_cluster_key(offer)
+                    canonical_base, _ = self.normalizer.clean_title(offer.title)
+                    gender = self.normalizer.extract_gender(offer.title, offer.url)
+                    brand = offer.brand or self.normalizer.extract_brand(offer.title)
+                    canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
+                    category = self._detect_category(offer.title)
+
+                    self.db.upsert_product_and_offer(
+                        cluster_key=cluster_key,
+                        canonical_name=canonical,
+                        brand=brand,
+                        category=category,
+                        gender=gender,
+                        offer=offer
+                    )
+                    total_indexed += 1
+                    if total_indexed >= max_items:
+                        break
+                except Exception as e:
+                    logger.debug(f"[Alltricks] Upsert skip: {e}")
+                    continue
+
+        logger.info(f"[Alltricks] Indexed {total_indexed} products.")
+        return total_indexed
+
     def run_full_sync(self, limit_per_store: int = 150) -> Dict[str, Any]:
-        """Run crawling across all 6 stores and populate the database."""
+        """Run crawling across all 8 stores and populate the database."""
         start_time = time.time()
         counts = {}
 
@@ -534,6 +635,8 @@ class CategoryCrawler:
         counts["nencini"] = self.crawl_nencini(max_items=limit_per_store)
         counts["top4running"] = self.crawl_top4running(max_items=limit_per_store)
         counts["runningwarehouse"] = self.crawl_runningwarehouse(max_items=limit_per_store)
+        counts["deporvillage"] = self.crawl_deporvillage(max_items=limit_per_store)
+        counts["alltricks"] = self.crawl_alltricks(max_items=limit_per_store)
 
         elapsed = round(time.time() - start_time, 2)
         stats = self.db.get_stats()

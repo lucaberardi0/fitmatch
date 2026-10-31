@@ -18,6 +18,8 @@ STORE_SHIPPING_RULES = {
     "nencini": {"standard": 5.90, "free_threshold": 100.0, "courier": "BRT Espresso"},
     "top4running": {"standard": 4.90, "free_threshold": 75.0, "courier": "DPD / BRT"},
     "runningwarehouse": {"standard": 10.00, "free_threshold": 59.0, "courier": "UPS Standard"},
+    "deporvillage": {"standard": 4.99, "free_threshold": 80.0, "courier": "GLS / DPD"},
+    "alltricks": {"standard": 4.99, "free_threshold": 69.0, "courier": "Bartolini (BRT)"},
 }
 
 

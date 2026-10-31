@@ -193,14 +193,18 @@ class Database:
                 "top_savings": [dict(r) for r in top_savings]
             }
 
-    def search_indexed(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """Fast SQL query on pre-indexed products and their store offers."""
+    def search_indexed(self, query: str, category: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
+        """Fast SQL query on pre-indexed products and their store offers with optional category filter."""
         with self.get_connection() as conn:
             words = query.strip().lower().split()
             where_clauses = ["(LOWER(p.canonical_name) LIKE ? OR LOWER(COALESCE(p.brand, '')) LIKE ?)" for _ in words]
             params = []
             for w in words:
                 params.extend([f"%{w}%", f"%{w}%"])
+
+            if category and category.lower() != "all" and category.lower() != "tutti":
+                where_clauses.append("p.category = ?")
+                params.append(category.lower())
 
             where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
@@ -257,7 +261,9 @@ class Database:
             "misterrunning": "4.9",
             "nencini": "4.7",
             "top4running": "4.8",
-            "runningwarehouse": "4.9"
+            "runningwarehouse": "4.9",
+            "deporvillage": "4.3",
+            "alltricks": "4.4"
         }
         with self.get_connection() as conn:
             stores = conn.execute("""
@@ -427,6 +433,46 @@ class Database:
                     "positive_pct": "99%",
                     "review_count": "32.000+",
                     "platform": "Trustpilot / Trusted Shops Global"
+                }
+            },
+            "deporvillage": {
+                "name": "Deporvillage",
+                "base_url": "https://www.deporvillage.it",
+                "rating": "4.3",
+                "review_count": "92.5k recensioni",
+                "description": "Leader nel Sud Europa per ciclismo, outdoor, elettronica sportiva, occhiali tecnici e nutrizione.",
+                "full_description": "Deporvillage è il punto di riferimento per gli appassionati di sport outdoor in Italia, Spagna e Francia. Con oltre 100.000 articoli a catalogo, si distingue per la straordinaria profondità di gamma negli accessori per ciclismo, smartwatch e cardiofrequenzimetri Garmin e Polar, occhiali sportivi Oakley e integratori dei migliori brand mondiali.",
+                "badges": ["Specialista Ciclismo & Outdoor", "90k+ Recensioni Verificate", "Reso 365 Giorni", "Garmin & Oakley Partner"],
+                "highlights": ["Catalogo Accessori N.1", "Reso Esteso 365 Giorni", "Spedizione Tracciata 24/48h"],
+                "location": "Hub Logistico: Barcellona (Spagna) con spedizione rapida in Italia",
+                "shipping_info": "Spedizione standard 4,99 € • Gratuita in tutta Italia per ordini superiori a 80,00 €",
+                "shipping_rule": {"standard": 4.99, "free_threshold": 80.0, "label": "Gratis da 80 €", "courier": "GLS / DPD"},
+                "return_policy": "Fino a 365 giorni per reso o sostituzione",
+                "rating_breakdown": {
+                    "score": 4.3,
+                    "positive_pct": "91%",
+                    "review_count": "92.500+",
+                    "platform": "Trustpilot Verified Reviews"
+                }
+            },
+            "alltricks": {
+                "name": "Alltricks",
+                "base_url": "https://www.alltricks.it",
+                "rating": "4.4",
+                "review_count": "45.8k recensioni",
+                "description": "Gigante europeo di ciclismo, trail, elettronica Garmin e attrezzatura fitness (Gruppo Decathlon).",
+                "full_description": "Fondata da ciclisti ed entrata a far parte della galassia Decathlon, Alltricks è la mecca europea per chi cerca componenti, ciclocomputer, caschi ad alta protezione, accessori per il recupero muscolare come pistole massaggianti Theragun e abbigliamento trail d'alta quota, garantendo spedizioni rapide con corriere espresso.",
+                "badges": ["Gruppo Decathlon", "Spedizione Bartolini 24/48h", "Prezzo Minimo Garantito", "Reso Facile 60 Giorni"],
+                "highlights": ["Garanzia Gruppo Decathlon", "Spedizione Rapida Bartolini", "Esperti Ciclismo & Fitness"],
+                "location": "Piattaforma Logistica Europea: Châteaudun (Francia) con consegna diretta Italia",
+                "shipping_info": "Spedizione standard 4,99 € • Gratuita con Bartolini per ordini a partire da 69,00 €",
+                "shipping_rule": {"standard": 4.99, "free_threshold": 69.0, "label": "Gratis da 69 €", "courier": "Bartolini (BRT)"},
+                "return_policy": "Fino a 60 giorni per il reso (100 giorni con Alltricks+)",
+                "rating_breakdown": {
+                    "score": 4.4,
+                    "positive_pct": "92%",
+                    "review_count": "45.800+",
+                    "platform": "Trustpilot / Avis Vérifiés"
                 }
             }
         }

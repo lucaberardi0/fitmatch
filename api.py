@@ -78,13 +78,15 @@ def get_catalog_stats():
 
 @app.get("/api/catalog")
 def search_local_catalog(
-    q: str = Query("", description="Keywords to filter indexed products (e.g. 'nike', 'asics', 'donna')"),
+    q: str = Query("", description="Keywords to filter indexed products (e.g. 'nike', 'asics', 'garmin', 'oakley')"),
+    category: Optional[str] = Query(None, description="Category filter (e.g. 'gps_watch', 'eyewear', 'hydration', 'fitness', 'nutrition', 'running_shoes')"),
     limit: int = Query(25, ge=1, le=100)
 ):
     """Sub-millisecond query directly on the pre-indexed database catalog."""
     return {
         "query": q,
-        "results": db.search_indexed(query=q, limit=limit)
+        "category": category,
+        "results": db.search_indexed(query=q, category=category, limit=limit)
     }
 
 

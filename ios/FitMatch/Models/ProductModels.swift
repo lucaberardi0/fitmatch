@@ -29,12 +29,15 @@ struct Offer: Identifiable, Codable, Hashable {
         let s = store_id.lowercased()
         let threshold = (s.contains("cisalfa") || s.contains("maxi")) ? 99.0 :
                         s.contains("nencini") ? 100.0 :
+                        s.contains("depor") ? 80.0 :
                         s.contains("top4") ? 75.0 :
+                        s.contains("alltricks") ? 69.0 :
                         s.contains("warehouse") ? 59.0 : 49.0
         let standard = s.contains("cisalfa") ? 9.90 :
                        s.contains("maxi") ? 7.90 :
                        s.contains("warehouse") ? 10.00 :
-                       s.contains("nencini") ? 5.90 : 4.90
+                       s.contains("nencini") ? 5.90 :
+                       (s.contains("alltricks") || s.contains("depor")) ? 4.99 : 4.90
         return price >= threshold ? 0.0 : standard
     }
 

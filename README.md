@@ -4,14 +4,28 @@ Motore di scraping multi-store e comparazione prezzi in tempo reale specializzat
 
 ---
 
-## 🎯 Negozi Integrati nel Prototipo
+## 🎯 Negozi Integrati nel Prototipo (8 Partner Stores)
 
 1. **Cisalfa Sport** (`cisalfasport.it`): Leader retail in Italia (architettura Salesforce Commerce Cloud).
-2. **Maxi Sport** (`maxisport.com`): Grande specialista sneaker e running (architettura Magento).
+2. **Maxi Sport** (`maxisport.com`): Grande specialista sneaker, running e sportswear (architettura Magento).
 3. **Mister Running** (`misterrunning.com`): E-commerce specializzato #1 in Italia nella corsa (API REST Clerk ultra-rapida).
 4. **Nencini Sport** (`nencinisport.it`): Storica catena sportiva multi-marca (session warmup con CSRF e attributi GTM).
 5. **Top4Running** (`top4running.it`): Gigante europeo specializzato nella corsa (API Luigi's Box ad alte prestazioni).
 6. **Running Warehouse Europe** (`runningwarehouse.eu`): Store globale leader nel running (prezzi EUR con IVA italiana e catalogo GTM).
+7. **Deporvillage** (`deporvillage.it`): Leader Sud Europa in outdoor, ciclismo, elettronica Garmin/Polar, occhiali tecnici Oakley e nutrizione (API Algolia ad alta velocità).
+8. **Alltricks** (`alltricks.it` — Gruppo Decathlon): Gigante europeo per ciclismo, trail, GPS, caschi, recupero e fitness gear (API Constructor.io).
+
+---
+
+## 🎒 Categorie di Prodotti & Accessori Coperte
+
+* 👟 **Scarpe & Sneakers**: Running su asfalto, trail running, gara/piastra in carbonio, daily trainer, camminata.
+* ⌚ **Smartwatch & GPS**: Garmin (Forerunner, Fenix, Edge), Polar, Suunto, ciclocomputer, fasce cardio HRM.
+* 🎒 **Zaini & Idratazione**: Gilet trail running Salomon (Active Skin, ADV Skin), CamelBak, borracce soft flask.
+* 🕶️ **Ottica & Occhiali Tecnici**: Oakley (Radar EV, Sutro, Jawbreaker), Bliz, Rudy Project, lenti fotocromatiche/Prizm.
+* 🏋️ **Fitness & Recupero Muscolare**: Pistole massaggianti a percussione Theragun/Therabody, rulli, elastici, loop bands.
+* ⚡ **Nutrizione Sportiva**: Gel energetici, barrette proteiche, sali minerali e carboidrati (Enervit, SiS, Maurten).
+* 🚴 **Ciclismo & Attrezzatura**: Caschi (POC, Abus, Kask), borse bici, accessori padel e tennis.
 
 ---
 
@@ -49,19 +63,26 @@ Esegue una ricerca istantanea su tutti i 4 negozi contemporaneamente:
 python3 cli.py demo
 ```
 
-### 2. Ricerca di Qualsiasi Prodotto
+### 2. Ricerca di Qualsiasi Prodotto o Accessorio
 ```bash
-# Esempi con scarpe da running
+# Scarpe da running
 python3 cli.py search "nike pegasus"
 python3 cli.py search "asics nimbus"
-python3 cli.py search "brooks ghost"
-python3 cli.py search "hoka clifton"
 
-# Limita il numero di risultati per negozio
-python3 cli.py search "adidas ultraboost" --limit 5
+# Smartwatch, GPS & Ciclocomputer
+python3 cli.py search "garmin edge"
+python3 cli.py search "polar vantage"
 
-# Output in formato JSON strutturato
-python3 cli.py search "nike pegasus" --json
+# Occhiali sportivi & Zaini idratazione
+python3 cli.py search "oakley radar"
+python3 cli.py search "salomon active skin"
+
+# Attrezzatura fitness, recupero e nutrizione
+python3 cli.py search "theragun"
+python3 cli.py search "enervit gel"
+
+# Limita il numero di risultati per negozio o output in JSON strutturato
+python3 cli.py search "garmin" --limit 3 --json
 ```
 
 ### 3. Avvio Server API REST (per collegare Frontend o Mobile App)

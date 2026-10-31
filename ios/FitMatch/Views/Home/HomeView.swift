@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @StateObject private var api = APIService.shared
     @State private var searchText = "Nike Pegasus"
+    @State private var selectedCategoryId: String = "all"
     @State private var selectedSize: String? = nil
     @State private var selectedStoreFilter: String? = nil
     @State private var products: [MatchedProduct] = []
@@ -12,16 +13,36 @@ struct HomeView: View {
     @State private var errorMessage: String? = nil
 
     private let availableSizes = ["Tutte", "40", "41", "42", "42.5", "43", "44", "44.5", "45", "46"]
-    private let quickSearches = ["Tutti", "Nike Pegasus", "Asics Nimbus", "Hoka Clifton", "Brooks Ghost", "Saucony Triumph", "Trail GTX"]
+    private let quickSearches = ["Tutti", "Garmin", "Oakley", "Salomon Gilet", "Theragun", "Enervit", "Nike Pegasus", "Asics Nimbus"]
 
-    // The 6 verified partner stores
+    struct GearCategory: Identifiable {
+        let id: String
+        let name: String
+        let icon: String
+        let query: String
+    }
+
+    private let categories: [GearCategory] = [
+        GearCategory(id: "all", name: "Tutto", icon: "sparkles", query: "Nike"),
+        GearCategory(id: "shoes", name: "Scarpe", icon: "shoeprints.fill", query: "Nike Pegasus"),
+        GearCategory(id: "gps", name: "GPS & Orologi", icon: "applewatch", query: "Garmin"),
+        GearCategory(id: "trail", name: "Zaini & Trail", icon: "backpack.fill", query: "Salomon Active Skin"),
+        GearCategory(id: "eyewear", name: "Occhiali", icon: "eyeglasses", query: "Oakley"),
+        GearCategory(id: "fitness", name: "Fitness & Recupero", icon: "dumbbell.fill", query: "Theragun"),
+        GearCategory(id: "nutrition", name: "Nutrizione", icon: "bolt.fill", query: "Enervit"),
+        GearCategory(id: "gear", name: "Ciclismo & Padel", icon: "bicycle", query: "Casco")
+    ]
+
+    // The 8 verified partner stores
     private let partnerStores: [(name: String, color: Color, initials: String, rating: String)] = [
         ("Cisalfa Sport", Color(red: 227/255, green: 28/255, blue: 37/255), "CS", "4.8"),
         ("Maxi Sport", Color(red: 245/255, green: 130/255, blue: 32/255), "MS", "4.9"),
         ("Mister Running", Color(red: 0/255, green: 114/255, blue: 206/255), "MR", "4.9"),
         ("Nencini Sport", Color(red: 0/255, green: 140/255, blue: 70/255), "NS", "4.7"),
         ("Top4Running", Color(red: 0/255, green: 185/255, blue: 241/255), "T4", "4.8"),
-        ("Running Warehouse", Color(red: 10/255, green: 55/255, blue: 140/255), "RW", "4.9")
+        ("Running Warehouse", Color(red: 10/255, green: 55/255, blue: 140/255), "RW", "4.9"),
+        ("Deporvillage", Color(red: 232/255, green: 67/255, blue: 17/255), "DV", "4.3"),
+        ("Alltricks", Color(red: 0/255, green: 163/255, blue: 224/255), "AT", "4.4")
     ]
 
     private let columns = [
@@ -87,7 +108,7 @@ struct HomeView: View {
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(.shopTextMuted)
 
-                        TextField("Cerca scarpe, brand o modello...", text: $searchText)
+                        TextField("Cerca scarpe, GPS, occhiali, accessori...", text: $searchText)
                             .font(.system(size: 15))
                             .foregroundColor(.shopDark)
                             .onSubmit {
@@ -114,7 +135,40 @@ struct HomeView: View {
                     )
                     .padding(.horizontal, 16)
 
-                    // 3. Verified Partner Retailers Carousel (6 Stores)
+                    // 2.1 Sports Gear Categories Carousel
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(categories) { cat in
+                                let isSelected = (selectedCategoryId == cat.id)
+                                Button(action: {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        selectedCategoryId = cat.id
+                                        searchText = cat.query
+                                        performSearch()
+                                    }
+                                }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: cat.icon)
+                                            .font(.system(size: 11, weight: .semibold))
+                                        Text(cat.name)
+                                            .font(.system(size: 12, weight: isSelected ? .bold : .medium, design: .rounded))
+                                    }
+                                    .foregroundColor(isSelected ? .white : .shopDark)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(isSelected ? Color.shopDark : Color.shopSurface)
+                                    .cornerRadius(18)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 18)
+                                            .stroke(isSelected ? Color.shopDark : Color.shopBorder, lineWidth: 1)
+                                    )
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+
+                    // 3. Verified Partner Retailers Carousel (8 Stores)
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text("NEGOZI VERIFICATI (\(partnerStores.count))")
@@ -276,7 +330,7 @@ struct HomeView: View {
                             ProgressView()
                                 .tint(.shopPurple)
                                 .scaleEffect(1.2)
-                            Text("Scansione simultanea sui 6 store partner...")
+                            Text("Scansione simultanea sugli 8 store partner...")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.shopTextMuted)
                         }
