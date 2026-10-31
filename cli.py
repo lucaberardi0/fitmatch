@@ -127,7 +127,7 @@ def main():
 
     elif args.command == "index":
         print_banner()
-        print(f"{CYAN}Avvio indicizzazione categorie running su tutti i 4 negozi (Target: {args.limit} per negozio)...{RESET}\n")
+        print(f"{CYAN}Avvio indicizzazione categorie running su tutti i 6 negozi (Target: {args.limit} per negozio)...{RESET}\n")
         crawler = CategoryCrawler(db=db)
         sync_res = crawler.run_full_sync(limit_per_store=args.limit)
         print(f"\n{BOLD}{GREEN}✓ Indicizzazione completata con successo in {sync_res['duration_seconds']}s!{RESET}")
