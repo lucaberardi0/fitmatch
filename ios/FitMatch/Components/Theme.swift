@@ -20,6 +20,17 @@ struct ShopStoreLogo: View {
     var showLabel: Bool = true
     var size: CGFloat = 16
 
+    var assetName: String? {
+        let s = storeName.lowercased()
+        if s.contains("cisalfa") { return "store_cisalfa" }
+        if s.contains("maxi") { return "store_maxisport" }
+        if s.contains("mister") { return "store_misterrunning" }
+        if s.contains("nencini") { return "store_nencini" }
+        if s.contains("top4") { return "store_top4running" }
+        if s.contains("running warehouse") || s.contains("warehouse") { return "store_runningwarehouse" }
+        return nil
+    }
+
     var initials: String {
         let s = storeName.lowercased()
         if s.contains("cisalfa") { return "CS" }
@@ -46,12 +57,28 @@ struct ShopStoreLogo: View {
         HStack(spacing: 5) {
             ZStack {
                 Circle()
-                    .fill(brandColor)
+                    .fill(Color.white)
                     .frame(width: size, height: size)
+                    .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: 1)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.shopBorder, lineWidth: 0.8)
+                    )
 
-                Text(initials)
-                    .font(.system(size: size * 0.42, weight: .black, design: .rounded))
-                    .foregroundColor(.white)
+                if let asset = assetName, let uiImage = UIImage(named: asset) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: size * 0.84, height: size * 0.84)
+                        .clipShape(Circle())
+                } else {
+                    Circle()
+                        .fill(brandColor)
+                        .frame(width: size, height: size)
+                    Text(initials)
+                        .font(.system(size: size * 0.42, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                }
             }
 
             if showLabel {

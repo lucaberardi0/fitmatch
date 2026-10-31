@@ -274,3 +274,125 @@ class Database:
                 })
 
             return result
+
+    def get_store_details(self, store_id: str, query: str = "", sort: str = "discount", limit: int = 100) -> Optional[Dict[str, Any]]:
+        """Return full merchant details, trust badges, stats, and indexed catalog for a store."""
+        metadata = {
+            "cisalfa": {
+                "name": "Cisalfa Sport",
+                "base_url": "https://www.cisalfasport.it",
+                "rating": "4.8",
+                "review_count": "18.2k recensioni",
+                "description": "Leader italiano nella vendita di abbigliamento, calzature e attrezzature sportive dei migliori marchi mondiali.",
+                "badges": ["Rivenditore Ufficiale", "Spedizione Rapida", "Reso 30 Giorni", "Garanzia Italia"]
+            },
+            "maxisport": {
+                "name": "Maxi Sport",
+                "base_url": "https://www.maxisport.com",
+                "rating": "4.9",
+                "review_count": "24.5k recensioni",
+                "description": "Oltre 30 anni di passione sport & street style con le ultime novità running, trail e moda sportswear.",
+                "badges": ["Spedizione Rapida", "Reso Gratuito", "Rivenditore Autorizzato", "Assistenza Dedicata"]
+            },
+            "misterrunning": {
+                "name": "Mister Running",
+                "base_url": "https://www.misterrunning.com",
+                "rating": "4.9",
+                "review_count": "15.1k recensioni",
+                "description": "Lo specialista online del running con la più vasta gamma di scarpe tecniche, abbigliamento e accessori.",
+                "badges": ["Spedizione 24/48h", "Prezzo Minimo Garantito", "Reso 14 Giorni", "100% Originale"]
+            },
+            "nencini": {
+                "name": "Nencini Sport",
+                "base_url": "https://www.nencinisport.it",
+                "rating": "4.7",
+                "review_count": "9.8k recensioni",
+                "description": "Punto di riferimento toscano e online per lo sport con offerte esclusive outlet e migliori marche.",
+                "badges": ["Outlet & Novità", "Consegna Espressa", "Pagamenti Sicuri", "Garanzia Ufficiale"]
+            },
+            "top4running": {
+                "name": "Top4Running",
+                "base_url": "https://top4running.it",
+                "rating": "4.8",
+                "review_count": "11.3k recensioni",
+                "description": "La destinazione europea per runner, atleti da pista e maratoneti con scarpe racing d'élite.",
+                "badges": ["Top Club Sconti", "Scarpe da Gara", "Reso 30 Giorni", "Spedizione Veloce"]
+            },
+            "runningwarehouse": {
+                "name": "Running Warehouse Europe",
+                "base_url": "https://www.runningwarehouse.eu",
+                "rating": "4.9",
+                "review_count": "32.0k recensioni",
+                "description": "Il colosso globale del running con la selezione tecnica più approfondita per maratona, trail e ultra.",
+                "badges": ["Catalogo Globale", "Consulenza Tecnica", "Reso 60 Giorni", "Stock Certificato"]
+            }
+        }
+
+        sid = store_id.lower().strip()
+        info = metadata.get(sid)
+        if not info:
+            # Fallback for unrecognized store id
+            info = {
+                "name": store_id.capitalize(),
+                "base_url": "",
+                "rating": "4.8",
+                "review_count": "10k+ recensioni",
+                "description": "Rivenditore partner verificato con offerte esclusive e catalogo sportivo.",
+                "badges": ["Rivenditore Verificato", "Spedizione Rapida", "Pagamenti Sicuri"]
+            }
+
+        with self.get_connection() as conn:
+            stat_row = conn.execute("""
+                SELECT COUNT(*), AVG(discount_pct), MIN(current_price)
+                FROM store_offers
+                WHERE store_id = ?
+            """, (sid,)).fetchone()
+
+            total_offers = stat_row[0] if stat_row else 0
+            avg_discount = round(stat_row[1] or 0, 1) if stat_row else 0.0
+            min_price = round(stat_row[2] or 0, 2) if stat_row else 0.0
+
+            # Order by mapping
+            order_by = "o.discount_pct DESC, o.current_price ASC"
+            if sort == "price_asc":
+                order_by = "o.current_price ASC"
+            elif sort == "price_desc":
+                order_by = "o.current_price DESC"
+            elif sort == "name":
+                order_by = "p.canonical_name ASC"
+
+            words = query.strip().lower().split()
+            where_clauses = ["o.store_id = ?"]
+            params = [sid]
+
+            for w in words:
+                where_clauses.append("(LOWER(o.raw_title) LIKE ? OR LOWER(COALESCE(p.brand, '')) LIKE ? OR LOWER(p.canonical_name) LIKE ?)")
+                params.extend([f"%{w}%", f"%{w}%", f"%{w}%"])
+
+            where_sql = " AND ".join(where_clauses)
+            sql = f"""
+                SELECT o.id, o.raw_title as title, p.brand, COALESCE(o.image_url, p.image_url) as image_url,
+                       o.current_price, o.original_price, o.discount_pct, o.product_url, p.canonical_name,
+                       p.id as product_id
+                FROM store_offers o
+                JOIN products p ON o.product_id = p.id
+                WHERE {where_sql} AND o.image_url IS NOT NULL AND o.image_url != ''
+                ORDER BY {order_by}
+                LIMIT ?
+            """
+            params.append(limit)
+            prods = [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+            return {
+                "store_id": sid,
+                "store_name": info["name"],
+                "base_url": info["base_url"],
+                "rating": info["rating"],
+                "review_count": info["review_count"],
+                "description": info["description"],
+                "badges": info["badges"],
+                "total_offers": total_offers,
+                "avg_discount": avg_discount,
+                "min_price": min_price,
+                "products": prods
+            }

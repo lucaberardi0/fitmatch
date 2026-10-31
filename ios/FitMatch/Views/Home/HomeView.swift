@@ -143,15 +143,7 @@ struct HomeView: View {
                                         }
                                     }) {
                                         HStack(spacing: 8) {
-                                            ZStack {
-                                                Circle()
-                                                    .fill(store.color)
-                                                    .frame(width: 28, height: 28)
-
-                                                Text(store.initials)
-                                                    .font(.system(size: 11, weight: .black, design: .rounded))
-                                                    .foregroundColor(.white)
-                                            }
+                                            ShopStoreLogo(storeName: store.name, showVerified: false, showLabel: false, size: 28)
 
                                             VStack(alignment: .leading, spacing: 1) {
                                                 HStack(spacing: 3) {

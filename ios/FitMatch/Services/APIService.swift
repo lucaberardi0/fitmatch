@@ -66,4 +66,23 @@ class APIService: ObservableObject {
         let decoded = try JSONDecoder().decode(StoreShowcaseResponse.self, from: data)
         return decoded.showcases
     }
+
+    func getStoreDetails(storeId: String, query: String = "", sort: String = "discount") async throws -> StoreDetailResponse {
+        var components = URLComponents(string: "\(baseURL)/api/stores/\(storeId)")!
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "sort", value: sort),
+            URLQueryItem(name: "limit", value: "100")
+        ]
+        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: query))
+        }
+        components.queryItems = queryItems
+
+        guard let url = components.url else { throw URLError(.badURL) }
+        let (data, response) = try await session.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(StoreDetailResponse.self, from: data)
+    }
 }

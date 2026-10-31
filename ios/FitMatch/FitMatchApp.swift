@@ -9,7 +9,13 @@ struct FitMatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
+            if ProcessInfo.processInfo.arguments.contains("-testStoreDetail") {
+                NavigationStack {
+                    StoreDetailView(storeId: "misterrunning", initialStoreName: "Mister Running")
+                }
+            } else {
+                MainTabView()
+            }
         }
     }
 }

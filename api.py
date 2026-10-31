@@ -56,6 +56,20 @@ def get_store_showcases(limit: int = Query(6, ge=1, le=20)):
     }
 
 
+@app.get("/api/stores/{store_id}")
+def get_store_details(
+    store_id: str,
+    q: str = Query("", description="Keywords to search within this store"),
+    sort: str = Query("discount", regex="^(discount|price_asc|price_desc|name)$"),
+    limit: int = Query(100, ge=1, le=200)
+):
+    """Retrieve full store profile, trust badges, stats, and catalog of products for a dedicated store screen."""
+    details = db.get_store_details(store_id=store_id, query=q, sort=sort, limit=limit)
+    if not details:
+        raise HTTPException(status_code=404, detail="Store not found")
+    return details
+
+
 @app.get("/api/stats")
 def get_catalog_stats():
     """Retrieve indexed database overview statistics and price gap metrics."""

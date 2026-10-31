@@ -6,32 +6,35 @@ struct StoreShowcaseCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // 1. Store Header (Shop Merchant Style)
+            // 1. Store Header (Shop Merchant Style) - Tap to Open Dedicated Store View
             HStack(spacing: 12) {
-                // Store Avatar
-                ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 38)
+                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
+                    HStack(spacing: 12) {
+                        // Store Avatar with Official Logo
+                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 38)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Text(showcase.store_name)
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopDark)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 4) {
+                                Text(showcase.store_name)
+                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                                    .foregroundColor(.shopDark)
 
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.shopPurple)
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.shopPurple)
+                            }
+
+                            Text("★ \(showcase.rating) • \(showcase.total_offers) articoli • Sconti fino a -\(String(format: "%.0f", showcase.avg_discount))%")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.shopTextMuted)
+                        }
                     }
-
-                    Text("★ \(showcase.rating) • \(showcase.total_offers) articoli • Sconti fino a -\(String(format: "%.0f", showcase.avg_discount))%")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.shopTextMuted)
                 }
+                .buttonStyle(PlainButtonStyle())
 
                 Spacer()
 
-                Button(action: {
-                    onSelectStore(showcase.store_name)
-                }) {
+                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
                     HStack(spacing: 3) {
                         Text("Vedi tutto")
                             .font(.system(size: 12.5, weight: .bold))
@@ -44,6 +47,7 @@ struct StoreShowcaseCard: View {
                     .background(Color.shopPurpleLight)
                     .cornerRadius(12)
                 }
+                .buttonStyle(PlainButtonStyle())
             }
 
             Divider()
