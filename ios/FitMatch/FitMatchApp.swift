@@ -13,6 +13,8 @@ struct FitMatchApp: App {
                 NavigationStack {
                     StoreDetailView(storeId: "misterrunning", initialStoreName: "Mister Running")
                 }
+            } else if ProcessInfo.processInfo.arguments.contains("-testAccount") {
+                AccountView()
             } else {
                 MainTabView()
             }

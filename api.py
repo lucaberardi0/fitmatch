@@ -5,12 +5,13 @@ from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.crawler import CategoryCrawler
 from fitmatch.ai_advisor import AIShoppingAdvisor
+from fitmatch.updater import PriceUpdater
 from fitmatch.models import SearchResult
 
 app = FastAPI(
     title="FitMatch API",
     description="Multi-store Sportswear Scraping & Price Comparison Engine",
-    version="0.1.0"
+    version="0.2.0"
 )
 
 # Enable CORS for frontend integration (Next.js, mobile apps, etc.)
@@ -24,9 +25,16 @@ app.add_middleware(
 
 service = ComparisonService()
 db = Database()
+updater = PriceUpdater.get_instance()
 
 
 advisor = AIShoppingAdvisor(service=service, db=db)
+
+
+@app.on_event("startup")
+def on_startup():
+    # Start background price refresh daemon (every 4 hours)
+    updater.start_scheduler(interval_seconds=14400)
 
 
 @app.get("/health")
@@ -124,6 +132,27 @@ def trigger_crawl(
     return {
         "message": "Crawl job scheduled in background",
         "target_per_store": limit_per_store
+    }
+
+
+@app.get("/api/updater/status")
+def get_updater_status():
+    """Retrieve real-time status of the automated background price updater."""
+    return updater.get_status()
+
+
+@app.post("/api/updater/run")
+def trigger_updater(
+    background_tasks: BackgroundTasks,
+    limit: int = Query(25, ge=5, le=100)
+):
+    """Trigger an on-demand price refresh across stores for indexed products."""
+    if updater.is_running:
+        return {"status": "busy", "message": "Aggiornamento prezzi già in corso in background."}
+    background_tasks.add_task(updater.run_update_sync, limit)
+    return {
+        "status": "scheduled",
+        "message": f"Aggiornamento prezzi avviato in background per {limit} prodotti."
     }
 
 

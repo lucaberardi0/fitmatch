@@ -7,6 +7,7 @@ from fitmatch.scrapers.top4running import Top4RunningScraper
 from fitmatch.scrapers.runningwarehouse import RunningWarehouseScraper
 from fitmatch.scrapers.deporvillage import DeporvillageScraper
 from fitmatch.scrapers.alltricks import AlltricksScraper
+from fitmatch.scrapers.decathlon import DecathlonScraper
 
 __all__ = [
     "BaseScraper",
@@ -17,5 +18,6 @@ __all__ = [
     "Top4RunningScraper",
     "RunningWarehouseScraper",
     "DeporvillageScraper",
-    "AlltricksScraper"
+    "AlltricksScraper",
+    "DecathlonScraper"
 ]

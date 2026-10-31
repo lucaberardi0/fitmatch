@@ -14,6 +14,7 @@ from fitmatch.scrapers.top4running import Top4RunningScraper
 from fitmatch.scrapers.runningwarehouse import RunningWarehouseScraper
 from fitmatch.scrapers.deporvillage import DeporvillageScraper
 from fitmatch.scrapers.alltricks import AlltricksScraper
+from fitmatch.scrapers.decathlon import DecathlonScraper
 
 logger = logging.getLogger("fitmatch.crawler")
 
@@ -32,6 +33,7 @@ class CategoryCrawler:
         self.runningwarehouse = RunningWarehouseScraper()
         self.deporvillage = DeporvillageScraper()
         self.alltricks = AlltricksScraper()
+        self.decathlon = DecathlonScraper()
 
     def crawl_cisalfa(self, max_items: int = 150) -> int:
         """Crawl Cisalfa running catalog with pagination (?start=0, 36, 72...)."""
@@ -624,8 +626,48 @@ class CategoryCrawler:
         logger.info(f"[Alltricks] Indexed {total_indexed} products.")
         return total_indexed
 
+    def crawl_decathlon(self, max_items: int = 150) -> int:
+        """Crawl Decathlon Italy catalog across top sports and running gear."""
+        logger.info(f"[Decathlon] Starting catalog crawl (target: {max_items} items)...")
+        total_indexed = 0
+        queries = [
+            "scarpe running", "garmin forerunner", "asics novablast", "nike pegasus",
+            "salomon speedcross", "hoka clifton", "polar vantage", "trail running"
+        ]
+
+        for q in queries:
+            if total_indexed >= max_items:
+                break
+            offers = self.decathlon.search(query=q, limit=min(max_items - total_indexed, 25))
+            for offer in offers:
+                try:
+                    cluster_key = self.normalizer.extract_cluster_key(offer)
+                    canonical_base, _ = self.normalizer.clean_title(offer.title)
+                    gender = self.normalizer.extract_gender(offer.title, offer.url)
+                    brand = offer.brand or self.normalizer.extract_brand(offer.title)
+                    canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
+                    category = self._detect_category(offer.title)
+
+                    self.db.upsert_product_and_offer(
+                        cluster_key=cluster_key,
+                        canonical_name=canonical,
+                        brand=brand,
+                        category=category,
+                        gender=gender,
+                        offer=offer
+                    )
+                    total_indexed += 1
+                    if total_indexed >= max_items:
+                        break
+                except Exception as e:
+                    logger.debug(f"[Decathlon] Upsert skip: {e}")
+                    continue
+
+        logger.info(f"[Decathlon] Indexed {total_indexed} products.")
+        return total_indexed
+
     def run_full_sync(self, limit_per_store: int = 150) -> Dict[str, Any]:
-        """Run crawling across all 8 stores and populate the database."""
+        """Run crawling across all 9 stores and populate the database."""
         start_time = time.time()
         counts = {}
 
@@ -637,6 +679,7 @@ class CategoryCrawler:
         counts["runningwarehouse"] = self.crawl_runningwarehouse(max_items=limit_per_store)
         counts["deporvillage"] = self.crawl_deporvillage(max_items=limit_per_store)
         counts["alltricks"] = self.crawl_alltricks(max_items=limit_per_store)
+        counts["decathlon"] = self.crawl_decathlon(max_items=limit_per_store)
 
         elapsed = round(time.time() - start_time, 2)
         stats = self.db.get_stats()

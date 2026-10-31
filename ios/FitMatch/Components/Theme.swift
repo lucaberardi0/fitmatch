@@ -36,6 +36,7 @@ struct ShopStoreLogo: View {
         if s.contains("running warehouse") || s.contains("warehouse") { return "store_runningwarehouse" }
         if s.contains("deporvillage") || s.contains("depor") { return "store_deporvillage" }
         if s.contains("alltricks") { return "store_alltricks" }
+        if s.contains("decathlon") { return "store_decathlon" }
         return nil
     }
 
@@ -51,6 +52,7 @@ struct ShopStoreLogo: View {
         if s.contains("running warehouse") || s.contains("warehouse") { return "RW" }
         if s.contains("deporvillage") || s.contains("depor") { return "DV" }
         if s.contains("alltricks") { return "AT" }
+        if s.contains("decathlon") { return "DC" }
         return "FM"
     }
 
@@ -64,6 +66,7 @@ struct ShopStoreLogo: View {
         if s.contains("running warehouse") || s.contains("warehouse") { return Color(red: 10/255, green: 55/255, blue: 140/255) }
         if s.contains("deporvillage") || s.contains("depor") { return Color(red: 232/255, green: 67/255, blue: 17/255) }
         if s.contains("alltricks") { return Color(red: 0/255, green: 163/255, blue: 224/255) }
+        if s.contains("decathlon") { return Color(red: 0/255, green: 130/255, blue: 200/255) }
         return .shopPurple
     }
 

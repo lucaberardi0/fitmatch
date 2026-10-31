@@ -7,6 +7,7 @@ struct HomeView: View {
     @State private var isLoading = false
     @State private var showingNotificationsAlert = false
     @State private var showingFollowedStoresSheet = false
+    @State private var showingAccountSheet = false
 
     // Real database products for "Riprendi da dove hai lasciato" (takes top offer from each real store showcase)
     private var recentProducts: [(product: StoreShowcaseProduct, storeId: String, storeName: String)] {
@@ -192,6 +193,9 @@ struct HomeView: View {
             .sheet(isPresented: $showingFollowedStoresSheet) {
                 FollowedStoresSheet()
             }
+            .sheet(isPresented: $showingAccountSheet) {
+                AccountView()
+            }
         }
     }
 
@@ -199,7 +203,7 @@ struct HomeView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 // Profile Button
-                Button(action: { }) {
+                Button(action: { showingAccountSheet = true }) {
                     Image(systemName: "person.fill")
                         .font(.system(size: 15))
                         .foregroundColor(.shopDark)
@@ -611,7 +615,8 @@ struct FollowedStoresSheet: View {
         ("top4running", "Top4Running", "4.8"),
         ("runningwarehouse", "Running Warehouse", "4.9"),
         ("deporvillage", "Deporvillage", "4.3"),
-        ("alltricks", "Alltricks", "4.4")
+        ("alltricks", "Alltricks", "4.4"),
+        ("decathlon", "Decathlon", "4.8")
     ]
 
     var body: some View {
