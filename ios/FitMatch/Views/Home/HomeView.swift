@@ -87,14 +87,30 @@ struct HomeView: View {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 12) {
                                     if recentProducts.isEmpty {
-                                        ForEach(0..<4, id: \.self) { _ in
-                                            RoundedRectangle(cornerRadius: 20)
-                                                .fill(Color(white: 0.16))
+                                        if isLoading {
+                                            ForEach(0..<4, id: \.self) { _ in
+                                                RoundedRectangle(cornerRadius: 20)
+                                                    .fill(Color(white: 0.16))
+                                                    .frame(width: 146, height: 160)
+                                                    .overlay(
+                                                        ProgressView()
+                                                            .tint(.white)
+                                                    )
+                                            }
+                                        } else {
+                                            Button(action: { fetchShowcases() }) {
+                                                VStack(spacing: 8) {
+                                                    Image(systemName: "arrow.clockwise")
+                                                        .font(.system(size: 20, weight: .bold))
+                                                    Text("Tocca per caricare")
+                                                        .font(.system(size: 11, weight: .medium))
+                                                }
+                                                .foregroundColor(.white.opacity(0.8))
                                                 .frame(width: 146, height: 160)
-                                                .overlay(
-                                                    ProgressView()
-                                                        .tint(.white)
-                                                )
+                                                .background(Color(white: 0.16))
+                                                .cornerRadius(20)
+                                            }
+                                            .buttonStyle(.plain)
                                         }
                                     } else {
                                         ForEach(recentProducts, id: \.product.id) { item in
@@ -285,7 +301,7 @@ struct HomeView: View {
         }
     }
 
-    private func fetchShowcases() {
+    private func fetchShowcases(retries: Int = 2) {
         isLoading = true
         Task {
             do {
@@ -295,8 +311,13 @@ struct HomeView: View {
                     self.isLoading = false
                 }
             } catch {
-                await MainActor.run {
-                    self.isLoading = false
+                if retries > 0 {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    fetchShowcases(retries: retries - 1)
+                } else {
+                    await MainActor.run {
+                        self.isLoading = false
+                    }
                 }
             }
         }

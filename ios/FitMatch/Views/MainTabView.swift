@@ -4,7 +4,7 @@ struct MainTabView: View {
     @State private var selectedTab: Int
     @ObservedObject private var wishlist = WishlistManager.shared
 
-    init(initialTab: Int = 3) {
+    init(initialTab: Int = 0) {
         _selectedTab = State(initialValue: initialTab)
     }
 

@@ -680,9 +680,16 @@ struct SearchView: View {
                         self.isSmartSearchActive = false
                         self.isLoading = false
                     }
-                }
-                await MainActor.run {
-                    self.isLoading = false
+                } else if let live = try? await api.search(query: query, size: selectedSize), !live.isEmpty {
+                    await MainActor.run {
+                        self.searchResults = live
+                        self.isSmartSearchActive = false
+                        self.isLoading = false
+                    }
+                } else {
+                    await MainActor.run {
+                        self.isLoading = false
+                    }
                 }
             }
         }

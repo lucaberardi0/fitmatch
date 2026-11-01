@@ -32,6 +32,32 @@ class APIService: ObservableObject {
         return false
     }
 
+    /// Robust HTTP fetch with automatic retry to gracefully handle Render cold-starts or redeploy cutovers
+    private func fetchDataWithRetry(url: URL, maxRetries: Int = 2) async throws -> Data {
+        var lastError: Error?
+        for attempt in 0...maxRetries {
+            do {
+                let (data, response) = try await session.data(from: url)
+                if let http = response as? HTTPURLResponse {
+                    if (200...299).contains(http.statusCode) {
+                        return data
+                    } else if [502, 503, 504].contains(http.statusCode) && attempt < maxRetries {
+                        // Render waking up or deploying: wait and retry
+                        try? await Task.sleep(nanoseconds: 1_800_000_000)
+                        continue
+                    }
+                }
+                throw URLError(.badServerResponse)
+            } catch {
+                lastError = error
+                if attempt < maxRetries {
+                    try? await Task.sleep(nanoseconds: 1_800_000_000)
+                }
+            }
+        }
+        throw lastError ?? URLError(.unknown)
+    }
+
     func search(query: String, size: String? = nil) async throws -> [MatchedProduct] {
         var components = URLComponents(string: "\(baseURL)/api/search")!
         var queryItems = [URLQueryItem(name: "q", value: query)]
@@ -42,11 +68,7 @@ class APIService: ObservableObject {
 
         guard let url = components.url else { throw URLError(.badURL) }
 
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-
+        let data = try await fetchDataWithRetry(url: url)
         let decoded = try JSONDecoder().decode(SearchResponse.self, from: data)
         return decoded.matched_products
     }
@@ -75,10 +97,7 @@ class APIService: ObservableObject {
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
 
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        let data = try await fetchDataWithRetry(url: url)
         return try JSONDecoder().decode(SmartSearchResponse.self, from: data)
     }
 
@@ -88,11 +107,7 @@ class APIService: ObservableObject {
 
         guard let url = components.url else { throw URLError(.badURL) }
 
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-
+        let data = try await fetchDataWithRetry(url: url)
         return try JSONDecoder().decode(AIAdviceResponse.self, from: data)
     }
 
@@ -111,10 +126,7 @@ class APIService: ObservableObject {
         components.queryItems = queryItems
 
         guard let url = components.url else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        let data = try await fetchDataWithRetry(url: url)
         struct CatalogResultResponse: Decodable {
             let results: [MatchedProduct]
         }
@@ -124,19 +136,13 @@ class APIService: ObservableObject {
 
     func getStats() async throws -> CatalogStatsResponse {
         guard let url = URL(string: "\(baseURL)/api/stats") else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        let data = try await fetchDataWithRetry(url: url)
         return try JSONDecoder().decode(CatalogStatsResponse.self, from: data)
     }
 
     func getStoreShowcases() async throws -> [StoreShowcase] {
         guard let url = URL(string: "\(baseURL)/api/stores/showcase") else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        let data = try await fetchDataWithRetry(url: url)
         let decoded = try JSONDecoder().decode(StoreShowcaseResponse.self, from: data)
         return decoded.showcases
     }
@@ -153,10 +159,7 @@ class APIService: ObservableObject {
         components.queryItems = queryItems
 
         guard let url = components.url else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        let data = try await fetchDataWithRetry(url: url)
         return try JSONDecoder().decode(StoreDetailResponse.self, from: data)
     }
 
@@ -168,10 +171,7 @@ class APIService: ObservableObject {
             components.queryItems = [URLQueryItem(name: "collection", value: col)]
         }
         guard let url = components.url else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        let data = try await fetchDataWithRetry(url: url)
         let decoded = try JSONDecoder().decode(WishlistResponse.self, from: data)
         return decoded.items
     }
@@ -210,10 +210,7 @@ class APIService: ObservableObject {
 
     func getCollections() async throws -> [WishlistCollection] {
         guard let url = URL(string: "\(baseURL)/api/collections") else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        let data = try await fetchDataWithRetry(url: url)
         let decoded = try JSONDecoder().decode(CollectionsResponse.self, from: data)
         return decoded.collections
     }
