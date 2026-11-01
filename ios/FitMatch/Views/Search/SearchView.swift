@@ -105,6 +105,8 @@ struct SearchView: View {
             .navigationDestination(item: $selectedRecentProduct) { prod in
                 ProductDetailView(product: prod)
             }
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
             .navigationBarHidden(true)
             .task {
                 loadInitialTopSavings()
@@ -114,35 +116,37 @@ struct SearchView: View {
 
     // MARK: - SCREENSHOT 1: Search Typing & History View
     private var searchTypingHistoryView: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    // Header: "Continua ad acquistare ›" (Exact match to Screenshot 1)
-                    HStack(spacing: 6) {
-                        Text("Continua ad acquistare")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(Color(red: 100/255, green: 100/255, blue: 110/255))
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                        Spacer()
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                // Header pinned at top: "Continua ad acquistare ›" (Exact match to Screenshot 1)
+                HStack(spacing: 6) {
+                    Text("Continua ad acquistare")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(Color(red: 100/255, green: 100/255, blue: 110/255))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                    Spacer()
 
-                        if !recentManager.activities.isEmpty {
-                            Button(action: {
-                                withAnimation {
-                                    recentManager.clearAll()
-                                }
-                            }) {
-                                Text("Cancella")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
+                    if !recentManager.activities.isEmpty {
+                        Button(action: {
+                            withAnimation {
+                                recentManager.clearAll()
                             }
+                        }) {
+                            Text("Cancella")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
+                .background(Color.white)
 
-                    // Real User Recent Activity List (Searches & Viewed Products)
+                // Real User Recent Activity List (Searches & Viewed Products)
+                ScrollView(showsIndicators: false) {
                     if recentManager.activities.isEmpty {
                         VStack(spacing: 10) {
                             Image(systemName: "clock.arrow.circlepath")
@@ -226,9 +230,10 @@ struct SearchView: View {
                                 }
                             }
                         }
+                        .padding(.top, 4)
+                        .padding(.bottom, 150) // Space for bottom floating search bar and island dock
                     }
                 }
-                .padding(.bottom, 120) // Space for bottom input bar
             }
 
             // Floating Bottom Search Bar (Exact match to Screenshot 1)
