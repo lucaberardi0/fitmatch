@@ -32,6 +32,9 @@ class UserPreferencesManager: ObservableObject {
         if let encoded = try? JSONEncoder().encode(preferences) {
             UserDefaults.standard.set(encoded, forKey: storageKey)
         }
+        Task {
+            _ = try? await SupabaseManager.shared.saveUserPreferences(self.preferences)
+        }
     }
 
     func toggleSport(_ sport: String) {

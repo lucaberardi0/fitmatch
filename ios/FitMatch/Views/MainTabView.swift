@@ -14,15 +14,15 @@ struct MainTabView: View {
             Group {
                 switch selectedTab {
                 case 0:
-                    HomeView(selectedTab: $selectedTab)
+                    HomeView(selectedTab: $selectedTab, initialSubTab: .perTe)
                 case 1:
                     SearchView()
                 case 2:
-                    DealsView()
+                    HomeView(selectedTab: $selectedTab, initialSubTab: .offerte)
                 case 3:
                     WishlistView(selectedTab: $selectedTab)
                 default:
-                    HomeView(selectedTab: $selectedTab)
+                    HomeView(selectedTab: $selectedTab, initialSubTab: .perTe)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

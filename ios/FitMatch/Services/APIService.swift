@@ -181,10 +181,21 @@ class APIService: ObservableObject {
     }
 
     func getStoreShowcases() async throws -> [StoreShowcase] {
-        guard let url = URL(string: "\(baseURL)/api/stores/showcase") else { throw URLError(.badURL) }
-        let data = try await fetchDataWithRetry(url: url)
-        let decoded = try JSONDecoder().decode(StoreShowcaseResponse.self, from: data)
-        return decoded.showcases
+        // 1. Try backend API first with quick timeout
+        do {
+            if let url = URL(string: "\(baseURL)/api/stores/showcase") {
+                let data = try await fetchDataWithRetry(url: url, maxRetries: 1)
+                let decoded = try JSONDecoder().decode(StoreShowcaseResponse.self, from: data)
+                if !decoded.showcases.isEmpty {
+                    return decoded.showcases
+                }
+            }
+        } catch {
+            print("APIService showcase fetch note: \(error), checking Supabase direct...")
+        }
+
+        // 2. Direct Supabase Cloud database query (100% real products and stores)
+        return try await SupabaseManager.shared.fetchStoreShowcasesDirect()
     }
 
     func getStoreDetails(storeId: String, query: String = "", sort: String = "discount") async throws -> StoreDetailResponse {
@@ -281,6 +292,39 @@ class APIService: ObservableObject {
     func deleteCollection(name: String) async throws -> Bool {
         let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
         guard let url = URL(string: "\(baseURL)/api/collections/\(encoded)") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    // MARK: - Followed Stores API
+
+    func getFollowedStores() async throws -> [FollowedStoreItem] {
+        guard let url = URL(string: "\(baseURL)/api/followed_stores") else { throw URLError(.badURL) }
+        let (data, response) = try await session.data(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+        struct StoresResp: Codable {
+            let stores: [FollowedStoreItem]
+        }
+        return (try? JSONDecoder().decode(StoresResp.self, from: data))?.stores ?? []
+    }
+
+    func followStore(storeId: String, storeName: String, storeLogo: String? = nil) async throws -> Bool {
+        guard let url = URL(string: "\(baseURL)/api/followed_stores") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["store_id": storeId, "store_name": storeName]
+        if let logo = storeLogo { body["store_logo"] = logo }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    func unfollowStore(storeId: String) async throws -> Bool {
+        let encoded = storeId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? storeId
+        guard let url = URL(string: "\(baseURL)/api/followed_stores/\(encoded)") else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         let (_, response) = try await session.data(for: request)

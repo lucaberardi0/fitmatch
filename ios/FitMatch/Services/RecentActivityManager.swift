@@ -56,6 +56,21 @@ class RecentActivityManager: ObservableObject {
         if activities.isEmpty {
             loadStarterActivities()
         }
+        Task {
+            await syncFromDatabase()
+        }
+    }
+
+    func syncFromDatabase() async {
+        do {
+            let supaItems = try await SupabaseManager.shared.fetchRecentActivities()
+            if !supaItems.isEmpty {
+                self.activities = supaItems
+                saveActivities()
+            }
+        } catch {
+            print("RecentActivityManager sync note: \(error)")
+        }
     }
 
     // MARK: - Actions
@@ -89,6 +104,14 @@ class RecentActivityManager: ObservableObject {
         }
 
         saveActivities()
+
+        // Background Sync to Supabase
+        Task {
+            _ = try? await SupabaseManager.shared.recordRecentActivity(
+                type: "search",
+                title: clean
+            )
+        }
     }
 
     func recordProductView(_ product: MatchedProduct) {
@@ -113,6 +136,24 @@ class RecentActivityManager: ObservableObject {
         }
 
         saveActivities()
+
+        // Background Sync to Supabase
+        Task {
+            let bestPrice = product.best_price ?? product.bestOffer?.price
+            let origPrice = product.highest_price ?? product.bestOffer?.original_price
+            let store = product.bestOffer?.store_name
+            let sId = product.bestOffer?.store_id
+            _ = try? await SupabaseManager.shared.recordRecentActivity(
+                type: "product",
+                title: product.canonical_name,
+                subtitle: product.brand,
+                imageUrl: product.image_url,
+                price: bestPrice,
+                originalPrice: origPrice,
+                storeId: sId,
+                storeName: store
+            )
+        }
     }
 
     func removeActivity(_ item: RecentActivityItem) {

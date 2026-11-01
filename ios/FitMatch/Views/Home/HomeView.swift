@@ -1,396 +1,456 @@
 import SwiftUI
 
-struct HomeView: View {
-    @Binding var selectedTab: Int
-    @StateObject private var api = APIService.shared
-    @State private var showcases: [StoreShowcase] = []
-    @State private var isLoading = false
-    @State private var showingNotificationsAlert = false
-    @State private var showingFollowedStoresSheet = false
-    @State private var showingAccountSheet = false
+enum HomeSubTab: Int, CaseIterable {
+    case perTe = 0
+    case offerte = 1
+    case seguiGia = 2
+    case salvati = 3
 
-    // Real database products for "Riprendi da dove hai lasciato" (takes top offer from each real store showcase)
-    private var recentProducts: [(product: StoreShowcaseProduct, storeId: String, storeName: String)] {
-        var items: [(product: StoreShowcaseProduct, storeId: String, storeName: String)] = []
-        for sc in showcases {
-            if let first = sc.products.first {
-                items.append((product: first, storeId: sc.store_id, storeName: sc.store_name))
-            }
-        }
-        return items
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // MARK: - 1. Pinned Top Quick Action Bar (Profile, Bell, Offerte, Segui già, Salvati)
-                topActionBar
-                    .padding(.top, 6)
-                    .padding(.bottom, 10)
-                    .background(Color(red: 245/255, green: 246/255, blue: 248/255))
-
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 16) {
-                        // MARK: - 2. Novità! Promo Banner
-                        NavigationLink(destination: DealsView()) {
-                            HStack(spacing: 14) {
-                                // Blue Scalloped Starburst "S" Badge
-                                ZStack {
-                                    Image(systemName: "seal.fill")
-                                        .font(.system(size: 38))
-                                        .foregroundColor(Color(red: 24/255, green: 119/255, blue: 242/255))
-
-                                    Text("S")
-                                        .font(.system(size: 18, weight: .black, design: .rounded))
-                                        .foregroundColor(.white)
-
-                                    Image(systemName: "sparkle")
-                                        .font(.system(size: 8, weight: .bold))
-                                        .foregroundColor(.white)
-                                        .offset(x: 10, y: -9)
-                                }
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Novità!")
-                                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                                        .foregroundColor(.shopDark)
-
-                                    Text("Ottieni offerte esclusive create apposta per te.")
-                                        .font(.system(size: 12.5))
-                                        .foregroundColor(.shopTextMuted)
-                                }
-
-                                Spacer()
-
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.shopTextMuted.opacity(0.8))
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(Color.white)
-                            .cornerRadius(22)
-                            .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
-                            .padding(.horizontal, 16)
-                        }
-                        .buttonStyle(.plain)
-
-                        // MARK: - 2.5 Coach IA Biomeccanico Card
-                        NavigationLink(destination: AIAdvisorView()) {
-                            HStack(spacing: 14) {
-                                ZStack {
-                                    Circle()
-                                        .fill(LinearGradient(colors: [Color.shopPurple, Color.shopDark], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                        .frame(width: 44, height: 44)
-
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 18, weight: .bold))
-                                        .foregroundColor(.white)
-                                }
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: 6) {
-                                        Text("Coach IA Biomeccanico")
-                                            .font(.system(size: 15, weight: .bold, design: .rounded))
-                                            .foregroundColor(.shopDark)
-
-                                        Text("NUOVO")
-                                            .font(.system(size: 9, weight: .heavy))
-                                            .foregroundColor(.shopPurple)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(Color.shopPurpleLight)
-                                            .cornerRadius(6)
-                                    }
-
-                                    Text("Consigli su peso, appoggio e confronto modelli con IA.")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.shopTextMuted)
-                                }
-
-                                Spacer()
-
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.shopTextMuted.opacity(0.8))
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(Color.white)
-                            .cornerRadius(22)
-                            .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
-                            .padding(.horizontal, 16)
-                        }
-                        .buttonStyle(.plain)
-
-                        // MARK: - 3. Big Card: "Riprendi da dove hai lasciato" (Matte Black)
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("Riprendi da dove hai lasciato")
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundColor(Color(red: 170/255, green: 170/255, blue: 175/255))
-                                .padding(.horizontal, 18)
-                                .padding(.top, 16)
-
-                            // Horizontal Carousel of Real Product Cards from Database
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
-                                    if recentProducts.isEmpty {
-                                        if isLoading {
-                                            ForEach(0..<4, id: \.self) { _ in
-                                                RoundedRectangle(cornerRadius: 20)
-                                                    .fill(Color(white: 0.16))
-                                                    .frame(width: 146, height: 160)
-                                                    .overlay(
-                                                        ProgressView()
-                                                            .tint(.white)
-                                                    )
-                                            }
-                                        } else {
-                                            Button(action: { fetchShowcases() }) {
-                                                VStack(spacing: 8) {
-                                                    Image(systemName: "arrow.clockwise")
-                                                        .font(.system(size: 20, weight: .bold))
-                                                    Text("Tocca per caricare")
-                                                        .font(.system(size: 11, weight: .medium))
-                                                }
-                                                .foregroundColor(.white.opacity(0.8))
-                                                .frame(width: 146, height: 160)
-                                                .background(Color(white: 0.16))
-                                                .cornerRadius(20)
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                    } else {
-                                        ForEach(recentProducts, id: \.product.id) { item in
-                                            let matched = item.product.toMatchedProduct(
-                                                storeId: item.storeId,
-                                                storeName: item.storeName
-                                            )
-
-                                            ShopCarouselProductCard(
-                                                title: item.product.canonical_name,
-                                                brand: item.product.brand,
-                                                price: item.product.current_price,
-                                                originalPrice: item.product.original_price,
-                                                imageUrl: item.product.image_url,
-                                                matchedProduct: matched,
-                                                isWhiteCardTheme: false
-                                            )
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 18)
-                            }
-
-                            // Bottom Row: "Visti di recente" + Arrow Button
-                            HStack {
-                                Text("Visti di recente")
-                                    .font(.system(size: 23, weight: .bold, design: .rounded))
-                                    .foregroundColor(.white)
-
-                                Spacer()
-
-                                NavigationLink(destination: SearchView()) {
-                                    Circle()
-                                        .fill(Color(red: 48/255, green: 48/255, blue: 50/255))
-                                        .frame(width: 42, height: 42)
-                                        .overlay(
-                                            Image(systemName: "arrow.right")
-                                                .font(.system(size: 15, weight: .bold))
-                                                .foregroundColor(.white)
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.horizontal, 18)
-                            .padding(.bottom, 18)
-                        }
-                        .background(Color(red: 24/255, green: 24/255, blue: 26/255)) // Matte Black Card
-                        .cornerRadius(26)
-                        .padding(.horizontal, 16)
-
-                        // MARK: - 4. Dynamic Real Database Stores (All 8 verified stores)
-                        if isLoading && showcases.isEmpty {
-                            VStack(spacing: 12) {
-                                ProgressView()
-                                    .scaleEffect(1.2)
-                                    .tint(.shopDark)
-                                Text("Caricamento negozi dal database...")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.shopTextMuted)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 40)
-                        } else {
-                            ForEach(Array(showcases.enumerated()), id: \.element.id) { index, sc in
-                                if index == 1 {
-                                    // Deep Slate / Violet Gradient Card for visual cadence (like in Shop)
-                                    ShopAccentStoreCard(showcase: sc)
-                                        .padding(.horizontal, 16)
-                                } else {
-                                    // Clean White Shop Card
-                                    ShopWhiteStoreCard(showcase: sc)
-                                        .padding(.horizontal, 16)
-                                }
-                            }
-                        }
-
-                        Spacer(minLength: 110)
-                    }
-                }
-            }
-            .background(Color(red: 245/255, green: 246/255, blue: 248/255).ignoresSafeArea())
-            .navigationBarHidden(true)
-            .refreshable {
-                fetchShowcases()
-            }
-            .onAppear {
-                if showcases.isEmpty {
-                    fetchShowcases()
-                }
-            }
-            .alert("Notifiche Attive", isPresented: $showingNotificationsAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text("Riceverai avvisi non appena i prezzi dei tuoi articoli preferiti scenderanno.")
-            }
-            .sheet(isPresented: $showingFollowedStoresSheet) {
-                FollowedStoresSheet()
-            }
-            .sheet(isPresented: $showingAccountSheet) {
-                AccountView()
-            }
-        }
-    }
-
-    private var topActionBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                // Profile Button
-                Button(action: { showingAccountSheet = true }) {
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 15))
-                        .foregroundColor(.shopDark)
-                        .frame(width: 42, height: 42)
-                        .background(Color.white)
-                        .clipShape(Circle())
-                        .shadow(color: Color.black.opacity(0.04), radius: 3, y: 1)
-                }
-                .buttonStyle(.plain)
-
-                // Notifications Button
-                Button(action: { showingNotificationsAlert = true }) {
-                    Image(systemName: "bell.fill")
-                        .font(.system(size: 15))
-                        .foregroundColor(.shopDark)
-                        .frame(width: 42, height: 42)
-                        .background(Color.white)
-                        .clipShape(Circle())
-                        .shadow(color: Color.black.opacity(0.04), radius: 3, y: 1)
-                }
-                .buttonStyle(.plain)
-
-                // Offerte Pill
-                Button(action: {
-                    withAnimation { selectedTab = 3 }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "tag.fill")
-                            .font(.system(size: 12))
-                        Text("Offerte")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    }
-                    .foregroundColor(.shopDark)
-                    .padding(.horizontal, 15)
-                    .frame(height: 42)
-                    .background(Color.white)
-                    .cornerRadius(21)
-                    .shadow(color: Color.black.opacity(0.04), radius: 3, y: 1)
-                }
-                .buttonStyle(.plain)
-
-                // Segui già (Negozi partner) Pill
-                Button(action: { showingFollowedStoresSheet = true }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 12))
-                        Text("Segui già")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    }
-                    .foregroundColor(.shopDark)
-                    .padding(.horizontal, 15)
-                    .frame(height: 42)
-                    .background(Color.white)
-                    .cornerRadius(21)
-                    .shadow(color: Color.black.opacity(0.04), radius: 3, y: 1)
-                }
-                .buttonStyle(.plain)
-
-                // Salvati Pill
-                Button(action: {
-                    withAnimation { selectedTab = 2 }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 12))
-                        Text("Salvati")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    }
-                    .foregroundColor(.shopDark)
-                    .padding(.horizontal, 15)
-                    .frame(height: 42)
-                    .background(Color.white)
-                    .cornerRadius(21)
-                    .shadow(color: Color.black.opacity(0.04), radius: 3, y: 1)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 16)
-        }
-    }
-
-    private func fetchShowcases(retries: Int = 2) {
-        isLoading = true
-        Task {
-            do {
-                let sc = try await api.getStoreShowcases()
-                await MainActor.run {
-                    self.showcases = sc
-                    self.isLoading = false
-                }
-            } catch {
-                if retries > 0 {
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                    fetchShowcases(retries: retries - 1)
-                } else {
-                    await MainActor.run {
-                        self.isLoading = false
-                    }
-                }
-            }
+    var title: String {
+        switch self {
+        case .perTe: return "Per te"
+        case .offerte: return "Offerte"
+        case .seguiGia: return "Segui già"
+        case .salvati: return "Salvati"
         }
     }
 }
 
-// MARK: - Shop White Store Card (Driven 100% by Real Store Showcase from Database)
+struct HomeView: View {
+    @Binding var selectedTab: Int
+    var initialSubTab: HomeSubTab = .perTe
+    @State private var activeSubTab: HomeSubTab
 
-struct ShopWhiteStoreCard: View {
-    let showcase: StoreShowcase
+    init(selectedTab: Binding<Int>, initialSubTab: HomeSubTab = .perTe) {
+        self._selectedTab = selectedTab
+        self.initialSubTab = initialSubTab
+        self._activeSubTab = State(initialValue: initialSubTab)
+    }
+
+    @StateObject private var api = APIService.shared
+    @ObservedObject private var wishlist = WishlistManager.shared
+    @ObservedObject private var followedManager = FollowedStoresManager.shared
+    @ObservedObject private var recentManager = RecentActivityManager.shared
+
+    @State private var showcases: [StoreShowcase] = []
+    @State private var isLoading = false
+    @State private var searchText = ""
+    @State private var showingAccountSheet = false
+    @State private var showingNotificationsAlert = false
 
     var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // MARK: - 1. Pinned Top Header: Avatar "L" | Search Bar "Cerca" | Bell
+                topHeaderBar
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
+                    .padding(.bottom, 10)
+
+                // MARK: - 2. Sub-Navigation Pills: Per te | Offerte | Segui già | Salvati
+                subNavigationPills
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+
+                // MARK: - 3. Content Area based on Active Sub-Tab
+                Group {
+                    switch activeSubTab {
+                    case .perTe:
+                        perTeContent
+                    case .offerte:
+                        DealsView(embedded: true, onSelectPerTe: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                activeSubTab = .perTe
+                            }
+                        })
+                    case .seguiGia:
+                        FollowingView(onGoShopping: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                activeSubTab = .perTe
+                            }
+                        })
+                    case .salvati:
+                        WishlistView(selectedTab: $selectedTab, embedded: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .background(Color(red: 245/255, green: 246/255, blue: 248/255).ignoresSafeArea())
+            .navigationBarHidden(true)
+            .sheet(isPresented: $showingAccountSheet) {
+                AccountView()
+            }
+            .alert("Notifiche Attive", isPresented: $showingNotificationsAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Riceverai avvisi e notifiche push appena i prezzi dei tuoi articoli e brand seguiti scendono.")
+            }
+            .task {
+                if showcases.isEmpty {
+                    await fetchShowcases()
+                }
+            }
+        }
+    }
+
+    // MARK: - Top Header Bar (Screenshot 1: Avatar "L" | Search "Cerca" | Bell)
+
+    private var topHeaderBar: some View {
+        HStack(spacing: 12) {
+            // User Avatar (Purple circle with 'L')
+            Button(action: { showingAccountSheet = true }) {
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 196/255, green: 181/255, blue: 253/255))
+                        .frame(width: 42, height: 42)
+
+                    Text("L")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                }
+            }
+            .buttonStyle(.plain)
+
+            // Search Bar Capsule ("Cerca")
+            NavigationLink(destination: SearchView()) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Color(red: 135/255, green: 135/255, blue: 145/255))
+
+                    Text("Cerca")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundColor(Color(red: 135/255, green: 135/255, blue: 145/255))
+
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .background(Color.white)
+                .cornerRadius(22)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22)
+                        .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+
+            // Bell Notifications Button
+            Button(action: { showingNotificationsAlert = true }) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 42, height: 42)
+                        .overlay(
+                            Circle()
+                                .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                        )
+
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Sub-Navigation Pills (Screenshot 1: Per te | Offerte | Segui già | Salvati)
+
+    private var subNavigationPills: some View {
+        HStack(spacing: 6) {
+            ForEach(HomeSubTab.allCases, id: \.self) { tab in
+                Button(action: {
+                    let gen = UIImpactFeedbackGenerator(style: .light)
+                    gen.impactOccurred()
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                        activeSubTab = tab
+                    }
+                }) {
+                    Text(tab.title)
+                        .font(.system(size: 14, weight: activeSubTab == tab ? .bold : .medium, design: .rounded))
+                        .foregroundColor(activeSubTab == tab ? Color(red: 20/255, green: 20/255, blue: 25/255) : Color(red: 90/255, green: 90/255, blue: 100/255))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(activeSubTab == tab ? Color.white : Color.clear)
+                                .shadow(color: activeSubTab == tab ? Color.black.opacity(0.04) : Color.clear, radius: 4, x: 0, y: 1)
+                        )
+                        .overlay(
+                            activeSubTab == tab ?
+                                Capsule()
+                                    .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                                : nil
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if tab != .salvati {
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    // MARK: - "Per te" Feed Content (100% Real Database Stores & Products)
+
+    private var perTeContent: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 16) {
+                // 1. "Elementi salvati" Preview Card (Real saved items or real top database picks)
+                savedItemsPreviewCard
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+
+                // 2. Real Database Partner Stores from Supabase & API
+                if isLoading && showcases.isEmpty {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .tint(.shopDark)
+                        Text("Caricamento negozi e offerte dal database...")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.shopTextMuted)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
+                } else {
+                    ForEach(Array(showcases.enumerated()), id: \.element.id) { index, sc in
+                        if index == 1 {
+                            // Deep Slate Accent Card for visual cadence (using real store & products)
+                            darkAccentShopStoreCard(showcase: sc)
+                                .padding(.horizontal, 16)
+                        } else {
+                            // Clean White Shop Card (using real store & products)
+                            genericShopStoreCard(showcase: sc)
+                                .padding(.horizontal, 16)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 120)
+            }
+        }
+        .refreshable {
+            await fetchShowcases()
+        }
+    }
+
+    // MARK: - 1. "Elementi salvati" Section (Driven by Real Database)
+
+    private var previewSavedItems: [StoreShowcaseProduct] {
+        if !wishlist.items.isEmpty {
+            return wishlist.items.prefix(3).map { item in
+                StoreShowcaseProduct(
+                    id: item.id,
+                    title: item.canonical_name,
+                    brand: item.brand,
+                    image_url: item.image_url,
+                    current_price: item.currentBestPrice,
+                    original_price: item.initialPrice,
+                    discount_pct: item.discountPct,
+                    product_url: item.bestStoreUrl ?? "https://fitmatch.it",
+                    canonical_name: item.canonical_name,
+                    product_id: nil,
+                    shipping_cost: 0.0,
+                    total_price: item.currentBestPrice,
+                    is_free_shipping: true,
+                    shipping_label: "Sped. Gratis",
+                    free_shipping_threshold: 50.0,
+                    courier: nil
+                )
+            }
+        }
+        var list: [StoreShowcaseProduct] = []
+        for sc in showcases {
+            if let first = sc.products.first {
+                list.append(first)
+                if list.count == 3 { break }
+            }
+        }
+        return list
+    }
+
+    private var savedItemsPreviewCard: some View {
+        Button(action: {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                activeSubTab = .salvati
+            }
+        }) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Header: "Elementi salvati" + Chevron Button
+                HStack {
+                    Text("Elementi salvati")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
+
+                    Spacer()
+
+                    Circle()
+                        .fill(Color(red: 242/255, green: 243/255, blue: 246/255))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(Color(red: 70/255, green: 70/255, blue: 75/255))
+                        )
+                }
+
+                // Row of 3 Real Products (Thumbnails from Database)
+                HStack(spacing: 12) {
+                    let items = previewSavedItems
+                    ForEach(0..<3, id: \.self) { idx in
+                        let prod = items.count > idx ? items[idx] : nil
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 18)
+                                .fill(Color(red: 244/255, green: 245/255, blue: 248/255))
+                                .aspectRatio(1.0, contentMode: .fit)
+
+                            if let p = prod, let imgUrl = p.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
+                                AsyncImage(url: url) { phase in
+                                    if let img = phase.image {
+                                        img
+                                            .resizable()
+                                            .scaledToFit()
+                                            .padding(10)
+                                    } else {
+                                        Image(systemName: "tag.fill")
+                                            .font(.system(size: 26))
+                                            .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                    }
+                                }
+                            } else {
+                                Image(systemName: "bag.fill")
+                                    .font(.system(size: 26))
+                                    .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(18)
+            .background(Color.white)
+            .cornerRadius(24)
+            .shadow(color: Color.black.opacity(0.02), radius: 8, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Dark Slate Accent Card (Screenshot 1 Visual Cadence with Real Products)
+
+    private func darkAccentShopStoreCard(showcase: StoreShowcase) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Header: Store Logo + Store Name + Rating + Ellipsis
+            // Header
             HStack(spacing: 12) {
                 NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
                     HStack(spacing: 12) {
-                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 46)
+                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 44)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(showcase.store_name)
+                                .font(.system(size: 16.5, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+
+                            Text("★ \(showcase.rating) (\(showcase.total_offers) offerte reali)")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Menu {
+                    Button(action: {
+                        followedManager.toggleFollow(storeId: showcase.store_id, storeName: showcase.store_name)
+                    }) {
+                        Label(
+                            followedManager.isFollowing(storeId: showcase.store_id) ? "Non seguire più" : "Segui negozio",
+                            systemImage: followedManager.isFollowing(storeId: showcase.store_id) ? "person.badge.minus" : "person.badge.plus"
+                        )
+                    }
+
+                    NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
+                        Label("Visualizza negozio", systemImage: "arrow.right.circle")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white.opacity(0.8))
+                        .frame(width: 32, height: 32)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+
+            // Horizontal Carousel of Real Product Cards
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(showcase.products) { prod in
+                        let matched = prod.toMatchedProduct(storeId: showcase.store_id, storeName: showcase.store_name)
+                        ShopHomeProductCard(
+                            product: prod,
+                            matchedProduct: matched,
+                            isDarkTheme: true
+                        )
+                    }
+                }
+                .padding(.horizontal, 18)
+            }
+
+            // Bottom Row: "Acquista tutto" + Arrow Button
+            HStack {
+                Text("Acquista tutto")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+
+                Spacer()
+
+                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
+                    Circle()
+                        .fill(Color.white.opacity(0.18))
+                        .frame(width: 42, height: 42)
+                        .overlay(
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.white)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 16)
+        }
+        .background(
+            LinearGradient(
+                colors: [Color(red: 28/255, green: 28/255, blue: 34/255), Color(red: 18/255, green: 18/255, blue: 22/255)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .cornerRadius(26)
+        .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
+    }
+
+    // MARK: - Reusable Clean Shop Store Card Component with Real Database Showcase
+
+    private func genericShopStoreCard(showcase: StoreShowcase) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header: Avatar + Store Name + Rating + Three Dots
+            HStack(spacing: 12) {
+                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
+                    HStack(spacing: 12) {
+                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 44)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(showcase.store_name)
                                 .font(.system(size: 16.5, weight: .bold, design: .rounded))
                                 .foregroundColor(.shopDark)
 
-                            Text("★ \(showcase.rating) (\(showcase.total_offers) offerte)")
+                            Text("★ \(showcase.rating) (\(showcase.total_offers) offerte reali)")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.shopTextMuted)
                         }
@@ -400,37 +460,45 @@ struct ShopWhiteStoreCard: View {
 
                 Spacer()
 
-                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
+                Menu {
+                    Button(action: {
+                        followedManager.toggleFollow(storeId: showcase.store_id, storeName: showcase.store_name)
+                    }) {
+                        Label(
+                            followedManager.isFollowing(storeId: showcase.store_id) ? "Non seguire più" : "Segui negozio",
+                            systemImage: followedManager.isFollowing(storeId: showcase.store_id) ? "person.badge.minus" : "person.badge.plus"
+                        )
+                    }
+
+                    NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
+                        Label("Visualizza negozio", systemImage: "arrow.right.circle")
+                    }
+                } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundColor(.shopTextMuted)
-                        .padding(.trailing, 2)
+                        .frame(width: 32, height: 32)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 18)
             .padding(.top, 16)
 
-            // Horizontal Carousel of Product Cards with Light-Gray Container
+            // Horizontal Carousel of Real Product Cards
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(showcase.products) { prod in
                         let matched = prod.toMatchedProduct(storeId: showcase.store_id, storeName: showcase.store_name)
-                        ShopCarouselProductCard(
-                            title: prod.canonical_name,
-                            brand: prod.brand,
-                            price: prod.current_price,
-                            originalPrice: prod.original_price,
-                            imageUrl: prod.image_url,
+                        ShopHomeProductCard(
+                            product: prod,
                             matchedProduct: matched,
-                            isWhiteCardTheme: true
+                            isDarkTheme: false
                         )
                     }
                 }
                 .padding(.horizontal, 18)
             }
 
-            // Bottom Row: "Acquista tutto" + Light Gray Arrow Button
+            // Bottom Row: "Acquista tutto" + Circular Arrow Button
             HStack {
                 Text("Acquista tutto")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
@@ -451,277 +519,120 @@ struct ShopWhiteStoreCard: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 18)
-            .padding(.bottom, 18)
+            .padding(.bottom, 16)
         }
         .background(Color.white)
         .cornerRadius(26)
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+        .shadow(color: Color.black.opacity(0.02), radius: 8, x: 0, y: 2)
     }
-}
 
-// MARK: - Shop Accent Store Card (Deep Slate / Violet Gradient Card for visual cadence)
-
-struct ShopAccentStoreCard: View {
-    let showcase: StoreShowcase
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Header: Store Logo + Store Name + Rating + Ellipsis
-            HStack(spacing: 12) {
-                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                    HStack(spacing: 12) {
-                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 46)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(showcase.store_name)
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
-                                .foregroundColor(.white)
-
-                            Text("★ \(showcase.rating) (\(showcase.total_offers) offerte)")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Color.white.opacity(0.8))
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(Color.white.opacity(0.8))
-                        .padding(.trailing, 2)
-                }
-                .buttonStyle(.plain)
+    private func fetchShowcases() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let sc = try await api.getStoreShowcases()
+            await MainActor.run {
+                self.showcases = sc
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 16)
-
-            // Horizontal Carousel of Real Product Cards
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(showcase.products) { prod in
-                        let matched = prod.toMatchedProduct(storeId: showcase.store_id, storeName: showcase.store_name)
-                        ShopCarouselProductCard(
-                            title: prod.canonical_name,
-                            brand: prod.brand,
-                            price: prod.current_price,
-                            originalPrice: prod.original_price,
-                            imageUrl: prod.image_url,
-                            matchedProduct: matched,
-                            isWhiteCardTheme: false
-                        )
-                    }
-                }
-                .padding(.horizontal, 18)
-            }
-
-            // Bottom Row: "Acquista <StoreName>" + Arrow Button
-            HStack {
-                Text("Acquista \(showcase.store_name)")
-                    .font(.system(size: 21, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-
-                Spacer()
-
-                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                    Circle()
-                        .fill(Color.white.opacity(0.22))
-                        .frame(width: 42, height: 42)
-                        .overlay(
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.white)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 18)
+        } catch {
+            print("HomeView fetchShowcases error: \(error)")
         }
-        .background(
-            LinearGradient(
-                stops: [
-                    .init(color: Color(red: 45/255, green: 54/255, blue: 90/255), location: 0.0),
-                    .init(color: Color(red: 82/255, green: 68/255, blue: 110/255), location: 0.5),
-                    .init(color: Color(red: 48/255, green: 92/255, blue: 118/255), location: 1.0)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .cornerRadius(26)
-        .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
     }
 }
 
-// MARK: - Shop Carousel Product Card (Supports both Light & Dark Theme)
+// MARK: - Screenshot 1 Product Card (with Translucent Price Tag & Heart Button)
 
-struct ShopCarouselProductCard: View {
-    let title: String
-    let brand: String?
-    let price: Double
-    let originalPrice: Double?
-    let imageUrl: String?
+struct ShopHomeProductCard: View {
+    let product: StoreShowcaseProduct
     let matchedProduct: MatchedProduct
-    var isWhiteCardTheme: Bool = false
+    var isDarkTheme: Bool = false
+
     @ObservedObject private var wishlist = WishlistManager.shared
-
-    var formattedPrice: String {
-        String(format: "%.2f €", price).replacingOccurrences(of: ".", with: ",")
-    }
-
-    var cardBackground: Color {
-        isWhiteCardTheme ? Color(red: 247/255, green: 247/255, blue: 250/255) : Color.white
-    }
 
     var body: some View {
         NavigationLink(destination: ProductDetailView(product: matchedProduct)) {
             ZStack(alignment: .topLeading) {
-                // Card Container Background
-                cardBackground
-                    .frame(width: 146, height: 160)
-                    .cornerRadius(20)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .stroke(Color(red: 236/255, green: 236/255, blue: 240/255), lineWidth: isWhiteCardTheme ? 0.8 : 0)
-                    )
-                    .shadow(color: isWhiteCardTheme ? Color.clear : Color.black.opacity(0.04), radius: 5, x: 0, y: 2)
+                // Card Background
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(isDarkTheme ? Color.white.opacity(0.12) : Color(red: 244/255, green: 245/255, blue: 248/255))
+                    .frame(width: 152, height: 168)
 
-                // Product Image centered
+                // Product Image Centered
                 VStack {
                     Spacer()
-                    if let imgUrl = imageUrl, imgUrl.hasPrefix("http"), let url = URL(string: imgUrl) {
+                    if let imgUrl = product.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
                         AsyncImage(url: url) { phase in
                             if let img = phase.image {
                                 img
                                     .resizable()
                                     .scaledToFit()
-                                    .padding(8)
-                                    .frame(width: 130, height: 110)
-                            } else if phase.error != nil {
+                                    .padding(12)
+                                    .frame(width: 136, height: 120)
+                            } else {
                                 Image(systemName: "photo")
                                     .font(.system(size: 26))
                                     .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
-                                    .frame(width: 130, height: 110)
-                            } else {
-                                ProgressView()
-                                    .controlSize(.mini)
-                                    .tint(.shopDark)
-                                    .frame(width: 130, height: 110)
+                                    .frame(width: 136, height: 120)
                             }
                         }
                     } else {
                         Image(systemName: "tag.fill")
                             .font(.system(size: 26))
                             .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
-                            .frame(width: 130, height: 110)
+                            .frame(width: 136, height: 120)
                     }
                     Spacer()
                 }
-                .frame(width: 146, height: 160)
+                .frame(width: 152, height: 168)
 
-                // Top-Left Floating Price Pill
-                Text(formattedPrice)
-                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4.5)
-                    .background(Color.black.opacity(0.55))
-                    .cornerRadius(12)
-                    .padding([.top, .leading], 10)
+                // Top-Left Translucent Price Tag Pill (Screenshot 1: "411,95 € 457,95 €")
+                HStack(spacing: 4) {
+                    Text(String(format: "%.2f €", product.current_price).replacingOccurrences(of: ".", with: ","))
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
 
-                // Bottom-Right Floating Heart Button
+                    if let orig = product.original_price, orig > product.current_price {
+                        Text(String(format: "%.2f €", orig).replacingOccurrences(of: ".", with: ","))
+                            .font(.system(size: 9.5, weight: .regular))
+                            .foregroundColor(.white.opacity(0.6))
+                            .strikethrough()
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.black.opacity(0.48))
+                .clipShape(Capsule())
+                .padding([.top, .leading], 10)
+
+                // Bottom-Right Translucent Heart Button (Screenshot 1)
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
                         Button(action: {
-                            let impact = UIImpactFeedbackGenerator(style: .medium)
-                            impact.impactOccurred()
-                            withAnimation(.spring()) {
+                            let gen = UIImpactFeedbackGenerator(style: .medium)
+                            gen.impactOccurred()
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
                                 wishlist.toggleFavorite(product: matchedProduct)
                             }
                         }) {
                             ZStack {
                                 Circle()
-                                    .fill(Color.white)
-                                    .frame(width: 30, height: 30)
-                                    .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 1)
-                                    .overlay(
-                                        Circle()
-                                            .stroke(Color(red: 235/255, green: 235/255, blue: 238/255), lineWidth: 0.8)
-                                    )
+                                    .fill(Color.black.opacity(0.32))
+                                    .frame(width: 32, height: 32)
 
                                 Image(systemName: wishlist.isFavorite(matchedProduct.canonical_name) ? "heart.fill" : "heart")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(wishlist.isFavorite(matchedProduct.canonical_name) ? Color.red : Color.black)
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(wishlist.isFavorite(matchedProduct.canonical_name) ? .red : .white)
                             }
                         }
                         .buttonStyle(.plain)
                         .padding([.bottom, .trailing], 10)
                     }
                 }
-                .frame(width: 146, height: 160)
+                .frame(width: 152, height: 168)
             }
         }
         .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Followed Stores Sheet
-
-struct FollowedStoresSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    private let stores: [(id: String, name: String, rating: String)] = [
-        ("cisalfa", "Cisalfa Sport", "4.8"),
-        ("maxisport", "Maxi Sport", "4.9"),
-        ("misterrunning", "Mister Running", "4.9"),
-        ("nencini", "Nencini Sport", "4.7"),
-        ("top4running", "Top4Running", "4.8"),
-        ("runningwarehouse", "Running Warehouse", "4.9"),
-        ("deporvillage", "Deporvillage", "4.3"),
-        ("alltricks", "Alltricks", "4.4"),
-        ("decathlon", "Decathlon", "4.8")
-    ]
-
-    var body: some View {
-        NavigationStack {
-            List(stores, id: \.id) { store in
-                NavigationLink(destination: StoreDetailView(storeId: store.id, initialStoreName: store.name)) {
-                    HStack(spacing: 12) {
-                        ShopStoreLogo(storeName: store.name, showVerified: false, showLabel: false, size: 36)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 4) {
-                                Text(store.name)
-                                    .font(.system(size: 14.5, weight: .bold))
-                                    .foregroundColor(.shopDark)
-                                Image(systemName: "checkmark.seal.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.shopPurple)
-                            }
-
-                            Text("★ \(store.rating) • Store verificato")
-                                .font(.system(size: 12))
-                                .foregroundColor(.shopTextMuted)
-                        }
-
-                        Spacer()
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
-            .navigationTitle("I tuoi Negozi Partner")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Chiudi") { dismiss() }
-                }
-            }
-        }
     }
 }

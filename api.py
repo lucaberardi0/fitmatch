@@ -372,6 +372,46 @@ def delete_collection_endpoint(name: str):
     return {"status": "ok" if deleted else "not_found", "success": deleted}
 
 
+@app.get("/api/followed_stores")
+def get_followed_stores_endpoint():
+    """Retrieve all followed stores from the database."""
+    stores = db.get_followed_stores()
+    return {"stores": stores}
+
+
+@app.post("/api/followed_stores")
+def follow_store_endpoint(payload: dict):
+    """Follow a partner store in the database."""
+    store_id = payload.get("store_id", "").strip()
+    store_name = payload.get("store_name", "").strip()
+    store_logo = payload.get("store_logo")
+    if not store_id or not store_name:
+        raise HTTPException(status_code=400, detail="store_id e store_name sono obbligatori.")
+    success = db.follow_store(store_id, store_name, store_logo)
+    return {"status": "ok", "success": success}
+
+
+@app.delete("/api/followed_stores/{store_id}")
+def unfollow_store_endpoint(store_id: str):
+    """Unfollow a partner store."""
+    success = db.unfollow_store(store_id)
+    return {"status": "ok", "success": success}
+
+
+@app.get("/api/recent_activity")
+def get_recent_activity_endpoint(limit: int = Query(30, ge=1, le=100)):
+    """Retrieve user recent activity from the database."""
+    activities = db.get_recent_activity(limit=limit)
+    return {"activities": activities}
+
+
+@app.post("/api/recent_activity")
+def record_recent_activity_endpoint(payload: dict):
+    """Record an item or search to user's recent activity in the database."""
+    success = db.record_recent_activity(payload)
+    return {"status": "ok", "success": success}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)

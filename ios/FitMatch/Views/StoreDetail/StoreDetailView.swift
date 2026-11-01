@@ -10,6 +10,7 @@ struct StoreDetailView: View {
     @State private var searchQuery: String = ""
     @State private var selectedSort: String = "discount"
     @State private var isDescriptionExpanded: Bool = false
+    @ObservedObject private var followedManager = FollowedStoresManager.shared
 
     private let api = APIService.shared
     private let columns = [
@@ -186,23 +187,43 @@ struct StoreDetailView: View {
                         .padding(.horizontal, 24)
                         .padding(.top, 2)
 
-                    // Visit Official Website Button
-                    if let url = URL(string: details.base_url) {
-                        Link(destination: url) {
+                    // Store Actions: Follow + Visit Website
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            followedManager.toggleFollow(storeId: storeId, storeName: storeName)
+                        }) {
                             HStack(spacing: 6) {
-                                Image(systemName: "arrow.up.right.square.fill")
-                                    .font(.system(size: 13, weight: .semibold))
-                                Text("Visita sito ufficiale")
+                                Image(systemName: followedManager.isFollowing(storeId: storeId) ? "checkmark" : "plus")
                                     .font(.system(size: 13, weight: .bold))
+                                Text(followedManager.isFollowing(storeId: storeId) ? "Seguito" : "Segui")
+                                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
                             }
-                            .foregroundColor(.shopPurple)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.shopPurpleLight)
+                            .foregroundColor(followedManager.isFollowing(storeId: storeId) ? .shopDark : .white)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 9)
+                            .background(followedManager.isFollowing(storeId: storeId) ? Color(red: 235/255, green: 236/255, blue: 240/255) : Color(red: 24/255, green: 24/255, blue: 27/255))
                             .clipShape(Capsule())
                         }
-                        .padding(.top, 4)
+                        .buttonStyle(.plain)
+
+                        // Visit Official Website Button
+                        if let url = URL(string: details.base_url) {
+                            Link(destination: url) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.up.right.square.fill")
+                                        .font(.system(size: 13, weight: .semibold))
+                                    Text("Visita sito")
+                                        .font(.system(size: 13.5, weight: .bold))
+                                }
+                                .foregroundColor(.shopPurple)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                .background(Color.shopPurpleLight)
+                                .clipShape(Capsule())
+                            }
+                        }
                     }
+                    .padding(.top, 4)
                 }
             }
             .padding(.horizontal, 16)

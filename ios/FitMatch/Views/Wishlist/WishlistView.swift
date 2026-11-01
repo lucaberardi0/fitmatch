@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WishlistView: View {
     @Binding var selectedTab: Int
+    var embedded: Bool = false
     @ObservedObject private var wishlist = WishlistManager.shared
     @StateObject private var api = APIService.shared
 
@@ -16,7 +17,8 @@ struct WishlistView: View {
     @State private var itemToMove: WishlistItem? = nil
     @State private var selectedCollectionFilter: String = "Tutti"
 
-    init(selectedTab: Binding<Int>? = nil) {
+    init(selectedTab: Binding<Int>? = nil, embedded: Bool = false) {
+        self.embedded = embedded
         if let tab = selectedTab {
             self._selectedTab = tab
         } else {
@@ -47,21 +49,33 @@ struct WishlistView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // MARK: - 1. Pinned Header: Avatar 'L', Search Bar, Bell
-                headerBar
-                    .padding(.horizontal, 16)
-                    .padding(.top, 6)
-                    .padding(.bottom, 10)
+        Group {
+            if embedded {
+                mainContent
+            } else {
+                NavigationStack {
+                    VStack(spacing: 0) {
+                        // MARK: - 1. Pinned Header: Avatar 'L', Search Bar, Bell
+                        headerBar
+                            .padding(.horizontal, 16)
+                            .padding(.top, 6)
+                            .padding(.bottom, 10)
 
-                // MARK: - 2. Nav Pills: Per te, Offerte, Segui già, Salvati
-                navigationPills
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                        // MARK: - 2. Nav Pills: Per te, Offerte, Segui già, Salvati
+                        navigationPills
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 12)
 
-                // MARK: - Main Scroll Content
-                ScrollView(showsIndicators: false) {
+                        mainContent
+                    }
+                    .background(Color(red: 245/255, green: 246/255, blue: 248/255).ignoresSafeArea())
+                }
+            }
+        }
+    }
+
+    private var mainContent: some View {
+        ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
                         // MARK: - 3. Collections Visual Carousel
                         collectionsCarousel
@@ -121,55 +135,57 @@ struct WishlistView: View {
                 .refreshable {
                     await wishlist.syncWithDatabase()
                 }
-            }
-            .background(Color(red: 250/255, green: 250/255, blue: 252/255).ignoresSafeArea())
-            .navigationBarHidden(true)
-            .sheet(isPresented: $showingAccountSheet) {
-                AccountView()
-            }
-            .sheet(isPresented: $showingFollowedStoresSheet) {
-                FollowedStoresSheet()
-            }
-            .sheet(item: $selectedProductForDetail) { product in
-                ProductDetailView(product: product)
-            }
-            .sheet(item: $itemToMove) { item in
-                MoveToCollectionSheet(item: item)
-            }
-            .alert("Nuova Collezione", isPresented: $showingCreateCollectionAlert) {
-                TextField("Es. Sneakers, Running, Estate...", text: $newCollectionName)
-                Button("Annulla", role: .cancel) { newCollectionName = "" }
-                Button("Crea") {
-                    let trimmed = newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty {
-                        wishlist.createCollection(name: trimmed)
-                        withAnimation(.spring(response: 0.3)) {
-                            selectedCollectionFilter = trimmed
+                .background(Color(red: 250/255, green: 250/255, blue: 252/255).ignoresSafeArea())
+                .navigationBarHidden(true)
+                .sheet(isPresented: $showingAccountSheet) {
+                    AccountView()
+                }
+                .sheet(isPresented: $showingFollowedStoresSheet) {
+                    NavigationStack {
+                        FollowingView()
+                            .navigationTitle("Negozi Seguiti")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                }
+                .sheet(item: $selectedProductForDetail) { product in
+                    ProductDetailView(product: product)
+                }
+                .sheet(item: $itemToMove) { item in
+                    MoveToCollectionSheet(item: item)
+                }
+                .alert("Nuova Collezione", isPresented: $showingCreateCollectionAlert) {
+                    TextField("Es. Sneakers, Running, Estate...", text: $newCollectionName)
+                    Button("Annulla", role: .cancel) { newCollectionName = "" }
+                    Button("Crea") {
+                        let trimmed = newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            wishlist.createCollection(name: trimmed)
+                            withAnimation(.spring(response: 0.3)) {
+                                selectedCollectionFilter = trimmed
+                            }
+                            newCollectionName = ""
                         }
-                        newCollectionName = ""
                     }
+                } message: {
+                    Text("Crea una raccolta per organizzare i tuoi articoli salvati.")
                 }
-            } message: {
-                Text("Crea una raccolta per organizzare i tuoi articoli salvati.")
-            }
-            .alert("Elimina Collezione", isPresented: $showingDeleteCollectionConfirm) {
-                Button("Annulla", role: .cancel) { }
-                Button("Elimina", role: .destructive) {
-                    let name = selectedCollectionFilter
-                    wishlist.deleteCollection(name: name)
-                    withAnimation(.spring(response: 0.3)) {
-                        selectedCollectionFilter = "Tutti"
+                .alert("Elimina Collezione", isPresented: $showingDeleteCollectionConfirm) {
+                    Button("Annulla", role: .cancel) { }
+                    Button("Elimina", role: .destructive) {
+                        let name = selectedCollectionFilter
+                        wishlist.deleteCollection(name: name)
+                        withAnimation(.spring(response: 0.3)) {
+                            selectedCollectionFilter = "Tutti"
+                        }
                     }
+                } message: {
+                    Text("Vuoi eliminare '\(selectedCollectionFilter)'? Gli articoli rimarranno comunque tra i salvati.")
                 }
-            } message: {
-                Text("Vuoi eliminare '\(selectedCollectionFilter)'? Gli articoli rimarranno comunque tra i salvati.")
-            }
-            .alert("Notifiche Attive", isPresented: $showingNotificationsAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text("Riceverai avvisi e notifiche push appena i prezzi dei tuoi articoli preferiti scendono.")
-            }
-        }
+                .alert("Notifiche Attive", isPresented: $showingNotificationsAlert) {
+                    Button("OK", role: .cancel) { }
+                } message: {
+                    Text("Riceverai avvisi e notifiche push appena i prezzi dei tuoi articoli preferiti scendono.")
+                }
     }
 
     // MARK: - Header Bar (Avatar "L", Search Bar, Bell)

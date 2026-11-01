@@ -109,6 +109,27 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE IF NOT EXISTS followed_stores (
+                    id TEXT PRIMARY KEY,
+                    store_id TEXT NOT NULL UNIQUE,
+                    store_name TEXT NOT NULL,
+                    store_logo TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS recent_activity (
+                    id TEXT PRIMARY KEY,
+                    activity_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    subtitle TEXT,
+                    image_url TEXT,
+                    price REAL,
+                    original_price REAL,
+                    store_id TEXT,
+                    store_name TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand);
                 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
                 CREATE INDEX IF NOT EXISTS idx_offers_product_id ON store_offers(product_id);
@@ -1171,3 +1192,100 @@ class Database:
         except Exception as e:
             logger.warning(f"[Database] Local SQLite update_wishlist note: {e}")
         return True
+
+    def get_followed_stores(self) -> List[Dict[str, Any]]:
+        """Retrieve all followed stores."""
+        if self.use_supabase and self.supabase:
+            try:
+                res = self.supabase.client.table("followed_stores").select("*").order("created_at", desc=True).execute()
+                if res.data:
+                    return res.data
+            except Exception as e:
+                logger.error(f"[Database] Error get_followed_stores in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            rows = conn.execute("SELECT * FROM followed_stores ORDER BY created_at DESC").fetchall()
+            return [dict(r) for r in rows]
+
+    def follow_store(self, store_id: str, store_name: str, store_logo: Optional[str] = None) -> bool:
+        """Follow a store."""
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.client.table("followed_stores").upsert({
+                    "store_id": store_id,
+                    "store_name": store_name,
+                    "store_logo": store_logo,
+                    "device_id": "default_device"
+                }, on_conflict="device_id,store_id").execute()
+            except Exception as e:
+                logger.error(f"[Database] Error follow_store in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO followed_stores (id, store_id, store_name, store_logo)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(store_id) DO UPDATE SET store_name=excluded.store_name, store_logo=excluded.store_logo
+            """, (str(uuid.uuid4()), store_id, store_name, store_logo))
+        return True
+
+    def unfollow_store(self, store_id: str) -> bool:
+        """Unfollow a store."""
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.client.table("followed_stores").delete().eq("store_id", store_id).execute()
+            except Exception as e:
+                logger.error(f"[Database] Error unfollow_store in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            conn.execute("DELETE FROM followed_stores WHERE LOWER(store_id) = LOWER(?)", (store_id,))
+        return True
+
+    def get_recent_activity(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """Retrieve recent activity items."""
+        if self.use_supabase and self.supabase:
+            try:
+                res = self.supabase.client.table("recent_activity").select("*").order("created_at", desc=True).limit(limit).execute()
+                if res.data:
+                    return res.data
+            except Exception as e:
+                logger.error(f"[Database] Error get_recent_activity in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            rows = conn.execute("SELECT * FROM recent_activity ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def record_recent_activity(self, item: Dict[str, Any]) -> bool:
+        """Record a product view or search activity."""
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.client.table("recent_activity").insert({
+                    "activity_type": item.get("activity_type", "product"),
+                    "title": item.get("title", ""),
+                    "subtitle": item.get("subtitle"),
+                    "image_url": item.get("image_url"),
+                    "price": item.get("price"),
+                    "original_price": item.get("original_price"),
+                    "store_id": item.get("store_id"),
+                    "store_name": item.get("store_name"),
+                    "device_id": "default_device"
+                }).execute()
+            except Exception as e:
+                logger.error(f"[Database] Error record_recent_activity in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO recent_activity (id, activity_type, title, subtitle, image_url, price, original_price, store_id, store_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                str(uuid.uuid4()),
+                item.get("activity_type", "product"),
+                item.get("title", ""),
+                item.get("subtitle"),
+                item.get("image_url"),
+                item.get("price"),
+                item.get("original_price"),
+                item.get("store_id"),
+                item.get("store_name")
+            ))
+        return True
+
