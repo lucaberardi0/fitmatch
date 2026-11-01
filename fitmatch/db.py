@@ -19,10 +19,9 @@ class Database:
     def __init__(self, db_path: Optional[str] = None, use_supabase: bool = True):
         self.use_supabase = use_supabase and bool(SUPABASE_URL and SUPABASE_KEY)
         self.supabase = SupabaseClient() if self.use_supabase else None
-        self.db_path = db_path or (DB_PATH if not self.use_supabase else ":memory:")
-        if not self.use_supabase:
-            os.makedirs(os.path.dirname(self.db_path) if self.db_path != ":memory:" else ".", exist_ok=True)
-            self.init_schema()
+        self.db_path = db_path or DB_PATH
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        self.init_schema()
 
     def get_connection(self) -> sqlite3.Connection:
         try:
@@ -1141,3 +1140,34 @@ class Database:
             col_id = str(uuid.uuid4())
             conn.execute("INSERT OR IGNORE INTO collections (id, name) VALUES (?, ?)", (col_id, name))
             return {"id": col_id, "name": name}
+
+    def delete_collection(self, name: str) -> bool:
+        """Delete a collection and reassign items to 'Tutti'."""
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.delete_collection(name)
+            except Exception as e:
+                logger.error(f"[Database] Error delete_collection in Supabase: {e}")
+
+        try:
+            with self.get_connection() as conn:
+                conn.execute("DELETE FROM collections WHERE LOWER(name) = LOWER(?)", (name,))
+                conn.execute("UPDATE wishlist SET collection_name = 'Tutti' WHERE LOWER(collection_name) = LOWER(?)", (name,))
+        except Exception as e:
+            logger.warning(f"[Database] Local SQLite delete_collection note: {e}")
+        return True
+
+    def update_wishlist_item_collection(self, canonical_name: str, collection_name: str) -> bool:
+        """Move an item to a new collection."""
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.update_wishlist_item_collection(canonical_name, collection_name)
+            except Exception as e:
+                logger.error(f"[Database] Error update_wishlist_item_collection in Supabase: {e}")
+
+        try:
+            with self.get_connection() as conn:
+                conn.execute("UPDATE wishlist SET collection_name = ? WHERE LOWER(canonical_name) = LOWER(?)", (collection_name, canonical_name))
+        except Exception as e:
+            logger.warning(f"[Database] Local SQLite update_wishlist note: {e}")
+        return True

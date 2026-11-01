@@ -663,12 +663,58 @@ class SupabaseClient:
     def get_collections(self) -> List[Dict[str, Any]]:
         res = self._request("collections?order=created_at.asc")
         cols = res.get("data") or []
-        if not cols:
-            return [{"id": "all", "name": "Tutti", "item_count": 0}]
-        return [{"id": c.get("id"), "name": c.get("name"), "item_count": 0} for c in cols]
+        w_res = self._request("wishlists?select=collection_name")
+        wish_items = w_res.get("data") or []
+        counts: Dict[str, int] = {}
+        for w in wish_items:
+            cname = (w.get("collection_name") or "Tutti").strip()
+            counts[cname.lower()] = counts.get(cname.lower(), 0) + 1
+
+        total_items = len(wish_items)
+        results = [{"id": "all", "name": "Tutti", "item_count": total_items}]
+        seen_names = {"tutti"}
+
+        # Default system categories to ensure rich experience
+        default_categories = ["Scarpe da Corsa", "Smartwatch & GPS", "Trail & Outdoor", "Offerte Speciali"]
+        for cat in default_categories:
+            if cat.lower() not in seen_names:
+                seen_names.add(cat.lower())
+                results.append({
+                    "id": cat.lower().replace(" ", "_"),
+                    "name": cat,
+                    "item_count": counts.get(cat.lower(), 0)
+                })
+
+        for c in cols:
+            name = c.get("name", "").strip()
+            if not name or name.lower() in seen_names:
+                continue
+            seen_names.add(name.lower())
+            count = counts.get(name.lower(), 0)
+            results.append({"id": c.get("id"), "name": name, "item_count": count})
+
+        for cname_lower, count in counts.items():
+            if cname_lower not in seen_names:
+                seen_names.add(cname_lower)
+                results.append({"id": str(uuid.uuid4()), "name": cname_lower.title(), "item_count": count})
+
+        return results
 
     def create_collection(self, name: str) -> Dict[str, Any]:
         cid = str(uuid.uuid4())
         body = {"id": cid, "name": name}
         self._request("collections", method="POST", data=body, upsert=True)
         return body
+
+    def delete_collection(self, name: str) -> bool:
+        url = f"collections?name=eq.{urllib.parse.quote(name)}"
+        self._request(url, method="DELETE")
+        # Update items in that collection to 'Tutti'
+        w_url = f"wishlists?collection_name=eq.{urllib.parse.quote(name)}"
+        self._request(w_url, method="PATCH", data={"collection_name": "Tutti"})
+        return True
+
+    def update_wishlist_item_collection(self, canonical_name: str, collection_name: str) -> bool:
+        url = f"wishlists?canonical_name=eq.{urllib.parse.quote(canonical_name)}"
+        res = self._request(url, method="PATCH", data={"collection_name": collection_name})
+        return res.get("status") in (200, 204)

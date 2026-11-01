@@ -333,6 +333,14 @@ def add_to_wishlist_endpoint(payload: dict):
     return {"status": "ok", "item": saved_item}
 
 
+@app.patch("/api/wishlist/{canonical_name}/collection")
+def update_wishlist_collection_endpoint(canonical_name: str, payload: dict):
+    """Move a saved product to a specific collection."""
+    col = payload.get("collection_name", "Tutti")
+    updated = db.update_wishlist_item_collection(canonical_name, col)
+    return {"status": "ok" if updated else "error", "success": updated, "collection_name": col}
+
+
 @app.delete("/api/wishlist/{identifier}")
 def delete_from_wishlist_endpoint(identifier: str):
     """Remove a saved product from the database."""
@@ -354,7 +362,14 @@ def create_collection_endpoint(payload: dict):
     if not name:
         raise HTTPException(status_code=400, detail="Il nome della collezione è obbligatorio.")
     created = db.create_collection(name)
-    return {"status": "ok", "collection": created}
+    return {"status": "ok", "success": True, "collection": created}
+
+
+@app.delete("/api/collections/{name}")
+def delete_collection_endpoint(name: str):
+    """Delete a collection and reassign items to Tutti."""
+    deleted = db.delete_collection(name)
+    return {"status": "ok" if deleted else "not_found", "success": deleted}
 
 
 if __name__ == "__main__":

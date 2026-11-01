@@ -207,6 +207,21 @@ class SupabaseManager: ObservableObject {
         return [200, 201].contains(code)
     }
 
+    func deleteCollection(name: String) async throws -> Bool {
+        guard let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(restURL)/collections?name=eq.\(encodedName)") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        for (k, v) in makeHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        let (_, response) = try await session.data(for: req)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return [200, 204].contains(code)
+    }
+
     // MARK: - Health Check
 
     func checkCloudHealth() async -> Bool {

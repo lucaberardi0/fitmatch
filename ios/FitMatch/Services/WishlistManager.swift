@@ -40,7 +40,13 @@ class WishlistManager: ObservableObject {
 
             let (items, cols) = try await (supaItems, supaCols)
             if !items.isEmpty {
-                self.items = items
+                var processed = items
+                for i in 0..<processed.count {
+                    if processed[i].collectionName == nil || processed[i].collectionName == "Tutti" || processed[i].collectionName?.isEmpty == true {
+                        processed[i].collectionName = Self.inferCollection(for: processed[i].canonical_name, discountPct: processed[i].discountPct)
+                    }
+                }
+                self.items = processed
                 saveItems()
                 if !cols.isEmpty {
                     self.collections = cols
@@ -59,7 +65,13 @@ class WishlistManager: ObservableObject {
             let (dbItems, dbCols) = try await (fetchedItems, fetchedCols)
 
             if !dbItems.isEmpty {
-                self.items = dbItems
+                var processed = dbItems
+                for i in 0..<processed.count {
+                    if processed[i].collectionName == nil || processed[i].collectionName == "Tutti" || processed[i].collectionName?.isEmpty == true {
+                        processed[i].collectionName = Self.inferCollection(for: processed[i].canonical_name, discountPct: processed[i].discountPct)
+                    }
+                }
+                self.items = processed
                 saveItems()
             }
             if !dbCols.isEmpty {
@@ -81,7 +93,15 @@ class WishlistManager: ObservableObject {
             let data = try Data(contentsOf: fileURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let decoded = try decoder.decode([WishlistItem].self, from: data)
+            var decoded = try decoder.decode([WishlistItem].self, from: data)
+
+            // Auto-categorize items that don't have a specific collection assigned yet
+            for i in 0..<decoded.count {
+                if decoded[i].collectionName == nil || decoded[i].collectionName == "Tutti" || decoded[i].collectionName?.isEmpty == true {
+                    decoded[i].collectionName = Self.inferCollection(for: decoded[i].canonical_name, discountPct: decoded[i].discountPct)
+                }
+            }
+
             self.items = decoded
         } catch {
             print("Errore caricamento wishlist locale: \(error)")
@@ -123,7 +143,20 @@ class WishlistManager: ObservableObject {
         }
     }
 
-    func addToWishlist(product: MatchedProduct, selectedSize: String? = nil, targetPrice: Double? = nil, collection: String? = "Tutti") {
+    static func inferCollection(for canonicalName: String, discountPct: Double? = nil) -> String {
+        let lower = canonicalName.lowercased()
+        if lower.contains("garmin") || lower.contains("polar") || lower.contains("suunto") || lower.contains("smartwatch") || lower.contains("coros") || lower.contains("forerunner") || lower.contains("fenix") || lower.contains("apple watch") || lower.contains("cardio") {
+            return "Smartwatch & GPS"
+        } else if lower.contains("trail") || lower.contains("outdoor") || lower.contains("gtx") || lower.contains("gore-tex") || lower.contains("speedcross") || lower.contains("hiking") || lower.contains("trekking") || lower.contains("vibram") {
+            return "Trail & Outdoor"
+        } else if (discountPct ?? 0) >= 20 {
+            return "Offerte Speciali"
+        } else {
+            return "Scarpe da Corsa"
+        }
+    }
+
+    func addToWishlist(product: MatchedProduct, selectedSize: String? = nil, targetPrice: Double? = nil, collection: String? = nil) {
         let bestPrice = product.best_price ?? product.bestOffer?.price ?? 0.0
         let bestOffer = product.bestOffer
         let defaultAlert = targetPrice ?? (bestPrice > 0 ? (bestPrice * 0.90).rounded() : nil)
@@ -134,6 +167,13 @@ class WishlistManager: ObservableObject {
                 return ((h - bestPrice) / h) * 100.0
             }
             return nil
+        }()
+
+        let assignedCollection: String = {
+            if let c = collection, c != "Tutti", !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return c
+            }
+            return Self.inferCollection(for: product.canonical_name, discountPct: discountPct)
         }()
 
         let newItem = WishlistItem(
@@ -148,7 +188,7 @@ class WishlistManager: ObservableObject {
             bestStoreUrl: bestOffer?.url,
             offersCount: product.offers.count,
             selectedSize: selectedSize ?? "Standard",
-            collectionName: collection ?? "Tutti",
+            collectionName: assignedCollection,
             targetAlertPrice: defaultAlert,
             isAlertEnabled: true,
             dateAdded: Date(),
@@ -188,11 +228,97 @@ class WishlistManager: ObservableObject {
         }
     }
 
+    static let defaultCollectionNames = [
+        "Tutti",
+        "Scarpe da Corsa",
+        "Smartwatch & GPS",
+        "Trail & Outdoor",
+        "Offerte Speciali"
+    ]
+
+    func getAvailableCollections() -> [WishlistCollection] {
+        var names: [String] = WishlistManager.defaultCollectionNames
+        for c in collections {
+            if !names.contains(where: { $0.caseInsensitiveCompare(c.name) == .orderedSame }) {
+                names.append(c.name)
+            }
+        }
+        for item in items {
+            if let cName = item.collectionName, !cName.isEmpty {
+                if !names.contains(where: { $0.caseInsensitiveCompare(cName) == .orderedSame }) {
+                    names.append(cName)
+                }
+            }
+        }
+        return names.map { name in
+            WishlistCollection(name: name, item_count: getItemCount(for: name))
+        }
+    }
+
+    func getItemCount(for collectionName: String) -> Int {
+        if collectionName.caseInsensitiveCompare("Tutti") == .orderedSame {
+            return items.count
+        }
+        return items.filter { $0.collectionName?.caseInsensitiveCompare(collectionName) == .orderedSame }.count
+    }
+
+    func getThumbnails(for collectionName: String, limit: Int = 4) -> [String] {
+        let matching = (collectionName.caseInsensitiveCompare("Tutti") == .orderedSame)
+            ? items
+            : items.filter { $0.collectionName?.caseInsensitiveCompare(collectionName) == .orderedSame }
+        return matching.compactMap { $0.image_url }.prefix(limit).map { $0 }
+    }
+
+    func moveItem(canonicalName: String, toCollection: String) {
+        guard let index = items.firstIndex(where: { $0.canonical_name.caseInsensitiveCompare(canonicalName) == .orderedSame }) else {
+            return
+        }
+        let gen = UIImpactFeedbackGenerator(style: .medium)
+        gen.impactOccurred()
+
+        items[index].collectionName = toCollection
+        saveItems()
+
+        let updatedItem = items[index]
+        Task {
+            _ = try? await APIService.shared.updateItemCollection(canonicalName: canonicalName, collectionName: toCollection)
+            _ = try? await SupabaseManager.shared.upsertWishlistItem(item: updatedItem)
+        }
+    }
+
+    func deleteCollection(name: String) {
+        guard name.caseInsensitiveCompare("Tutti") != .orderedSame else { return }
+        let gen = UIImpactFeedbackGenerator(style: .medium)
+        gen.impactOccurred()
+
+        // Reassign any items in this collection to Tutti
+        for i in 0..<items.count {
+            if items[i].collectionName?.caseInsensitiveCompare(name) == .orderedSame {
+                items[i].collectionName = "Tutti"
+            }
+        }
+        saveItems()
+
+        collections.removeAll { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        if selectedCollection.caseInsensitiveCompare(name) == .orderedSame {
+            selectedCollection = "Tutti"
+        }
+
+        Task {
+            _ = try? await APIService.shared.deleteCollection(name: name)
+            _ = try? await SupabaseManager.shared.deleteCollection(name: name)
+        }
+    }
+
     func createCollection(name: String) {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !collections.contains(where: { $0.name.caseInsensitiveCompare(cleanName) == .orderedSame }) {
+            collections.append(WishlistCollection(name: cleanName, item_count: 0))
+        }
         Task {
-            _ = try? await SupabaseManager.shared.createCollection(name: name)
-            _ = try? await APIService.shared.createCollection(name: name)
+            _ = try? await SupabaseManager.shared.createCollection(name: cleanName)
+            _ = try? await APIService.shared.createCollection(name: cleanName)
             await syncWithDatabase()
         }
     }

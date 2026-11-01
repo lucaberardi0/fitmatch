@@ -265,4 +265,25 @@ class APIService: ObservableObject {
         let (_, response) = try await session.data(for: request)
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
+
+    func updateItemCollection(canonicalName: String, collectionName: String) async throws -> Bool {
+        let encoded = canonicalName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? canonicalName
+        guard let url = URL(string: "\(baseURL)/api/wishlist/\(encoded)/collection") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["collection_name": collectionName]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    func deleteCollection(name: String) async throws -> Bool {
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        guard let url = URL(string: "\(baseURL)/api/collections/\(encoded)") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
 }
