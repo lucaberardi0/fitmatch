@@ -204,7 +204,11 @@ struct HomeView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
 
-                // 2. Real Database Partner Stores from Supabase & API
+                // 2. "Visti di recente" Preview Card
+                recentlyViewedPreviewCard
+                    .padding(.horizontal, 16)
+
+                // 3. Real Database Partner Stores from Supabase & API
                 if isLoading && showcases.isEmpty {
                     VStack(spacing: 12) {
                         ProgressView()
@@ -336,6 +340,155 @@ struct HomeView: View {
             .shadow(color: Color.black.opacity(0.02), radius: 8, x: 0, y: 2)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - 2. "Visti di recente" Section (Real User History & Database Recommendations)
+
+    private var previewRecentProducts: [MatchedProduct] {
+        // 1. User viewed products from RecentActivityManager
+        let productActivities = recentManager.activities.compactMap { act -> MatchedProduct? in
+            guard act.type == .product else { return nil }
+            return act.productData
+        }
+
+        if !productActivities.isEmpty {
+            var seen = Set<String>()
+            var unique: [MatchedProduct] = []
+            for p in productActivities {
+                let key = p.canonical_name.lowercased()
+                if !seen.contains(key) {
+                    seen.insert(key)
+                    unique.append(enrichMatchedProduct(p))
+                }
+            }
+            if !unique.isEmpty {
+                return Array(unique.prefix(3))
+            }
+        }
+
+        // 2. Fallback: Show real products from showcases if no items viewed yet
+        var fallback: [MatchedProduct] = []
+        for sc in showcases {
+            if sc.products.count > 1 {
+                let p = sc.products[1]
+                fallback.append(p.toMatchedProduct(storeId: sc.store_id, storeName: sc.store_name))
+                if fallback.count == 3 { break }
+            }
+        }
+        return fallback
+    }
+
+    private func enrichMatchedProduct(_ prod: MatchedProduct) -> MatchedProduct {
+        if !prod.offers.isEmpty { return prod }
+        for sc in showcases {
+            if let found = sc.products.first(where: {
+                $0.canonical_name.caseInsensitiveCompare(prod.canonical_name) == .orderedSame || $0.id == prod.id
+            }) {
+                return found.toMatchedProduct(storeId: sc.store_id, storeName: sc.store_name)
+            }
+        }
+        return prod
+    }
+
+    private var recentlyViewedPreviewCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header: "Visti di recente" + Chevron Button
+            HStack {
+                HStack(spacing: 8) {
+                    Text("Visti di recente")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
+
+                    let productCount = recentManager.activities.filter { $0.type == .product }.count
+                    if productCount > 0 {
+                        Text("\(productCount)")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopTextMuted)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Color(red: 242/255, green: 243/255, blue: 246/255))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                Spacer()
+
+                NavigationLink(destination: RecentlyViewedView()) {
+                    Circle()
+                        .fill(Color(red: 242/255, green: 243/255, blue: 246/255))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(Color(red: 70/255, green: 70/255, blue: 75/255))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Row of 3 Products (Thumbnails with subtle price tag & NavigationLink to ProductDetailView)
+            HStack(spacing: 12) {
+                let items = previewRecentProducts
+                ForEach(0..<3, id: \.self) { idx in
+                    if idx < items.count {
+                        let prod = enrichMatchedProduct(items[idx])
+                        NavigationLink(destination: ProductDetailView(product: prod)) {
+                            ZStack(alignment: .bottomLeading) {
+                                RoundedRectangle(cornerRadius: 18)
+                                    .fill(Color(red: 244/255, green: 245/255, blue: 248/255))
+                                    .aspectRatio(1.0, contentMode: .fit)
+
+                                if let imgUrl = prod.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
+                                    AsyncImage(url: url) { phase in
+                                        if let img = phase.image {
+                                            img
+                                                .resizable()
+                                                .scaledToFit()
+                                                .padding(10)
+                                        } else {
+                                            Image(systemName: "photo")
+                                                .font(.system(size: 26))
+                                                .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                        }
+                                    }
+                                } else {
+                                    Image(systemName: "clock.arrow.circlepath")
+                                        .font(.system(size: 26))
+                                        .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                                }
+
+                                if let price = prod.best_price ?? prod.bestOffer?.price {
+                                    Text(String(format: "%.2f €", price).replacingOccurrences(of: ".", with: ","))
+                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                        .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(Color.white.opacity(0.92))
+                                        .clipShape(Capsule())
+                                        .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1)
+                                        .padding(6)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 18)
+                                .fill(Color(red: 244/255, green: 245/255, blue: 248/255))
+                                .aspectRatio(1.0, contentMode: .fit)
+
+                            Image(systemName: "clock")
+                                .font(.system(size: 24))
+                                .foregroundColor(Color(red: 215/255, green: 215/255, blue: 220/255))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .background(Color.white)
+        .cornerRadius(24)
+        .shadow(color: Color.black.opacity(0.02), radius: 8, x: 0, y: 2)
     }
 
     // MARK: - Dark Slate Accent Card (Screenshot 1 Visual Cadence with Real Products)

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		04D61A052EF7DFD9FD09B7CA /* RecentActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7449329B4199F5489D3E9D79 /* RecentActivityManager.swift */; };
+		347121AD1A7146F1A9594B65 /* RecentlyViewedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 913DA0B9C5B44B659654B048 /* RecentlyViewedView.swift */; };
 		0868BFDF8B0B1B89D6D97BB5 /* ProductDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE97964EC21F194E375A1D8A /* ProductDetailView.swift */; };
 		11E376073C2473A0CC95E633 /* MoveToCollectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF320DE48B1652EEC874F05D /* MoveToCollectionSheet.swift */; };
 		135B70A20A222A2514C8953D /* Badges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20254DFCB0EF57AEB2F80CB7 /* Badges.swift */; };
@@ -55,6 +56,7 @@
 		5BBB96680081776543C22610 /* WishlistModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WishlistModels.swift; sourceTree = "<group>"; };
 		5D1D8179F12F0ADDCE9D80BF /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 		7449329B4199F5489D3E9D79 /* RecentActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentActivityManager.swift; sourceTree = "<group>"; };
+		913DA0B9C5B44B659654B048 /* RecentlyViewedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentlyViewedView.swift; sourceTree = "<group>"; };
 		77C67467BE3D6FD9CE33B15B /* UserPreferencesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserPreferencesManager.swift; sourceTree = "<group>"; };
 		7CEC7A3E09C541258C7BB35F /* FitMatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FitMatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		96802C6BE10AFF3B926DD290 /* WishlistManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WishlistManager.swift; sourceTree = "<group>"; };
@@ -201,6 +203,7 @@
 				395FFCA471A337B896E62006 /* HomeView.swift */,
 				3383A60980E52BBE4FB22597 /* ProductCardView.swift */,
 				AE97964EC21F194E375A1D8A /* ProductDetailView.swift */,
+				913DA0B9C5B44B659654B048 /* RecentlyViewedView.swift */,
 				EF4829FB6D5570E7151FA8CE /* StoreShowcaseCard.swift */,
 			);
 			path = Home;
@@ -299,6 +302,7 @@
 				0868BFDF8B0B1B89D6D97BB5 /* ProductDetailView.swift in Sources */,
 				DB801E209CBDE5B967F40ACC /* ProductModels.swift in Sources */,
 				04D61A052EF7DFD9FD09B7CA /* RecentActivityManager.swift in Sources */,
+				347121AD1A7146F1A9594B65 /* RecentlyViewedView.swift in Sources */,
 				20454A90B6C0DA0AF033B9B9 /* SearchView.swift in Sources */,
 				FBB10C702040661D2A2196F7 /* StoreDetailView.swift in Sources */,
 				67C1F2E9A91547E9E945A6F1 /* StoreShowcaseCard.swift in Sources */,
