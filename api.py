@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
@@ -9,6 +10,8 @@ from fitmatch.smart_search import SmartSearchEngine
 from fitmatch.updater import PriceUpdater
 from fitmatch.scheduler import SyncScheduler
 from fitmatch.models import SearchResult
+
+logger = logging.getLogger("fitmatch.api")
 
 app = FastAPI(
     title="FitMatch API",
@@ -142,6 +145,49 @@ def search_smart(
         store_id=store,
         limit=limit
     )
+
+    # Live Multi-Store Federated Search Fallback:
+    # If local indexed DB returns 0 products for this smart query, immediately trigger live scrapers across retailers!
+    if not products:
+        live_kw = intent.target_keywords[0] if intent.target_keywords else q
+        logger.info(f"[search_smart] 0 local products for '{q}'. Triggering live multi-store crawler for '{live_kw}'")
+        try:
+            live_res = service.search_and_compare(query=live_kw, size=eff_size, limit_per_store=8, use_cache=True)
+            if live_res.matched_products:
+                products = [
+                    {
+                        "id": mp.canonical_name,
+                        "canonical_name": mp.canonical_name,
+                        "brand": mp.brand or intent.brand,
+                        "category": eff_category or "running_shoes",
+                        "gender": intent.gender or "Unisex",
+                        "image_url": mp.image_url,
+                        "offer_count": len(mp.offers),
+                        "best_price": mp.best_price,
+                        "max_price": mp.highest_price,
+                        "offers": [o.model_dump() for o in mp.offers],
+                        "highest_price": mp.highest_price,
+                        "cross_store_savings": mp.cross_store_savings
+                    }
+                    for mp in live_res.matched_products
+                ]
+                # Index into database so future searches are cached
+                try:
+                    for mp in live_res.matched_products:
+                        for off in mp.offers:
+                            cluster_key = f"{mp.canonical_name.lower()} [{eff_category or 'running_shoes'}] [{intent.gender or 'Unisex'}]"
+                            db.upsert_product_and_offer(
+                                cluster_key=cluster_key,
+                                canonical_name=mp.canonical_name,
+                                brand=mp.brand or intent.brand,
+                                category=eff_category or "running_shoes",
+                                gender=intent.gender or "Unisex",
+                                offer=off
+                            )
+                except Exception as save_err:
+                    logger.warning(f"[search_smart] Failed to cache live offers: {save_err}")
+        except Exception as e:
+            logger.error(f"[search_smart] Live crawl federation error: {e}")
 
     return {
         "intent": {

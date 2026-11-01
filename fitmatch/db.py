@@ -458,8 +458,8 @@ class Database:
             cur = conn.execute(sql, params)
             products = [dict(r) for r in cur.fetchall()]
 
-            # Fallback: if targeted keywords were too strict and returned 0, try category or brand only
-            if not products and (category or brand):
+            # Only fallback to category/brand browsing if the user did NOT specify target keywords
+            if not products and not target_keywords and (category or brand):
                 fb_clauses = []
                 fb_params: List[Any] = []
                 if category and category.lower() not in ("all", "tutti"):
