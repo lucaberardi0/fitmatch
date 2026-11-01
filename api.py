@@ -6,6 +6,7 @@ from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.crawler import CategoryCrawler
 from fitmatch.ai_advisor import AIShoppingAdvisor
+from fitmatch.ai_comparator import AIModelComparator, ModelComparisonResponse
 from fitmatch.smart_search import SmartSearchEngine
 from fitmatch.updater import PriceUpdater
 from fitmatch.scheduler import SyncScheduler
@@ -36,6 +37,7 @@ smart_engine = SmartSearchEngine()
 
 
 advisor = AIShoppingAdvisor(service=service, db=db)
+comparator = AIModelComparator(service=service)
 
 
 @app.on_event("startup")
@@ -116,6 +118,15 @@ def ai_advise(
 ):
     """AI Shopper: translates natural language runner profiles into optimal models and live bargains."""
     return advisor.advise(prompt)
+
+
+@app.get("/api/ai/compare", response_model=ModelComparisonResponse)
+def compare_models(
+    model_a: str = Query(..., min_length=2, description="First model to compare (e.g. 'Pegasus 41', 'Forerunner 165')"),
+    model_b: str = Query(..., min_length=2, description="Second model to compare (e.g. 'Nimbus 26', 'Forerunner 265')")
+):
+    """AI Side-by-side technical, biomechanical, and live pricing comparison between two sports gear models."""
+    return comparator.compare_models(model_a, model_b)
 
 
 @app.get("/api/search/smart")
@@ -217,7 +228,7 @@ def search_live(
     limit: int = Query(8, ge=1, le=25, description="Max products to fetch per store"),
     cache: bool = Query(True, description="Enable local caching to speed up repeated queries")
 ):
-    """Live multi-store federated search across all 4 retailers with optional size verification."""
+    """Live multi-store federated search across all 10 retailers with optional size verification."""
     try:
         results = service.search_and_compare(query=q, size=size, limit_per_store=limit, use_cache=cache)
         return results
@@ -237,7 +248,7 @@ def trigger_crawl(
     background_tasks.add_task(crawler.run_full_sync, limit_per_store, stores)
     return {
         "status": "scheduled",
-        "message": f"Crawl job avviato in background per {store or 'tutti i 9 negozi'}",
+        "message": f"Crawl job avviato in background per {store or 'tutti i 10 negozi'}",
         "target_per_store": limit_per_store
     }
 

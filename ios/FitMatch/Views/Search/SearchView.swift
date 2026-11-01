@@ -45,7 +45,7 @@ struct SearchView: View {
         // Country / Store filters (Shop Screenshot 2: "Vende da 🇪🇺", "Vende da 🇮🇹")
         if let country = selectedFilterCountry {
             if country == "IT" {
-                let itStores = ["cisalfa", "maxi", "mister", "nencini"]
+                let itStores = ["cisalfa", "maxi", "mister", "nencini", "decathlon", "sportler"]
                 list = list.filter { prod in
                     prod.offers.contains { off in
                         itStores.contains(where: { off.store_id.lowercased().contains($0) })
@@ -144,6 +144,45 @@ struct SearchView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 12)
                 .background(Color.white)
+
+                // AI Quick Access Strip
+                HStack(spacing: 10) {
+                    NavigationLink(destination: AIAdvisorView()) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.shopPurple)
+                            Text("Coach IA")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopDark)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.shopPurpleLight.opacity(0.6))
+                        .cornerRadius(12)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.shopPurple.opacity(0.18), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+
+                    NavigationLink(destination: ModelCompareView()) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.left.arrow.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.blue)
+                            Text("Confronta 2 Modelli")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopDark)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.blue.opacity(0.08))
+                        .cornerRadius(12)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue.opacity(0.18), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
 
                 // Real User Recent Activity List (Searches & Viewed Products)
                 ScrollView(showsIndicators: false) {

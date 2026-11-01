@@ -16,7 +16,7 @@ flowchart TD
         FastAPI["FastAPI Engine (Docker)\nfitmatch-backend-klhv.onrender.com"]
         AI["OpenRouter AI Parser\nLlama 3.3 70B Instruct"]
         Scheduler["SyncScheduler\nAutonomous Daemon"]
-        Scrapers["Federated Live Scrapers\n(9 Retailers / TLS JA3 Bypass)"]
+        Scrapers["Federated Live Scrapers\n(10 Retailers / TLS JA3 Bypass)"]
     end
 
     subgraph Database ["🗄️ Database Layer"]
@@ -42,7 +42,7 @@ flowchart TD
 
 ---
 
-## 🎯 9 Negozi Partner Integrati
+## 🎯 10 Negozi Partner Integrati
 
 1. **Decathlon** (`decathlon.it`): Leader globale retail sportivo e marketplace.
 2. **Cisalfa Sport** (`cisalfasport.it`): Catena retail #1 in Italia (Salesforce Commerce Cloud).
@@ -53,20 +53,30 @@ flowchart TD
 7. **Running Warehouse Europe** (`runningwarehouse.eu`): Store globale leader nel running (Prezzi EUR con IVA italiana e catalogo GTM).
 8. **Deporvillage** (`deporvillage.it`): Leader Sud Europa in outdoor, ciclismo, elettronica Garmin/Polar, occhiali Oakley (Algolia Fast Search).
 9. **Alltricks** (`alltricks.it` — Gruppo Decathlon): Gigante europeo per ciclismo, trail, GPS, caschi e nutrizione (Constructor.io API).
+10. **Sportler** (`sportler.com`): Leader del retail sportivo alpino e Nord Italia con 30+ megastore (FactFinder Suggest API e parsing GTM).
 
 ---
 
-## 🧠 Ricerca Intelligente & Live Multi-Store Federation
+## 🧠 Ricerca Intelligente, Coach Biomeccanico & Confronto Modelli
 
-Il motore di ricerca implementa una pipeline ibrida con intelligenza artificiale per interpretare il linguaggio naturale dell'utente:
+Il motore intelligente implementa una suite di funzionalità AI avanzate per affiancare il podista e l'atleta:
 
-1. **Comprensione Semantica con LLM (OpenRouter `meta-llama/llama-3.3-70b-instruct`)**:
+1. **Confronto Modelli Head-to-Head (`/api/ai/compare`)**:
+   - Mette a confronto diretto due modelli di scarpe o smartwatch (es. *Pegasus 41 vs Nimbus 26*, *Forerunner 165 vs 265*).
+   - Analisi biomeccanica completa: drop (mm), peso (g), mescola dell'intersuola, presenza di piastra (carbonio/nylon), target podista e pro/contro tecnici.
+   - Confronta i prezzi live nei 10 negozi, calcola il delta di prezzo e sintetizza il verdetto per valore e pura performance.
+
+2. **Coach Biomeccanico IA (`/api/ai/advise`)**:
+   - Analisi dei parametri fisiologici (peso corporeo, patologie come fascite plantare o tendiniti, superficie, budget, taglia).
+   - Genera una diagnosi personalizzata del carico articolare ad ogni impatto e individua i modelli ottimali interrogando in tempo reale le offerte a stock.
+
+3. **Comprensione Semantica con LLM (OpenRouter `meta-llama/llama-3.3-70b-instruct`)**:
    - Estrae intenzione d'acquisto, marca, categoria precisa (`running_shoes`, `gps_watch`, `eyewear`, `hydration`, `fitness`, `nutrition`, `gear`), budget massimo, taglia e caratteristiche tecniche (`carbon_plate`, `waterproof`, `trail`, `cushioning`).
    - **Fedeltà al modello**: Preserva rigorosamente modelli specifici (es. *"Nike alpha fly per la corsa"* ➔ `target_keywords: ["nike alphafly"]`, *"Forerunner 165"* ➔ `category: "gps_watch"`).
    - Fallback automatico su **Llama 3.1 8B Instruct** (400ms) e su `LocalHeuristicParser` in caso di offline.
 
-2. **Live Multi-Store Federation Fallback**:
-   - Se il database locale non ha ancora indicizzato il modello cercato, il backend attiva all'istante la federazione concorrente sui 9 negozi partner.
+4. **Live Multi-Store Federation Fallback**:
+   - Se il database locale non ha ancora indicizzato il modello cercato, il backend attiva all'istante la federazione concorrente sui 10 negozi partner.
    - Raggruppa i risultati, normalizza i titoli, calcola i prezzi complessivi con spedizione e inserisce automaticamente i nuovi articoli nel database per le ricerche future.
 
 ---

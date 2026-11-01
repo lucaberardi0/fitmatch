@@ -1,14 +1,33 @@
+import os
 import re
+import json
+import logging
+import ssl
 from typing import List, Dict, Any, Optional
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+import certifi
 from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.models import MatchedProductGroup, Offer
+
+logger = logging.getLogger("fitmatch.ai_advisor")
+
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 class AIShoppingAdvisor:
     """AI Assistant that interprets complex natural-language shopper needs,
 
-    selects optimal technical sports gear models, and finds the best multi-store deals.
+    selects optimal technical sports gear models using Llama 3.3 70B and biomechanical rules,
+    and finds the best multi-store deals.
     """
 
     KNOWLEDGE_BASE = {
@@ -67,13 +86,13 @@ class AIShoppingAdvisor:
         """Extract user constraints: weight, surface, goal, budget, gender."""
         text = user_query.lower()
 
-        # 1. Budget extraction (es. 'sotto i 140€', 'meno di 130 euro', 'max 100€')
+        # 1. Budget extraction
         max_price = None
         price_match = re.search(r"(?:sotto\s*i?|meno\s*di|max|massimo|budget\s*di?)\s*(\d+)\s*(?:€|euro)?", text)
         if price_match:
             max_price = float(price_match.group(1))
 
-        # 2. Size extraction (es. 'taglia 43', 'numero 42.5', 'porto il 44', 'taglia M')
+        # 2. Size extraction
         size = None
         size_match = re.search(r"(?:taglia|numero|misura|porto\s*(?:il|la)?)\s*([0-9]{2}(?:[\.,][0-9])?|[xXsSmMlL]{1,3})", text)
         if size_match:
@@ -86,32 +105,29 @@ class AIShoppingAdvisor:
         elif re.search(r"\b(uomo|ragazzo|maschil[eia]|mens?)\b", text):
             gender = "Uomo"
 
-        # 3. Weight analysis
+        # 4. Weight analysis
         weight_kg = None
         weight_match = re.search(r"(\d{2,3})\s*(?:kg|chili)", text)
         if weight_match:
             weight_kg = int(weight_match.group(1))
 
-        # 4. Surface
+        # 5. Surface
         surface = "asfalto"
         if re.search(r"\b(trail|sterrato|fango|montagna|sentier[oi]|bosco)\b", text):
             surface = "trail"
         elif re.search(r"\b(pista|tartan)\b", text):
             surface = "pista"
 
-        # 5. Goal / Biomechanical profile or Accessory Request
         is_waterproof = bool(re.search(r"\b(impermeabil[ei]|gtx|gore[\s-]tex|pioggia)\b", text))
         is_speed = bool(re.search(r"\b(veloc[ei]|reattiv[ae]|gara|maratona|mezza|ripetute|piastra)\b", text))
-        is_cushion = bool(re.search(r"\b(ammortizzat[ae]|morbida?|comod[ae]|protettiv[ae]|ginocchi[ao]|schiena|tendin[ei])\b", text))
+        is_cushion = bool(re.search(r"\b(ammortizzat[ae]|morbida?|comod[ae]|protettiv[ae]|ginocchi[ao]|schiena|tendin[ei]|fascite)\b", text))
 
-        # Check if accessory is explicitly requested
         is_gps = bool(re.search(r"\b(orolog[io]|smartwatch|gps|cardio|garmin|polar|suunto|coros|ciclocomputer)\b", text))
         is_eyewear = bool(re.search(r"\b(occhial[ie]|lenti|oakley|sole|prizm)\b", text))
         is_hydration = bool(re.search(r"\b(zain[oi]|gilet|flask|borracci[ae]|idratazione|camelbak)\b", text))
         is_recovery = bool(re.search(r"\b(theragun|pistola|massaggi[ao]|recupero|contrattur[ae]|massaggiante)\b", text))
         is_nutrition = bool(re.search(r"\b(gel|barrett[ae]|integrator[ei]|enervit|sali|maltodestrin[ae]|nutrizione)\b", text))
 
-        # Assign category archetype
         if is_gps:
             category = "gps_watch"
         elif is_eyewear:
@@ -144,39 +160,132 @@ class AIShoppingAdvisor:
 
     def advise(self, user_query: str) -> Dict[str, Any]:
         """Generate structured AI recommendations with real multi-store price comparisons."""
-        params = self.parse_user_request(user_query)
-        cat_info = self.KNOWLEDGE_BASE[params["category"]]
-        target_models = list(cat_info["models"])
+        # 1. Try LLM consultation first if OpenRouter is configured
+        llm_result = self._try_llm_consultation(user_query)
+        if llm_result:
+            return llm_result
 
-        # Add GTX variant query if waterproof requested
-        if params["is_waterproof"]:
-            target_models = [f"{m} gtx" for m in target_models]
+        # 2. Heuristic fallback
+        return self._advise_heuristic(user_query)
 
+    def _try_llm_consultation(self, user_query: str) -> Optional[Dict[str, Any]]:
+        """Query Llama 3.3 70B for biomechanical reasoning and targeted models."""
+        if not OPENROUTER_API_KEY:
+            return None
+
+        try:
+            import urllib.request
+            ctx = ssl.create_default_context(cafile=certifi.where())
+
+            system_prompt = (
+                "Sei un Coach e Biomeccanico sportivo d'élite per 'FitMatch'. "
+                "L'utente ti spiega le sue caratteristiche fisiche (peso, altezza, appoggio, eventuali patologie come fascite plantare, tendinite, dolori alle ginocchia), "
+                "i suoi obiettivi sportivi e il budget.\n"
+                "Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura:\n"
+                "{\n"
+                "  \"category_name\": \"es. Massimo Ammortizzamento & Protezione Articolare\",\n"
+                "  \"category_description\": \"descrizione chiara della categoria tecnica\",\n"
+                "  \"biomechanical_reasoning\": \"Spiegazione biomeccanica dettagliata e cordiale in 2-3 frasi, evidenziando il carico articolare e la motivazione delle scelte tecniche.\",\n"
+                "  \"recommended_models\": [\"modello 1 esatto (es. asics gel nimbus 26)\", \"modello 2 (es. hoka bondi 8)\", \"modello 3 (es. brooks glycerin 21)\"],\n"
+                "  \"parsed_profile\": {\n"
+                "    \"weight_kg\": int o null,\n"
+                "    \"surface\": \"asfalto | trail | pista\",\n"
+                "    \"gender\": \"Uomo | Donna | Unisex\",\n"
+                "    \"size\": \"taglia stringa o null (es. 43)\",\n"
+                "    \"max_price\": float o null\n"
+                "  }\n"
+                "}"
+            )
+
+            payload = {
+                "model": OPENROUTER_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_query}
+                ],
+                "temperature": 0.1,
+                "max_tokens": 800
+            }
+
+            req = urllib.request.Request(
+                OPENROUTER_URL,
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://fitmatch.it",
+                    "X-Title": "FitMatch AI Advisor"
+                },
+                data=json.dumps(payload).encode("utf-8")
+            )
+
+            resp = urllib.request.urlopen(req, context=ctx, timeout=12)
+            data = json.loads(resp.read().decode("utf-8"))
+            content = data["choices"][0]["message"]["content"]
+
+            raw_json = content
+            if "```json" in content:
+                raw_json = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                raw_json = content.split("```")[1].split("```")[0].strip()
+
+            parsed = json.loads(raw_json)
+            models = parsed.get("recommended_models", [])
+            profile = parsed.get("parsed_profile", {})
+
+            # Collect live offers for recommended models
+            recommendations = self._fetch_model_offers(
+                models=models,
+                size=profile.get("size"),
+                max_price=profile.get("max_price"),
+                gender=profile.get("gender", "Unisex")
+            )
+
+            return {
+                "user_profile": {
+                    "raw_query": user_query,
+                    "max_price": profile.get("max_price"),
+                    "size": profile.get("size"),
+                    "gender": profile.get("gender", "Unisex"),
+                    "weight_kg": profile.get("weight_kg"),
+                    "surface": profile.get("surface", "asfalto"),
+                    "category": parsed.get("category_name", "Running & Sport Gear")
+                },
+                "category_name": parsed.get("category_name", "Consulenza Biomeccanica IA"),
+                "category_description": parsed.get("category_description", ""),
+                "biomechanical_reasoning": parsed.get("biomechanical_reasoning", ""),
+                "recommendations": recommendations[:5],
+                "source": "openrouter_llama_70b"
+            }
+
+        except Exception as e:
+            logger.warning(f"[AIShoppingAdvisor] LLM consultation failed: {e}. Falling back to heuristic.")
+            return None
+
+    def _fetch_model_offers(
+        self,
+        models: List[str],
+        size: Optional[str] = None,
+        max_price: Optional[float] = None,
+        gender: Optional[str] = "Unisex"
+    ) -> List[Dict[str, Any]]:
+        """Fetch live offers across stores for a list of target models."""
         recommendations = []
-        all_candidate_offers = []
-
-        # Query live stores for the target models with optional size filtering
-        for model in target_models[:3]:
+        for model in models[:3]:
             res = self.service.search_and_compare(
                 query=model,
-                size=params["size"],
+                size=size,
                 limit_per_store=4,
                 use_cache=True
             )
             for group in res.matched_products:
-                # Apply budget filter if specified
-                if params["max_price"] and group.best_price and group.best_price > params["max_price"]:
+                if max_price and group.best_price and group.best_price > max_price:
                     continue
-
-                # Filter by gender if specific
-                if params["gender"] == "Donna" and "(Donna)" not in group.canonical_name and "Donna" not in group.canonical_name:
+                if gender == "Donna" and "(Donna)" not in group.canonical_name and "Donna" not in group.canonical_name:
                     continue
 
                 best_offer = group.best_offer
                 if best_offer:
-                    # Filter out tiny accessories unless nutrition is explicitly requested
-                    min_price_threshold = 2.0 if params["category"] == "nutrition" else 20.0
-                    if best_offer.price < min_price_threshold:
+                    if best_offer.price < 20.0:
                         continue
                     recommendations.append({
                         "product_name": group.canonical_name,
@@ -193,27 +302,42 @@ class AIShoppingAdvisor:
                             for o in group.offers
                         ]
                     })
-
-        # Sort recommendations: lowest price and highest discount first
         recommendations.sort(key=lambda r: (r["best_price"] or 999))
+        return recommendations
 
-        # Biomechanical explanation
+    def _advise_heuristic(self, user_query: str) -> Dict[str, Any]:
+        """Local rule-based heuristic advisor fallback."""
+        params = self.parse_user_request(user_query)
+        cat_info = self.KNOWLEDGE_BASE[params["category"]]
+        target_models = list(cat_info["models"])
+
+        if params["is_waterproof"]:
+            target_models = [f"{m} gtx" for m in target_models]
+
+        recommendations = self._fetch_model_offers(
+            models=target_models,
+            size=params["size"],
+            max_price=params["max_price"],
+            gender=params["gender"]
+        )
+
         reasons = []
         if params["weight_kg"]:
-            reasons.append(f"Per un peso di **{params['weight_kg']} kg**, il carico sulle articolazioni ad ogni atterraggio è di circa {params['weight_kg'] * 3} kg. Ti occorrono scarpe con intersuola generosa per proteggere menischi e colonna.")
+            reasons.append(f"Per un peso di **{params['weight_kg']} kg**, il carico articolare all'impatto supera i {params['weight_kg'] * 3} kg: occorre un'intersuola protettiva con elevato assorbimento dello shock.")
         if params["surface"] == "asfalto":
-            reasons.append("L'asfalto è la superficie più traumatica: abbiamo selezionato schiume a massimo assorbimento d'urto.")
+            reasons.append("L'asfalto è la superficie più traumatica per i tendini: abbiamo selezionato schiume tecniche ad alto smorzamento.")
         elif params["surface"] == "trail":
-            reasons.append("Per lo sterrato abbiamo selezionato modelli con suola con grip artigliato e tomaia protettiva anti-sassi.")
+            reasons.append("Per lo sterrato abbiamo privilegiato suole artigliate e protezione dell'avampiede.")
         if params["max_price"]:
-            reasons.append(f"Tutti i modelli proposti rispettano il tuo budget di **{params['max_price']:.0f} €**.")
+            reasons.append(f"Tutti i modelli rispettano il budget di **{params['max_price']:.0f} €**.")
         if params["size"]:
-            reasons.append(f"Tutte le offerte visualizzate hanno la taglia **{params['size']}** effettivamente disponibile in stock.")
+            reasons.append(f"Le offerte mostrate verificano la presenza della taglia **{params['size']}** in magazzino.")
 
         return {
             "user_profile": params,
             "category_name": cat_info["name"],
             "category_description": cat_info["description"],
             "biomechanical_reasoning": " ".join(reasons),
-            "recommendations": recommendations[:5]
+            "recommendations": recommendations[:5],
+            "source": "local_heuristic"
         }

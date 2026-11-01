@@ -4,9 +4,11 @@ from datetime import datetime
 
 
 EU_TO_US_MEN = {
-    "39": "6.5", "40": "7", "40.5": "7.5", "41": "8", "42": "8.5",
-    "42.5": "9", "43": "9.5", "44": "10", "44.5": "10.5", "45": "11",
-    "45.5": "11.5", "46": "12", "47": "12.5", "47.5": "13", "48": "13.5"
+    "36": "4.5", "36.5": "5", "37": "5", "37.5": "5.5", "38": "6", "38.5": "6",
+    "39": "6.5", "39.5": "7", "40": "7", "40.5": "7.5", "41": "8", "41.5": "8.5", "42": "8.5",
+    "42.5": "9", "43": "9.5", "43.5": "10", "44": "10", "44.5": "10.5", "45": "11",
+    "45.5": "11.5", "46": "12", "46.5": "12", "47": "12.5", "47.5": "13", "48": "13.5",
+    "48.5": "14", "49": "14.5"
 }
 US_TO_EU_MEN = {v: k for k, v in EU_TO_US_MEN.items()}
 
@@ -20,6 +22,8 @@ STORE_SHIPPING_RULES = {
     "runningwarehouse": {"standard": 10.00, "free_threshold": 59.0, "courier": "UPS Standard"},
     "deporvillage": {"standard": 4.99, "free_threshold": 80.0, "courier": "GLS / DPD"},
     "alltricks": {"standard": 4.99, "free_threshold": 69.0, "courier": "Bartolini (BRT)"},
+    "decathlon": {"standard": 3.99, "free_threshold": 50.0, "courier": "Corriere Espresso"},
+    "sportler": {"standard": 5.00, "free_threshold": 50.0, "courier": "GLS / DPD"},
 }
 
 

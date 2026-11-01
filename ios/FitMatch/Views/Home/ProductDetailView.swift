@@ -184,7 +184,7 @@ struct ProductDetailView: View {
                                     .foregroundColor(.shopPurple)
                                     .tracking(0.5)
 
-                                Text("Risparmi fino a \(String(format: "€%.2f", savings)) scegliendo l'offerta migliore tra gli 8 negozi partner.")
+                                Text("Risparmi fino a \(String(format: "€%.2f", savings)) scegliendo l'offerta migliore tra i 10 negozi partner.")
                                     .font(.system(size: 12.5, weight: .medium))
                                     .foregroundColor(.shopDark)
                                     .lineLimit(2)
@@ -200,6 +200,28 @@ struct ProductDetailView: View {
                         )
                         .padding(.horizontal, 16)
                     }
+
+                    // Versus Mode Quick Action
+                    NavigationLink(destination: ModelCompareView()) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "arrow.left.arrow.right.circle.fill")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.shopPurple)
+                            Text("Confronta questo articolo con un altro modello (IA)")
+                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopDark)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(12)
+                        .background(Color.white)
+                        .cornerRadius(12)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.shopBorder, lineWidth: 1))
+                        .padding(.horizontal, 16)
+                    }
+                    .buttonStyle(.plain)
 
                     // 5. Comparison Cards: All Partner Store Offers
                     VStack(alignment: .leading, spacing: 12) {
@@ -309,7 +331,7 @@ struct ProductDetailView: View {
                                 Image(systemName: "shield.checkmark.fill")
                                     .foregroundColor(.shopGreen)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("8 Store Ufficiali")
+                                    Text("10 Store Ufficiali")
                                         .font(.system(size: 12, weight: .bold))
                                     Text("Rivenditori verificati")
                                         .font(.system(size: 10))

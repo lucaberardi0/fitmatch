@@ -40,7 +40,8 @@ struct AccountView: View {
         ("top4running", "Top4Running", "Luigi's Box AI Search", "store_top4running"),
         ("runningwarehouse", "Running Warehouse EU", "VAT IT & Multi-Store", "store_runningwarehouse"),
         ("deporvillage", "Deporvillage", "Algolia Fast Search", "store_deporvillage"),
-        ("alltricks", "Alltricks", "Constructor.io API", "store_alltricks")
+        ("alltricks", "Alltricks", "Constructor.io API", "store_alltricks"),
+        ("sportler", "Sportler", "FactFinder & GTM Alpino", "store_sportler")
     ]
 
     var body: some View {

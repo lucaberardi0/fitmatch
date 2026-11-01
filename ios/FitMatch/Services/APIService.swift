@@ -15,6 +15,21 @@ class APIService: ObservableObject {
         // 60-second timeout to handle Render cold-start spins gracefully
         config.timeoutIntervalForRequest = 60
         self.session = URLSession(configuration: config)
+
+        #if targetEnvironment(simulator)
+        // Auto-switch to local server if running locally during active simulator development
+        Task {
+            if let localUrl = URL(string: "http://127.0.0.1:8000/health") {
+                if let (_, response) = try? await URLSession.shared.data(from: localUrl),
+                   (response as? HTTPURLResponse)?.statusCode == 200 {
+                    await MainActor.run {
+                        self.baseURL = "http://127.0.0.1:8000"
+                        self.isCloudOnline = true
+                    }
+                }
+            }
+        }
+        #endif
     }
 
     /// Verifies live connectivity with the Render cloud backend
@@ -55,6 +70,18 @@ class APIService: ObservableObject {
                 }
             }
         }
+
+        #if targetEnvironment(simulator)
+        if (lastError as? URLError)?.code == .badServerResponse && !url.absoluteString.contains("127.0.0.1") {
+            let localString = url.absoluteString.replacingOccurrences(of: baseURL, with: "http://127.0.0.1:8000")
+            if let localUrl = URL(string: localString),
+               let (data, response) = try? await session.data(from: localUrl),
+               let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                return data
+            }
+        }
+        #endif
+
         throw lastError ?? URLError(.unknown)
     }
 
@@ -109,6 +136,19 @@ class APIService: ObservableObject {
 
         let data = try await fetchDataWithRetry(url: url)
         return try JSONDecoder().decode(AIAdviceResponse.self, from: data)
+    }
+
+    func compareModels(modelA: String, modelB: String) async throws -> ModelComparisonResponse {
+        var components = URLComponents(string: "\(baseURL)/api/ai/compare")!
+        components.queryItems = [
+            URLQueryItem(name: "model_a", value: modelA),
+            URLQueryItem(name: "model_b", value: modelB)
+        ]
+
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        let data = try await fetchDataWithRetry(url: url)
+        return try JSONDecoder().decode(ModelComparisonResponse.self, from: data)
     }
 
     func searchCatalog(query: String = "", category: String? = nil, limit: Int = 40) async throws -> [MatchedProduct] {

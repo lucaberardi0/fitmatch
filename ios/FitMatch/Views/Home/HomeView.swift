@@ -75,6 +75,54 @@ struct HomeView: View {
                         }
                         .buttonStyle(.plain)
 
+                        // MARK: - 2.5 Coach IA Biomeccanico Card
+                        NavigationLink(destination: AIAdvisorView()) {
+                            HStack(spacing: 14) {
+                                ZStack {
+                                    Circle()
+                                        .fill(LinearGradient(colors: [Color.shopPurple, Color.shopDark], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                        .frame(width: 44, height: 44)
+
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 18, weight: .bold))
+                                        .foregroundColor(.white)
+                                }
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text("Coach IA Biomeccanico")
+                                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                                            .foregroundColor(.shopDark)
+
+                                        Text("NUOVO")
+                                            .font(.system(size: 9, weight: .heavy))
+                                            .foregroundColor(.shopPurple)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.shopPurpleLight)
+                                            .cornerRadius(6)
+                                    }
+
+                                    Text("Consigli su peso, appoggio e confronto modelli con IA.")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.shopTextMuted)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.shopTextMuted.opacity(0.8))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(Color.white)
+                            .cornerRadius(22)
+                            .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+                            .padding(.horizontal, 16)
+                        }
+                        .buttonStyle(.plain)
+
                         // MARK: - 3. Big Card: "Riprendi da dove hai lasciato" (Matte Black)
                         VStack(alignment: .leading, spacing: 14) {
                             Text("Riprendi da dove hai lasciato")

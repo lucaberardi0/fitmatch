@@ -43,6 +43,41 @@ struct AIAdvisorView: View {
                     .cornerRadius(20)
                     .padding(.horizontal, 16)
 
+                    // Versus Mode Navigation Card
+                    NavigationLink(destination: ModelCompareView()) {
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill(Color.shopPurpleLight)
+                                .frame(width: 36, height: 36)
+                                .overlay(
+                                    Image(systemName: "arrow.left.arrow.right")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.shopPurple)
+                                )
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Confronto Modelli (Versus Mode)")
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundColor(.shopDark)
+                                Text("Metti a confronto 2 scarpe: drop, peso, mescola e prezzi live.")
+                                    .font(.system(size: 11.5))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(14)
+                        .background(Color.white)
+                        .cornerRadius(16)
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.shopBorder, lineWidth: 1))
+                        .padding(.horizontal, 16)
+                    }
+                    .buttonStyle(.plain)
+
                     // Sample Quick Prompts
                     VStack(alignment: .leading, spacing: 8) {
                         Text("ESEMPI RAPIDI DI RICHIESTA:")

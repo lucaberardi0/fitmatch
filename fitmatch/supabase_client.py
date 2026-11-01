@@ -152,6 +152,21 @@ STORE_METADATA = {
         "shipping_rule": {"standard": 3.99, "free_threshold": 50.0, "label": "Gratis da 50 €", "courier": "Corriere Espresso"},
         "return_policy": "Fino a 365 giorni per i possessori di Carta Decathlon",
         "rating_breakdown": {"score": 4.6, "positive_pct": "93%", "review_count": "150.000+", "platform": "Trustpilot / Recensioni Verificate"}
+    },
+    "sportler": {
+        "name": "Sportler",
+        "base_url": "https://www.sportler.com",
+        "rating": "4.7",
+        "review_count": "28.4k recensioni",
+        "description": "Lo specialista della passione sportiva nel Nord Italia e sulle Alpi con oltre 30 megastore per running, outdoor e montagna.",
+        "full_description": "Fondata a Bolzano nel 1977, Sportler è una delle realtà storiche più prestigiose del retail sportivo italiano ed europeo con megastore innovativi tra Trentino-Alto Adige, Veneto, Friuli e Austria. Seleziona i migliori marchi mondiali per la corsa su strada, trail alpino, scialpinismo e trekking, garantendo consulenza tecnica approfondita e assistenza post-vendita d'eccellenza.",
+        "badges": ["30+ Megastore Alpini", "Fondata nel 1977", "Reso 30 Giorni", "Specialista Running & Outdoor"],
+        "highlights": ["30+ Megastore nel Nord Italia", "Consulenza Tecnica Alpina", "Spedizione Veloce 24/48h"],
+        "location": "Sede & Hub Centrale: Bolzano (BZ), Alto Adige, Italia",
+        "shipping_info": "Spedizione standard 5,00 € • Gratuita in tutta Italia a partire da 50,00 €",
+        "shipping_rule": {"standard": 5.00, "free_threshold": 50.0, "label": "Gratis da 50 €", "courier": "GLS / DPD"},
+        "return_policy": "30 giorni per il reso online o in qualsiasi megastore Sportler",
+        "rating_breakdown": {"score": 4.7, "positive_pct": "95%", "review_count": "28.400+", "platform": "Trustpilot / Feedaty"}
     }
 }
 
