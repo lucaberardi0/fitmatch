@@ -405,5 +405,8 @@ struct ProductDetailView: View {
         .sheet(isPresented: $showingAlertSheet) {
             PriceAlertSheet(product: product)
         }
+        .onAppear {
+            RecentActivityManager.shared.recordProductView(product)
+        }
     }
 }

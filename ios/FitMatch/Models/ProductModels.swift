@@ -76,14 +76,65 @@ struct Offer: Identifiable, Codable, Hashable {
 }
 
 struct MatchedProduct: Identifiable, Codable, Hashable {
-    var id: String { canonical_name }
+    let id_val: String?
     let canonical_name: String
     let brand: String?
     let image_url: String?
+    let gender: String?
     let offers: [Offer]
     let best_price: Double?
     let highest_price: Double?
     let cross_store_savings: Double?
+
+    init(
+        id_val: String? = nil,
+        canonical_name: String,
+        brand: String? = nil,
+        image_url: String? = nil,
+        gender: String? = nil,
+        offers: [Offer] = [],
+        best_price: Double? = nil,
+        highest_price: Double? = nil,
+        cross_store_savings: Double? = nil
+    ) {
+        self.id_val = id_val
+        self.canonical_name = canonical_name
+        self.brand = brand
+        self.image_url = image_url
+        self.gender = gender
+        self.offers = offers
+        self.best_price = best_price
+        self.highest_price = highest_price
+        self.cross_store_savings = cross_store_savings
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id_val = "id"
+        case canonical_name
+        case brand
+        case image_url
+        case gender
+        case offers
+        case best_price
+        case highest_price
+        case cross_store_savings
+    }
+
+    var id: String {
+        if let iv = id_val, !iv.isEmpty {
+            return iv
+        }
+        let g = gender ?? "unisex"
+        let p = best_price != nil ? String(format: "%.2f", best_price!) : "0"
+        return "\(canonical_name)_\(g)_\(p)"
+    }
+
+    var displayTitle: String {
+        if let g = gender, !g.isEmpty && g.lowercased() != "unisex" && !canonical_name.lowercased().contains(g.lowercased()) {
+            return "\(canonical_name) (\(g))"
+        }
+        return canonical_name
+    }
 
     var bestOffer: Offer? {
         offers.min(by: { $0.price < $1.price })
@@ -213,9 +264,11 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
             courier: courier
         )
         return MatchedProduct(
+            id_val: "\(storeId)_\(product_id)",
             canonical_name: canonical_name,
             brand: brand,
             image_url: image_url,
+            gender: nil,
             offers: [offer],
             best_price: current_price,
             highest_price: original_price ?? current_price,
@@ -264,4 +317,34 @@ struct StoreDetailResponse: Codable {
     let min_price: Double
     let products: [StoreShowcaseProduct]
 }
+
+// MARK: - Smart Search (Shopify Shop Style)
+struct SmartSearchChip: Identifiable, Codable, Hashable {
+    let id: String
+    let label: String
+    let param_key: String
+    let value: String
+}
+
+struct SmartSearchIntent: Codable, Hashable {
+    let raw_query: String
+    let target_keywords: [String]?
+    let brand: String?
+    let category: String?
+    let gender: String?
+    let max_price: Double?
+    let min_price: Double?
+    let size: String?
+    let features: [String]?
+    let explanation: String?
+    let source: String?
+}
+
+struct SmartSearchResponse: Codable {
+    let intent: SmartSearchIntent
+    let chips: [SmartSearchChip]
+    let total_found: Int
+    let results: [MatchedProduct]
+}
+
 

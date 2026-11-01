@@ -34,6 +34,37 @@ class APIService: ObservableObject {
         return decoded.matched_products
     }
 
+    func smartSearch(
+        query: String,
+        maxPrice: Double? = nil,
+        size: String? = nil,
+        category: String? = nil,
+        store: String? = nil
+    ) async throws -> SmartSearchResponse {
+        var components = URLComponents(string: "\(baseURL)/api/search/smart")!
+        var queryItems = [URLQueryItem(name: "q", value: query)]
+        if let maxPrice = maxPrice {
+            queryItems.append(URLQueryItem(name: "max_price", value: "\(maxPrice)"))
+        }
+        if let size = size, !size.isEmpty && size != "Tutte" {
+            queryItems.append(URLQueryItem(name: "size", value: size))
+        }
+        if let category = category, !category.isEmpty && category != "all" && category != "tutti" {
+            queryItems.append(URLQueryItem(name: "category", value: category))
+        }
+        if let store = store, !store.isEmpty && store != "Tutti" {
+            queryItems.append(URLQueryItem(name: "store", value: store))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        let (data, response) = try await session.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(SmartSearchResponse.self, from: data)
+    }
+
     func getAIAdvice(prompt: String) async throws -> AIAdviceResponse {
         var components = URLComponents(string: "\(baseURL)/api/ai/advise")!
         components.queryItems = [URLQueryItem(name: "prompt", value: prompt)]

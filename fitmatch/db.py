@@ -263,6 +263,153 @@ class Database:
 
             return products
 
+    def search_smart(
+        self,
+        target_keywords: List[str],
+        category: Optional[str] = None,
+        brand: Optional[str] = None,
+        gender: Optional[str] = None,
+        max_price: Optional[float] = None,
+        min_price: Optional[float] = None,
+        store_id: Optional[str] = None,
+        limit: int = 30
+    ) -> List[Dict[str, Any]]:
+        """Smart AI-powered SQL retrieval matching multiple candidate models, price bounds and filters."""
+        from fitmatch.models import STORE_SHIPPING_RULES
+
+        with self.get_connection() as conn:
+            where_clauses = []
+            params: List[Any] = []
+
+            # 1. Target Keywords matching (OR across candidate model archetypes)
+            if target_keywords:
+                kw_conditions = []
+                for kw in target_keywords:
+                    words = kw.strip().lower().split()
+                    if not words:
+                        continue
+                    word_conds = []
+                    for w in words:
+                        word_conds.append("(LOWER(p.canonical_name || ' ' || COALESCE(p.brand, '')) LIKE ?)")
+                        params.append(f"%{w}%")
+                    kw_conditions.append("(" + " AND ".join(word_conds) + ")")
+                if kw_conditions:
+                    where_clauses.append("(" + " OR ".join(kw_conditions) + ")")
+
+            # 2. Brand Filter
+            if brand:
+                where_clauses.append("LOWER(COALESCE(p.brand, '')) LIKE ?")
+                params.append(f"%{brand.lower()}%")
+
+            # 3. Category Filter
+            if category and category.lower() not in ("all", "tutti"):
+                where_clauses.append("p.category = ?")
+                params.append(category.lower())
+
+            # 4. Gender Filter
+            if gender and gender.lower() in ("donna", "uomo"):
+                where_clauses.append("(p.gender = ? OR p.gender = 'Unisex')")
+                params.append(gender)
+
+            # 5. Price bounds on the product's lowest offer
+            if max_price:
+                where_clauses.append("o.current_price <= ?")
+                params.append(float(max_price))
+
+            if min_price:
+                where_clauses.append("o.current_price >= ?")
+                params.append(float(min_price))
+
+            # 6. Specific store
+            if store_id and store_id.lower() not in ("all", "tutti"):
+                where_clauses.append("LOWER(o.store_id) = ?")
+                params.append(store_id.lower())
+
+            where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+            sql = f"""
+                SELECT p.id, p.canonical_name, p.brand, p.category, p.gender, p.image_url,
+                       COUNT(DISTINCT o.id) as offer_count,
+                       MIN(o.current_price) as best_price,
+                       MAX(o.current_price) as max_price
+                FROM products p
+                JOIN store_offers o ON p.id = o.product_id
+                WHERE {where_sql}
+                GROUP BY p.id
+                ORDER BY (MAX(o.current_price) - MIN(o.current_price)) DESC, best_price ASC
+                LIMIT ?
+            """
+            params.append(limit)
+            cur = conn.execute(sql, params)
+            products = [dict(r) for r in cur.fetchall()]
+
+            # Fallback: if targeted keywords were too strict and returned 0, try category or brand only
+            if not products and (category or brand):
+                fb_clauses = []
+                fb_params: List[Any] = []
+                if category and category.lower() not in ("all", "tutti"):
+                    fb_clauses.append("p.category = ?")
+                    fb_params.append(category.lower())
+                if brand:
+                    fb_clauses.append("LOWER(COALESCE(p.brand, '')) LIKE ?")
+                    fb_params.append(f"%{brand.lower()}%")
+                if max_price:
+                    fb_clauses.append("o.current_price <= ?")
+                    fb_params.append(float(max_price))
+                if fb_clauses:
+                    fb_sql = f"""
+                        SELECT p.id, p.canonical_name, p.brand, p.category, p.gender, p.image_url,
+                               COUNT(DISTINCT o.id) as offer_count,
+                               MIN(o.current_price) as best_price,
+                               MAX(o.current_price) as max_price
+                        FROM products p
+                        JOIN store_offers o ON p.id = o.product_id
+                        WHERE {" AND ".join(fb_clauses)}
+                        GROUP BY p.id
+                        ORDER BY best_price ASC
+                        LIMIT ?
+                    """
+                    fb_params.append(limit)
+                    cur = conn.execute(fb_sql, fb_params)
+                    products = [dict(r) for r in cur.fetchall()]
+
+            for prod in products:
+                offer_cur = conn.execute("""
+                    SELECT store_id, store_name, current_price, original_price, discount_pct, product_url, image_url, raw_title
+                    FROM store_offers
+                    WHERE product_id = ?
+                    ORDER BY current_price ASC
+                """, (prod["id"],))
+                offers = []
+                for row in offer_cur.fetchall():
+                    o = dict(row)
+                    sid = o["store_id"].lower().strip()
+                    rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
+                    price = float(o["current_price"])
+                    cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+                    is_free = (cost == 0.0)
+                    o["price"] = price
+                    o["url"] = o["product_url"]
+                    o["title"] = o.get("raw_title") or prod["canonical_name"]
+                    o["brand"] = prod.get("brand")
+                    o["in_stock"] = True
+                    o["shipping_cost"] = cost
+                    o["total_price"] = round(price + cost, 2)
+                    o["is_free_shipping"] = is_free
+                    o["shipping_label"] = "Spedizione Gratuita" if is_free else f"+{cost:.2f} € sped."
+                    o["free_shipping_threshold"] = rule["free_threshold"]
+                    o["courier"] = rule["courier"]
+                    offers.append(o)
+
+                prod["offers"] = offers
+                prod["highest_price"] = prod.get("max_price")
+                if prod.get("max_price") and prod.get("best_price"):
+                    prod["cross_store_savings"] = round(prod["max_price"] - prod["best_price"], 2)
+                else:
+                    prod["cross_store_savings"] = 0.0
+
+            return products
+
     def get_store_showcases(self, limit_per_store: int = 6) -> List[Dict[str, Any]]:
         """Return curated product highlights for each store (Shop-style merchant showcase)."""
         ratings = {

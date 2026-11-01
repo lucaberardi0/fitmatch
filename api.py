@@ -5,6 +5,7 @@ from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.crawler import CategoryCrawler
 from fitmatch.ai_advisor import AIShoppingAdvisor
+from fitmatch.smart_search import SmartSearchEngine
 from fitmatch.updater import PriceUpdater
 from fitmatch.models import SearchResult
 
@@ -26,6 +27,7 @@ app.add_middleware(
 service = ComparisonService()
 db = Database()
 updater = PriceUpdater.get_instance()
+smart_engine = SmartSearchEngine()
 
 
 advisor = AIShoppingAdvisor(service=service, db=db)
@@ -104,6 +106,55 @@ def ai_advise(
 ):
     """AI Shopper: translates natural language runner profiles into optimal models and live bargains."""
     return advisor.advise(prompt)
+
+
+@app.get("/api/search/smart")
+def search_smart(
+    q: str = Query(..., min_length=2, description="Natural language or keywords query (e.g. 'scarpe running ammortizzate sotto 140 euro')"),
+    max_price: Optional[float] = Query(None, description="Explicit max price override from active chip"),
+    size: Optional[str] = Query(None, description="Explicit size filter"),
+    category: Optional[str] = Query(None, description="Category filter override"),
+    store: Optional[str] = Query(None, description="Store filter (e.g. 'cisalfa', 'top4running')"),
+    limit: int = Query(35, ge=1, le=100)
+):
+    """Shopify Shop-style intelligent search: interprets user intent, extracts filters and returns ranked multi-store products."""
+    intent = smart_engine.parse_query(q)
+
+    # Use explicit query overrides if user modified/toggled active chips
+    eff_max_price = max_price if max_price is not None else intent.max_price
+    eff_size = size if size is not None else intent.size
+    eff_category = category if category is not None else intent.category
+
+    products = db.search_smart(
+        target_keywords=intent.target_keywords,
+        category=eff_category,
+        brand=intent.brand,
+        gender=intent.gender,
+        max_price=eff_max_price,
+        min_price=intent.min_price,
+        store_id=store,
+        limit=limit
+    )
+
+    return {
+        "intent": {
+            "raw_query": intent.raw_query,
+            "target_keywords": intent.target_keywords,
+            "brand": intent.brand,
+            "category": eff_category,
+            "gender": intent.gender,
+            "max_price": eff_max_price,
+            "min_price": intent.min_price,
+            "size": eff_size,
+            "features": intent.features,
+            "explanation": intent.explanation,
+            "source": intent.source
+        },
+        "chips": [c.model_dump() for c in intent.chips],
+        "total_found": len(products),
+        "results": products
+    }
+
 
 
 @app.get("/api/search", response_model=SearchResult)

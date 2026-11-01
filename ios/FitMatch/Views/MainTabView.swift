@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @State private var selectedTab: Int = 0
+    @State private var selectedTab: Int = 1
     @ObservedObject private var wishlist = WishlistManager.shared
 
     var body: some View {
@@ -14,113 +14,104 @@ struct MainTabView: View {
                 case 1:
                     SearchView()
                 case 2:
-                    WishlistView()
-                case 3:
                     DealsView()
+                case 3:
+                    WishlistView()
                 default:
                     HomeView(selectedTab: $selectedTab)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Floating Island Dock (Exact match to User Screenshot)
+            // Floating Island Dock (Clean White Pill matching Shop Screenshot 2)
             ShopFloatingIslandDock(selectedTab: $selectedTab)
-                .padding(.bottom, 14)
+                .padding(.bottom, 16)
         }
         .ignoresSafeArea(.keyboard)
     }
 }
 
-// MARK: - Floating Island Dock Component
+// MARK: - Floating Island Dock Component (Shopify Shop Style)
 
 struct ShopFloatingIslandDock: View {
     @Binding var selectedTab: Int
     @ObservedObject private var wishlist = WishlistManager.shared
 
     var body: some View {
-        HStack(spacing: 20) {
-            // 1. Home Button (house.fill)
+        HStack(spacing: 38) {
+            // 1. Home
+            dockButton(
+                index: 0,
+                icon: "house.fill",
+                size: 21
+            )
+
+            // 2. AI Assistant / Search (Speech bubble with sparkle cutout)
             Button(action: {
                 let gen = UIImpactFeedbackGenerator(style: .light)
                 gen.impactOccurred()
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
-                    selectedTab = 0
-                }
-            }) {
-                ZStack {
-                    if selectedTab == 0 {
-                        Circle()
-                            .fill(Color(red: 26/255, green: 26/255, blue: 28/255))
-                            .frame(width: 44, height: 44)
-                            .shadow(color: Color.black.opacity(0.18), radius: 4, y: 2)
-                    }
-
-                    Image(systemName: "house.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(selectedTab == 0 ? .white : Color(red: 90/255, green: 90/255, blue: 95/255))
-                }
-                .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-
-            // 2. Search Button (magnifyingglass)
-            Button(action: {
-                let gen = UIImpactFeedbackGenerator(style: .light)
-                gen.impactOccurred()
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                withAnimation(.spring(response: 0.26, dampingFraction: 0.72)) {
                     selectedTab = 1
                 }
             }) {
                 ZStack {
-                    if selectedTab == 1 {
-                        Circle()
-                            .fill(Color(red: 26/255, green: 26/255, blue: 28/255))
-                            .frame(width: 44, height: 44)
-                            .shadow(color: Color.black.opacity(0.18), radius: 4, y: 2)
-                    }
+                    Image(systemName: "bubble.left.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundColor(selectedTab == 1 ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(red: 175/255, green: 175/255, blue: 185/255))
 
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundColor(selectedTab == 1 ? .white : Color(red: 90/255, green: 90/255, blue: 95/255))
+                    Image(systemName: "sparkle")
+                        .font(.system(size: 9.5, weight: .heavy))
+                        .foregroundColor(selectedTab == 1 ? .white : Color(red: 240/255, green: 240/255, blue: 245/255))
+                        .offset(x: -0.5, y: -2)
                 }
-                .frame(width: 44, height: 44)
+                .scaleEffect(selectedTab == 1 ? 1.08 : 1.0)
+                .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
 
-            // 3. Heart / Wishlist Button (heart.fill)
-            Button(action: {
-                let gen = UIImpactFeedbackGenerator(style: .light)
-                gen.impactOccurred()
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
-                    selectedTab = 2
-                }
-            }) {
-                ZStack {
-                    if selectedTab == 2 {
-                        Circle()
-                            .fill(Color(red: 26/255, green: 26/255, blue: 28/255))
-                            .frame(width: 44, height: 44)
-                            .shadow(color: Color.black.opacity(0.18), radius: 4, y: 2)
-                    }
+            // 3. Catalog / Explore
+            dockButton(
+                index: 2,
+                icon: "square.grid.2x2.fill",
+                size: 19
+            )
 
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(selectedTab == 2 ? .white : Color(red: 85/255, green: 85/255, blue: 90/255))
-                }
-                .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
+            // 4. Saved / Bag
+            dockButton(
+                index: 3,
+                icon: "bag.fill",
+                size: 20
+            )
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 14)
         .background(
             Capsule()
-                .fill(Color(red: 228/255, green: 232/255, blue: 240/255).opacity(0.94))
+                .fill(Color.white)
                 .overlay(
                     Capsule()
-                        .stroke(Color.white.opacity(0.7), lineWidth: 1)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
                 )
         )
-        .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 4)
+        .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 5)
+    }
+
+    private func dockButton(index: Int, icon: String, size: CGFloat) -> some View {
+        Button(action: {
+            let gen = UIImpactFeedbackGenerator(style: .light)
+            gen.impactOccurred()
+            withAnimation(.spring(response: 0.26, dampingFraction: 0.72)) {
+                selectedTab = index
+            }
+        }) {
+            ZStack {
+                Image(systemName: icon)
+                    .font(.system(size: size, weight: .semibold))
+                    .foregroundColor(selectedTab == index ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(red: 175/255, green: 175/255, blue: 185/255))
+                    .scaleEffect(selectedTab == index ? 1.08 : 1.0)
+            }
+            .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.plain)
     }
 }
