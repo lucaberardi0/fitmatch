@@ -1,0 +1,35 @@
+name: FitMatch Autonomous Price Sync & Keep-Alive
+
+on:
+  schedule:
+    # Runs every hour at minute 15 (e.g. 01:15, 02:15, 03:15, ...)
+    - cron: "15 * * * *"
+  workflow_dispatch: # Allows manual trigger from GitHub UI anytime
+
+jobs:
+  price-sync:
+    name: Sync Store Prices & Keep Cloud Warm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Ping Health Endpoint (Wake Up Render if sleeping)
+        run: |
+          echo "Pinging FitMatch Cloud Backend..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 --retry-delay 10 --max-time 60 https://fitmatch-backend-klhv.onrender.com/health)
+          echo "Backend Health HTTP Status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "::warning ::Health check returned status $HTTP_STATUS"
+          fi
+
+      - name: Trigger Autonomous Price Refresh
+        run: |
+          echo "Triggering background price updater..."
+          RESPONSE=$(curl -s -X POST "https://fitmatch-backend-klhv.onrender.com/api/scheduler/run-refresh?limit=25" --max-time 30)
+          echo "Refresh Trigger Response: $RESPONSE"
+
+      - name: Wait & Inspect Scheduler Status
+        run: |
+          sleep 10
+          STATUS=$(curl -s "https://fitmatch-backend-klhv.onrender.com/api/scheduler/status" --max-time 30)
+          echo "Current Scheduler Status: $STATUS"
