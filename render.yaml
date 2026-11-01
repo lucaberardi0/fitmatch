@@ -3,7 +3,7 @@ services:
     name: fitmatch-backend
     env: docker
     region: frankfurt
-    plan: starter
+    plan: free
     healthCheckPath: /health
     envVars:
       - key: SUPABASE_URL
