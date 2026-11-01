@@ -1,130 +1,160 @@
-# 🏃 FitMatch — Sports Gear Price Comparator & Scraping Engine
+# 🏃 FitMatch — Cloud Sports Gear Price Comparator & Scraping Engine
 
-Motore di scraping multi-store e comparazione prezzi in tempo reale specializzato nell'abbigliamento e calzature sportive per il mercato italiano ed europeo.
-
----
-
-## 🎯 Negozi Integrati nel Prototipo (8 Partner Stores)
-
-1. **Cisalfa Sport** (`cisalfasport.it`): Leader retail in Italia (architettura Salesforce Commerce Cloud).
-2. **Maxi Sport** (`maxisport.com`): Grande specialista sneaker, running e sportswear (architettura Magento).
-3. **Mister Running** (`misterrunning.com`): E-commerce specializzato #1 in Italia nella corsa (API REST Clerk ultra-rapida).
-4. **Nencini Sport** (`nencinisport.it`): Storica catena sportiva multi-marca (session warmup con CSRF e attributi GTM).
-5. **Top4Running** (`top4running.it`): Gigante europeo specializzato nella corsa (API Luigi's Box ad alte prestazioni).
-6. **Running Warehouse Europe** (`runningwarehouse.eu`): Store globale leader nel running (prezzi EUR con IVA italiana e catalogo GTM).
-7. **Deporvillage** (`deporvillage.it`): Leader Sud Europa in outdoor, ciclismo, elettronica Garmin/Polar, occhiali tecnici Oakley e nutrizione (API Algolia ad alta velocità).
-8. **Alltricks** (`alltricks.it` — Gruppo Decathlon): Gigante europeo per ciclismo, trail, GPS, caschi, recupero e fitness gear (API Constructor.io).
+Piattaforma end-to-end (Cloud Backend + Database PostgreSQL Enterprise + App Mobile iOS nativa in SwiftUI) per la comparazione prezzi in tempo reale, il monitoraggio sconti e la ricerca semantica con Intelligenza Artificiale nel mercato dell'abbigliamento, calzature e tecnologia sportiva.
 
 ---
 
-## 🎒 Categorie di Prodotti & Accessori Coperte
+## 🌐 Architettura di Produzione
 
-* 👟 **Scarpe & Sneakers**: Running su asfalto, trail running, gara/piastra in carbonio, daily trainer, camminata.
-* ⌚ **Smartwatch & GPS**: Garmin (Forerunner, Fenix, Edge), Polar, Suunto, ciclocomputer, fasce cardio HRM.
-* 🎒 **Zaini & Idratazione**: Gilet trail running Salomon (Active Skin, ADV Skin), CamelBak, borracce soft flask.
-* 🕶️ **Ottica & Occhiali Tecnici**: Oakley (Radar EV, Sutro, Jawbreaker), Bliz, Rudy Project, lenti fotocromatiche/Prizm.
-* 🏋️ **Fitness & Recupero Muscolare**: Pistole massaggianti a percussione Theragun/Therabody, rulli, elastici, loop bands.
-* ⚡ **Nutrizione Sportiva**: Gel energetici, barrette proteiche, sali minerali e carboidrati (Enervit, SiS, Maurten).
-* 🚴 **Ciclismo & Attrezzatura**: Caschi (POC, Abus, Kask), borse bici, accessori padel e tennis.
+```mermaid
+flowchart TD
+    subgraph Client ["📱 Client Layer"]
+        iOS["iOS App (SwiftUI)\niPhone 17 / iOS 17+\ncom.fitmatch.app"]
+    end
 
----
+    subgraph CloudBackend ["☁️ Cloud Backend (Render - Frankfurt)"]
+        FastAPI["FastAPI Engine (Docker)\nfitmatch-backend-klhv.onrender.com"]
+        AI["OpenRouter AI Parser\nLlama 3.3 70B Instruct"]
+        Scheduler["SyncScheduler\nAutonomous Daemon"]
+        Scrapers["Federated Live Scrapers\n(9 Retailers / TLS JA3 Bypass)"]
+    end
 
-## 🏗️ Architettura del Sistema
+    subgraph Database ["🗄️ Database Layer"]
+        Supabase["Supabase Cloud (PostgreSQL eu-central-1)\nRLS • pg_trgm • UUID\nProducts, Offers, Wishlists, Collections"]
+        SQLiteLocal["SQLite Local Fallback & Cache\nUltra-low Latency"]
+    end
 
-```
-fitmatch/
-├── fitmatch/
-│   ├── models.py              # Schemi Pydantic (Offer, MatchedProductGroup, SearchResult)
-│   ├── service.py             # Servizio centrale di comparazione e cache
-│   ├── scrapers/
-│   │   ├── base.py            # Classe astratta BaseScraper con browser impersonation e parser prezzi
-│   │   ├── cisalfa.py         # Scraper Cisalfa Sport
-│   │   ├── maxisport.py       # Scraper Maxi Sport
-│   │   ├── misterrunning.py   # Scraper Mister Running (Clerk API)
-│   │   ├── nencini.py         # Scraper Nencini Sport (con session warmup)
-│   │   ├── top4running.py     # Scraper Top4Running (Luigi's Box API)
-│   │   ├── runningwarehouse.py# Scraper Running Warehouse Europe (VAT IT + GTM)
-│   │   └── registry.py        # Esecuzione parallela multi-thread (ThreadPoolExecutor)
-│   └── matcher/
-│       └── normalizer.py      # Entity resolution, estrazione brand, rimozione rumore e raggruppamento
-├── cli.py                     # Interfaccia a riga di comando a colori
-├── api.py                     # API REST FastAPI pronta per il frontend
-├── requirements.txt
-└── data/cache/                # Cache locale dei risultati di ricerca
+    subgraph Automation ["🤖 CI/CD & Automation"]
+        GH_Cron["GitHub Actions Cron (price-sync-cron.yml)\nHourly Keep-Alive & Price Sync"]
+        GH_CI["GitHub Actions CI (ci.yml)\nAutomated Test Suite & Docker Build"]
+    end
+
+    iOS -->|HTTPS REST| FastAPI
+    iOS -->|PostgREST & Apple Auth| Supabase
+    FastAPI --> AI
+    FastAPI --> Scrapers
+    FastAPI --> SQLiteLocal
+    FastAPI --> Supabase
+    Scheduler --> Scrapers
+    GH_Cron -->|Wake Up & Refresh| FastAPI
+    GH_CI -->|Lint & Test| FastAPI
 ```
 
 ---
 
-## 🚀 Utilizzo Rapido
+## 🎯 9 Negozi Partner Integrati
 
-### 1. Test Demo Immediato
-Esegue una ricerca istantanea su tutti i 4 negozi contemporaneamente:
-```bash
-python3 cli.py demo
-```
-
-### 2. Ricerca di Qualsiasi Prodotto o Accessorio
-```bash
-# Scarpe da running
-python3 cli.py search "nike pegasus"
-python3 cli.py search "asics nimbus"
-
-# Smartwatch, GPS & Ciclocomputer
-python3 cli.py search "garmin edge"
-python3 cli.py search "polar vantage"
-
-# Occhiali sportivi & Zaini idratazione
-python3 cli.py search "oakley radar"
-python3 cli.py search "salomon active skin"
-
-# Attrezzatura fitness, recupero e nutrizione
-python3 cli.py search "theragun"
-python3 cli.py search "enervit gel"
-
-# Limita il numero di risultati per negozio o output in JSON strutturato
-python3 cli.py search "garmin" --limit 3 --json
-```
-
-### 3. Avvio Server API REST (per collegare Frontend o Mobile App)
-```bash
-python3 api.py
-```
-La documentazione interattiva Swagger è disponibile all'indirizzo:
-`http://localhost:8000/docs`
-
-All'avvio dell'API, il demone di background (`SyncScheduler`) si attiva automaticamente per monitorare i prezzi ogni 2 ore e sincronizzare il catalogo.
-
-### 4. Demone Autonomo 24/7 (Worker Indipendente)
-Puoi avviare il demone orchestratore dedicato (ideale per systemd o Docker):
-```bash
-# Avvio continuo con monitor prezzi ogni 2h e scoperta catalogo ogni 24h
-python3 cli.py worker
-
-# Avvio con esecuzione immediata del primo ciclo
-python3 cli.py worker --immediate --refresh-hours 1.5
-
-# Controllo dello stato dello scheduler da riga di comando
-python3 cli.py scheduler --status
-```
-
-### 5. Scansione Approfondita & Indicizzazione Massiva
-```bash
-# Scansione di un singolo store con limite personalizzato
-python3 cli.py crawl --store deporvillage --limit 500
-python3 cli.py crawl --store cisalfa --limit 300
-
-# Scansione massiva di tutti i 9 negozi contemporaneamente
-python3 cli.py crawl --limit 500
-```
+1. **Decathlon** (`decathlon.it`): Leader globale retail sportivo e marketplace.
+2. **Cisalfa Sport** (`cisalfasport.it`): Catena retail #1 in Italia (Salesforce Commerce Cloud).
+3. **Maxi Sport** (`maxisport.com`): Grande specialista sneaker, running e sportswear (Magento REST API).
+4. **Mister Running** (`misterrunning.com`): E-commerce specializzato #1 nella corsa in Italia (Clerk Fast Search API).
+5. **Nencini Sport** (`nencinisport.it`): Catena sportiva multi-marca (Session warmup con CSRF e attributi GTM).
+6. **Top4Running** (`top4running.it`): Gigante europeo nella corsa (Luigi's Box AI Search API).
+7. **Running Warehouse Europe** (`runningwarehouse.eu`): Store globale leader nel running (Prezzi EUR con IVA italiana e catalogo GTM).
+8. **Deporvillage** (`deporvillage.it`): Leader Sud Europa in outdoor, ciclismo, elettronica Garmin/Polar, occhiali Oakley (Algolia Fast Search).
+9. **Alltricks** (`alltricks.it` — Gruppo Decathlon): Gigante europeo per ciclismo, trail, GPS, caschi e nutrizione (Constructor.io API).
 
 ---
 
-## 🧠 Caratteristiche Chiave
+## 🧠 Ricerca Intelligente & Live Multi-Store Federation
 
-- **Bypass WAF & Anti-bot**: Utilizzo di `curl_cffi` per impersonare l'impronta crittografica TLS/JA3 di Chrome, garantendo il 100% di successo senza blocchi.
-- **Scraping Parallelo**: Scansione concorrente di tutti i 4 store in meno di 2–4 secondi complessivi.
-- **Normalizzazione & Raggruppamento Intelligente**:
-  - Rilevamento automatico del genere (`Uomo`, `Donna`, `Junior`).
-  - Separazione di colorway e codici articolo secondari.
-  - Riconoscimento del brand e allineamento dei modelli (es. `Nike Air Zoom Pegasus 42` vs `Pegasus 42`).
-  - Calcolo istantaneo del negozio più economico e del risparmio potenziale (fino al 30-50%).
+Il motore di ricerca implementa una pipeline ibrida con intelligenza artificiale per interpretare il linguaggio naturale dell'utente:
+
+1. **Comprensione Semantica con LLM (OpenRouter `meta-llama/llama-3.3-70b-instruct`)**:
+   - Estrae intenzione d'acquisto, marca, categoria precisa (`running_shoes`, `gps_watch`, `eyewear`, `hydration`, `fitness`, `nutrition`, `gear`), budget massimo, taglia e caratteristiche tecniche (`carbon_plate`, `waterproof`, `trail`, `cushioning`).
+   - **Fedeltà al modello**: Preserva rigorosamente modelli specifici (es. *"Nike alpha fly per la corsa"* ➔ `target_keywords: ["nike alphafly"]`, *"Forerunner 165"* ➔ `category: "gps_watch"`).
+   - Fallback automatico su **Llama 3.1 8B Instruct** (400ms) e su `LocalHeuristicParser` in caso di offline.
+
+2. **Live Multi-Store Federation Fallback**:
+   - Se il database locale non ha ancora indicizzato il modello cercato, il backend attiva all'istante la federazione concorrente sui 9 negozi partner.
+   - Raggruppa i risultati, normalizza i titoli, calcola i prezzi complessivi con spedizione e inserisce automaticamente i nuovi articoli nel database per le ricerche future.
+
+---
+
+## 📱 Applicazione iOS Nativa (`ios/FitMatch`)
+
+Sviluppata interamente in **SwiftUI**, architettura **MVVM** e **Swift Concurrency**:
+
+* **Schermata "Salvati" (Wishlist & Collezioni)**:
+  - Header con avatar "L", barra a capsula e notifiche.
+  - Selettore a pillole orizzontali (*Per te*, *Offerte*, *Segui già*, *Salvati*).
+  - Card interattiva *"Collezioni >"* con pulsante "+ Crea collezione" e anteprima a mazzo di carte sovrapposte.
+  - Griglia a 2 colonne con badge sconto in nero (es. `68% di sconto`), pulsante preferito viola e prezzi formattati.
+* **Schermata di Ricerca Intelligente**:
+  - Filtri dinamici tramite chip interattive generate dall'AI (marca, taglia, prezzo massimo, feature).
+  - Mostra il risparmio cross-store (fino a 100€ di differenza per lo stesso modello tra negozi diversi).
+* **Profilo & Cloud Monitor (`AccountView.swift`)**:
+  - Indicatori di stato live per **Render Cloud Backend** e **Supabase Cloud Database**.
+  - Sincronizzazione prezzi manuale con feedback aptico.
+  - Gestione taglie preferite (scarpe 38–48 e abbigliamento XS–XXL).
+  - Funzionalità conforme alle linee guida Apple per l'eliminazione definitiva dell'account e dei dati cloud.
+
+---
+
+## ☁️ Dettagli Infrastruttura Cloud
+
+| Componente | Provider / Regione | Endpoint / URL | Note |
+| :--- | :--- | :--- | :--- |
+| **API & Scraper Engine** | Render (Docker / Francoforte) | `https://fitmatch-backend-klhv.onrender.com` | Blueprint gestito da `render.yaml` |
+| **Database Principale** | Supabase (PostgreSQL / `eu-central-1`) | `https://goopfdvnqhdmsoutkldp.supabase.co` | RLS, estensioni `pg_trgm`, `uuid-ossp` |
+| **AI LLM Engine** | OpenRouter | `https://openrouter.ai/api/v1` | `meta-llama/llama-3.3-70b-instruct` |
+| **Keep-Alive & Cron** | GitHub Actions | `.github/workflows/price-sync-cron.yml` | Ping orario e refresh cali di prezzo |
+| **CI / CD Pipeline** | GitHub Actions | `.github/workflows/ci.yml` | Test backend automatici e build Docker |
+
+---
+
+## 🚀 Utilizzo & Guida Sviluppatore
+
+### 1. Requisiti
+- Python 3.11+
+- Xcode 16+ con iOS 17+ Simulator
+- Docker (opzionale per container locale)
+
+### 2. Avvio Locale del Backend
+```bash
+# Installa dipendenze
+pip install -r requirements.txt
+
+# Avvia server FastAPI con ricarica automatica
+python3 -m uvicorn api:app --host 127.0.0.1 --port 8000 --reload
+```
+Swagger UI interattivo: `http://127.0.0.1:8000/docs`
+
+### 3. Ricerca via CLI
+```bash
+# Ricerca multi-store con comparazione istantanea
+python3 cli.py search "nike alphafly"
+python3 cli.py search "garmin forerunner 165"
+python3 cli.py search "asics nimbus 26" --limit 5
+
+# Avvio worker di monitoraggio autonomo
+python3 cli.py worker --immediate --refresh-hours 2
+```
+
+### 4. Compilazione & Esecuzione App iOS
+```bash
+# Rigenera il progetto Xcode con XcodeGen se aggiungi file
+cd ios && xcodegen generate
+
+# Compila ed esegui sul simulatore iOS
+xcodebuild -project FitMatch.xcodeproj -scheme FitMatch -destination 'platform=iOS Simulator,name=iPhone 17' build
+xcrun simctl install booted <path-to-app>
+xcrun simctl launch booted com.fitmatch.app
+```
+
+### 5. Suite di Test Automatizzati
+```bash
+pytest -v
+```
+Verifica:
+- Normalizzazione e disambiguazione entità (es. orologio vs custodia protettiva).
+- Preservazione numeri di versione modello (*Pegasus 41* vs *Pegasus 42*).
+- Guardrail contro anomalie e outlier di prezzo.
+- Comprensione semantica dei modelli e categorizzazione smart search.
+
+---
+
+## 🔒 Sicurezza & Privacy
+- **Row Level Security (RLS)** attivo su tutte le tabelle Supabase per isolare le collezioni e gli articoli salvati da ciascun utente.
+- **TLS JA3 Fingerprinting**: Utilizzo di `curl_cffi` per evitare falsi positivi dei sistemi anti-bot Cloudflare/Akamai sui negozi online legittimi.
+- Nessuna chiave API salvata in chiaro nel repository: gestione protetta tramite secret di ambiente (`render.yaml` e Supabase Vault).
