@@ -4,15 +4,32 @@ import Foundation
 class APIService: ObservableObject {
     static let shared = APIService()
 
-    // Default to localhost for iOS Simulator; can be changed to LAN IP for physical device
-    var baseURL = "http://127.0.0.1:8000"
+    // Production Cloud Backend hosted on Render (Frankfurt, Docker)
+    @Published var baseURL = "https://fitmatch-backend-klhv.onrender.com"
+    @Published var isCloudOnline: Bool = true
 
     private let session: URLSession
 
     init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 25
+        // 60-second timeout to handle Render cold-start spins gracefully
+        config.timeoutIntervalForRequest = 60
         self.session = URLSession(configuration: config)
+    }
+
+    /// Verifies live connectivity with the Render cloud backend
+    func checkHealth() async -> Bool {
+        guard let url = URL(string: "\(baseURL)/health") else { return false }
+        do {
+            let (data, response) = try await session.data(from: url)
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                self.isCloudOnline = true
+                return true
+            }
+        } catch {
+            self.isCloudOnline = false
+        }
+        return false
     }
 
     func search(query: String, size: String? = nil) async throws -> [MatchedProduct] {

@@ -93,6 +93,7 @@ struct AccountView: View {
                 }
             }
             .task {
+                _ = await api.checkHealth()
                 await prefs.checkUpdaterStatus(apiService: api)
             }
             .alert("Modifica Nome", isPresented: $showingEditNameAlert) {
@@ -204,7 +205,7 @@ struct AccountView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text("Supabase Cloud Database")
+                        Text("FitMatch Cloud Production")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
                             .foregroundColor(.shopDark)
 
@@ -217,7 +218,7 @@ struct AccountView: View {
                             .cornerRadius(5)
                     }
 
-                    Text("eu-central-1 (Francoforte) • PostgreSQL con RLS")
+                    Text("Render Docker Backend + Supabase PostgreSQL eu-central-1")
                         .font(.system(size: 11))
                         .foregroundColor(.shopTextMuted)
                 }
@@ -226,6 +227,7 @@ struct AccountView: View {
 
                 Button(action: {
                     Task {
+                        _ = await api.checkHealth()
                         _ = await supabase.checkCloudHealth()
                         await wishlist.syncWithDatabase()
                     }
@@ -239,15 +241,27 @@ struct AccountView: View {
                 }
             }
 
-            // Sync Status
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color(red: 62/255, green: 207/255, blue: 142/255))
+            // Sync & Backend Status
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(api.isCloudOnline ? Color(red: 62/255, green: 207/255, blue: 142/255) : Color.orange)
+                        .frame(width: 8, height: 8)
 
-                Text(supabase.syncStatusMessage)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundColor(.shopDark)
+                    Text(api.isCloudOnline ? "Backend Live: fitmatch-backend-klhv.onrender.com" : "Connessione backend in corso...")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.shopDark)
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(red: 62/255, green: 207/255, blue: 142/255))
+
+                    Text("Database: " + supabase.syncStatusMessage)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.shopDark)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
