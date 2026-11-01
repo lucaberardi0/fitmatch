@@ -260,6 +260,46 @@ def trigger_updater(
     }
 
 
+# MARK: - Wishlist & Collections Endpoints (Database Connected)
+
+@app.get("/api/wishlist")
+def get_wishlist_endpoint(collection: Optional[str] = None):
+    """Retrieve all saved wishlist products connected to the SQLite database."""
+    items = db.get_wishlist(collection_name=collection)
+    return {"items": items, "count": len(items)}
+
+
+@app.post("/api/wishlist")
+def add_to_wishlist_endpoint(payload: dict):
+    """Add or update a saved product in the database."""
+    saved_item = db.add_to_wishlist(payload)
+    return {"status": "ok", "item": saved_item}
+
+
+@app.delete("/api/wishlist/{identifier}")
+def delete_from_wishlist_endpoint(identifier: str):
+    """Remove a saved product from the database."""
+    deleted = db.remove_from_wishlist(identifier)
+    return {"status": "ok" if deleted else "not_found", "deleted": deleted}
+
+
+@app.get("/api/collections")
+def get_collections_endpoint():
+    """Retrieve all collections and product counts from the database."""
+    cols = db.get_collections()
+    return {"collections": cols}
+
+
+@app.post("/api/collections")
+def create_collection_endpoint(payload: dict):
+    """Create a new collection category in the database."""
+    name = payload.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Il nome della collezione è obbligatorio.")
+    created = db.create_collection(name)
+    return {"status": "ok", "collection": created}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)

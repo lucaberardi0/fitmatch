@@ -7,7 +7,10 @@ class WishlistManager: ObservableObject {
     static let shared = WishlistManager()
 
     @Published var items: [WishlistItem] = []
+    @Published var collections: [WishlistCollection] = []
+    @Published var selectedCollection: String = "Tutti"
     @Published var isCheckingPrices: Bool = false
+    @Published var isSyncingDatabase: Bool = false
     @Published var lastCheckMessage: String? = nil
 
     private let saveFileName = "fitmatch_wishlist.json"
@@ -19,13 +22,59 @@ class WishlistManager: ObservableObject {
 
     init() {
         loadItems()
+        Task {
+            await syncWithDatabase()
+        }
+    }
+
+    // MARK: - Database Sync (Supabase Cloud + Local Gateway)
+
+    func syncWithDatabase() async {
+        isSyncingDatabase = true
+        defer { isSyncingDatabase = false }
+
+        // 1. Try Supabase Cloud Database first
+        do {
+            async let supaItems = SupabaseManager.shared.fetchWishlist()
+            async let supaCols = SupabaseManager.shared.fetchCollections()
+
+            let (items, cols) = try await (supaItems, supaCols)
+            if !items.isEmpty {
+                self.items = items
+                saveItems()
+                if !cols.isEmpty {
+                    self.collections = cols
+                }
+                return
+            }
+        } catch {
+            print("Supabase direct sync note: \(error.localizedDescription), trying gateway...")
+        }
+
+        // 2. Fall back to local FastAPI backend
+        do {
+            async let fetchedItems = APIService.shared.getWishlist()
+            async let fetchedCols = APIService.shared.getCollections()
+
+            let (dbItems, dbCols) = try await (fetchedItems, fetchedCols)
+
+            if !dbItems.isEmpty {
+                self.items = dbItems
+                saveItems()
+            }
+            if !dbCols.isEmpty {
+                self.collections = dbCols
+            }
+        } catch {
+            print("Wishlist sync warning: \(error.localizedDescription)")
+            // Fall back to local storage
+        }
     }
 
     // MARK: - Persistence
 
     func loadItems() {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            self.items = []
             return
         }
         do {
@@ -35,8 +84,7 @@ class WishlistManager: ObservableObject {
             let decoded = try decoder.decode([WishlistItem].self, from: data)
             self.items = decoded
         } catch {
-            print("Errore caricamento wishlist: \(error)")
-            self.items = []
+            print("Errore caricamento wishlist locale: \(error)")
         }
     }
 
@@ -75,24 +123,32 @@ class WishlistManager: ObservableObject {
         }
     }
 
-    func addToWishlist(product: MatchedProduct, selectedSize: String? = nil, targetPrice: Double? = nil) {
+    func addToWishlist(product: MatchedProduct, selectedSize: String? = nil, targetPrice: Double? = nil, collection: String? = "Tutti") {
         let bestPrice = product.best_price ?? product.bestOffer?.price ?? 0.0
         let bestOffer = product.bestOffer
-
-        // Default alert target: 10% below current price if not specified
         let defaultAlert = targetPrice ?? (bestPrice > 0 ? (bestPrice * 0.90).rounded() : nil)
+
+        let highest = product.highest_price
+        let discountPct: Double? = {
+            if let h = highest, h > bestPrice && h > 0 {
+                return ((h - bestPrice) / h) * 100.0
+            }
+            return nil
+        }()
 
         let newItem = WishlistItem(
             canonical_name: product.canonical_name,
             brand: product.brand,
             image_url: product.image_url ?? bestOffer?.image_url,
-            initialPrice: bestPrice,
+            initialPrice: highest ?? bestPrice,
             currentBestPrice: bestPrice,
-            highestPrice: product.highest_price,
+            highestPrice: highest,
+            discountPct: discountPct,
             bestStore: bestOffer?.store_name,
             bestStoreUrl: bestOffer?.url,
             offersCount: product.offers.count,
-            selectedSize: selectedSize,
+            selectedSize: selectedSize ?? "Standard",
+            collectionName: collection ?? "Tutti",
             targetAlertPrice: defaultAlert,
             isAlertEnabled: true,
             dateAdded: Date(),
@@ -105,6 +161,12 @@ class WishlistManager: ObservableObject {
         items.insert(newItem, at: 0)
         saveItems()
 
+        // Background sync to Supabase Cloud & Local Gateway
+        Task {
+            _ = try? await SupabaseManager.shared.upsertWishlistItem(item: newItem)
+            _ = try? await APIService.shared.addToWishlist(item: newItem)
+        }
+
         // Check and prompt notification permissions if alerts are enabled
         NotificationManager.shared.checkAuthorization()
         if !NotificationManager.shared.isAuthorized {
@@ -113,8 +175,26 @@ class WishlistManager: ObservableObject {
     }
 
     func removeFromWishlist(_ canonicalName: String) {
+        let gen = UIImpactFeedbackGenerator(style: .light)
+        gen.impactOccurred()
+
         items.removeAll { $0.canonical_name.caseInsensitiveCompare(canonicalName) == .orderedSame }
         saveItems()
+
+        // Background sync to Supabase Cloud & Local Gateway
+        Task {
+            _ = try? await SupabaseManager.shared.deleteWishlistItem(canonicalName: canonicalName)
+            _ = try? await APIService.shared.removeFromWishlist(canonicalName: canonicalName)
+        }
+    }
+
+    func createCollection(name: String) {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        Task {
+            _ = try? await SupabaseManager.shared.createCollection(name: name)
+            _ = try? await APIService.shared.createCollection(name: name)
+            await syncWithDatabase()
+        }
     }
 
     func updateAlertSettings(
@@ -131,6 +211,11 @@ class WishlistManager: ObservableObject {
         items[index].targetAlertPrice = targetPrice
         items[index].selectedSize = selectedSize
         saveItems()
+
+        let item = items[index]
+        Task {
+            _ = try? await APIService.shared.addToWishlist(item: item)
+        }
 
         if isEnabled && !NotificationManager.shared.isAuthorized {
             NotificationManager.shared.requestAuthorization()
@@ -153,6 +238,12 @@ class WishlistManager: ObservableObject {
         items[index].lastCheckedDate = Date()
         saveItems()
 
+        // Sync to backend DB
+        let item = items[index]
+        Task {
+            _ = try? await APIService.shared.addToWishlist(item: item)
+        }
+
         // Trigger native notification
         NotificationManager.shared.sendPriceDropNotification(
             productTitle: items[index].canonical_name,
@@ -172,9 +263,8 @@ class WishlistManager: ObservableObject {
     func refreshAllPrices(apiService: APIService) async {
         guard !items.isEmpty else { return }
         isCheckingPrices = true
-        lastCheckMessage = "Controllo prezzi su 4 negozi partner..."
+        lastCheckMessage = "Controllo prezzi sui negozi partner..."
 
-        var updatedCount = 0
         var dropsFound = 0
 
         for i in 0..<items.count {
@@ -197,15 +287,8 @@ class WishlistManager: ObservableObject {
                         items[i].lastPriceDrop = drop
                         dropsFound += 1
 
-                        // Check alert condition
                         if items[i].isAlertEnabled {
-                            let shouldNotify: Bool
-                            if let target = items[i].targetAlertPrice {
-                                shouldNotify = newBest <= target
-                            } else {
-                                shouldNotify = true
-                            }
-
+                            let shouldNotify = (items[i].targetAlertPrice == nil) || (newBest <= items[i].targetAlertPrice!)
                             if shouldNotify {
                                 NotificationManager.shared.sendPriceDropNotification(
                                     productTitle: item.canonical_name,
@@ -220,7 +303,6 @@ class WishlistManager: ObservableObject {
                     } else {
                         items[i].currentBestPrice = newBest
                     }
-                    updatedCount += 1
                 }
             } catch {
                 print("Errore verifica prezzo per \(item.canonical_name): \(error)")
@@ -233,7 +315,7 @@ class WishlistManager: ObservableObject {
         if dropsFound > 0 {
             lastCheckMessage = "Trovati \(dropsFound) cali di prezzo!"
         } else {
-            lastCheckMessage = "Prezzi aggiornati: nessun nuovo calo rilevato."
+            lastCheckMessage = "Prezzi aggiornati con il database."
         }
     }
 }

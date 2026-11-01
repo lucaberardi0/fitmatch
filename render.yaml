@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: fitmatch-backend
+    env: docker
+    region: frankfurt
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        value: https://goopfdvnqhdmsoutkldp.supabase.co
+      - key: SUPABASE_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false

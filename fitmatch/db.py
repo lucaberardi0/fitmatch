@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import uuid
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -76,11 +77,35 @@ class Database:
                     crawled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE IF NOT EXISTS collections (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS wishlist (
+                    id TEXT PRIMARY KEY,
+                    product_id TEXT,
+                    canonical_name TEXT NOT NULL UNIQUE,
+                    brand TEXT,
+                    store_name TEXT,
+                    current_price REAL NOT NULL,
+                    original_price REAL,
+                    discount_pct REAL,
+                    image_url TEXT,
+                    product_url TEXT,
+                    selected_size TEXT,
+                    collection_name TEXT DEFAULT 'Tutti',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand);
                 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
                 CREATE INDEX IF NOT EXISTS idx_offers_product_id ON store_offers(product_id);
                 CREATE INDEX IF NOT EXISTS idx_offers_store_id ON store_offers(store_id);
                 CREATE INDEX IF NOT EXISTS idx_offers_price ON store_offers(current_price);
+                CREATE INDEX IF NOT EXISTS idx_wishlist_canonical ON wishlist(canonical_name);
+                CREATE INDEX IF NOT EXISTS idx_wishlist_collection ON wishlist(collection_name);
             """)
 
     def upsert_product_and_offer(
@@ -810,3 +835,204 @@ class Database:
                 "min_price": min_price,
                 "products": prods
             }
+
+    # MARK: - Wishlist & Collections Methods
+
+    def _seed_initial_wishlist_if_empty(self, conn: sqlite3.Connection):
+        """Populate initial wishlist if empty to showcase saved products."""
+        row = conn.execute("SELECT COUNT(*) FROM wishlist").fetchone()
+        if row and row[0] > 0:
+            return
+
+        initial_collections = ["Tutti", "Sneakers", "Running", "Abbigliamento"]
+        for c in initial_collections:
+            conn.execute("INSERT OR IGNORE INTO collections (id, name) VALUES (?, ?)", (str(uuid.uuid4()), c))
+
+        seed_items = [
+            {
+                "id": str(uuid.uuid4()),
+                "product_id": "mihara-hank-og-sole",
+                "canonical_name": "Maison Mihara Yasuhiro Hank",
+                "brand": "Maison Mihara Yasuhiro",
+                "store_name": "SneakerAsk",
+                "current_price": 188.00,
+                "original_price": 243.75,
+                "discount_pct": 23.0,
+                "image_url": "https://img.miharayasuhiro.jp/v2/product/A05FW702/cc_1.jpg",
+                "product_url": "https://sneakerask.com",
+                "selected_size": "36 EU",
+                "collection_name": "Sneakers"
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "product_id": "nb-740-marsh",
+                "canonical_name": "Nuovo Balance 740 - Sale marine",
+                "brand": "New Balance",
+                "store_name": "Kith",
+                "current_price": 145.00,
+                "original_price": 165.00,
+                "discount_pct": 12.0,
+                "image_url": "https://www.sneakinpeace.com/cdn/shop/files/new-balance-740-white-marsh-green-sea-salt-low-top-sneakers-trainers-1_440x570.jpg",
+                "product_url": "https://kith.com",
+                "selected_size": "7.5",
+                "collection_name": "Sneakers"
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "product_id": "generic deviate nitro 4 [shoes] [Uomo]",
+                "canonical_name": "Puma Deviate Nitro 4 Hyrox",
+                "brand": "Puma",
+                "store_name": "Maxi Sport",
+                "current_price": 119.99,
+                "original_price": 169.99,
+                "discount_pct": 29.4,
+                "image_url": "https://maxi.gumlet.io/media/catalog/product/cache/49229e27a07aec1fba01f3faa4d67bfd/p/u/puma-314155-deviate-nitro-4-hyrox-scarpe-running-uomo-052754101-01_1.jpg",
+                "product_url": "https://maxisport.com",
+                "selected_size": "42 EU",
+                "collection_name": "Running"
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "product_id": "generic clifton 11 [shoes] [Uomo]",
+                "canonical_name": "Hoka Clifton 11 Wide",
+                "brand": "Hoka",
+                "store_name": "Cisalfa Sport",
+                "current_price": 128.00,
+                "original_price": 160.00,
+                "discount_pct": 20.0,
+                "image_url": "https://maxi.gumlet.io/media/catalog/product/cache/49229e27a07aec1fba01f3faa4d67bfd/h/o/hoka-1176572-clifton-11-scarpe-running-uomo-052835001-bblc_1.jpg",
+                "product_url": "https://cisalfasport.it",
+                "selected_size": "43 EU",
+                "collection_name": "Running"
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "product_id": "joma elite viii [top] [Uomo]",
+                "canonical_name": "Joma Elite VIII Maglia Gara",
+                "brand": "Joma",
+                "store_name": "Mister Running",
+                "current_price": 10.71,
+                "original_price": 32.00,
+                "discount_pct": 66.5,
+                "image_url": "https://www.misterrunning.com/media/products/2021-media/joma-elite-viii-maglietta-da-running-uomo-navy-yellow-fluor-101929321_A-600x600.jpg",
+                "product_url": "https://misterrunning.com",
+                "selected_size": "L",
+                "collection_name": "Abbigliamento"
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "product_id": "mizuno printed [pants] [Donna]",
+                "canonical_name": "Mizuno Printed Running Tights",
+                "brand": "Mizuno",
+                "store_name": "Mister Running",
+                "current_price": 19.71,
+                "original_price": 60.00,
+                "discount_pct": 67.2,
+                "image_url": "https://www.misterrunning.com/media/products/2023-media-06/mizuno-printed-tights-da-running-donna-nightshadow-blue-j2gba702-03_A-600x600.jpg",
+                "product_url": "https://misterrunning.com",
+                "selected_size": "M",
+                "collection_name": "Abbigliamento"
+            }
+        ]
+
+        for it in seed_items:
+            conn.execute("""
+                INSERT OR IGNORE INTO wishlist (id, product_id, canonical_name, brand, store_name, current_price, original_price, discount_pct, image_url, product_url, selected_size, collection_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                it["id"], it["product_id"], it["canonical_name"], it["brand"], it["store_name"],
+                it["current_price"], it["original_price"], it["discount_pct"], it["image_url"],
+                it["product_url"], it["selected_size"], it["collection_name"]
+            ))
+
+    def get_wishlist(self, collection_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieve all wishlist products from the database, optionally filtered by collection."""
+        with self.get_connection() as conn:
+            self._seed_initial_wishlist_if_empty(conn)
+
+            if collection_name and collection_name.lower() != "tutti":
+                sql = "SELECT * FROM wishlist WHERE LOWER(collection_name) = LOWER(?) ORDER BY created_at DESC"
+                rows = conn.execute(sql, (collection_name,)).fetchall()
+            else:
+                sql = "SELECT * FROM wishlist ORDER BY created_at DESC"
+                rows = conn.execute(sql).fetchall()
+
+            results = []
+            for r in rows:
+                d = dict(r)
+                # Compute formatted fields
+                d["currentBestPrice"] = d["current_price"]
+                d["originalPrice"] = d["original_price"]
+                d["discountPct"] = d["discount_pct"]
+                d["bestStore"] = d["store_name"]
+                d["bestStoreUrl"] = d["product_url"]
+                d["selectedSize"] = d["selected_size"]
+                d["collectionName"] = d["collection_name"]
+                results.append(d)
+            return results
+
+    def add_to_wishlist(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """Save a product to the wishlist table in the database."""
+        with self.get_connection() as conn:
+            item_id = item.get("id") or str(uuid.uuid4())
+            canonical_name = item.get("canonical_name") or item.get("title") or "Articolo"
+            brand = item.get("brand")
+            store_name = item.get("store_name") or item.get("bestStore") or item.get("store") or "Store Partner"
+            current_price = float(item.get("current_price", item.get("currentBestPrice", 0.0)) or 0.0)
+            original_price = item.get("original_price") or item.get("originalPrice") or item.get("initialPrice")
+            if original_price is not None:
+                original_price = float(original_price)
+            discount_pct = item.get("discount_pct") or item.get("discountPct")
+            if discount_pct is not None:
+                discount_pct = float(discount_pct)
+            elif original_price and original_price > current_price and original_price > 0:
+                discount_pct = round(((original_price - current_price) / original_price) * 100.0, 1)
+
+            image_url = item.get("image_url")
+            product_url = item.get("product_url") or item.get("bestStoreUrl")
+            selected_size = item.get("selected_size") or item.get("selectedSize") or "Standard"
+            collection_name = item.get("collection_name") or item.get("collectionName") or "Tutti"
+
+            conn.execute("""
+                INSERT INTO wishlist (id, product_id, canonical_name, brand, store_name, current_price, original_price, discount_pct, image_url, product_url, selected_size, collection_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(canonical_name) DO UPDATE SET
+                    store_name = excluded.store_name,
+                    current_price = excluded.current_price,
+                    original_price = COALESCE(excluded.original_price, wishlist.original_price),
+                    discount_pct = COALESCE(excluded.discount_pct, wishlist.discount_pct),
+                    image_url = COALESCE(excluded.image_url, wishlist.image_url),
+                    selected_size = COALESCE(excluded.selected_size, wishlist.selected_size),
+                    collection_name = COALESCE(excluded.collection_name, wishlist.collection_name)
+            """, (
+                item_id, item.get("product_id"), canonical_name, brand, store_name,
+                current_price, original_price, discount_pct, image_url, product_url,
+                selected_size, collection_name
+            ))
+            return item
+
+    def remove_from_wishlist(self, identifier: str) -> bool:
+        """Remove a product from the wishlist by id or canonical_name."""
+        with self.get_connection() as conn:
+            res = conn.execute("DELETE FROM wishlist WHERE id = ? OR LOWER(canonical_name) = LOWER(?)", (identifier, identifier))
+            return res.rowcount > 0
+
+    def get_collections(self) -> List[Dict[str, Any]]:
+        """Return all collections with product counts."""
+        with self.get_connection() as conn:
+            self._seed_initial_wishlist_if_empty(conn)
+            rows = conn.execute("""
+                SELECT c.name, COUNT(w.id) as item_count 
+                FROM collections c 
+                LEFT JOIN wishlist w ON LOWER(c.name) = LOWER(w.collection_name) 
+                GROUP BY c.name
+                ORDER BY c.created_at ASC
+            """).fetchall()
+            return [dict(r) for r in rows]
+
+    def create_collection(self, name: str) -> Dict[str, Any]:
+        """Create a new collection category."""
+        with self.get_connection() as conn:
+            col_id = str(uuid.uuid4())
+            conn.execute("INSERT OR IGNORE INTO collections (id, name) VALUES (?, ?)", (col_id, name))
+            return {"id": col_id, "name": name}

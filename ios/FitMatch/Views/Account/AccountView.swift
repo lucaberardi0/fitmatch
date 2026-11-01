@@ -1,14 +1,17 @@
 import SwiftUI
+import AuthenticationServices
 
 struct AccountView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var prefs = UserPreferencesManager.shared
     @ObservedObject private var wishlist = WishlistManager.shared
+    @ObservedObject private var supabase = SupabaseManager.shared
     @StateObject private var api = APIService.shared
 
     @State private var showingEditNameAlert = false
     @State private var tempName = ""
     @State private var showingClearCacheAlert = false
+    @State private var showingDeleteAccountAlert = false
 
     private let shoeSizes = [
         "38", "39", "40", "40.5", "41", "42", "42.5", "43", "43.5", "44", "44.5", "45", "45.5", "46", "47", "48"
@@ -46,6 +49,9 @@ struct AccountView: View {
                 VStack(spacing: 20) {
                     // MARK: - 1. Hero Profile Header
                     profileHeaderCard
+
+                    // MARK: - 1.5. Production Supabase Cloud Status & Auth
+                    supabaseCloudCard
 
                     // MARK: - 2. Personal Savings & Monitored Stats
                     statsOverviewCard
@@ -102,6 +108,16 @@ struct AccountView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text("La cache locale dei prezzi e delle ricerche recenti è stata svuotata.")
+            }
+            .alert("Elimina Account", isPresented: $showingDeleteAccountAlert) {
+                Button("Annulla", role: .cancel) { }
+                Button("Elimina Definitivamente", role: .destructive) {
+                    supabase.signOut()
+                    wishlist.items.removeAll()
+                    wishlist.saveItems()
+                }
+            } message: {
+                Text("Questa azione rimuoverà tutti i tuoi articoli salvati, le collezioni e i dati memorizzati sul cloud.")
             }
         }
     }
@@ -164,6 +180,125 @@ struct AccountView: View {
             }
 
             Spacer()
+        }
+        .padding(18)
+        .background(Color.white)
+        .cornerRadius(22)
+        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+    }
+
+    // MARK: - Supabase Production Cloud Card & Apple Auth
+
+    private var supabaseCloudCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 62/255, green: 207/255, blue: 142/255).opacity(0.18))
+                        .frame(width: 36, height: 36)
+
+                    Circle()
+                        .fill(Color(red: 62/255, green: 207/255, blue: 142/255))
+                        .frame(width: 12, height: 12)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("Supabase Cloud Database")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopDark)
+
+                        Text("PROD")
+                            .font(.system(size: 9.5, weight: .heavy))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color(red: 62/255, green: 207/255, blue: 142/255))
+                            .cornerRadius(5)
+                    }
+
+                    Text("eu-central-1 (Francoforte) • PostgreSQL con RLS")
+                        .font(.system(size: 11))
+                        .foregroundColor(.shopTextMuted)
+                }
+
+                Spacer()
+
+                Button(action: {
+                    Task {
+                        _ = await supabase.checkCloudHealth()
+                        await wishlist.syncWithDatabase()
+                    }
+                }) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.shopPurple)
+                        .padding(8)
+                        .background(Color.shopPurpleLight)
+                        .clipShape(Circle())
+                }
+            }
+
+            // Sync Status
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(red: 62/255, green: 207/255, blue: 142/255))
+
+                Text(supabase.syncStatusMessage)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundColor(.shopDark)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(red: 243/255, green: 249/255, blue: 246/255))
+            .cornerRadius(10)
+
+            Divider()
+
+            // Apple Sign-In / User Profile
+            if supabase.isAuthenticated {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Account Connesso")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.shopTextMuted)
+                        Text(supabase.currentUserEmail ?? "Utente Apple")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.shopDark)
+                    }
+
+                    Spacer()
+
+                    Button("Disconnetti") {
+                        supabase.signOut()
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.red)
+                }
+            } else {
+                SignInWithAppleButton(
+                    onRequest: { request in
+                        request.requestedScopes = [.fullName, .email]
+                    },
+                    onCompletion: { result in
+                        switch result {
+                        case .success(let authorization):
+                            if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
+                                let userId = appleIDCredential.user
+                                let email = appleIDCredential.email ?? prefs.preferences.userEmail
+                                supabase.saveSession(token: userId, userId: userId, email: email)
+                            }
+                        case .failure(let error):
+                            print("Apple Sign In failed: \(error)")
+                        }
+                    }
+                )
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 44)
+                .cornerRadius(12)
+            }
         }
         .padding(18)
         .background(Color.white)
@@ -713,8 +848,26 @@ struct AccountView: View {
                     HStack {
                         Image(systemName: "trash")
                             .font(.system(size: 13))
-                            .foregroundColor(.red)
+                            .foregroundColor(.shopDark)
                         Text("Svuota Cache Locale")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.shopDark)
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Divider()
+
+                // Delete Account (Apple App Store Requirement)
+                Button(action: {
+                    showingDeleteAccountAlert = true
+                }) {
+                    HStack {
+                        Image(systemName: "person.crop.circle.badge.xmark")
+                            .font(.system(size: 13))
+                            .foregroundColor(.red)
+                        Text("Elimina Account & Dati Cloud")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.red)
                         Spacer()

@@ -1,8 +1,12 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @State private var selectedTab: Int = 1
+    @State private var selectedTab: Int
     @ObservedObject private var wishlist = WishlistManager.shared
+
+    init(initialTab: Int = 3) {
+        _selectedTab = State(initialValue: initialTab)
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -16,7 +20,7 @@ struct MainTabView: View {
                 case 2:
                     DealsView()
                 case 3:
-                    WishlistView()
+                    WishlistView(selectedTab: $selectedTab)
                 default:
                     HomeView(selectedTab: $selectedTab)
                 }
