@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fitmatch.models import Offer, MatchedProductGroup
+from fitmatch.supabase_client import SupabaseClient, SUPABASE_URL, SUPABASE_KEY
 
 logger = logging.getLogger("fitmatch.db")
 
@@ -13,21 +14,31 @@ DB_PATH = os.path.join(DB_DIR, "fitmatch.db")
 
 
 class Database:
-    """SQLite Database manager for indexing products, store offers and price history."""
+    """Unified Database manager delegating directly to Supabase Cloud PostgreSQL in production."""
 
-    def __init__(self, db_path: str = DB_PATH):
-        self.db_path = db_path
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        self.init_schema()
+    def __init__(self, db_path: Optional[str] = None, use_supabase: bool = True):
+        self.use_supabase = use_supabase and bool(SUPABASE_URL and SUPABASE_KEY)
+        self.supabase = SupabaseClient() if self.use_supabase else None
+        self.db_path = db_path or (DB_PATH if not self.use_supabase else ":memory:")
+        if not self.use_supabase:
+            os.makedirs(os.path.dirname(self.db_path) if self.db_path != ":memory:" else ".", exist_ok=True)
+            self.init_schema()
 
     def get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA busy_timeout = 30000")
-        return conn
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            if self.db_path != ":memory:":
+                conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA busy_timeout = 30000")
+            return conn
+        except sqlite3.DatabaseError:
+            # If local sqlite file was corrupt, fallback to clean in-memory sqlite
+            conn = sqlite3.connect(":memory:", timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            return conn
 
     def init_schema(self):
         """Creates tables, foreign keys and indexes if they do not exist."""
@@ -118,6 +129,21 @@ class Database:
         offer: Offer
     ) -> str:
         """Upsert canonical product and record current store offer + price history."""
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.upsert_product_and_offer(
+                    cluster_key=cluster_key,
+                    canonical_name=canonical_name,
+                    brand=brand,
+                    category=category,
+                    gender=gender,
+                    image_url=offer.image_url,
+                    offer=offer
+                )
+                return cluster_key
+            except Exception as e:
+                logger.error(f"[Database] Error upserting to Supabase: {e}")
+
         with self.get_connection() as conn:
             # 1. Upsert product
             conn.execute("""
@@ -183,6 +209,12 @@ class Database:
         """Upsert a list of offers and products in a single database transaction."""
         if not items:
             return 0
+
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.upsert_offers_batch(items)
+            except Exception as e:
+                logger.error(f"[Database] Error batch upserting to Supabase: {e}")
 
         with self.get_connection() as conn:
             for item in items:
@@ -260,6 +292,10 @@ class Database:
         duration_seconds: float
     ):
         """Record log of crawler job in database."""
+        if self.use_supabase and self.supabase:
+            self.supabase.record_crawl_log(store_id, category, items_found, duration_seconds)
+            return
+
         with self.get_connection() as conn:
             conn.execute("""
                 INSERT INTO crawl_logs (store_id, category, items_found, duration_seconds)
@@ -269,6 +305,12 @@ class Database:
 
     def get_stats(self) -> Dict[str, Any]:
         """Return catalog overview statistics."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_stats()
+            except Exception as e:
+                logger.error(f"[Database] Error fetching stats from Supabase: {e}")
+
         with self.get_connection() as conn:
             total_products = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
             total_offers = conn.execute("SELECT COUNT(*) FROM store_offers").fetchone()[0]
@@ -310,6 +352,12 @@ class Database:
 
     def search_indexed(self, query: str, category: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
         """Fast SQL query on pre-indexed products and their store offers with optional category filter."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.search_indexed(query=query, category=category, limit=limit)
+            except Exception as e:
+                logger.error(f"[Database] Error search_indexed from Supabase: {e}")
+
         with self.get_connection() as conn:
             words = query.strip().lower().split()
             where_clauses = ["(LOWER(p.canonical_name) LIKE ? OR LOWER(COALESCE(p.brand, '')) LIKE ?)" for _ in words]
@@ -390,6 +438,21 @@ class Database:
         limit: int = 30
     ) -> List[Dict[str, Any]]:
         """Smart AI-powered SQL retrieval matching multiple candidate models, price bounds and filters."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.search_smart(
+                    target_keywords=target_keywords,
+                    category=category,
+                    brand=brand,
+                    gender=gender,
+                    max_price=max_price,
+                    min_price=min_price,
+                    store_id=store_id,
+                    limit=limit
+                )
+            except Exception as e:
+                logger.error(f"[Database] Error search_smart from Supabase: {e}")
+
         from fitmatch.models import STORE_SHIPPING_RULES
 
         with self.get_connection() as conn:
@@ -527,6 +590,12 @@ class Database:
 
     def get_store_showcases(self, limit_per_store: int = 6) -> List[Dict[str, Any]]:
         """Return curated product highlights for each store (Shop-style merchant showcase)."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_store_showcases(limit_per_store=limit_per_store)
+            except Exception as e:
+                logger.error(f"[Database] Error get_store_showcases from Supabase: {e}")
+
         ratings = {
             "cisalfa": "4.8",
             "maxisport": "4.9",
@@ -586,6 +655,12 @@ class Database:
 
     def get_store_details(self, store_id: str, query: str = "", sort: str = "discount", limit: int = 100) -> Optional[Dict[str, Any]]:
         """Return full merchant details, trust badges, stats, and indexed catalog for a store."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_store_details(store_id=store_id, query=query, sort=sort, limit=limit)
+            except Exception as e:
+                logger.error(f"[Database] Error get_store_details from Supabase: {e}")
+
         metadata = {
             "cisalfa": {
                 "name": "Cisalfa Sport",
@@ -947,6 +1022,12 @@ class Database:
 
     def get_wishlist(self, collection_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieve all wishlist products from the database, optionally filtered by collection."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_wishlist(collection_name=collection_name)
+            except Exception as e:
+                logger.error(f"[Database] Error get_wishlist from Supabase: {e}")
+
         with self.get_connection() as conn:
             self._seed_initial_wishlist_if_empty(conn)
 
@@ -973,6 +1054,12 @@ class Database:
 
     def add_to_wishlist(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """Save a product to the wishlist table in the database."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.add_to_wishlist(item)
+            except Exception as e:
+                logger.error(f"[Database] Error add_to_wishlist to Supabase: {e}")
+
         with self.get_connection() as conn:
             item_id = item.get("id") or str(uuid.uuid4())
             canonical_name = item.get("canonical_name") or item.get("title") or "Articolo"
@@ -1013,12 +1100,24 @@ class Database:
 
     def remove_from_wishlist(self, identifier: str) -> bool:
         """Remove a product from the wishlist by id or canonical_name."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.remove_from_wishlist(identifier)
+            except Exception as e:
+                logger.error(f"[Database] Error remove_from_wishlist from Supabase: {e}")
+
         with self.get_connection() as conn:
             res = conn.execute("DELETE FROM wishlist WHERE id = ? OR LOWER(canonical_name) = LOWER(?)", (identifier, identifier))
             return res.rowcount > 0
 
     def get_collections(self) -> List[Dict[str, Any]]:
         """Return all collections with product counts."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_collections()
+            except Exception as e:
+                logger.error(f"[Database] Error get_collections from Supabase: {e}")
+
         with self.get_connection() as conn:
             self._seed_initial_wishlist_if_empty(conn)
             rows = conn.execute("""
@@ -1032,6 +1131,12 @@ class Database:
 
     def create_collection(self, name: str) -> Dict[str, Any]:
         """Create a new collection category."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.create_collection(name)
+            except Exception as e:
+                logger.error(f"[Database] Error create_collection in Supabase: {e}")
+
         with self.get_connection() as conn:
             col_id = str(uuid.uuid4())
             conn.execute("INSERT OR IGNORE INTO collections (id, name) VALUES (?, ?)", (col_id, name))

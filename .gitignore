@@ -8,10 +8,11 @@ env/
 venv/
 .DS_Store
 data/cache/
+data/*.db
 data/*.db-shm
 data/*.db-wal
+*.db
 *.log
 ios/build/
 ios/DerivedData/
 .build/
-

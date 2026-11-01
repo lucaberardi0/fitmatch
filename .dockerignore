@@ -1,0 +1,9 @@
+data/*.db*
+data/cache/
+ios/
+.git
+.github
+.pytest_cache
+*.log
+__pycache__
+tests/
