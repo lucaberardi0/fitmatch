@@ -2,10 +2,12 @@
 import sys
 import argparse
 import json
+from datetime import datetime
 from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.crawler import CategoryCrawler
 from fitmatch.ai_advisor import AIShoppingAdvisor
+from fitmatch.scheduler import SyncScheduler
 
 # ANSI color codes
 RESET = "\033[0m"
@@ -107,6 +109,23 @@ def main():
     # AI Ask command
     ask_parser = subparsers.add_parser("ask", help="Interroga l'Assistente AI con esigenze in linguaggio naturale")
     ask_parser.add_argument("prompt", type=str, help="Esigenza dell'utente (es. 'peso 85kg corro su asfalto cerco scarpa comoda sotto i 140€')")
+
+    # Crawl / Spider command
+    crawl_parser = subparsers.add_parser("crawl", help="Scansione approfondita di specifici negozi o dell'intero catalogo")
+    crawl_parser.add_argument("--store", type=str, default=None, help="Negozio da scansionare (cisalfa, maxisport, deporvillage, decathlon, alltricks, misterrunning, nencini, top4running, runningwarehouse)")
+    crawl_parser.add_argument("--limit", type=int, default=300, help="Numero max di articoli da indicizzare per negozio (default: 300)")
+
+    # Worker / Autonomous Daemon command
+    worker_parser = subparsers.add_parser("worker", help="Avvia il demone autonomo di scraping e monitoraggio prezzi")
+    worker_parser.add_argument("--refresh-hours", type=float, default=2.0, help="Intervallo monitoraggio prezzi in ore (default: 2.0)")
+    worker_parser.add_argument("--discovery-hours", type=float, default=24.0, help="Intervallo scoperta catalogo in ore (default: 24.0)")
+    worker_parser.add_argument("--immediate", action="store_true", help="Esegui subito il primo ciclo di scansione")
+
+    # Scheduler command
+    sched_parser = subparsers.add_parser("scheduler", help="Visualizza lo stato dello scheduler o lancia cicli manuali")
+    sched_parser.add_argument("--status", action="store_true", help="Mostra lo stato e i tempi delle prossime esecuzioni")
+    sched_parser.add_argument("--discovery", action="store_true", help="Esegui subito un ciclo di scoperta catalogo")
+    sched_parser.add_argument("--refresh", action="store_true", help="Esegui subito un ciclo di aggiornamento prezzi")
 
     args = parser.parse_args()
 
@@ -233,6 +252,77 @@ def main():
             print(results.model_dump_json(indent=2))
         else:
             format_search_results(results)
+
+    elif args.command == "crawl":
+        print_banner()
+        crawler = CategoryCrawler(db=db)
+        if args.store:
+            print(f"{CYAN}Avvio scansione approfondita per lo store '{args.store}' (Target: {args.limit} articoli)...{RESET}")
+            try:
+                count = crawler.crawl_store(args.store, max_items=args.limit)
+                print(f"{BOLD}{GREEN}✓ Scansione completata: {count} prodotti indicizzati da {args.store}!{RESET}")
+            except Exception as e:
+                print(f"{RED}Errore durante la scansione: {e}{RESET}")
+        else:
+            print(f"{CYAN}Avvio scansione approfondita di tutti i 9 negozi (Target: {args.limit} per negozio)...{RESET}")
+            res = crawler.run_full_sync(limit_per_store=args.limit)
+            print(f"\n{BOLD}{GREEN}✓ Scansione completata in {res['duration_seconds']}s! Totale indicizzati: {res['total_crawled']}{RESET}")
+            for store, count in res["crawled_by_store"].items():
+                print(f"  • {store:<18}: {BOLD}{count:>4d} capi{RESET}")
+
+    elif args.command == "worker":
+        import time
+        print_banner()
+        print(f"{BOLD}{GREEN}Avvio del Demone Autonomo FitMatch Scheduler 24/7...{RESET}")
+        print(f"• Monitor Prezzi: ogni {BOLD}{args.refresh_hours} ore{RESET}")
+        print(f"• Scoperta Catalogo: ogni {BOLD}{args.discovery_hours} ore{RESET}")
+        print(f"• Esecuzione immediata: {BOLD}{'SI' if args.immediate else 'NO'}{RESET}\n")
+        print(f"{DIM}Premi Ctrl+C per arrestare il demone in qualsiasi momento.{RESET}\n")
+
+        sched = SyncScheduler.get_instance(db=db)
+        sched.start(
+            refresh_interval_seconds=int(args.refresh_hours * 3600),
+            discovery_interval_seconds=int(args.discovery_hours * 3600),
+            run_immediately=args.immediate
+        )
+
+        try:
+            while True:
+                time.sleep(10)
+                st = sched.get_status()
+                task = st.get("current_task", "idle")
+                cycles = st.get("total_cycles_completed", 0)
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Stato demone: {BOLD}{task.upper()}{RESET} | Cicli completati: {BOLD}{cycles}{RESET} | Next refresh: {st['refresh']['next_run'] or 'N/A'}")
+        except KeyboardInterrupt:
+            print(f"\n{YELLOW}Arresto del demone in corso...{RESET}")
+            sched.stop()
+            print(f"{GREEN}Demone arrestato correttamente.{RESET}")
+
+    elif args.command == "scheduler":
+        print_banner()
+        sched = SyncScheduler.get_instance(db=db)
+        if args.discovery:
+            print(f"{CYAN}Avvio immediato scoperta catalogo...{RESET}")
+            res = sched.trigger_discovery_now(limit_per_store=200)
+            print(f"{BOLD}{GREEN}{res.get('message')}{RESET}")
+        elif args.refresh:
+            print(f"{CYAN}Avvio immediato aggiornamento prezzi...{RESET}")
+            res = sched.trigger_refresh_now(limit=50)
+            print(f"{BOLD}{GREEN}{res.get('message')}{RESET}")
+        else:
+            st = sched.get_status()
+            print(f"{BOLD}STATO SCHEDULER AUTONOMO:{RESET}")
+            print(f"• Attivo:               {BOLD}{'SI' if st['is_running'] else 'NO'}{RESET}")
+            print(f"• Task in esecuzione:   {BOLD}{st['current_task'].upper()}{RESET}")
+            print(f"• Cicli completati:     {BOLD}{st['total_cycles_completed']}{RESET}\n")
+            print(f"{BOLD}1. SCOPERTA CATALOGO (Discovery):{RESET}")
+            print(f"  - Intervallo:         Ogni {st['discovery']['interval_hours']} ore")
+            print(f"  - Ultima esecuzione:  {st['discovery']['last_run'] or 'Mai'}")
+            print(f"  - Prossima:           {st['discovery']['next_run'] or 'Non programmata'}")
+            print(f"\n{BOLD}2. MONITOR PREZZI & STOCK (Refresh):{RESET}")
+            print(f"  - Intervallo:         Ogni {st['refresh']['interval_hours']} ore")
+            print(f"  - Ultima esecuzione:  {st['refresh']['last_run'] or 'Mai'}")
+            print(f"  - Prossima:           {st['refresh']['next_run'] or 'Non programmata'}\n")
 
 
 if __name__ == "__main__":

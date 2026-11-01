@@ -1,12 +1,13 @@
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
+from typing import Optional, List
 from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.crawler import CategoryCrawler
 from fitmatch.ai_advisor import AIShoppingAdvisor
 from fitmatch.smart_search import SmartSearchEngine
 from fitmatch.updater import PriceUpdater
+from fitmatch.scheduler import SyncScheduler
 from fitmatch.models import SearchResult
 
 app = FastAPI(
@@ -26,7 +27,8 @@ app.add_middleware(
 
 service = ComparisonService()
 db = Database()
-updater = PriceUpdater.get_instance()
+updater = PriceUpdater.get_instance(db=db)
+scheduler = SyncScheduler.get_instance(db=db)
 smart_engine = SmartSearchEngine()
 
 
@@ -35,8 +37,13 @@ advisor = AIShoppingAdvisor(service=service, db=db)
 
 @app.on_event("startup")
 def on_startup():
-    # Start background price refresh daemon (every 4 hours)
-    updater.start_scheduler(interval_seconds=14400)
+    # Start autonomous background scheduler (Price monitor every 2h, catalog discovery every 24h)
+    scheduler.start(refresh_interval_seconds=7200, discovery_interval_seconds=86400)
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    scheduler.stop()
 
 
 @app.get("/health")
@@ -70,7 +77,7 @@ def get_store_showcases(limit: int = Query(6, ge=1, le=20)):
 def get_store_details(
     store_id: str,
     q: str = Query("", description="Keywords to search within this store"),
-    sort: str = Query("discount", regex="^(discount|price_asc|price_desc|name)$"),
+    sort: str = Query("discount", pattern="^(discount|price_asc|price_desc|name)$"),
     limit: int = Query(100, ge=1, le=200)
 ):
     """Retrieve full store profile, trust badges, stats, and catalog of products for a dedicated store screen."""
@@ -175,15 +182,61 @@ def search_live(
 @app.post("/api/crawl")
 def trigger_crawl(
     background_tasks: BackgroundTasks,
-    limit_per_store: int = Query(50, ge=10, le=500)
+    limit_per_store: int = Query(100, ge=10, le=2000),
+    store: Optional[str] = Query(None, description="Specific store ID to crawl (e.g. 'cisalfa', 'deporvillage') or all")
 ):
-    """Trigger background crawler to update local catalog from all stores."""
+    """Trigger background crawler to update local catalog from all or specific stores."""
     crawler = CategoryCrawler(db=db)
-    background_tasks.add_task(crawler.run_full_sync, limit_per_store)
+    stores = [store] if store else None
+    background_tasks.add_task(crawler.run_full_sync, limit_per_store, stores)
     return {
-        "message": "Crawl job scheduled in background",
+        "status": "scheduled",
+        "message": f"Crawl job avviato in background per {store or 'tutti i 9 negozi'}",
         "target_per_store": limit_per_store
     }
+
+
+# --- Autonomous Scheduler Endpoints ---
+
+@app.get("/api/scheduler/status")
+def get_scheduler_status():
+    """Retrieve live status, cycles and schedule of the autonomous spider engine."""
+    return scheduler.get_status()
+
+
+@app.post("/api/scheduler/start")
+def start_scheduler(
+    refresh_interval_hours: float = Query(2.0, ge=0.5, le=24.0),
+    discovery_interval_hours: float = Query(24.0, ge=1.0, le=168.0)
+):
+    """Start or restart the autonomous background scheduler."""
+    scheduler.start(
+        refresh_interval_seconds=int(refresh_interval_hours * 3600),
+        discovery_interval_seconds=int(discovery_interval_hours * 3600)
+    )
+    return {
+        "status": "started",
+        "message": f"Scheduler attivo: refresh ogni {refresh_interval_hours}h, discovery ogni {discovery_interval_hours}h."
+    }
+
+
+@app.post("/api/scheduler/stop")
+def stop_scheduler():
+    """Stop the autonomous background scheduler."""
+    scheduler.stop()
+    return {"status": "stopped", "message": "Scheduler arrestato."}
+
+
+@app.post("/api/scheduler/run-discovery")
+def trigger_scheduler_discovery(limit_per_store: int = Query(200, ge=10, le=1000)):
+    """Trigger an immediate catalog discovery run across all stores in background."""
+    return scheduler.trigger_discovery_now(limit_per_store=limit_per_store)
+
+
+@app.post("/api/scheduler/run-refresh")
+def trigger_scheduler_refresh(limit: int = Query(50, ge=10, le=500)):
+    """Trigger an immediate price & stock refresh for indexed products in background."""
+    return scheduler.trigger_refresh_now(limit=limit)
 
 
 @app.get("/api/updater/status")

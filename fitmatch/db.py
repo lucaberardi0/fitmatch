@@ -24,6 +24,8 @@ class Database:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA busy_timeout = 30000")
         return conn
 
     def init_schema(self):
@@ -151,6 +153,94 @@ class Database:
 
             conn.commit()
             return cluster_key
+
+    def upsert_offers_batch(self, items: List[Dict[str, Any]]) -> int:
+        """Upsert a list of offers and products in a single database transaction."""
+        if not items:
+            return 0
+
+        with self.get_connection() as conn:
+            for item in items:
+                offer: Offer = item["offer"]
+                cluster_key = item["cluster_key"]
+                canonical_name = item["canonical_name"]
+                brand = item.get("brand")
+                category = item.get("category")
+                gender = item.get("gender", "Unisex")
+
+                # 1. Upsert canonical product
+                conn.execute("""
+                    INSERT INTO products (id, canonical_name, brand, category, gender, image_url, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(id) DO UPDATE SET
+                        canonical_name = excluded.canonical_name,
+                        brand = COALESCE(excluded.brand, products.brand),
+                        category = COALESCE(excluded.category, products.category),
+                        gender = COALESCE(excluded.gender, products.gender),
+                        image_url = COALESCE(products.image_url, excluded.image_url),
+                        updated_at = CURRENT_TIMESTAMP
+                """, (cluster_key, canonical_name, brand, category, gender, offer.image_url))
+
+                # 2. Offer ID
+                offer_id = f"{offer.store_id}:{offer.product_id or abs(hash(offer.url))}"
+                cur = conn.execute("SELECT current_price FROM store_offers WHERE id = ?", (offer_id,))
+                prev_row = cur.fetchone()
+                price_changed = (prev_row is None or abs(prev_row["current_price"] - offer.price) > 0.01)
+
+                conn.execute("""
+                    INSERT INTO store_offers (
+                        id, product_id, store_id, store_name, raw_title,
+                        current_price, original_price, discount_pct,
+                        product_url, image_url, in_stock, last_checked_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(id) DO UPDATE SET
+                        product_id = excluded.product_id,
+                        raw_title = excluded.raw_title,
+                        current_price = excluded.current_price,
+                        original_price = excluded.original_price,
+                        discount_pct = excluded.discount_pct,
+                        product_url = excluded.product_url,
+                        image_url = COALESCE(excluded.image_url, store_offers.image_url),
+                        in_stock = excluded.in_stock,
+                        last_checked_at = CURRENT_TIMESTAMP
+                """, (
+                    offer_id,
+                    cluster_key,
+                    offer.store_id,
+                    offer.store_name,
+                    offer.title,
+                    offer.price,
+                    offer.original_price,
+                    offer.discount_pct,
+                    offer.url,
+                    offer.image_url,
+                    1 if offer.in_stock else 0
+                ))
+
+                if price_changed:
+                    conn.execute("""
+                        INSERT INTO price_history (offer_id, price)
+                        VALUES (?, ?)
+                    """, (offer_id, offer.price))
+
+            conn.commit()
+            return len(items)
+
+    def record_crawl_log(
+        self,
+        store_id: str,
+        category: str,
+        items_found: int,
+        duration_seconds: float
+    ):
+        """Record log of crawler job in database."""
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO crawl_logs (store_id, category, items_found, duration_seconds)
+                VALUES (?, ?, ?, ?)
+            """, (store_id, category, items_found, round(duration_seconds, 2)))
+            conn.commit()
 
     def get_stats(self) -> Dict[str, Any]:
         """Return catalog overview statistics."""

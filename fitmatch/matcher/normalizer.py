@@ -4,26 +4,118 @@ from collections import defaultdict
 from fitmatch.models import Offer, MatchedProductGroup
 
 KNOWN_BRANDS = [
-    "nike", "adidas", "asics", "brooks", "hoka", "on", "saucony", "puma",
-    "new balance", "mizuno", "under armour", "salomon", "altra", "decathlon",
-    "kalenji", "kiprun", "garmin", "polar", "suunto", "la sportiva", "scarpa"
+    # Top Running & Athletic Brands
+    "nike", "adidas", "asics", "brooks", "hoka", "on running", "on", "saucony",
+    "puma", "new balance", "mizuno", "under armour", "salomon", "altra", "la sportiva",
+    "scarpa", "dynafit", "inov-8", "topo athletic", "joma", "newton", "craft", "diadora",
+
+    # Electronics & Optics
+    "garmin", "polar", "suunto", "coros", "wahoo", "bryton", "oakley", "bliz",
+    "rudy project", "100%", "shokz", "aftershokz",
+
+    # Cycling & Helmets
+    "shimano", "poc", "kask", "abus", "castelli", "sportful", "santini", "giro",
+    "sidi", "sram", "campagnolo", "met",
+
+    # Padel & Tennis
+    "bullpadel", "babolat", "head", "wilson", "nox", "starvie", "siux", "dunlop",
+
+    # Outdoor, Packs & Hydration
+    "the north face", "north face", "patagonia", "columbia", "arc'teryx", "arcteryx",
+    "mammut", "millet", "salewa", "black diamond", "petzl", "leki", "camelbak",
+    "osprey", "deuter", "buff", "compressport",
+
+    # Recovery, Fitness & Nutrition
+    "therabody", "theragun", "hyperice", "compex", "enervit", "sis", "maurten",
+    "named sport", "powerbar", "ethic sport",
+
+    # Decathlon Brands
+    "decathlon", "kiprun", "evadict", "kalenji", "quechua", "forclaz", "btwin",
+    "van rysel", "rockrider", "triban", "domyos", "kuikma", "artengo"
 ]
 
-TECH_PREFIXES = {
-    "air", "zoom", "air zoom", "gel", "react", "fuelcell", "fresh foam",
-    "flyknit", "hovr", "cloud", "boost"
+BRAND_ALIASES = {
+    "on running": "On",
+    "theragun": "Therabody",
+    "north face": "The North Face",
+    "arcteryx": "Arc'teryx",
+    "kiprun": "Kiprun",
+    "kalenji": "Kalenji"
 }
 
+ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
+    ("case", [
+        r"\bcustodi[ae]\b", r"\bcases?\b", r"\bcovers?\b", r"\bhousse\b",
+        r"\bpellicol[ae]\b", r"\bvetro temprato\b", r"\bsleeve\b", r"\bsalvaschermo\b"
+    ]),
+    ("strap", [
+        r"\bcinturin[oi]\b", r"\bstraps?\b", r"\bwristband\b", r"\bbraccialetto\b"
+    ]),
+    ("sensor", [
+        r"\bfascia cardio\b", r"\bhrm\b", r"\bsensore\b", r"\bspeed sensor\b", r"\bcadence\b"
+    ]),
+    ("mount", [
+        r"\bsupport[oi]\b", r"\bstaff[ae]\b", r"\bmounts?\b", r"\bstaffetta\b"
+    ]),
+    ("pack", [
+        r"\bpacks?\b", r"\bbundles?\b", r"\bset\b", r"\bkit\b", r"\bcoppia\b", r"\bduo\b"
+    ]),
+    ("jacket", [
+        r"\bgiacc[ae]\b", r"\bjackets?\b", r"\bantivento\b", r"\bwindbreaker\b",
+        r"\bgilet\b", r"\bvest\b", r"\banorak\b", r"\bshell\b"
+    ]),
+    ("pants", [
+        r"\bpantalon[ii]\b", r"\bpantaloncin[ii]\b", r"\bshorts?\b", r"\btights?\b",
+        r"\bleggings?\b", r"\bcapri\b", r"\bcalzamagli[ae]\b"
+    ]),
+    ("top", [
+        r"\bmagli[ae]\b", r"\bmagliett[ae]\b", r"\bt-?shirts?\b", r"\bcanott[ae]\b",
+        r"\bsinglets?\b", r"\btops?\b", r"\bfelp[ae]\b", r"\bhoodie\b"
+    ]),
+    ("socks", [
+        r"\bcalz[ae]\b", r"\bcalzin[ii]\b", r"\bsocks?\b"
+    ]),
+    ("eyewear", [
+        r"\bocchial[ii]\b", r"\bsunglasses\b", r"\blent[ie]\b", r"\bmascher[ae]\b"
+    ]),
+    ("gear", [
+        r"\bsmartwatch\b", r"\borolog[io]\b", r"\bgps\b", r"\bciclocomputer\b",
+        r"\bcardiofrequenzimetr[oi]\b", r"\btheragun\b", r"\bpistola per massaggi\b",
+        r"\bpistola massaggi\b", r"\bstimolatore muscolare\b", r"\bracchett[ae]\b",
+        r"\bcasc[oi]\b", r"\bcomputer\b", r"\bedge\b"
+    ]),
+    ("shoes", [
+        r"\bscarp[ae]\b", r"\bshoes?\b", r"\bsneakers?\b", r"\bcalzatur[ae]\b",
+        r"\bstival[ii]\b", r"\bciabatt[ae]\b", r"\bchiodat[ae]\b"
+    ])
+]
+
+TECH_FABRICS = [
+    "dri-fit adv", "dri-fit", "dri fit", "drifit", "aeroready", "heatgear", "coldgear",
+    "iso-chill", "climalite", "therma-fit", "tech fleece", "climacool", "air zoom",
+    "air", "gel", "fuelcell", "fresh foam x", "fresh foam", "super comp", "supercomp"
+]
+
 STOPWORDS = {
-    "scarpe", "scarpa", "running", "corsa", "sneakers", "calzature", "uomo",
-    "donna", "unisex", "bambino", "bambina", "junior", "ragazzo", "ragazza",
-    "m", "w", "men", "women", "mens", "womens", "wmns", "trail", "asfalto",
-    "per", "di", "con", "e", "the", "in", "de", "ed", "da"
+    "scarpe", "scarpa", "shoes", "shoe", "sneakers", "calzature", "running", "corsa", "trail", "asfalto",
+    "uomo", "donna", "unisex", "bambino", "bambina", "junior", "ragazzo", "ragazza",
+    "m", "w", "men", "women", "mens", "womens", "wmns",
+    "smartwatch", "orologio", "gps", "multisport", "cardiofrequenzimetro", "ciclocomputer",
+    "pistola", "massaggi", "stimolatore", "muscolare",
+    "maglietta", "maglia", "pantaloni", "pantaloncini", "shorts", "tights", "giacca", "canotta",
+    "custodia", "silicone", "housse", "cover", "pack", "bundle", "kit", "cinturino", "strap",
+    "per", "di", "con", "e", "the", "in", "de", "ed", "da", "a", "la", "il", "le", "un", "una",
+    "senza", "maniche", "nero", "grigio", "bianco", "rosso", "blu", "giallo", "fluor", "verde",
+    "silver", "white", "black", "grey", "anthracite", "smoke", "core"
 }
 
 
 class ProductNormalizer:
-    """Normalizes titles and clusters offers of the same product across stores."""
+    """
+    Advanced Anti-Mismatch Engine:
+    Categorizes article types, extracts exact model versions, eliminates accessories
+    from device clusters, and dynamically rejects price outliers.
+    """
 
     @staticmethod
     def extract_gender(title: str, url: str = "") -> str:
@@ -37,61 +129,149 @@ class ProductNormalizer:
             return "Uomo"
         return "Unisex"
 
-    @staticmethod
-    def extract_brand(title: str, existing_brand: Optional[str] = None) -> Optional[str]:
-        if existing_brand and existing_brand.lower() in KNOWN_BRANDS:
-            return existing_brand.capitalize()
+    @classmethod
+    def extract_brand(cls, title: str, existing_brand: Optional[str] = None) -> Optional[str]:
+        """Detect standard canonical brand name from title or existing hint."""
+        if existing_brand:
+            eb_lower = existing_brand.strip().lower()
+            if eb_lower in BRAND_ALIASES:
+                return BRAND_ALIASES[eb_lower]
+            for b in KNOWN_BRANDS:
+                if b == eb_lower:
+                    return b.title()
+
         lower_title = title.lower()
         for b in sorted(KNOWN_BRANDS, key=len, reverse=True):
             if re.search(rf"\b{re.escape(b)}\b", lower_title):
-                return b.title()
+                return BRAND_ALIASES.get(b, b.title())
+
         return existing_brand.capitalize() if existing_brand else None
 
     @classmethod
-    def clean_title(cls, title: str) -> Tuple[str, Optional[str]]:
-        """Splits off colorway/descriptions and strips noise words."""
+    def detect_article_type(cls, title: str) -> str:
+        """Categorize item into article type (e.g. case, strap, pack, jacket, pants, shoes, gear)."""
+        tl = title.lower()
+        for atype, patterns in ARTICLE_PATTERNS:
+            for pattern in patterns:
+                if re.search(pattern, tl):
+                    return atype
+        return "shoes"
+
+    @classmethod
+    def clean_title(cls, title: str, brand: Optional[str] = None) -> Tuple[str, Optional[str]]:
+        """Splits off colorway/descriptions and strips noise words while preserving model version."""
         # Split on dash, pipe or slash that separates model from color description
         parts = re.split(r"\s+[-–—|]\s+", title, maxsplit=1)
         base = parts[0]
         colorway = parts[1].strip() if len(parts) > 1 else None
 
-        # Clean noise characters
         text = base.lower()
         text = re.sub(r"\(.*?\)", "", text)
         text = re.sub(r"[^\w\s]", " ", text)
 
+        # Remove all occurrences of the brand
+        if brand:
+            text = re.sub(rf"\b{re.escape(brand.lower())}\b", " ", text)
+            for p in brand.lower().split():
+                if len(p) > 2:
+                    text = re.sub(rf"\b{re.escape(p)}\b", " ", text)
+
+        # Standardize known compounds
+        text = re.sub(r"\bsuper\s+comp\b", "supercomp", text)
+        for tf in sorted(TECH_FABRICS, key=len, reverse=True):
+            if tf not in ("super comp", "supercomp"):
+                text = re.sub(rf"\b{re.escape(tf)}\b", " ", text)
+
         tokens = text.split()
         cleaned_tokens = [
             t for t in tokens
-            if t not in STOPWORDS and not re.match(r"^\d{6,}$", t)
+            if t not in STOPWORDS and not re.match(r"^\d{6,}$", t) and t != "s"
         ]
         return " ".join(cleaned_tokens).strip(), colorway
 
     @classmethod
     def extract_cluster_key(cls, offer: Offer) -> str:
-        """Generates a key for grouping identical or near-identical products."""
+        """
+        Generates a strictly partitioned cluster key:
+        Prevents cases/straps/packs from sharing keys with core devices or shoes,
+        and retains exact model generation numbers (e.g. 965, 55, 41, Pro 5, v14).
+        """
         brand = cls.extract_brand(offer.title, offer.brand) or "Generic"
         gender = cls.extract_gender(offer.title, offer.url)
-        cleaned_base, _ = cls.clean_title(offer.title)
+        art_type = cls.detect_article_type(offer.title)
+        cleaned_base, _ = cls.clean_title(offer.title, brand)
 
-        words = cleaned_base.split()
-        # Remove brand name from tokens
-        words = [w for w in words if w.lower() != brand.lower()]
+        tokens = cleaned_base.split()
+        model_parts: List[str] = []
+        i = 0
 
-        # Remove tech prefixes like 'air', 'zoom' to align 'Air Zoom Pegasus 42' with 'Pegasus 42'
-        filtered_words = []
-        for w in words:
-            if w in TECH_PREFIXES and len(words) > 2:
+        while i < len(tokens):
+            t = tokens[i]
+            model_parts.append(t)
+            is_num = bool(re.search(r"\d", t) or re.match(r"^(v\d+|[ivx]+)$", t))
+            if is_num:
+                # Retain model qualifiers immediately following a number (e.g. '1080 v15', 'adios pro 5')
+                if i + 1 < len(tokens) and tokens[i + 1] in (
+                    "pro", "music", "elite", "plus", "s", "x", "max", "tr", "gtx", "trail"
+                ):
+                    model_parts.append(tokens[i + 1])
+                    i += 1
+                break
+            elif t in ("pro", "elite", "prime", "relief") and i + 1 < len(tokens):
+                nxt = tokens[i + 1]
+                if re.search(r"\d", nxt) or nxt in ("plus", "max", "ultra", "v6", "v5", "v4", "trail"):
+                    model_parts.append(nxt)
+                    i += 1
+                    break
+            elif len(model_parts) >= 3:
+                break
+            i += 1
+
+        model_key = " ".join(model_parts).strip() if model_parts else "general"
+        return f"{brand.lower()} {model_key} [{art_type}] [{gender}]"
+
+    @classmethod
+    def partition_by_price_sanity(cls, cluster_offers: List[Offer]) -> List[List[Offer]]:
+        """
+        Detects extreme pricing anomalies (e.g. an €18 case mixed with €230 GPS)
+        and isolates outliers into their own separate comparison cards.
+        """
+        if len(cluster_offers) <= 1:
+            return [cluster_offers]
+
+        sorted_offers = sorted(cluster_offers, key=lambda o: o.price)
+        prices = [o.price for o in sorted_offers if o.price and o.price > 0]
+        if not prices:
+            return [sorted_offers]
+
+        median_price = prices[len(prices) // 2]
+        if median_price <= 0:
+            return [sorted_offers]
+
+        main_group: List[Offer] = []
+        outliers: List[Offer] = []
+
+        for o in sorted_offers:
+            if not o.price:
                 continue
-            filtered_words.append(w)
+            ratio = o.price / median_price
+            # If an offer is less than 38% or more than 260% of the median, treat as outlier
+            if ratio < 0.38 or ratio > 2.60:
+                outliers.append(o)
+            else:
+                main_group.append(o)
 
-        # Retain model tokens (e.g., 'pegasus 42', 'pegasus premium')
-        model_key = " ".join(filtered_words[:2]) if filtered_words else "general"
-        return f"{brand.lower()} {model_key} [{gender}]".strip()
+        partitions: List[List[Offer]] = []
+        if main_group:
+            partitions.append(main_group)
+        for out in outliers:
+            partitions.append([out])
+
+        return partitions
 
     @classmethod
     def group_offers(cls, offers: List[Offer]) -> List[MatchedProductGroup]:
-        """Group offers from different stores into consolidated matched product cards."""
+        """Group offers from different stores into consolidated, verified matched product cards."""
         clusters: Dict[str, List[Offer]] = defaultdict(list)
 
         for offer in offers:
@@ -100,31 +280,52 @@ class ProductNormalizer:
 
         groups: List[MatchedProductGroup] = []
 
-        for key, cluster_offers in clusters.items():
-            # Pick best title
-            sample_offer = max(cluster_offers, key=lambda o: len(o.title))
-            brand = cls.extract_brand(sample_offer.title, sample_offer.brand)
-            gender = cls.extract_gender(sample_offer.title, sample_offer.url)
+        for key, raw_cluster_offers in clusters.items():
+            # Apply price sanity guardrail to partition any accidental outliers
+            partitions = cls.partition_by_price_sanity(raw_cluster_offers)
 
-            # Clean canonical name
-            cleaned_base, _ = cls.clean_title(sample_offer.title)
-            canonical = f"{brand} {cleaned_base.title()}" if brand and brand.lower() not in cleaned_base.lower() else cleaned_base.title()
-            if gender in ("Donna", "Junior"):
-                canonical += f" ({gender})"
+            for cluster_offers in partitions:
+                if not cluster_offers:
+                    continue
 
-            sorted_offers = sorted(cluster_offers, key=lambda o: o.price)
-            image = next((o.image_url for o in cluster_offers if o.image_url), None)
+                sample_offer = max(cluster_offers, key=lambda o: len(o.title))
+                brand = cls.extract_brand(sample_offer.title, sample_offer.brand)
+                gender = cls.extract_gender(sample_offer.title, sample_offer.url)
+                art_type = cls.detect_article_type(sample_offer.title)
 
-            groups.append(
-                MatchedProductGroup(
-                    canonical_name=canonical,
-                    brand=brand,
-                    image_url=image,
-                    offers=sorted_offers
+                # Canonical Name Generation
+                cleaned_base, _ = cls.clean_title(sample_offer.title, brand)
+                canonical = f"{brand} {cleaned_base.title()}" if brand and brand.lower() not in cleaned_base.lower() else cleaned_base.title()
+
+                if art_type == "case" and "custodia" not in canonical.lower() and "case" not in canonical.lower():
+                    canonical += " (Custodia)"
+                elif art_type == "strap" and "cinturino" not in canonical.lower():
+                    canonical += " (Cinturino)"
+                elif art_type == "pack" and "pack" not in canonical.lower():
+                    canonical += " (Bundle/Pack)"
+                elif art_type == "jacket" and not any(w in canonical.lower() for w in ("giacca", "jacket", "gilet")):
+                    canonical += " (Giacca)"
+                elif art_type == "pants" and not any(w in canonical.lower() for w in ("pantaloni", "pantaloncini", "shorts", "tights", "leggings")):
+                    canonical += " (Pantaloni/Shorts)"
+                elif art_type == "top" and not any(w in canonical.lower() for w in ("maglia", "maglietta", "t-shirt", "canotta", "top")):
+                    canonical += " (Maglia)"
+
+                if gender in ("Donna", "Junior") and gender.lower() not in canonical.lower():
+                    canonical += f" ({gender})"
+
+                sorted_offers = sorted(cluster_offers, key=lambda o: o.price)
+                image = next((o.image_url for o in cluster_offers if o.image_url), None)
+
+                groups.append(
+                    MatchedProductGroup(
+                        canonical_name=canonical,
+                        brand=brand,
+                        image_url=image,
+                        offers=sorted_offers
+                    )
                 )
-            )
 
-        # Sort: products with offers from distinct stores first, then by cross-store savings
+        # Prioritize true multi-store matches, then top savings
         groups.sort(
             key=lambda g: (
                 len({o.store_id for o in g.offers}) > 1,

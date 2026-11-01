@@ -16,9 +16,9 @@ class PriceUpdater:
     _instance: Optional["PriceUpdater"] = None
 
     @classmethod
-    def get_instance(cls) -> "PriceUpdater":
+    def get_instance(cls, db: Optional[Database] = None) -> "PriceUpdater":
         if cls._instance is None:
-            cls._instance = PriceUpdater()
+            cls._instance = PriceUpdater(db=db)
         return cls._instance
 
     def __init__(self, db: Optional[Database] = None):

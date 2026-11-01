@@ -92,6 +92,31 @@ python3 api.py
 La documentazione interattiva Swagger è disponibile all'indirizzo:
 `http://localhost:8000/docs`
 
+All'avvio dell'API, il demone di background (`SyncScheduler`) si attiva automaticamente per monitorare i prezzi ogni 2 ore e sincronizzare il catalogo.
+
+### 4. Demone Autonomo 24/7 (Worker Indipendente)
+Puoi avviare il demone orchestratore dedicato (ideale per systemd o Docker):
+```bash
+# Avvio continuo con monitor prezzi ogni 2h e scoperta catalogo ogni 24h
+python3 cli.py worker
+
+# Avvio con esecuzione immediata del primo ciclo
+python3 cli.py worker --immediate --refresh-hours 1.5
+
+# Controllo dello stato dello scheduler da riga di comando
+python3 cli.py scheduler --status
+```
+
+### 5. Scansione Approfondita & Indicizzazione Massiva
+```bash
+# Scansione di un singolo store con limite personalizzato
+python3 cli.py crawl --store deporvillage --limit 500
+python3 cli.py crawl --store cisalfa --limit 300
+
+# Scansione massiva di tutti i 9 negozi contemporaneamente
+python3 cli.py crawl --limit 500
+```
+
 ---
 
 ## 🧠 Caratteristiche Chiave
