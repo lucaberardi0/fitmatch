@@ -15,4 +15,5 @@ data/*.db-wal
 *.log
 ios/build/
 ios/DerivedData/
+ios/screenshots/
 .build/
