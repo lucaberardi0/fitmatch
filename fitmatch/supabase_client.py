@@ -679,8 +679,10 @@ class SupabaseClient:
             }
 
         endpoint = f"store_offers?store_id=eq.{sid}&select=id,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,product_id,products(id,canonical_name,brand,category,gallery_images)&order=discount_pct.desc.nullslast&limit={limit}"
-        resp = self._request(endpoint)
+        resp = self._request(endpoint, count_exact=True)
         offers_data = resp.get("data") or []
+        cr = resp.get("content_range") or ""
+        total_real_offers = int(cr.split("/")[-1]) if "/" in cr and cr.split("/")[-1] != "*" else len(offers_data)
 
         prods = []
         rule = info.get("shipping_rule", {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
@@ -744,22 +746,24 @@ class SupabaseClient:
             "shipping_rule": info.get("shipping_rule"),
             "return_policy": info.get("return_policy"),
             "rating_breakdown": info.get("rating_breakdown"),
-            "total_offers": len(prods),
+            "total_offers": total_real_offers,
             "avg_discount": round(sum(discounts) / len(discounts), 1) if discounts else 0.0,
             "min_price": min(prices) if prices else 0.0,
             "products": prods
         }
 
     def get_store_showcases(self, limit_per_store: int = 6) -> List[Dict[str, Any]]:
-        """Return store highlights with their best discounted items from Supabase."""
+        """Return store highlights with their best discounted items from Supabase with 100% real database counts."""
         result = []
-        for sid in [
+        candidate_stores = [
             "nike", "misterrunning", "alltricks", "top4running",
             "maxisport", "cisalfa", "runningwarehouse", "deporvillage",
             "sportler", "nencini", "decathlon"
-        ]:
+        ]
+
+        for sid in candidate_stores:
             details = self.get_store_details(sid, limit=limit_per_store)
-            if details:
+            if details and details.get("products"):
                 result.append({
                     "store_id": sid,
                     "store_name": details["store_name"],
@@ -771,7 +775,8 @@ class SupabaseClient:
                     "rating": details["rating"],
                     "products": details["products"][:limit_per_store]
                 })
-        return result
+        # Prioritize official flagship stores first (Nike), then by total real offers
+        return sorted(result, key=lambda s: (0 if s["store_id"] == "nike" else 1, -s["total_offers"]))
 
     # MARK: - Wishlist & Collections
 

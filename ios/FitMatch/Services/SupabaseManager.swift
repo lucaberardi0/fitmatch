@@ -396,7 +396,7 @@ class SupabaseManager: ObservableObject {
     // MARK: - Direct Store Showcases from Supabase Cloud Database
 
     func fetchStoreShowcasesDirect() async throws -> [StoreShowcase] {
-        guard let url = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&order=discount_pct.desc.nullslast&limit=150") else {
+        guard let url = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&order=discount_pct.desc.nullslast&limit=1000") else {
             throw URLError(.badURL)
         }
         var req = URLRequest(url: url)
@@ -426,7 +426,7 @@ class SupabaseManager: ObservableObject {
 
         let rows = try JSONDecoder().decode([OfferRow].self, from: data)
 
-        var storeMap: [String: (name: String, products: [StoreShowcaseProduct], discounts: [Double])] = [:]
+        var storeMap: [String: (name: String, products: [StoreShowcaseProduct], discounts: [Double], totalCount: Int)] = [:]
         for r in rows {
             let p = StoreShowcaseProduct(
                 id: r.id,
@@ -448,8 +448,9 @@ class SupabaseManager: ObservableObject {
             )
             let sId = r.store_id.lowercased()
             if storeMap[sId] == nil {
-                storeMap[sId] = (name: r.store_name, products: [], discounts: [])
+                storeMap[sId] = (name: r.store_name, products: [], discounts: [], totalCount: 0)
             }
+            storeMap[sId]?.totalCount += 1
             if (storeMap[sId]?.products.count ?? 0) < 10 {
                 storeMap[sId]?.products.append(p)
             }
@@ -466,27 +467,50 @@ class SupabaseManager: ObservableObject {
             "alltricks": "4.4",
             "deporvillage": "4.3",
             "runningwarehouse": "4.9",
-            "decathlon": "4.8",
+            "decathlon": "4.6",
             "nencini": "4.7",
             "sportler": "4.7",
             "nike": "4.9"
         ]
 
+        // Query real total offer counts per store directly from Supabase
+        var realStoreCounts: [String: Int] = [:]
+        if let countsUrl = URL(string: "\(restURL)/store_offers?select=store_id&limit=1000") {
+            var countReq = URLRequest(url: countsUrl)
+            for (k, v) in makeHeaders() { countReq.setValue(v, forHTTPHeaderField: k) }
+            if let (cData, cResp) = try? await session.data(for: countReq),
+               let http = cResp as? HTTPURLResponse, http.statusCode == 200 {
+                struct StoreIdRow: Codable { let store_id: String }
+                if let countRows = try? JSONDecoder().decode([StoreIdRow].self, from: cData) {
+                    for cr in countRows {
+                        realStoreCounts[cr.store_id.lowercased(), default: 0] += 1
+                    }
+                }
+            }
+        }
+
         var showcases: [StoreShowcase] = []
         for (sId, info) in storeMap {
+            guard !info.products.isEmpty else { continue }
             let avgDisc = info.discounts.isEmpty ? 25.0 : (info.discounts.reduce(0, +) / Double(info.discounts.count))
             let rating = ratings[sId] ?? "4.8"
+            let realCount = realStoreCounts[sId] ?? info.totalCount
             showcases.append(StoreShowcase(
                 store_id: sId,
                 store_name: info.name,
-                total_offers: info.products.count * 15,
+                total_offers: max(realCount, info.products.count),
                 avg_discount: avgDisc,
                 rating: rating,
                 products: info.products
             ))
         }
 
-        return showcases.sorted { $0.avg_discount > $1.avg_discount }
+        // Prioritize official flagship brand stores first (Nike), then by total real offers
+        return showcases.sorted {
+            if $0.store_id == "nike" { return true }
+            if $1.store_id == "nike" { return false }
+            return $0.total_offers > $1.total_offers
+        }
     }
 
     // MARK: - Health Check

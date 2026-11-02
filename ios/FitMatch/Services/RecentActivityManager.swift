@@ -53,9 +53,6 @@ class RecentActivityManager: ObservableObject {
 
     init() {
         loadActivities()
-        if activities.isEmpty {
-            loadStarterActivities()
-        }
         Task {
             await syncFromDatabase()
         }
@@ -193,47 +190,5 @@ class RecentActivityManager: ObservableObject {
         } catch {
             print("Errore salvataggio cronologia: \(error)")
         }
-    }
-
-    private func loadStarterActivities() {
-        // Initial onboarding examples if user has never searched or viewed anything yet
-        let calendar = Calendar.current
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: Date()) ?? Date()
-        let fewDaysAgo = calendar.date(byAdding: .day, value: -3, to: Date()) ?? Date()
-
-        let starters: [RecentActivityItem] = [
-            RecentActivityItem(
-                id: UUID(),
-                type: .search,
-                title: "Nike Zoom Fly 6",
-                subtitle: nil,
-                imageUrl: nil,
-                systemIcon: "text.bubble.fill",
-                timestamp: yesterday,
-                productData: nil
-            ),
-            RecentActivityItem(
-                id: UUID(),
-                type: .search,
-                title: "Scarpe ammortizzate per proteggere le ginocchia",
-                subtitle: nil,
-                imageUrl: nil,
-                systemIcon: "sparkles",
-                timestamp: fewDaysAgo,
-                productData: nil
-            ),
-            RecentActivityItem(
-                id: UUID(),
-                type: .search,
-                title: "Garmin Forerunner GPS sotto 250€",
-                subtitle: nil,
-                imageUrl: nil,
-                systemIcon: "text.bubble.fill",
-                timestamp: fewDaysAgo,
-                productData: nil
-            )
-        ]
-        self.activities = starters
-        saveActivities()
     }
 }

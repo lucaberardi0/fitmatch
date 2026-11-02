@@ -197,6 +197,7 @@ class SyncScheduler:
         if self.current_task != "idle":
             return {"status": "busy", "message": f"Task already running: {self.current_task}"}
 
+        self.current_task = "discovery"
         thread = threading.Thread(
             target=self._run_discovery_task,
             args=(limit_per_store,),
@@ -213,6 +214,7 @@ class SyncScheduler:
         if self.current_task != "idle":
             return {"status": "busy", "message": f"Task already running: {self.current_task}"}
 
+        self.current_task = "refresh"
         thread = threading.Thread(
             target=self._run_refresh_task,
             args=(limit,),

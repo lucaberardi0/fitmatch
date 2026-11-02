@@ -181,21 +181,25 @@ class APIService: ObservableObject {
     }
 
     func getStoreShowcases() async throws -> [StoreShowcase] {
-        // 1. Try backend API first with quick timeout
+        // 1. Direct Supabase Cloud database query (100% real products, stores and live offer counts)
         do {
-            if let url = URL(string: "\(baseURL)/api/stores/showcase") {
-                let data = try await fetchDataWithRetry(url: url, maxRetries: 1)
-                let decoded = try JSONDecoder().decode(StoreShowcaseResponse.self, from: data)
-                if !decoded.showcases.isEmpty {
-                    return decoded.showcases
-                }
+            let direct = try await SupabaseManager.shared.fetchStoreShowcasesDirect()
+            if !direct.isEmpty {
+                return direct
             }
         } catch {
-            print("APIService showcase fetch note: \(error), checking Supabase direct...")
+            print("APIService Supabase direct note: \(error), falling back to API...")
         }
 
-        // 2. Direct Supabase Cloud database query (100% real products and stores)
-        return try await SupabaseManager.shared.fetchStoreShowcasesDirect()
+        // 2. Cloud API fallback
+        if let url = URL(string: "\(baseURL)/api/stores/showcase") {
+            let data = try await fetchDataWithRetry(url: url, maxRetries: 1)
+            let decoded = try JSONDecoder().decode(StoreShowcaseResponse.self, from: data)
+            if !decoded.showcases.isEmpty {
+                return decoded.showcases
+            }
+        }
+        return []
     }
 
     func getStoreDetails(storeId: String, query: String = "", sort: String = "discount") async throws -> StoreDetailResponse {

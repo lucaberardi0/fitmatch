@@ -1258,6 +1258,7 @@ class CategoryCrawler:
         start_time = time.time()
         logger.info(f"[Nike] Starting catalog crawl (target: {max_items} items)...")
         base_cat_urls = [
+            ("https://www.nike.com/it/w/saldi-running-37v7jz3yaep", "running_shoes", "Unisex"),
             ("https://www.nike.com/it/w/running-scarpe-37v7jzy7ok", "running_shoes", "Unisex"),
             ("https://www.nike.com/it/w/uomo-running-scarpe-37v7jz180yzy7ok", "running_shoes", "Uomo"),
             ("https://www.nike.com/it/w/donna-running-scarpe-37v7jz5e1x6zy7ok", "running_shoes", "Donna"),
