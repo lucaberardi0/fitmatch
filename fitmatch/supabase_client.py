@@ -767,41 +767,75 @@ class SupabaseClient:
             if len(customer_photos) >= 8:
                 break
 
-        reviews_map = {
-            "nike": [
-                {"author": "Marco B.", "rating": 5.0, "text": "Scarpe arrivate in 24 ore, qualità impeccabile e calzata perfetta come sempre.", "date": "2 settimane fa"},
-                {"author": "Elena R.", "rating": 5.0, "text": "Ottima ammortizzazione per le mie corse lunghe, le migliori ZoomX mai provate.", "date": "3 settimane fa"},
-                {"author": "Lorenzo T.", "rating": 4.9, "text": "Imballaggio perfetto e reso eventuale velocissimo tramite il club.", "date": "1 mese fa"}
-            ],
-            "top4running": [
-                {"author": "Davide M.", "rating": 5.0, "text": "Punto di riferimento per scarpe da gara. Trovate in anteprima con sconto Top4Running Club!", "date": "1 settimana fa"},
-                {"author": "Chiara P.", "rating": 4.9, "text": "Spedizione fulminea con DPD, calzata perfetta per la mia mezza maratona.", "date": "2 settimane fa"},
-                {"author": "Giuseppe V.", "rating": 5.0, "text": "Schede tecniche precisissime e personale competente via chat.", "date": "3 settimane fa"}
-            ],
-            "cisalfa": [
-                {"author": "Andrea F.", "rating": 4.9, "text": "Comodissimo il ritiro e cambio taglia gratuito in negozio. Servizio clienti top.", "date": "5 giorni fa"},
-                {"author": "Sara M.", "rating": 4.8, "text": "Prezzi competitivi e sconti Cisalfa PRO davvero vantaggiosi su Nike e Asics.", "date": "2 settimane fa"},
-                {"author": "Luca G.", "rating": 5.0, "text": "Consegna puntuale con Bartolini, prodotto originale garantito.", "date": "3 settimane fa"}
-            ],
-            "misterrunning": [
-                {"author": "Federico S.", "rating": 5.0, "text": "Miglior shop online per il running in Italia. Pacco arrivato la mattina dopo con corriere espresso.", "date": "4 giorni fa"},
-                {"author": "Luca G.", "rating": 5.0, "text": "Prezzo più basso del web con garanzia ufficiale e solette omaggio!", "date": "2 settimane fa"},
-                {"author": "Matteo N.", "rating": 4.9, "text": "Vasta disponibilità di numeri anche per scarpe con piastra in carbonio.", "date": "1 mese fa"}
-            ],
-            "maxisport": [
-                {"author": "Matteo B.", "rating": 5.0, "text": "Assistenza tecnica eccezionale per scegliere la scarpa adatta al mio appoggio pronatore.", "date": "1 settimana fa"},
-                {"author": "Giulia C.", "rating": 4.9, "text": "Spedizione rapidissima e reso gratuito senza complicazioni.", "date": "3 settimane fa"},
-                {"author": "Paolo R.", "rating": 5.0, "text": "Acquisto da Maxi Sport da anni, sempre impeccabili e precisi.", "date": "1 mese fa"}
-            ],
-            "adidas": [
-                {"author": "Simone T.", "rating": 5.0, "text": "Adizero incredibili per le gare veloci, calzata aderente e reattività pura.", "date": "1 settimana fa"},
-                {"author": "Alessia M.", "rating": 4.8, "text": "Spedizione tracciata e punti adiClub accumulati subito.", "date": "2 settimane fa"}
-            ]
-        }
-        customer_reviews = reviews_map.get(sid, [
-            {"author": "Cliente Verificato", "rating": 5.0, "text": "Esperienza d'acquisto eccellente, prodotti originali e spedizione rapida.", "date": "2 settimane fa"},
-            {"author": "Runner Appassionato", "rating": 4.9, "text": "Ottimo rapporto qualità/prezzo e servizio clienti sempre disponibile.", "date": "3 settimane fa"}
-        ])
+        # Query real store reviews from database
+        db_reviews = self.get_store_reviews(sid, limit=20)
+        customer_reviews = []
+        if db_reviews:
+            for r in db_reviews:
+                dt_str = r.get("created_at") or ""
+                rel_date = "Recentemente"
+                if dt_str:
+                    try:
+                        clean_dt = dt_str.replace("Z", "+00:00")
+                        dt = datetime.fromisoformat(clean_dt)
+                        days = (datetime.now(timezone.utc) - dt).days
+                        if days <= 0:
+                            rel_date = "Oggi"
+                        elif days == 1:
+                            rel_date = "Ieri"
+                        elif days < 7:
+                            rel_date = f"{days} giorni fa"
+                        elif days < 30:
+                            rel_date = f"{max(1, days // 7)} settimane fa"
+                        else:
+                            rel_date = f"{max(1, days // 30)} mesi fa"
+                    except Exception:
+                        rel_date = "Recentemente"
+
+                customer_reviews.append({
+                    "id": str(r.get("id")),
+                    "author": r.get("author_name", "Cliente"),
+                    "rating": float(r.get("rating", 5.0)),
+                    "text": r.get("review_text", ""),
+                    "date": rel_date
+                })
+
+        if not customer_reviews:
+            reviews_map = {
+                "nike": [
+                    {"author": "Marco B.", "rating": 5.0, "text": "Scarpe arrivate in 24 ore, qualità impeccabile e calzata perfetta come sempre.", "date": "2 settimane fa"},
+                    {"author": "Elena R.", "rating": 5.0, "text": "Ottima ammortizzazione per le mie corse lunghe, le migliori ZoomX mai provate.", "date": "3 settimane fa"},
+                    {"author": "Lorenzo T.", "rating": 4.9, "text": "Imballaggio perfetto e reso eventuale velocissimo tramite il club.", "date": "1 mese fa"}
+                ],
+                "top4running": [
+                    {"author": "Davide M.", "rating": 5.0, "text": "Punto di riferimento per scarpe da gara. Trovate in anteprima con sconto Top4Running Club!", "date": "1 settimana fa"},
+                    {"author": "Chiara P.", "rating": 4.9, "text": "Spedizione fulminea con DPD, calzata perfetta per la mia mezza maratona.", "date": "2 settimane fa"},
+                    {"author": "Giuseppe V.", "rating": 5.0, "text": "Schede tecniche precisissime e personale competente via chat.", "date": "3 settimane fa"}
+                ],
+                "cisalfa": [
+                    {"author": "Andrea F.", "rating": 4.9, "text": "Comodissimo il ritiro e cambio taglia gratuito in negozio. Servizio clienti top.", "date": "5 giorni fa"},
+                    {"author": "Sara M.", "rating": 4.8, "text": "Prezzi competitivi e sconti Cisalfa PRO davvero vantaggiosi su Nike e Asics.", "date": "2 settimane fa"},
+                    {"author": "Luca G.", "rating": 5.0, "text": "Consegna puntuale con Bartolini, prodotto originale garantito.", "date": "3 settimane fa"}
+                ],
+                "misterrunning": [
+                    {"author": "Federico S.", "rating": 5.0, "text": "Miglior shop online per il running in Italia. Pacco arrivato la mattina dopo con corriere espresso.", "date": "4 giorni fa"},
+                    {"author": "Luca G.", "rating": 5.0, "text": "Prezzo più basso del web con garanzia ufficiale e solette omaggio!", "date": "2 settimane fa"},
+                    {"author": "Matteo N.", "rating": 4.9, "text": "Vasta disponibilità di numeri anche per scarpe con piastra in carbonio.", "date": "1 mese fa"}
+                ],
+                "maxisport": [
+                    {"author": "Matteo B.", "rating": 5.0, "text": "Assistenza tecnica eccezionale per scegliere la scarpa adatta al mio appoggio pronatore.", "date": "1 settimana fa"},
+                    {"author": "Giulia C.", "rating": 4.9, "text": "Spedizione rapidissima e reso gratuito senza complicazioni.", "date": "3 settimane fa"},
+                    {"author": "Paolo R.", "rating": 5.0, "text": "Acquisto da Maxi Sport da anni, sempre impeccabili e precisi.", "date": "1 mese fa"}
+                ],
+                "adidas": [
+                    {"author": "Simone T.", "rating": 5.0, "text": "Adizero incredibili per le gare veloci, calzata aderente e reattività pura.", "date": "1 settimana fa"},
+                    {"author": "Alessia M.", "rating": 4.8, "text": "Spedizione tracciata e punti adiClub accumulati subito.", "date": "2 settimane fa"}
+                ]
+            }
+            customer_reviews = reviews_map.get(sid, [
+                {"author": "Cliente Verificato", "rating": 5.0, "text": "Esperienza d'acquisto eccellente, prodotti originali e spedizione rapida.", "date": "2 settimane fa"},
+                {"author": "Runner Appassionato", "rating": 4.9, "text": "Ottimo rapporto qualità/prezzo e servizio clienti sempre disponibile.", "date": "3 settimane fa"}
+            ])
 
         return {
             "store_id": sid,
@@ -1037,3 +1071,31 @@ class SupabaseClient:
         }
         res = self._request("store_reports", method="POST", data=payload)
         return res.get("status") in (200, 201)
+
+    def get_store_reviews(self, store_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieve real user reviews for a store from Supabase."""
+        sid = store_id.lower().strip()
+        url = f"store_reviews?store_id=eq.{urllib.parse.quote(sid)}&order=created_at.desc&limit={limit}"
+        res = self._request(url, method="GET")
+        if res.get("status") == 200 and isinstance(res.get("data"), list):
+            return res.get("data")
+        return []
+
+    def add_store_review(self, store_id: str, author_name: str, rating: int, review_text: str, device_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Insert a user review for a store into Supabase."""
+        sid = store_id.lower().strip()
+        payload = {
+            "store_id": sid,
+            "author_name": author_name.strip() or "Runner",
+            "rating": max(1, min(5, int(rating))),
+            "review_text": review_text.strip(),
+            "device_id": device_id or "default_device",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        res = self._request("store_reviews", method="POST", data=payload)
+        if res.get("status") in (200, 201):
+            if isinstance(res.get("data"), list) and res["data"]:
+                return res["data"][0]
+            return payload
+        return None

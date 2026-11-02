@@ -165,6 +165,16 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE IF NOT EXISTS store_reviews (
+                    id TEXT PRIMARY KEY,
+                    store_id TEXT NOT NULL,
+                    author_name TEXT NOT NULL,
+                    rating INTEGER NOT NULL,
+                    review_text TEXT NOT NULL,
+                    device_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand);
                 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
                 CREATE INDEX IF NOT EXISTS idx_offers_product_id ON store_offers(product_id);
@@ -1549,5 +1559,54 @@ class Database:
                 VALUES (?, ?, ?, ?, ?)
             """, (str(uuid.uuid4()), s_id, store_name, reason, details))
         return True
-        return True
+
+    def get_store_reviews(self, store_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieve real reviews for a store."""
+        s_id = store_id.lower().strip()
+        if self.use_supabase and self.supabase:
+            try:
+                data = self.supabase.get_store_reviews(s_id, limit=limit)
+                if data:
+                    return data
+            except Exception as e:
+                logger.error(f"[Database] Error get_store_reviews in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, store_id, author_name, rating, review_text, created_at
+                FROM store_reviews
+                WHERE LOWER(store_id) = LOWER(?)
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (s_id, limit))
+            return [dict(r) for r in cursor.fetchall()]
+
+    def add_store_review(self, store_id: str, author_name: str, rating: int, review_text: str, device_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Insert user review for a store."""
+        s_id = store_id.lower().strip()
+        if self.use_supabase and self.supabase:
+            try:
+                res = self.supabase.add_store_review(s_id, author_name, rating, review_text, device_id)
+                if res:
+                    return res
+            except Exception as e:
+                logger.error(f"[Database] Error add_store_review in Supabase: {e}")
+
+        rev_id = str(uuid.uuid4())
+        payload = {
+            "id": rev_id,
+            "store_id": s_id,
+            "author_name": author_name.strip() or "Runner",
+            "rating": max(1, min(5, int(rating))),
+            "review_text": review_text.strip(),
+            "device_id": device_id or "default_device",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO store_reviews (id, store_id, author_name, rating, review_text, device_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (rev_id, s_id, payload["author_name"], payload["rating"], payload["review_text"], payload["device_id"]))
+        return payload
 

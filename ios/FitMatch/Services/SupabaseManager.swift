@@ -357,6 +357,89 @@ class SupabaseManager: ObservableObject {
         return [200, 201].contains(code)
     }
 
+    // MARK: - Store Reviews (Real User Ratings & Reviews)
+
+    func fetchStoreReviews(storeId: String, limit: Int = 50) async -> [StoreCustomerReview] {
+        guard let encoded = storeId.lowercased().addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(restURL)/store_reviews?store_id=eq.\(encoded)&order=created_at.desc&limit=\(limit)") else {
+            return []
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        for (k, v) in makeHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        do {
+            let (data, response) = try await session.data(for: req)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                return []
+            }
+            struct ReviewRow: Codable {
+                let id: String?
+                let author_name: String
+                let rating: Double
+                let review_text: String
+                let created_at: String?
+            }
+            let rows = (try? JSONDecoder().decode([ReviewRow].self, from: data)) ?? []
+            return rows.map { r in
+                StoreCustomerReview(
+                    author: r.author_name,
+                    rating: r.rating,
+                    text: r.review_text,
+                    date: Self.formatRelativeDate(r.created_at)
+                )
+            }
+        } catch {
+            return []
+        }
+    }
+
+    func submitStoreReview(storeId: String, authorName: String, rating: Int, reviewText: String) async -> Bool {
+        guard let url = URL(string: "\(restURL)/store_reviews") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        for (k, v) in makeHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        let body: [String: Any] = [
+            "store_id": storeId.lowercased(),
+            "author_name": authorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Runner" : authorName,
+            "rating": max(1, min(5, rating)),
+            "review_text": reviewText.trimmingCharacters(in: .whitespacesAndNewlines),
+            "device_id": "default_device"
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        req.httpBody = jsonData
+        do {
+            let (_, response) = try await session.data(for: req)
+            if let http = response as? HTTPURLResponse, [200, 201].contains(http.statusCode) {
+                return true
+            }
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    private static func formatRelativeDate(_ iso: String?) -> String {
+        guard let iso = iso else { return "Recentemente" }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var date = formatter.date(from: iso)
+        if date == nil {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: iso)
+        }
+        guard let d = date else { return "Recentemente" }
+        let days = Calendar.current.dateComponents([.day], from: d, to: Date()).day ?? 0
+        if days <= 0 { return "Oggi" }
+        if days == 1 { return "Ieri" }
+        if days < 7 { return "\(days) giorni fa" }
+        if days < 30 { return "\(max(1, days / 7)) settimane fa" }
+        return "\(max(1, days / 30)) mesi fa"
+    }
+
     // MARK: - Recent Activity API
 
     func fetchRecentActivities() async throws -> [RecentActivityItem] {

@@ -475,6 +475,30 @@ def unhide_store_endpoint(store_id: str):
     return {"status": "ok", "success": success}
 
 
+@app.get("/api/stores/{store_id}/reviews")
+def get_store_reviews_endpoint(store_id: str, limit: int = Query(50, ge=1, le=100)):
+    """Retrieve real user reviews for a specific store."""
+    reviews = db.get_store_reviews(store_id, limit=limit)
+    return {"reviews": reviews}
+
+
+@app.post("/api/stores/{store_id}/reviews")
+def add_store_review_endpoint(store_id: str, payload: dict):
+    """Submit a real user review and rating for a store."""
+    author_name = payload.get("author_name", "Runner")
+    rating = int(payload.get("rating", 5))
+    review_text = payload.get("review_text", "").strip()
+    device_id = payload.get("device_id")
+    if not review_text:
+        raise HTTPException(status_code=400, detail="Il testo della recensione è obbligatorio.")
+    if not (1 <= rating <= 5):
+        raise HTTPException(status_code=400, detail="La valutazione deve essere compresa tra 1 e 5.")
+    res = db.add_store_review(store_id, author_name, rating, review_text, device_id)
+    if not res:
+        raise HTTPException(status_code=500, detail="Impossibile salvare la recensione.")
+    return {"status": "ok", "review": res}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)

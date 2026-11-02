@@ -14,6 +14,7 @@ struct StoreDetailView: View {
     @State private var searchQuery: String = ""
     @State private var selectedSort: String = "discount"
     @State private var showStoreInfoSheet: Bool = false
+    @State private var showWriteReviewSheet: Bool = false
     @State private var showReportAlert: Bool = false
     @State private var showToastMessage: String? = nil
 
@@ -123,6 +124,22 @@ struct StoreDetailView: View {
                     .background(Color(red: 247/255, green: 248/255, blue: 250/255))
                 }
             }
+        }
+        .sheet(isPresented: $showWriteReviewSheet) {
+            WriteReviewSheetView(
+                storeId: storeId,
+                storeName: storeDetails?.store_name ?? initialStoreName,
+                onReviewSubmitted: { newRev in
+                    withAnimation {
+                        showToastMessage = "Recensione pubblicata con successo! Grazie."
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                        withAnimation {
+                            showToastMessage = nil
+                        }
+                    }
+                }
+            )
         }
         .alert("Segnala \(storeDetails?.store_name ?? initialStoreName)", isPresented: $showReportAlert) {
             Button("Annulla", role: .cancel) {}
@@ -252,28 +269,53 @@ struct StoreDetailView: View {
                     .foregroundColor(.shopDark)
             }
 
-            // Segui / Seguito Pill Button
-            Button(action: {
-                let haptic = UIImpactFeedbackGenerator(style: .medium)
-                haptic.impactOccurred()
-                followedManager.toggleFollow(storeId: storeId, storeName: name)
-            }) {
-                let isFollowed = followedManager.isFollowing(storeId: storeId)
-                HStack(spacing: 6) {
-                    if isFollowed {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 12, weight: .bold))
+            // Action Buttons: Segui + Valuta
+            HStack(spacing: 10) {
+                // Segui / Seguito Pill Button
+                Button(action: {
+                    let haptic = UIImpactFeedbackGenerator(style: .medium)
+                    haptic.impactOccurred()
+                    followedManager.toggleFollow(storeId: storeId, storeName: name)
+                }) {
+                    let isFollowed = followedManager.isFollowing(storeId: storeId)
+                    HStack(spacing: 6) {
+                        if isFollowed {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                        }
+                        Text(isFollowed ? "Seguito" : "Segui")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
                     }
-                    Text(isFollowed ? "Seguito" : "Segui")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(isFollowed ? .shopDark : .white)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 10)
+                    .background(isFollowed ? Color(red: 236/255, green: 237/255, blue: 241/255) : Color(red: 24/255, green: 24/255, blue: 27/255))
+                    .clipShape(Capsule())
                 }
-                .foregroundColor(isFollowed ? .shopDark : .white)
-                .padding(.horizontal, 26)
-                .padding(.vertical, 10)
-                .background(isFollowed ? Color(red: 236/255, green: 237/255, blue: 241/255) : Color(red: 24/255, green: 24/255, blue: 27/255))
-                .clipShape(Capsule())
+                .buttonStyle(.plain)
+
+                // Valuta Button
+                Button(action: {
+                    showWriteReviewSheet = true
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(red: 24/255, green: 24/255, blue: 27/255))
+                        Text("Valuta")
+                            .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(.shopDark)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(Color(red: 244/255, green: 245/255, blue: 248/255))
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule().stroke(Color(red: 228/255, green: 229/255, blue: 234/255), lineWidth: 0.8)
+                    )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             .padding(.top, 4)
         }
     }
@@ -513,6 +555,8 @@ struct StoreInfoSheetView: View {
     @State private var isDescriptionExpanded: Bool = false
     @State private var selectedPolicyTitle: String? = nil
     @State private var selectedPolicyText: String? = nil
+    @State private var showWriteReviewSheet: Bool = false
+    @State private var liveReviews: [StoreCustomerReview] = []
 
     var customerPhotos: [String] {
         if let p = details.customer_photos, !p.isEmpty { return p }
@@ -526,6 +570,11 @@ struct StoreInfoSheetView: View {
             StoreCustomerReview(author: "Elena R.", rating: 5.0, text: "Prezzo imbattibile e prodotto 100% originale con imballaggio curato.", date: "3 settimane fa"),
             StoreCustomerReview(author: "Davide M.", rating: 4.9, text: "Servizio clienti gentile e tracciamento puntuale del corriere.", date: "1 mese fa")
         ]
+    }
+
+    var effectiveReviews: [StoreCustomerReview] {
+        if !liveReviews.isEmpty { return liveReviews }
+        return customerReviews
     }
 
     var body: some View {
@@ -617,6 +666,23 @@ struct StoreInfoSheetView: View {
             } message: {
                 Text(selectedPolicyText ?? "")
             }
+            .task {
+                let dbReviews = await SupabaseManager.shared.fetchStoreReviews(storeId: storeId)
+                if !dbReviews.isEmpty {
+                    self.liveReviews = dbReviews
+                }
+            }
+            .sheet(isPresented: $showWriteReviewSheet) {
+                WriteReviewSheetView(
+                    storeId: storeId,
+                    storeName: details.store_name,
+                    onReviewSubmitted: { newRev in
+                        withAnimation {
+                            liveReviews.insert(newRev, at: 0)
+                        }
+                    }
+                )
+            }
         }
     }
 
@@ -671,7 +737,7 @@ struct StoreInfoSheetView: View {
     // MARK: - 2. Section "Recensioni" (Screenshot 2)
     private var reviewsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Header: Recensioni + Arrow Button
+            // Header: Recensioni + Valuta Button + Arrow Button
             HStack {
                 Text("Recensioni")
                     .font(.system(size: 20, weight: .bold, design: .rounded))
@@ -679,12 +745,31 @@ struct StoreInfoSheetView: View {
 
                 Spacer()
 
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.shopDark)
-                    .frame(width: 36, height: 36)
-                    .background(Color(red: 246/255, green: 247/255, blue: 249/255))
-                    .clipShape(Circle())
+                HStack(spacing: 8) {
+                    Button(action: {
+                        showWriteReviewSheet = true
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "square.and.pencil")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Valuta")
+                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.shopDark)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color(red: 244/255, green: 245/255, blue: 248/255))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.shopDark)
+                        .frame(width: 32, height: 32)
+                        .background(Color(red: 246/255, green: 247/255, blue: 249/255))
+                        .clipShape(Circle())
+                }
             }
 
             // Score Row: Big 4,9 + 5 Stars + 3,1K valutazioni
@@ -745,10 +830,10 @@ struct StoreInfoSheetView: View {
             }
 
             // Customer Review Cards Horizontal Carousel (Screenshot 2)
-            if !customerReviews.isEmpty {
+            if !effectiveReviews.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(customerReviews) { rev in
+                        ForEach(effectiveReviews) { rev in
                             VStack(alignment: .leading, spacing: 10) {
                                 // 5 Stars
                                 HStack(spacing: 2) {
@@ -790,6 +875,29 @@ struct StoreInfoSheetView: View {
                     }
                 }
             }
+
+            // Prompt Card to Leave a Review
+            Button(action: {
+                showWriteReviewSheet = true
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "star.bubble.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(Color(red: 24/255, green: 24/255, blue: 27/255))
+                    Text("Hai acquistato qui? Condividi la tua recensione")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundColor(.shopDark)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.shopTextMuted)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Color(red: 246/255, green: 247/255, blue: 249/255))
+                .cornerRadius(14)
+            }
+            .buttonStyle(.plain)
         }
         .padding(18)
         .background(Color.white)
@@ -1082,6 +1190,210 @@ struct StoreInfoSheetView: View {
                 .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
             }
             .buttonStyle(.plain)
+        }
+    }
+}
+
+// MARK: - =========================================================================
+// MARK: - Write Review Sheet (Real User Reviews & Ratings directly on Supabase)
+// MARK: - =========================================================================
+
+struct WriteReviewSheetView: View {
+    let storeId: String
+    let storeName: String
+    let onReviewSubmitted: (StoreCustomerReview) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var rating: Int = 5
+    @State private var authorName: String = ""
+    @State private var reviewText: String = ""
+    @State private var isSubmitting: Bool = false
+    @State private var errorMessage: String? = nil
+
+    private let ratingLabels = [
+        1: "Pessimo ★",
+        2: "Migliorabile ★★",
+        3: "Nella media ★★★",
+        4: "Molto buono ★★★★",
+        5: "Eccellente ★★★★★"
+    ]
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Store Avatar + Title
+                    VStack(spacing: 8) {
+                        ShopStoreLogo(storeName: storeName, showVerified: false, showLabel: false, size: 56)
+                            .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
+
+                        Text("Valuta \(storeName)")
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopDark)
+
+                        Text("Aiuta gli altri atleti e acquirenti condividendo la tua esperienza autentica su spedizioni, prezzi e servizio.")
+                            .font(.system(size: 12.5))
+                            .foregroundColor(.shopTextMuted)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16)
+                    }
+                    .padding(.top, 10)
+
+                    // Interactive Star Rating Picker
+                    VStack(spacing: 10) {
+                        HStack(spacing: 12) {
+                            ForEach(1...5, id: \.self) { star in
+                                Button(action: {
+                                    let haptic = UIImpactFeedbackGenerator(style: .light)
+                                    haptic.impactOccurred()
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                        rating = star
+                                    }
+                                }) {
+                                    Image(systemName: star <= rating ? "star.fill" : "star")
+                                        .font(.system(size: 34))
+                                        .foregroundColor(star <= rating ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(red: 215/255, green: 218/255, blue: 224/255))
+                                        .scaleEffect(star == rating ? 1.15 : 1.0)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        Text(ratingLabels[rating] ?? "Eccellente")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopDark)
+                    }
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(red: 248/255, green: 249/255, blue: 251/255))
+                    .cornerRadius(18)
+
+                    // Form Fields
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Author Name
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("IL TUO NOME O NICKNAME")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.shopTextMuted)
+
+                            TextField("Es. Marco B. o Runner Milano", text: $authorName)
+                                .font(.system(size: 14))
+                                .foregroundColor(.shopDark)
+                                .padding(12)
+                                .background(Color(red: 248/255, green: 249/255, blue: 251/255))
+                                .cornerRadius(12)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 0.8)
+                                )
+                        }
+
+                        // Review Text
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("LA TUA RECENSIONE")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.shopTextMuted)
+
+                            ZStack(alignment: .topLeading) {
+                                if reviewText.isEmpty {
+                                    Text("Racconta la tua esperienza d'acquisto: consegna puntuale, corriere, imballaggio o conformità dell'articolo...")
+                                        .font(.system(size: 13.5))
+                                        .foregroundColor(.shopTextMuted.opacity(0.7))
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 14)
+                                }
+
+                                TextEditor(text: $reviewText)
+                                    .font(.system(size: 13.5))
+                                    .foregroundColor(.shopDark)
+                                    .scrollContentBackground(.hidden)
+                                    .padding(8)
+                                    .frame(minHeight: 110)
+                            }
+                            .background(Color(red: 248/255, green: 249/255, blue: 251/255))
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 0.8)
+                            )
+                        }
+                    }
+
+                    if let err = errorMessage {
+                        Text(err)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    // Submit Button
+                    Button(action: submitReview) {
+                        HStack(spacing: 8) {
+                            if isSubmitting {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+                            Text(isSubmitting ? "Invio in corso..." : "Pubblica recensione")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(reviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color(red: 160/255, green: 165/255, blue: 175/255) : Color(red: 24/255, green: 24/255, blue: 27/255))
+                        .clipShape(Capsule())
+                    }
+                    .disabled(reviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
+                    .buttonStyle(.plain)
+                }
+                .padding(20)
+            }
+            .background(Color.white.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Annulla") {
+                        dismiss()
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.shopDark)
+                }
+            }
+        }
+    }
+
+    private func submitReview() {
+        let text = reviewText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        isSubmitting = true
+        errorMessage = nil
+
+        let name = authorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Runner" : authorName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        Task {
+            let ok = await SupabaseManager.shared.submitStoreReview(
+                storeId: storeId,
+                authorName: name,
+                rating: rating,
+                reviewText: text
+            )
+
+            await MainActor.run {
+                isSubmitting = false
+                if ok {
+                    let newRev = StoreCustomerReview(
+                        author: name,
+                        rating: Double(rating),
+                        text: text,
+                        date: "Oggi"
+                    )
+                    let haptic = UINotificationFeedbackGenerator()
+                    haptic.notificationOccurred(.success)
+                    onReviewSubmitted(newRev)
+                    dismiss()
+                } else {
+                    errorMessage = "Impossibile inviare la recensione. Riprova più tardi."
+                }
+            }
         }
     }
 }
