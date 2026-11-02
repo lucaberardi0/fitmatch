@@ -470,6 +470,14 @@ struct StoreRatingBreakdown: Codable {
     let platform: String
 }
 
+struct StoreCustomerReview: Identifiable, Codable, Hashable {
+    var id: String { author + date + text }
+    let author: String
+    let rating: Double
+    let text: String
+    let date: String
+}
+
 struct StoreDetailResponse: Codable {
     let store_id: String
     let store_name: String
@@ -488,6 +496,16 @@ struct StoreDetailResponse: Codable {
     let avg_discount: Double
     let min_price: Double
     let products: [StoreShowcaseProduct]
+    let contact_email: String?
+    let contact_phone: String?
+    let social_instagram: String?
+    let privacy_policy_url: String?
+    let terms_url: String?
+    let refund_policy: String?
+    let shipping_policy: String?
+    let city_or_location: String?
+    let customer_reviews: [StoreCustomerReview]?
+    let customer_photos: [String]?
 }
 
 // MARK: - Smart Search (Shopify Shop Style)

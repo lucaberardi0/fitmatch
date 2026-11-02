@@ -287,11 +287,11 @@ struct HomeView: View {
                     .padding(.vertical, 40)
                 } else {
                     ForEach(Array(activeShowcases.enumerated()), id: \.element.id) { index, sc in
-                        if sc.card_theme == "olive" || (sc.card_theme == nil && index == 0) {
-                            // Accent / Olive Card (driven by database card_theme or accent_color)
+                        if sc.card_theme == "olive" || sc.card_theme == "colored" || (sc.accent_color != nil && sc.card_theme != "grid" && sc.card_theme != "white") || (sc.card_theme == nil && index % 4 == 0) {
+                            // Accent / Colored Card (driven by database card_theme or accent_color)
                             oliveShopStoreCard(showcase: sc)
                                 .padding(.horizontal, 16)
-                        } else if sc.card_theme == "grid" || (sc.card_theme == nil && index == 2 && sc.products.count >= 4) {
+                        } else if sc.card_theme == "grid" || (sc.card_theme == nil && index % 4 == 2 && sc.products.count >= 4) {
                             // 2-Column Grid Card (driven by database card_theme == "grid")
                             gridShopStoreCard(showcase: sc)
                                 .padding(.horizontal, 16)
