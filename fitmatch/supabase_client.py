@@ -167,6 +167,21 @@ STORE_METADATA = {
         "shipping_rule": {"standard": 5.00, "free_threshold": 50.0, "label": "Gratis da 50 €", "courier": "GLS / DPD"},
         "return_policy": "30 giorni per il reso online o in qualsiasi megastore Sportler",
         "rating_breakdown": {"score": 4.7, "positive_pct": "95%", "review_count": "28.400+", "platform": "Trustpilot / Feedaty"}
+    },
+    "nike": {
+        "name": "Nike",
+        "base_url": "https://www.nike.com/it",
+        "rating": "4.9",
+        "review_count": "180k+ recensioni",
+        "description": "Store ufficiale del brand leader mondiale nello sportswear, nella corsa su strada, maratona e innovazione tecnologica.",
+        "full_description": "Fondata nel 1964 come Blue Ribbon Sports e divenuta Nike nel 1971, l'iconico marchio con lo Swoosh è il riferimento mondiale assoluto per l'innovazione tecnologica nella corsa, dalle serie leggendarie Pegasus e Vomero fino alle rivoluzionarie scarpe da gara ZoomX Vaporfly e Alphafly. Lo store ufficiale garantisce prodotti 100% autentici, edizioni limitate esclusive e reso gratuito.",
+        "badges": ["Brand Ufficiale", "Prodotti 100% Originali", "Reso 30 Giorni Gratuito", "Garanzia Ufficiale Nike"],
+        "highlights": ["Store Ufficiale Diretto", "Esclusive & Edizioni Limitate", "Reso Facile & Gratuito"],
+        "location": "Nike European Operations Netherlands / Hub Italia",
+        "shipping_info": "Spedizione standard 5,00 € • Gratuita a partire da 99,00 € (o sempre gratuita per i Nike Member)",
+        "shipping_rule": {"standard": 5.00, "free_threshold": 99.0, "label": "Gratis da 99 €", "courier": "UPS / DPD"},
+        "return_policy": "30 giorni per reso gratuito online o nei Nike Store",
+        "rating_breakdown": {"score": 4.9, "positive_pct": "97%", "review_count": "180.000+", "platform": "Trustpilot / Nike Reviews"}
     }
 }
 

@@ -33,7 +33,8 @@ struct DealsView: View {
         "decathlon": "Prezzi ribassati fine serie -40%",
         "deporvillage": "Sconto extra 10€ su GPS Garmin e scarpe",
         "alltricks": "Saldi di mezza stagione su abbigliamento",
-        "runningwarehouse": "Spedizione 24h gratuita sopra 49 €"
+        "runningwarehouse": "Spedizione 24h gratuita sopra 49 €",
+        "nike": "Fino al -40% su modelli selezionati e spedizione Member gratuita"
     ]
 
     var filteredShowcases: [StoreShowcase] {

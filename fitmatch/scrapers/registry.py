@@ -13,6 +13,7 @@ from fitmatch.scrapers.deporvillage import DeporvillageScraper
 from fitmatch.scrapers.alltricks import AlltricksScraper
 from fitmatch.scrapers.decathlon import DecathlonScraper
 from fitmatch.scrapers.sportler import SportlerScraper
+from fitmatch.scrapers.nike import NikeScraper
 from fitmatch.models import Offer
 
 logger = logging.getLogger("fitmatch.registry")
@@ -32,6 +33,7 @@ class ScraperRegistry:
         AlltricksScraper,
         DecathlonScraper,
         SportlerScraper,
+        NikeScraper,
     ]
 
     def __init__(self, scrapers: List[BaseScraper] = None):
@@ -40,7 +42,7 @@ class ScraperRegistry:
         else:
             self.scrapers = [cls() for cls in self.DEFAULT_SCRAPERS]
 
-    def search_all(self, query: str, limit_per_store: int = 10, max_workers: int = 10) -> Dict[str, Any]:
+    def search_all(self, query: str, limit_per_store: int = 10, max_workers: int = 11) -> Dict[str, Any]:
         """Query all registered stores concurrently."""
         start_time = time.time()
         all_offers: List[Offer] = []

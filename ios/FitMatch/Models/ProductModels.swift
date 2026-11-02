@@ -27,7 +27,7 @@ struct Offer: Identifiable, Codable, Hashable {
     var calculatedShippingCost: Double {
         if let cost = shipping_cost { return cost }
         let s = store_id.lowercased()
-        let threshold = (s.contains("cisalfa") || s.contains("maxi")) ? 99.0 :
+        let threshold = (s.contains("cisalfa") || s.contains("maxi") || s.contains("nike")) ? 99.0 :
                         s.contains("nencini") ? 100.0 :
                         s.contains("depor") ? 80.0 :
                         s.contains("top4") ? 75.0 :
@@ -37,6 +37,8 @@ struct Offer: Identifiable, Codable, Hashable {
                        s.contains("maxi") ? 7.90 :
                        s.contains("warehouse") ? 10.00 :
                        s.contains("nencini") ? 5.90 :
+                       s.contains("nike") ? 5.00 :
+                       s.contains("sportler") ? 5.00 :
                        (s.contains("alltricks") || s.contains("depor")) ? 4.99 : 4.90
         return price >= threshold ? 0.0 : standard
     }

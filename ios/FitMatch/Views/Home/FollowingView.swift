@@ -21,7 +21,8 @@ struct FollowingView: View {
         ("deporvillage", "Deporvillage", "144 offerte outdoor, scarpe e GPS Garmin", "4.3"),
         ("alltricks", "Alltricks", "140 articoli per running, trail e ciclismo", "4.4"),
         ("runningwarehouse", "Running Warehouse Europe", "102 modelli scarpe da gara e allenamento", "4.9"),
-        ("nencini", "Nencini Sport", "110 articoli sportivi multimarca", "4.7")
+        ("nencini", "Nencini Sport", "110 articoli sportivi multimarca", "4.7"),
+        ("nike", "Nike Official Store", "Store ufficiale con le ultime novità e serie ZoomX", "4.9")
     ]
 
     var body: some View {

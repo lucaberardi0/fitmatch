@@ -24,6 +24,7 @@ STORE_SHIPPING_RULES = {
     "alltricks": {"standard": 4.99, "free_threshold": 69.0, "courier": "Bartolini (BRT)"},
     "decathlon": {"standard": 3.99, "free_threshold": 50.0, "courier": "Corriere Espresso"},
     "sportler": {"standard": 5.00, "free_threshold": 50.0, "courier": "GLS / DPD"},
+    "nike": {"standard": 5.00, "free_threshold": 99.0, "courier": "UPS / DPD"},
 }
 
 

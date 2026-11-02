@@ -37,6 +37,7 @@ struct ShopStoreLogo: View {
         if s.contains("deporvillage") || s.contains("depor") { return "store_deporvillage" }
         if s.contains("alltricks") { return "store_alltricks" }
         if s.contains("decathlon") { return "store_decathlon" }
+        if s.contains("nike") { return "store_nike" }
         return nil
     }
 
@@ -53,6 +54,8 @@ struct ShopStoreLogo: View {
         if s.contains("deporvillage") || s.contains("depor") { return "DV" }
         if s.contains("alltricks") { return "AT" }
         if s.contains("decathlon") { return "DC" }
+        if s.contains("sportler") { return "SP" }
+        if s.contains("nike") { return "NK" }
         return "FM"
     }
 
@@ -67,6 +70,8 @@ struct ShopStoreLogo: View {
         if s.contains("deporvillage") || s.contains("depor") { return Color(red: 232/255, green: 67/255, blue: 17/255) }
         if s.contains("alltricks") { return Color(red: 0/255, green: 163/255, blue: 224/255) }
         if s.contains("decathlon") { return Color(red: 0/255, green: 130/255, blue: 200/255) }
+        if s.contains("sportler") { return Color(red: 220/255, green: 30/255, blue: 40/255) }
+        if s.contains("nike") { return Color(red: 17/255, green: 17/255, blue: 17/255) }
         return .shopPurple
     }
 

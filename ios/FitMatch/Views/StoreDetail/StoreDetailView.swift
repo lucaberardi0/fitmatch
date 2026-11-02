@@ -718,6 +718,8 @@ struct StoreDetailView: View {
         if s.contains("nencini") { return Color(red: 0/255, green: 140/255, blue: 70/255) }
         if s.contains("top4") { return Color(red: 0/255, green: 185/255, blue: 241/255) }
         if s.contains("running warehouse") || s.contains("warehouse") { return Color(red: 10/255, green: 55/255, blue: 140/255) }
+        if s.contains("nike") { return Color(red: 17/255, green: 17/255, blue: 17/255) }
+        if s.contains("sportler") { return Color(red: 220/255, green: 30/255, blue: 40/255) }
         return .shopPurple
     }
 

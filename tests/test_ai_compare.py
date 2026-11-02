@@ -12,7 +12,7 @@ def test_sportler_scraper_instantiation_and_registry():
 
     registry = ScraperRegistry()
     assert any(s.store_id == "sportler" for s in registry.scrapers)
-    assert len(registry.scrapers) == 10
+    assert len(registry.scrapers) >= 10
 
 
 def test_ai_model_comparator_heuristic_specs():

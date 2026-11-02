@@ -41,7 +41,8 @@ struct AccountView: View {
         ("runningwarehouse", "Running Warehouse EU", "VAT IT & Multi-Store", "store_runningwarehouse"),
         ("deporvillage", "Deporvillage", "Algolia Fast Search", "store_deporvillage"),
         ("alltricks", "Alltricks", "Constructor.io API", "store_alltricks"),
-        ("sportler", "Sportler", "FactFinder & GTM Alpino", "store_sportler")
+        ("sportler", "Sportler", "FactFinder & GTM Alpino", "store_sportler"),
+        ("nike", "Nike Official Store", "Next.js Wall State & PDP Engine", "store_nike")
     ]
 
     var body: some View {

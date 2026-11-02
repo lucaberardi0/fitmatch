@@ -15,6 +15,8 @@ from fitmatch.scrapers.runningwarehouse import RunningWarehouseScraper
 from fitmatch.scrapers.deporvillage import DeporvillageScraper
 from fitmatch.scrapers.alltricks import AlltricksScraper
 from fitmatch.scrapers.decathlon import DecathlonScraper
+from fitmatch.scrapers.sportler import SportlerScraper
+from fitmatch.scrapers.nike import NikeScraper
 
 logger = logging.getLogger("fitmatch.crawler")
 
@@ -36,6 +38,8 @@ class CategoryCrawler:
         self.deporvillage = DeporvillageScraper()
         self.alltricks = AlltricksScraper()
         self.decathlon = DecathlonScraper()
+        self.sportler = SportlerScraper()
+        self.nike = NikeScraper()
 
     def _flush_batch(self, batch: List[Dict[str, Any]]) -> int:
         """Helper to flush pending offers to DB in a single transaction."""
@@ -1224,6 +1228,67 @@ class CategoryCrawler:
         logger.info(f"[Decathlon] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
+    def crawl_nike(self, max_items: int = 500) -> int:
+        """Crawl official Nike Italy catalog categories and index canonical products."""
+        start_time = time.time()
+        logger.info(f"[Nike] Starting catalog crawl (target: {max_items} items)...")
+        base_cat_urls = [
+            ("https://www.nike.com/it/w/running-scarpe-37v7jzy7ok", "running_shoes", "Unisex"),
+            ("https://www.nike.com/it/w/uomo-running-scarpe-37v7jz180yzy7ok", "running_shoes", "Uomo"),
+            ("https://www.nike.com/it/w/donna-running-scarpe-37v7jz5e1x6zy7ok", "running_shoes", "Donna"),
+            ("https://www.nike.com/it/w/trail-running-scarpe-37v7jzbp9wizy7ok", "running_shoes", "Unisex"),
+            ("https://www.nike.com/it/w/running-abbigliamento-37v7jz6ymx6", "apparel", "Unisex"),
+            ("https://www.nike.com/it/w/fitness-training-scarpe-58jtozy7ok", "fitness", "Unisex"),
+        ]
+
+        batch: List[Dict[str, Any]] = []
+        total_indexed = 0
+        seen_urls = set()
+
+        for cat_url, default_cat, default_gender in base_cat_urls:
+            if total_indexed >= max_items:
+                break
+            try:
+                html = self.nike._fetch_html(cat_url)
+                if not html:
+                    continue
+
+                offers = self.nike._parse_wall_products(html, limit=max_items - total_indexed)
+                for offer in offers:
+                    if offer.url in seen_urls:
+                        continue
+                    seen_urls.add(offer.url)
+
+                    cluster_key = self.normalizer.extract_cluster_key(offer)
+                    canonical_base, _ = self.normalizer.clean_title(offer.title)
+                    gender = self.normalizer.extract_gender(offer.title, offer.url) or default_gender
+                    canonical = f"Nike {canonical_base.title()}" if "nike" not in canonical_base.lower() else canonical_base.title()
+                    category = self._detect_category(offer.title) or default_cat
+
+                    batch.append({
+                        "cluster_key": cluster_key,
+                        "canonical_name": canonical,
+                        "brand": "Nike",
+                        "category": category,
+                        "gender": gender,
+                        "offer": offer
+                    })
+                    total_indexed += 1
+
+                    if len(batch) >= self.BATCH_SIZE:
+                        self._flush_batch(batch)
+
+                    if total_indexed >= max_items:
+                        break
+            except Exception as e:
+                logger.error(f"[Nike] Error crawling category {cat_url}: {e}")
+
+        self._flush_batch(batch)
+        duration = time.time() - start_time
+        self.db.record_crawl_log("nike", "catalog", total_indexed, duration)
+        logger.info(f"[Nike] Indexed {total_indexed} products in {round(duration, 1)}s.")
+        return total_indexed
+
     def crawl_store(self, store_id: str, max_items: int = 500) -> int:
         """Crawl a specific store by its ID."""
         crawlers = {
@@ -1235,7 +1300,8 @@ class CategoryCrawler:
             "runningwarehouse": self.crawl_runningwarehouse,
             "deporvillage": self.crawl_deporvillage,
             "alltricks": self.crawl_alltricks,
-            "decathlon": self.crawl_decathlon
+            "decathlon": self.crawl_decathlon,
+            "nike": self.crawl_nike
         }
         crawler_fn = crawlers.get(store_id.lower())
         if not crawler_fn:
@@ -1243,7 +1309,7 @@ class CategoryCrawler:
         return crawler_fn(max_items=max_items)
 
     def run_full_sync(self, limit_per_store: int = 500, stores: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Run crawling across selected or all 9 stores and populate the database."""
+        """Run crawling across selected or all partner stores and populate the database."""
         start_time = time.time()
         counts: Dict[str, int] = {}
 
@@ -1256,7 +1322,8 @@ class CategoryCrawler:
             ("runningwarehouse", self.crawl_runningwarehouse),
             ("deporvillage", self.crawl_deporvillage),
             ("alltricks", self.crawl_alltricks),
-            ("decathlon", self.crawl_decathlon)
+            ("decathlon", self.crawl_decathlon),
+            ("nike", self.crawl_nike)
         ]
 
         target_stores = all_stores

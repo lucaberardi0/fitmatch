@@ -45,7 +45,7 @@ struct SearchView: View {
         // Country / Store filters (Shop Screenshot 2: "Vende da 🇪🇺", "Vende da 🇮🇹")
         if let country = selectedFilterCountry {
             if country == "IT" {
-                let itStores = ["cisalfa", "maxi", "mister", "nencini", "decathlon", "sportler"]
+                let itStores = ["cisalfa", "maxi", "mister", "nencini", "decathlon", "sportler", "nike"]
                 list = list.filter { prod in
                     prod.offers.contains { off in
                         itStores.contains(where: { off.store_id.lowercased().contains($0) })

@@ -467,7 +467,9 @@ class SupabaseManager: ObservableObject {
             "deporvillage": "4.3",
             "runningwarehouse": "4.9",
             "decathlon": "4.8",
-            "nencini": "4.7"
+            "nencini": "4.7",
+            "sportler": "4.7",
+            "nike": "4.9"
         ]
 
         var showcases: [StoreShowcase] = []
