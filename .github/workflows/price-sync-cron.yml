@@ -4,7 +4,16 @@ on:
   schedule:
     # Runs every hour at minute 15 (e.g. 01:15, 02:15, 03:15, ...)
     - cron: "15 * * * *"
-  workflow_dispatch: # Allows manual trigger from GitHub UI anytime
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Task to trigger: 'refresh' (price check) or 'discovery' (new catalog crawl)"
+        required: true
+        default: "refresh"
+        type: choice
+        options:
+          - refresh
+          - discovery
 
 jobs:
   price-sync:
@@ -16,20 +25,41 @@ jobs:
       - name: Ping Health Endpoint (Wake Up Render if sleeping)
         run: |
           echo "Pinging FitMatch Cloud Backend..."
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 --retry-delay 10 --max-time 60 https://fitmatch-backend-klhv.onrender.com/health)
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --retry 5 --retry-delay 10 --max-time 60 https://fitmatch-backend-klhv.onrender.com/health)
           echo "Backend Health HTTP Status: $HTTP_STATUS"
           if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "::warning ::Health check returned status $HTTP_STATUS"
+            echo "::error ::Health check failed with status $HTTP_STATUS"
+            exit 1
           fi
 
-      - name: Trigger Autonomous Price Refresh
+      - name: Trigger Autonomous Scraping Engine
         run: |
-          echo "Triggering background price updater..."
-          RESPONSE=$(curl -s -X POST "https://fitmatch-backend-klhv.onrender.com/api/scheduler/run-refresh?limit=25" --max-time 30)
-          echo "Refresh Trigger Response: $RESPONSE"
+          ACTION="${{ github.event.inputs.action }}"
+          CURRENT_HOUR=$(date -u +"%H")
+          
+          # Run discovery at 04:15 UTC (nightly) or when manually requested
+          if [ "$ACTION" = "discovery" ] || { [ -z "$ACTION" ] && [ "$CURRENT_HOUR" = "04" ]; }; then
+            echo "Triggering full catalog discovery (limit 40 per store)..."
+            RESPONSE=$(curl -s -X POST "https://fitmatch-backend-klhv.onrender.com/api/scheduler/run-discovery?limit_per_store=40" --max-time 30)
+          else
+            echo "Triggering background price refresh for 25 products..."
+            RESPONSE=$(curl -s -X POST "https://fitmatch-backend-klhv.onrender.com/api/scheduler/run-refresh?limit=25" --max-time 30)
+          fi
+          echo "Trigger Response: $RESPONSE"
 
-      - name: Wait & Inspect Scheduler Status
+      - name: Wait for Background Scraping to Complete & Validate Telemetry
         run: |
-          sleep 10
-          STATUS=$(curl -s "https://fitmatch-backend-klhv.onrender.com/api/scheduler/status" --max-time 30)
-          echo "Current Scheduler Status: $STATUS"
+          echo "Polling scheduler status until task completes..."
+          for i in {1..24}; do
+            sleep 10
+            STATUS=$(curl -s "https://fitmatch-backend-klhv.onrender.com/api/scheduler/status" --max-time 30)
+            CURRENT_TASK=$(echo "$STATUS" | grep -o '"current_task":"[^"]*"' | cut -d':' -f2 | tr -d '"')
+            echo "Poll #$i: current_task=$CURRENT_TASK"
+            
+            if [ "$CURRENT_TASK" = "idle" ]; then
+              echo "Background job completed successfully!"
+              echo "Final Scheduler Telemetry:"
+              echo "$STATUS"
+              break
+            fi
+          done

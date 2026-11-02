@@ -225,6 +225,62 @@ class Database:
             conn.commit()
             return cluster_key
 
+    def get_products_for_update(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """Fetch indexed products that need periodic price & stock re-verification."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_products_for_update(limit=limit)
+            except Exception as e:
+                logger.error(f"[Database] Error get_products_for_update from Supabase: {e}")
+
+        with self.get_connection() as conn:
+            rows = conn.execute("""
+                SELECT DISTINCT p.id, p.canonical_name, p.brand, p.category, p.gender
+                FROM products p
+                JOIN store_offers o ON p.id = o.product_id
+                ORDER BY p.updated_at ASC
+                LIMIT ?
+            """, (limit,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_offer_price(self, offer_id: str) -> Optional[float]:
+        """Get the current recorded price for a specific offer."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_offer_price(offer_id)
+            except Exception as e:
+                logger.error(f"[Database] Error get_offer_price from Supabase: {e}")
+
+        with self.get_connection() as conn:
+            row = conn.execute("SELECT current_price FROM store_offers WHERE id = ?", (offer_id,)).fetchone()
+            return float(row["current_price"]) if row else None
+
+    def record_price_history(self, offer_id: str, price: float) -> bool:
+        """Record a historical price data point."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.record_price_history(offer_id, price)
+            except Exception as e:
+                logger.error(f"[Database] Error record_price_history in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            conn.execute("INSERT INTO price_history (offer_id, price) VALUES (?, ?)", (offer_id, price))
+            conn.commit()
+            return True
+
+    def touch_product_updated(self, product_id: str) -> bool:
+        """Advance product timestamp to ensure fair round-robin scheduling."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.touch_product_updated(product_id)
+            except Exception as e:
+                logger.error(f"[Database] Error touch_product_updated in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            conn.execute("UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (product_id,))
+            conn.commit()
+            return True
+
     def upsert_offers_batch(self, items: List[Dict[str, Any]]) -> int:
         """Upsert a list of offers and products in a single database transaction."""
         if not items:

@@ -51,18 +51,14 @@ class PriceUpdater:
         total_savings = 0.0
 
         try:
-            with self.db.get_connection() as conn:
-                # Select distinct active products that have store offers
-                rows = conn.execute("""
-                    SELECT DISTINCT p.id, p.canonical_name, p.brand
-                    FROM products p
-                    JOIN store_offers o ON p.id = o.product_id
-                    ORDER BY p.updated_at ASC
-                    LIMIT ?
-                """, (limit,)).fetchall()
+            # Query distinct active products that need price refresh (Supabase or SQLite fallback)
+            rows = self.db.get_products_for_update(limit=limit)
+            logger.info(f"[PriceUpdater] Loaded {len(rows)} products to refresh.")
 
             for row in rows:
-                query = row["canonical_name"]
+                query = row.get("canonical_name")
+                if not query:
+                    continue
                 checked += 1
                 try:
                     # Query registry across all stores for this product
@@ -72,17 +68,12 @@ class PriceUpdater:
                     for offer in offers:
                         try:
                             cluster_key = self.normalizer.extract_cluster_key(offer)
-                            offer_id = f"{offer.store_id}:{offer.product_id or abs(hash(offer.url))}"
+                            offer_id = f"{offer.store_id}:{offer.product_id or offer.url}"
 
                             # Check existing price to detect drop
-                            with self.db.get_connection() as conn:
-                                prev = conn.execute(
-                                    "SELECT current_price FROM store_offers WHERE id = ?",
-                                    (offer_id,)
-                                ).fetchone()
+                            old_price = self.db.get_offer_price(offer_id)
 
-                            if prev:
-                                old_price = float(prev["current_price"])
+                            if old_price is not None:
                                 if abs(old_price - offer.price) > 0.01:
                                     updated += 1
                                     if offer.price < old_price:
@@ -93,15 +84,20 @@ class PriceUpdater:
                             self.db.upsert_product_and_offer(
                                 cluster_key=cluster_key,
                                 canonical_name=query,
-                                brand=row["brand"],
-                                category=None,
-                                gender=None,
+                                brand=row.get("brand"),
+                                category=row.get("category"),
+                                gender=row.get("gender"),
                                 offer=offer
                             )
                         except Exception as e:
                             logger.debug(f"[PriceUpdater] Upsert error for offer: {e}")
                 except Exception as e:
                     logger.error(f"[PriceUpdater] Search error on query '{query}': {e}")
+                finally:
+                    # Touch product updated_at so queue moves forward even if 0 offers matched
+                    prod_id = row.get("id")
+                    if prod_id:
+                        self.db.touch_product_updated(prod_id)
 
             elapsed = round(time.time() - start_time, 2)
             now_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

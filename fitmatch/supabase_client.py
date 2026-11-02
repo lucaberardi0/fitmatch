@@ -257,6 +257,11 @@ class SupabaseClient:
         self.upsert_products([prod_row])
 
         offer_id = f"{offer.store_id}:{offer.product_id or offer.url}"
+        
+        # Check previous price to log price history if changed
+        prev_price = self.get_offer_price(offer_id)
+        price_changed = (prev_price is None or abs(prev_price - float(offer.price)) > 0.01)
+
         offer_row = {
             "id": offer_id,
             "product_id": cluster_key,
@@ -273,6 +278,41 @@ class SupabaseClient:
             "last_checked_at": now_iso
         }
         self.upsert_offers([offer_row])
+
+        if price_changed:
+            self.record_price_history(offer_id, float(offer.price))
+
+    def get_products_for_update(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """Fetch products ordered by least recently updated for autonomous background refresh."""
+        endpoint = f"products?select=id,canonical_name,brand,category,gender,updated_at&order=updated_at.asc.nullsfirst&limit={limit}"
+        res = self._request(endpoint)
+        return res.get("data") or []
+
+    def get_offer_price(self, offer_id: str) -> Optional[float]:
+        """Fetch current price of a specific offer in Supabase."""
+        q_id = urllib.parse.quote(offer_id)
+        endpoint = f"store_offers?id=eq.{q_id}&select=current_price&limit=1"
+        res = self._request(endpoint)
+        data = res.get("data")
+        if data and len(data) > 0:
+            val = data[0].get("current_price")
+            return float(val) if val is not None else None
+        return None
+
+    def record_price_history(self, offer_id: str, price: float) -> bool:
+        """Record a new price history data point in Supabase."""
+        res = self._request("price_history", method="POST", data=[{
+            "offer_id": offer_id,
+            "price": float(price)
+        }])
+        return res.get("status") in (200, 201)
+
+    def touch_product_updated(self, product_id: str) -> bool:
+        """Update updated_at timestamp of a product in Supabase to maintain fair rotation."""
+        q_id = urllib.parse.quote(product_id)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        res = self._request(f"products?id=eq.{q_id}", method="PATCH", data={"updated_at": now_iso})
+        return res.get("status") in (200, 204)
 
     def upsert_offers_batch(self, items: List[Dict[str, Any]]) -> int:
         if not items:
