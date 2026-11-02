@@ -505,10 +505,12 @@ class SupabaseManager: ObservableObject {
             ))
         }
 
-        // Prioritize official flagship brand stores first (Nike), then by total real offers
+        // Prioritize official flagship brand stores first (Nike, Adidas), then by total real offers
         return showcases.sorted {
-            if $0.store_id == "nike" { return true }
-            if $1.store_id == "nike" { return false }
+            let s0IsBrand = $0.store_id == "nike" || $0.store_id == "adidas"
+            let s1IsBrand = $1.store_id == "nike" || $1.store_id == "adidas"
+            if s0IsBrand && !s1IsBrand { return true }
+            if !s0IsBrand && s1IsBrand { return false }
             return $0.total_offers > $1.total_offers
         }
     }

@@ -10,6 +10,7 @@ from fitmatch.scrapers.alltricks import AlltricksScraper
 from fitmatch.scrapers.decathlon import DecathlonScraper
 from fitmatch.scrapers.sportler import SportlerScraper
 from fitmatch.scrapers.nike import NikeScraper
+from fitmatch.scrapers.adidas import AdidasScraper
 
 __all__ = [
     "BaseScraper",
@@ -23,5 +24,6 @@ __all__ = [
     "AlltricksScraper",
     "DecathlonScraper",
     "SportlerScraper",
-    "NikeScraper"
+    "NikeScraper",
+    "AdidasScraper"
 ]

@@ -38,6 +38,7 @@ struct ShopStoreLogo: View {
         if s.contains("alltricks") { return "store_alltricks" }
         if s.contains("decathlon") { return "store_decathlon" }
         if s.contains("nike") { return "store_nike" }
+        if s.contains("adidas") { return "store_adidas" }
         return nil
     }
 
@@ -56,6 +57,7 @@ struct ShopStoreLogo: View {
         if s.contains("decathlon") { return "DC" }
         if s.contains("sportler") { return "SP" }
         if s.contains("nike") { return "NK" }
+        if s.contains("adidas") { return "AD" }
         return "FM"
     }
 

@@ -17,6 +17,7 @@ from fitmatch.scrapers.alltricks import AlltricksScraper
 from fitmatch.scrapers.decathlon import DecathlonScraper
 from fitmatch.scrapers.sportler import SportlerScraper
 from fitmatch.scrapers.nike import NikeScraper
+from fitmatch.scrapers.adidas import AdidasScraper
 
 logger = logging.getLogger("fitmatch.crawler")
 
@@ -40,6 +41,7 @@ class CategoryCrawler:
         self.decathlon = DecathlonScraper()
         self.sportler = SportlerScraper()
         self.nike = NikeScraper()
+        self.adidas = AdidasScraper()
 
     def _flush_batch(self, batch: List[Dict[str, Any]]) -> int:
         """Helper to flush pending offers to DB in a single transaction."""
@@ -86,8 +88,22 @@ class CategoryCrawler:
         ]):
             return "gear"
         if any(w in tl for w in [
+            "trail", "speedcross", "peregrine", "mafate", "cascadia", "caldera", "trabuco",
+            "fujitrail", "bushido", "mutant", "catamount", "ultra raptor", "wildhorse",
+            "pegasus trail", "terrex agravic", "terrex speed", "sense ride", "lone peak",
+            "speedgoat", "challenger atr", "stinson", "hierro", "norvan"
+        ]):
+            return "trail_running"
+        if any(w in tl for w in [
+            "trekking", "outdoor", "scarpon", "escursionismo", "puez", "salewa", "meindl",
+            "tx4", "tx5", "lowa", "moab", "merrell", "columbia", "mojito", "ribelle",
+            "hardshell", "gore-tex paclite", "3l", "impermeabile", "antipioggia"
+        ]):
+            return "outdoor"
+        if any(w in tl for w in [
             "maglia", "t-shirt", "pantaloncini", "shorts", "giacca", "leggings", "calze",
-            "canotta", "antivento", "felpa", "tight", "windstopper"
+            "canotta", "antivento", "felpa", "tight", "windstopper", "thermo", "intimo",
+            "compressione", "bra", "reggiseno", "boxer", "calzamaglia"
         ]):
             return "apparel"
         return "running_shoes"
@@ -355,8 +371,10 @@ class CategoryCrawler:
         total_indexed = 0
         batch: List[Dict[str, Any]] = []
         queries = [
-            "running", "scarpe", "abbigliamento", "accessori", "trail", "uomo",
-            "donna", "garmin", "salomon", "nike", "asics", "hoka", "saucony"
+            "running", "scarpe", "trail", "trekking", "outdoor", "gore-tex",
+            "abbigliamento", "maglia termica", "shorts", "giacca antivento",
+            "garmin", "polar", "coros", "zaino idratazione",
+            "asics", "hoka", "nike", "adidas", "salomon", "saucony", "on running", "brooks"
         ]
 
         for q in queries:
@@ -576,9 +594,9 @@ class CategoryCrawler:
         total_indexed = 0
         batch: List[Dict[str, Any]] = []
         queries = [
-            "running", "scarpe", "trail", "maratona", "abbigliamento",
-            "nike", "asics", "adidas", "hoka", "saucony", "on running",
-            "brooks", "puma", "garmin", "oakley"
+            "running", "scarpe", "trail", "trekking", "gore-tex", "maratona", "abbigliamento",
+            "nike", "asics", "adidas", "hoka", "salomon", "saucony", "on running",
+            "brooks", "puma", "garmin", "polar", "coros", "zaino", "maglia termica"
         ]
 
         for q in queries:
@@ -809,7 +827,11 @@ class CategoryCrawler:
         }
 
         # Query all items via empty string + category queries for deep coverage
-        queries = ["", "running", "ciclismo", "outdoor", "padel", "garmin"]
+        queries = [
+            "", "running", "trail running", "trekking", "outdoor", "giacca gore-tex",
+            "garmin", "polar", "suunto", "hoka", "asics", "salomon", "zaino idratazione",
+            "maglia termica", "shorts running"
+        ]
 
         for q in queries:
             page = 0
@@ -942,8 +964,9 @@ class CategoryCrawler:
         total_indexed = 0
         batch: List[Dict[str, Any]] = []
         queries = [
-            "running", "scarpe", "ciclismo", "trail", "gps", "outdoor",
-            "fitness", "padel", "salomon", "garmin", "shimano", "oakley"
+            "running", "scarpe", "trail running", "trekking", "outdoor", "giacca gore-tex",
+            "garmin", "polar", "salomon speedcross", "hoka", "asics", "zaino idratazione",
+            "maglia termica", "ciclismo", "fitness"
         ]
 
         for q in queries:
@@ -1262,8 +1285,9 @@ class CategoryCrawler:
             ("https://www.nike.com/it/w/running-scarpe-37v7jzy7ok", "running_shoes", "Unisex"),
             ("https://www.nike.com/it/w/uomo-running-scarpe-37v7jz180yzy7ok", "running_shoes", "Uomo"),
             ("https://www.nike.com/it/w/donna-running-scarpe-37v7jz5e1x6zy7ok", "running_shoes", "Donna"),
-            ("https://www.nike.com/it/w/trail-running-scarpe-37v7jzbp9wizy7ok", "running_shoes", "Unisex"),
+            ("https://www.nike.com/it/w/trail-running-scarpe-37v7jzbp9wizy7ok", "trail_running", "Unisex"),
             ("https://www.nike.com/it/w/running-abbigliamento-37v7jz6ymx6", "apparel", "Unisex"),
+            ("https://www.nike.com/it/w/acg-35t49", "outdoor", "Unisex"),
             ("https://www.nike.com/it/w/fitness-training-scarpe-58jtozy7ok", "fitness", "Unisex"),
         ]
 
@@ -1315,6 +1339,127 @@ class CategoryCrawler:
         logger.info(f"[Nike] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
+    def crawl_adidas(self, max_items: int = 500) -> int:
+        """Crawl Adidas Italy official catalog across running, trail, terrex, and apparel."""
+        start_time = time.time()
+        logger.info(f"[Adidas] Starting catalog crawl (target: {max_items} items)...")
+        total_indexed = 0
+        batch: List[Dict[str, Any]] = []
+
+        categories = [
+            ("running", "running_shoes", "Unisex"),
+            ("trail-running", "trail_running", "Unisex"),
+            ("terrex", "outdoor", "Unisex"),
+            ("giacche-outdoor", "apparel", "Unisex"),
+            ("scarpe-uomo-running", "running_shoes", "Uomo"),
+            ("scarpe-donna-running", "running_shoes", "Donna"),
+            ("abbigliamento-running", "apparel", "Unisex"),
+        ]
+
+        for query_tag, fallback_cat, default_gender in categories:
+            start_idx = 0
+            while total_indexed < max_items:
+                params = {
+                    "sitePath": "it",
+                    "query": query_tag,
+                    "start": start_idx
+                }
+                try:
+                    data = self.adidas._fetch_json(self.adidas.taxonomy_api_url, params=params)
+                except Exception as e:
+                    logger.debug(f"[Adidas] Error querying {query_tag}: {e}")
+                    break
+
+                if not data or not isinstance(data, dict):
+                    break
+
+                items = data.get("itemList", {}).get("items", [])
+                if not items:
+                    break
+
+                for p in items:
+                    try:
+                        name = p.get("displayName")
+                        if not name:
+                            continue
+
+                        raw_price = p.get("salePrice") or p.get("price")
+                        price = float(raw_price) if raw_price is not None else None
+                        if not price or price <= 0:
+                            continue
+
+                        list_price = p.get("price")
+                        orig_price = float(list_price) if list_price and float(list_price) > price else None
+
+                        link = p.get("link")
+                        if not link:
+                            continue
+                        url = urllib.parse.urljoin(self.adidas.base_url, link)
+
+                        img_obj = p.get("image")
+                        img_url = img_obj.get("src") if isinstance(img_obj, dict) else (img_obj if isinstance(img_obj, str) else None)
+                        if not img_url:
+                            sec_img = p.get("secondImage")
+                            img_url = sec_img.get("src") if isinstance(sec_img, dict) else sec_img
+
+                        pid = str(p.get("productId") or p.get("modelId") or "")
+                        raw_sizes = p.get("availableSizes", [])
+                        sizes = [str(s).strip() for s in raw_sizes if s]
+                        in_stock = p.get("orderable", True)
+
+                        offer = Offer(
+                            store_id=self.adidas.store_id,
+                            store_name=self.adidas.store_name,
+                            product_id=pid,
+                            title=name,
+                            brand="Adidas",
+                            price=price,
+                            original_price=orig_price,
+                            url=url,
+                            image_url=img_url,
+                            available_sizes=sizes,
+                            in_stock=in_stock
+                        )
+
+                        cluster_key = self.normalizer.extract_cluster_key(offer)
+                        canonical_base, _ = self.normalizer.clean_title(offer.title)
+                        gender = self.normalizer.extract_gender(offer.title, offer.url) or default_gender
+                        canonical = f"Adidas {canonical_base.title()}" if not canonical_base.lower().startswith("adidas") else canonical_base.title()
+                        category = self._detect_category(offer.title)
+                        if category == "running_shoes" and fallback_cat != "running_shoes":
+                            category = fallback_cat
+
+                        batch.append({
+                            "cluster_key": cluster_key,
+                            "canonical_name": canonical,
+                            "brand": "Adidas",
+                            "category": category,
+                            "gender": gender,
+                            "offer": offer
+                        })
+
+                        total_indexed += 1
+                        if len(batch) >= self.BATCH_SIZE:
+                            self._flush_batch(batch)
+
+                        if total_indexed >= max_items:
+                            break
+                    except Exception as e:
+                        logger.debug(f"[Adidas] Offer parse error: {e}")
+                        continue
+
+                start_idx += len(items)
+                time.sleep(0.15)
+
+            if total_indexed >= max_items:
+                break
+
+        self._flush_batch(batch)
+        duration = time.time() - start_time
+        self.db.record_crawl_log("adidas", "catalog", total_indexed, duration)
+        logger.info(f"[Adidas] Indexed {total_indexed} products in {round(duration, 1)}s.")
+        return total_indexed
+
     def crawl_store(self, store_id: str, max_items: int = 500) -> int:
         """Crawl a specific store by its ID."""
         crawlers = {
@@ -1327,7 +1472,8 @@ class CategoryCrawler:
             "deporvillage": self.crawl_deporvillage,
             "alltricks": self.crawl_alltricks,
             "decathlon": self.crawl_decathlon,
-            "nike": self.crawl_nike
+            "nike": self.crawl_nike,
+            "adidas": self.crawl_adidas
         }
         crawler_fn = crawlers.get(store_id.lower())
         if not crawler_fn:
@@ -1349,7 +1495,8 @@ class CategoryCrawler:
             ("deporvillage", self.crawl_deporvillage),
             ("alltricks", self.crawl_alltricks),
             ("decathlon", self.crawl_decathlon),
-            ("nike", self.crawl_nike)
+            ("nike", self.crawl_nike),
+            ("adidas", self.crawl_adidas)
         ]
 
         target_stores = all_stores

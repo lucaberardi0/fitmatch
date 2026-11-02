@@ -182,6 +182,21 @@ STORE_METADATA = {
         "shipping_rule": {"standard": 5.00, "free_threshold": 99.0, "label": "Gratis da 99 €", "courier": "UPS / DPD"},
         "return_policy": "30 giorni per reso gratuito online o nei Nike Store",
         "rating_breakdown": {"score": 4.9, "positive_pct": "97%", "review_count": "180.000+", "platform": "Trustpilot / Nike Reviews"}
+    },
+    "adidas": {
+        "name": "Adidas",
+        "base_url": "https://www.adidas.it",
+        "rating": "4.9",
+        "review_count": "145k+ recensioni",
+        "description": "Store ufficiale del brand globale pioniere nell'innovazione sportiva, maratona e outdoor Terrex.",
+        "full_description": "Fondata in Germania nel 1949, Adidas è sinonimo di innovazione atletica globale con le sue rivoluzionarie mescole Lightstrike Pro, ammortizzazione Boost e mescole suola Continental. Dalla serie record da maratona Adizero alla linea tecnica alpina Terrex, lo store ufficiale italiano assicura collezioni autentiche al 100%, edizioni esclusive e programma fedeltà adiClub.",
+        "badges": ["Brand Ufficiale", "Collezioni Esclusive", "Reso 30 Giorni Gratuito", "adiClub Member"],
+        "highlights": ["Store Ufficiale Diretto", "Tecnologie Adizero & Terrex", "Reso Facile Entro 30gg"],
+        "location": "Sede Globale: Herzogenaurach (Germania) / Filiale Italia: Monza",
+        "shipping_info": "Spedizione standard 4,99 € • Gratuita a partire da 50,00 € (o sempre gratuita per i membri adiClub)",
+        "shipping_rule": {"standard": 4.99, "free_threshold": 50.0, "label": "Gratis da 50 €", "courier": "DHL / GLS"},
+        "return_policy": "30 giorni per reso gratuito online",
+        "rating_breakdown": {"score": 4.9, "positive_pct": "96%", "review_count": "145.000+", "platform": "Trustpilot / Recensioni Verificate"}
     }
 }
 
@@ -349,7 +364,7 @@ class SupabaseClient:
             return 0
         now_iso = datetime.now(timezone.utc).isoformat()
         prod_map = {}
-        offer_rows = []
+        offer_map = {}
 
         for it in items:
             ck = it["cluster_key"]
@@ -380,7 +395,7 @@ class SupabaseClient:
                         prod_map[ck].setdefault("gallery_images", []).append(g_img)
 
             oid = f"{off.store_id}:{off.product_id or off.url}"
-            offer_rows.append({
+            offer_map[oid] = {
                 "id": oid,
                 "product_id": ck,
                 "store_id": off.store_id,
@@ -395,11 +410,11 @@ class SupabaseClient:
                 "in_stock": off.in_stock,
                 "available_sizes": off.available_sizes or [],
                 "last_checked_at": now_iso
-            })
+            }
 
         self.upsert_products(list(prod_map.values()))
-        self.upsert_offers(offer_rows)
-        return len(offer_rows)
+        self.upsert_offers(list(offer_map.values()))
+        return len(offer_map)
 
     def record_crawl_log(self, store_id: str, category: str, items_found: int, duration_seconds: float) -> None:
         logger.info(f"[CrawlLog] Store: {store_id}, Cat: {category}, Found: {items_found}, Time: {duration_seconds}s")
@@ -756,7 +771,7 @@ class SupabaseClient:
         """Return store highlights with their best discounted items from Supabase with 100% real database counts."""
         result = []
         candidate_stores = [
-            "nike", "misterrunning", "alltricks", "top4running",
+            "nike", "adidas", "misterrunning", "alltricks", "top4running",
             "maxisport", "cisalfa", "runningwarehouse", "deporvillage",
             "sportler", "nencini", "decathlon"
         ]
@@ -775,8 +790,8 @@ class SupabaseClient:
                     "rating": details["rating"],
                     "products": details["products"][:limit_per_store]
                 })
-        # Prioritize official flagship stores first (Nike), then by total real offers
-        return sorted(result, key=lambda s: (0 if s["store_id"] == "nike" else 1, -s["total_offers"]))
+        # Prioritize official flagship stores first (Nike, Adidas), then by total real offers
+        return sorted(result, key=lambda s: (0 if s["store_id"] in ("nike", "adidas") else 1, -s["total_offers"]))
 
     # MARK: - Wishlist & Collections
 

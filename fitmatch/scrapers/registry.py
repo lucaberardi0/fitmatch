@@ -14,6 +14,7 @@ from fitmatch.scrapers.alltricks import AlltricksScraper
 from fitmatch.scrapers.decathlon import DecathlonScraper
 from fitmatch.scrapers.sportler import SportlerScraper
 from fitmatch.scrapers.nike import NikeScraper
+from fitmatch.scrapers.adidas import AdidasScraper
 from fitmatch.models import Offer
 
 logger = logging.getLogger("fitmatch.registry")
@@ -34,6 +35,7 @@ class ScraperRegistry:
         DecathlonScraper,
         SportlerScraper,
         NikeScraper,
+        AdidasScraper,
     ]
 
     def __init__(self, scrapers: List[BaseScraper] = None):
