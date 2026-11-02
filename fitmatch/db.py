@@ -131,6 +131,40 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE IF NOT EXISTS stores (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    rating REAL DEFAULT 4.8,
+                    review_count INTEGER DEFAULT 1200,
+                    formatted_review_count TEXT,
+                    card_theme TEXT DEFAULT 'white',
+                    accent_color TEXT,
+                    logo_url TEXT,
+                    is_verified INTEGER DEFAULT 1,
+                    base_url TEXT,
+                    free_shipping_threshold REAL,
+                    standard_shipping_cost REAL,
+                    courier TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS hidden_stores (
+                    id TEXT PRIMARY KEY,
+                    store_id TEXT NOT NULL UNIQUE,
+                    store_name TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS store_reports (
+                    id TEXT PRIMARY KEY,
+                    store_id TEXT NOT NULL,
+                    store_name TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    details TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand);
                 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
                 CREATE INDEX IF NOT EXISTS idx_offers_product_id ON store_offers(product_id);
@@ -1359,5 +1393,148 @@ class Database:
                 item.get("store_id"),
                 item.get("store_name")
             ))
+        return True
+
+    # MARK: - Stores, Hidden Stores & Store Reports
+
+    def upsert_store(self, store_data: Dict[str, Any]) -> bool:
+        """Upsert store metadata to Supabase and SQLite."""
+        s_id = store_data.get("id", "").lower().strip()
+        if not s_id:
+            return False
+
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.upsert_store(store_data)
+            except Exception as e:
+                logger.error(f"[Database] Error upsert_store in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO stores (id, name, rating, review_count, formatted_review_count, card_theme, accent_color, logo_url, base_url, free_shipping_threshold, standard_shipping_cost, courier, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    rating = excluded.rating,
+                    review_count = excluded.review_count,
+                    formatted_review_count = excluded.formatted_review_count,
+                    card_theme = excluded.card_theme,
+                    accent_color = excluded.accent_color,
+                    logo_url = excluded.logo_url,
+                    base_url = excluded.base_url,
+                    free_shipping_threshold = excluded.free_shipping_threshold,
+                    standard_shipping_cost = excluded.standard_shipping_cost,
+                    courier = excluded.courier,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                s_id,
+                store_data.get("name", s_id.title()),
+                store_data.get("rating", 4.8),
+                store_data.get("review_count", 1200),
+                store_data.get("formatted_review_count"),
+                store_data.get("card_theme", "white"),
+                store_data.get("accent_color"),
+                store_data.get("logo_url"),
+                store_data.get("base_url"),
+                store_data.get("free_shipping_threshold"),
+                store_data.get("standard_shipping_cost"),
+                store_data.get("courier")
+            ))
+        return True
+
+    def get_stores(self) -> List[Dict[str, Any]]:
+        """Retrieve all store metadata from Supabase or SQLite."""
+        if self.use_supabase and self.supabase:
+            try:
+                data = self.supabase.get_stores()
+                if data:
+                    return data
+            except Exception as e:
+                logger.error(f"[Database] Error get_stores from Supabase: {e}")
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM stores ORDER BY rating DESC")
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    def get_store(self, store_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve specific store metadata."""
+        s_id = store_id.lower().strip()
+        if self.use_supabase and self.supabase:
+            try:
+                st = self.supabase.get_store(s_id)
+                if st:
+                    return st
+            except Exception as e:
+                logger.error(f"[Database] Error get_store from Supabase: {e}")
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM stores WHERE LOWER(id) = LOWER(?)", (s_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def hide_store(self, store_id: str, store_name: Optional[str] = None) -> bool:
+        """Mark store as hidden from suggestions."""
+        s_id = store_id.lower().strip()
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.hide_store(s_id, store_name)
+            except Exception as e:
+                logger.error(f"[Database] Error hide_store in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO hidden_stores (id, store_id, store_name)
+                VALUES (?, ?, ?)
+                ON CONFLICT(store_id) DO NOTHING
+            """, (str(uuid.uuid4()), s_id, store_name))
+        return True
+
+    def unhide_store(self, store_id: str) -> bool:
+        """Remove store from hidden list."""
+        s_id = store_id.lower().strip()
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.unhide_store(s_id)
+            except Exception as e:
+                logger.error(f"[Database] Error unhide_store in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            conn.execute("DELETE FROM hidden_stores WHERE LOWER(store_id) = LOWER(?)", (s_id,))
+        return True
+
+    def get_hidden_stores(self) -> List[str]:
+        """Retrieve list of hidden store ids."""
+        if self.use_supabase and self.supabase:
+            try:
+                data = self.supabase.get_hidden_stores()
+                if data:
+                    return data
+            except Exception as e:
+                logger.error(f"[Database] Error get_hidden_stores in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT store_id FROM hidden_stores")
+            rows = cursor.fetchall()
+            return [r["store_id"].lower() for r in rows]
+
+    def report_store(self, store_id: str, store_name: str, reason: str, details: Optional[str] = None) -> bool:
+        """Record store report in database."""
+        s_id = store_id.lower().strip()
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.report_store(s_id, store_name, reason, details)
+            except Exception as e:
+                logger.error(f"[Database] Error report_store in Supabase: {e}")
+
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO store_reports (id, store_id, store_name, reason, details)
+                VALUES (?, ?, ?, ?, ?)
+            """, (str(uuid.uuid4()), s_id, store_name, reason, details))
+        return True
         return True
 

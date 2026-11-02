@@ -887,3 +887,79 @@ class SupabaseClient:
         url = f"wishlists?canonical_name=eq.{urllib.parse.quote(canonical_name)}"
         res = self._request(url, method="PATCH", data={"collection_name": collection_name})
         return res.get("status") in (200, 204)
+
+    # MARK: - Stores, Hidden Stores & Reports (Automated Store System)
+
+    def upsert_store(self, store_data: Dict[str, Any]) -> bool:
+        """Upsert store metadata to Supabase."""
+        s_id = store_data.get("id", "").lower().strip()
+        if not s_id:
+            return False
+        payload = {
+            "id": s_id,
+            "name": store_data.get("name", s_id.title()),
+            "rating": store_data.get("rating", 4.8),
+            "review_count": store_data.get("review_count", 1200),
+            "formatted_review_count": store_data.get("formatted_review_count"),
+            "card_theme": store_data.get("card_theme", "white"),
+            "accent_color": store_data.get("accent_color"),
+            "logo_url": store_data.get("logo_url"),
+            "base_url": store_data.get("base_url"),
+            "free_shipping_threshold": store_data.get("free_shipping_threshold"),
+            "standard_shipping_cost": store_data.get("standard_shipping_cost"),
+            "courier": store_data.get("courier"),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        res = self._request("stores?on_conflict=id", method="POST", data=payload, upsert=True)
+        return res.get("status") in (200, 201)
+
+    def get_stores(self) -> List[Dict[str, Any]]:
+        """Retrieve all store metadata from Supabase."""
+        res = self._request("stores?select=*&order=rating.desc", method="GET")
+        if res.get("status") == 200 and isinstance(res.get("data"), list):
+            return res.get("data")
+        return []
+
+    def get_store(self, store_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve specific store metadata from Supabase."""
+        s_id = store_id.lower().strip()
+        url = f"stores?id=eq.{urllib.parse.quote(s_id)}&limit=1"
+        res = self._request(url, method="GET")
+        if res.get("status") == 200 and isinstance(res.get("data"), list) and res["data"]:
+            return res["data"][0]
+        return None
+
+    def hide_store(self, store_id: str, store_name: Optional[str] = None) -> bool:
+        """Hide store from suggestions."""
+        payload = {
+            "store_id": store_id.lower().strip(),
+            "store_name": store_name,
+            "device_id": "default_device"
+        }
+        res = self._request("hidden_stores?on_conflict=device_id,store_id", method="POST", data=payload, upsert=True)
+        return res.get("status") in (200, 201)
+
+    def unhide_store(self, store_id: str) -> bool:
+        """Remove store from hidden list."""
+        url = f"hidden_stores?store_id=eq.{urllib.parse.quote(store_id.lower().strip())}"
+        res = self._request(url, method="DELETE")
+        return res.get("status") in (200, 204)
+
+    def get_hidden_stores(self) -> List[str]:
+        """Retrieve hidden store ids."""
+        res = self._request("hidden_stores?select=store_id", method="GET")
+        if res.get("status") == 200 and isinstance(res.get("data"), list):
+            return [r["store_id"].lower() for r in res["data"] if "store_id" in r]
+        return []
+
+    def report_store(self, store_id: str, store_name: str, reason: str, details: Optional[str] = None) -> bool:
+        """Record store report in Supabase."""
+        payload = {
+            "store_id": store_id.lower().strip(),
+            "store_name": store_name,
+            "reason": reason,
+            "details": details,
+            "device_id": "default_device"
+        }
+        res = self._request("store_reports", method="POST", data=payload)
+        return res.get("status") in (200, 201)

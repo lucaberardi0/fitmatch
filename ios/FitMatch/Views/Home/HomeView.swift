@@ -287,16 +287,16 @@ struct HomeView: View {
                     .padding(.vertical, 40)
                 } else {
                     ForEach(Array(activeShowcases.enumerated()), id: \.element.id) { index, sc in
-                        if index == 0 {
-                            // Olive Green Card (Starcow Paris style, Screenshot 1 & 2)
+                        if sc.card_theme == "olive" || (sc.card_theme == nil && index == 0) {
+                            // Accent / Olive Card (driven by database card_theme or accent_color)
                             oliveShopStoreCard(showcase: sc)
                                 .padding(.horizontal, 16)
-                        } else if index == 2 && sc.products.count >= 4 {
-                            // 2-Column Grid Card (il Numero Diez style, Screenshot 4)
+                        } else if sc.card_theme == "grid" || (sc.card_theme == nil && index == 2 && sc.products.count >= 4) {
+                            // 2-Column Grid Card (driven by database card_theme == "grid")
                             gridShopStoreCard(showcase: sc)
                                 .padding(.horizontal, 16)
                         } else {
-                            // Clean White Horizontal Carousel Card (PeakPulse / dripuniqueuk style, Screenshot 1 & 5)
+                            // Clean White Horizontal Carousel Card (driven by database card_theme == "white")
                             whiteShopStoreCard(showcase: sc)
                                 .padding(.horizontal, 16)
                         }
@@ -552,10 +552,15 @@ struct HomeView: View {
         .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
     }
 
-    // MARK: - 2. Olive Green Shop Store Card (Screenshot 1: Starcow Paris Style)
+    // MARK: - 2. Olive / Accent Shop Store Card (Driven by Database card_theme & accent_color)
 
     private func oliveShopStoreCard(showcase: StoreShowcase) -> some View {
-        let oliveColor = Color(red: 98/255, green: 125/255, blue: 86/255) // #627D56 authentic olive
+        let cardBgColor: Color = {
+            if let hex = showcase.accent_color, let c = Color(hex: hex) {
+                return c
+            }
+            return Color(red: 98/255, green: 125/255, blue: 86/255) // #627D56 authentic olive fallback
+        }()
 
         return VStack(alignment: .leading, spacing: 16) {
             // Header: Avatar + Store Name + Rating + Three-dots Menu
@@ -619,7 +624,7 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
         }
-        .background(oliveColor)
+        .background(cardBgColor)
         .cornerRadius(26)
         .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 3)
     }

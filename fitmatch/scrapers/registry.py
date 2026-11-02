@@ -81,3 +81,39 @@ class ScraperRegistry:
             "failed_stores": failed_stores,
             "execution_time_seconds": elapsed,
         }
+
+    def sync_stores_to_database(self, db) -> int:
+        """Automatically registers/updates all scraper metadata in the database."""
+        count = 0
+        for scraper in self.scrapers:
+            s_id = getattr(scraper, "store_id", "").lower().strip()
+            if not s_id:
+                continue
+            name = getattr(scraper, "store_name", s_id.title())
+            rating = getattr(scraper, "rating", 4.8)
+            review_count = getattr(scraper, "review_count", 1200)
+
+            # Auto-format review count (e.g. 4200 -> '4,2K')
+            if getattr(scraper, "formatted_review_count", None):
+                fmt_rev = scraper.formatted_review_count
+            elif review_count >= 1000:
+                fmt_rev = f"{review_count/1000:.1f}K".replace(".", ",")
+            else:
+                fmt_rev = str(review_count)
+
+            store_data = {
+                "id": s_id,
+                "name": name,
+                "rating": rating,
+                "review_count": review_count,
+                "formatted_review_count": fmt_rev,
+                "card_theme": getattr(scraper, "card_theme", "white"),
+                "accent_color": getattr(scraper, "accent_color", None),
+                "base_url": getattr(scraper, "base_url", None),
+                "free_shipping_threshold": getattr(scraper, "free_shipping_threshold", None),
+                "standard_shipping_cost": getattr(scraper, "standard_shipping_cost", None),
+                "courier": getattr(scraper, "courier", None),
+            }
+            if db.upsert_store(store_data):
+                count += 1
+        return count

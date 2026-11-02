@@ -11,6 +11,7 @@ from fitmatch.smart_search import SmartSearchEngine
 from fitmatch.updater import PriceUpdater
 from fitmatch.scheduler import SyncScheduler
 from fitmatch.models import SearchResult
+from fitmatch.scrapers.registry import ScraperRegistry
 
 logger = logging.getLogger("fitmatch.api")
 
@@ -42,6 +43,12 @@ comparator = AIModelComparator(service=service)
 
 @app.on_event("startup")
 def on_startup():
+    try:
+        registry = ScraperRegistry()
+        synced = registry.sync_stores_to_database(db)
+        logger.info(f"[Startup] Automated store sync completed: {synced} stores synced.")
+    except Exception as e:
+        logger.warning(f"[Startup] Store sync note: {e}")
     # Start autonomous background scheduler (Price monitor every 2h, catalog discovery every 24h)
     scheduler.start(refresh_interval_seconds=7200, discovery_interval_seconds=86400)
 
@@ -410,6 +417,61 @@ def get_recent_activity_endpoint(limit: int = Query(30, ge=1, le=100)):
 def record_recent_activity_endpoint(payload: dict):
     """Record an item or search to user's recent activity in the database."""
     success = db.record_recent_activity(payload)
+    return {"status": "ok", "success": success}
+
+
+# MARK: - Stores, Hidden Stores & Store Reports
+
+@app.get("/api/stores")
+def get_all_stores_endpoint():
+    """Retrieve all store metadata directly from the database."""
+    stores = db.get_stores()
+    return {"stores": stores}
+
+
+@app.get("/api/stores/{store_id}")
+def get_store_endpoint(store_id: str):
+    """Retrieve a specific store's metadata."""
+    store = db.get_store(store_id)
+    if not store:
+        raise HTTPException(status_code=404, detail="Negozio non trovato.")
+    return {"store": store}
+
+
+@app.post("/api/stores/report")
+def report_store_endpoint(payload: dict):
+    """Report a store for verification."""
+    store_id = payload.get("store_id", "").strip()
+    store_name = payload.get("store_name", "").strip()
+    reason = payload.get("reason", "Prezzi non aggiornati o violazione")
+    details = payload.get("details")
+    if not store_id or not store_name:
+        raise HTTPException(status_code=400, detail="store_id e store_name sono obbligatori.")
+    success = db.report_store(store_id, store_name, reason, details)
+    return {"status": "ok", "success": success}
+
+
+@app.get("/api/stores/hidden")
+def get_hidden_stores_endpoint():
+    """Retrieve hidden stores."""
+    return {"hidden_stores": db.get_hidden_stores()}
+
+
+@app.post("/api/stores/hide")
+def hide_store_endpoint(payload: dict):
+    """Hide a store from suggestions."""
+    store_id = payload.get("store_id", "").strip()
+    store_name = payload.get("store_name")
+    if not store_id:
+        raise HTTPException(status_code=400, detail="store_id obbligatorio.")
+    success = db.hide_store(store_id, store_name)
+    return {"status": "ok", "success": success}
+
+
+@app.delete("/api/stores/hide/{store_id}")
+def unhide_store_endpoint(store_id: str):
+    """Unhide a store."""
+    success = db.unhide_store(store_id)
     return {"status": "ok", "success": success}
 
 

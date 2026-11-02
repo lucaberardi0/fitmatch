@@ -14,6 +14,14 @@ class BaseScraper(ABC):
     store_id: str
     store_name: str
     base_url: str
+    rating: float = 4.8
+    review_count: int = 1200
+    formatted_review_count: Optional[str] = None
+    card_theme: str = "white"  # "white", "olive", "grid", "dark"
+    accent_color: Optional[str] = None
+    free_shipping_threshold: Optional[float] = None
+    standard_shipping_cost: Optional[float] = None
+    courier: Optional[str] = None
 
     def __init__(self, timeout: int = 12):
         self.timeout = timeout

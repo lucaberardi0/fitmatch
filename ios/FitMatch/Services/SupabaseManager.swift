@@ -540,21 +540,32 @@ class SupabaseManager: ObservableObject {
             }
         }
 
-        let ratings: [String: String] = [
-            "misterrunning": "4.9",
-            "cisalfa": "4.8",
-            "maxisport": "4.9",
-            "top4running": "4.8",
-            "alltricks": "4.4",
-            "deporvillage": "4.3",
-            "runningwarehouse": "4.9",
-            "decathlon": "4.6",
-            "nencini": "4.7",
-            "sportler": "4.7",
-            "nike": "4.9"
-        ]
+        // 1. Query real store metadata (ratings, review counts, card theme, accent color) directly from public.stores in Supabase
+        struct StoreDbRecord: Codable {
+            let id: String
+            let name: String
+            let rating: Double?
+            let review_count: Int?
+            let formatted_review_count: String?
+            let card_theme: String?
+            let accent_color: String?
+            let logo_url: String?
+        }
+        var storeDbMap: [String: StoreDbRecord] = [:]
+        if let storesUrl = URL(string: "\(restURL)/stores?select=*") {
+            var storeReq = URLRequest(url: storesUrl)
+            for (k, v) in makeHeaders() { storeReq.setValue(v, forHTTPHeaderField: k) }
+            if let (sData, sResp) = try? await session.data(for: storeReq),
+               let http = sResp as? HTTPURLResponse, http.statusCode == 200 {
+                if let decodedStores = try? JSONDecoder().decode([StoreDbRecord].self, from: sData) {
+                    for st in decodedStores {
+                        storeDbMap[st.id.lowercased()] = st
+                    }
+                }
+            }
+        }
 
-        // Query real total offer counts per store directly from Supabase
+        // 2. Query real total offer counts per store directly from Supabase
         var realStoreCounts: [String: Int] = [:]
         if let countsUrl = URL(string: "\(restURL)/store_offers?select=store_id&limit=1000") {
             var countReq = URLRequest(url: countsUrl)
@@ -574,14 +585,21 @@ class SupabaseManager: ObservableObject {
         for (sId, info) in storeMap {
             guard !info.products.isEmpty else { continue }
             let avgDisc = info.discounts.isEmpty ? 25.0 : (info.discounts.reduce(0, +) / Double(info.discounts.count))
-            let rating = ratings[sId] ?? "4.8"
+            let meta = storeDbMap[sId]
+            let rating = meta?.rating.map { String(format: "%.1f", $0) } ?? "4.8"
+            let revStr = meta?.formatted_review_count ?? (meta?.review_count != nil ? "\(meta!.review_count!)" : nil)
             let realCount = realStoreCounts[sId] ?? info.totalCount
+
             showcases.append(StoreShowcase(
                 store_id: sId,
-                store_name: info.name,
+                store_name: meta?.name ?? info.name,
                 total_offers: max(realCount, info.products.count),
                 avg_discount: avgDisc,
                 rating: rating,
+                review_count: revStr,
+                card_theme: meta?.card_theme ?? "white",
+                accent_color: meta?.accent_color,
+                logo_url: meta?.logo_url,
                 products: info.products
             ))
         }

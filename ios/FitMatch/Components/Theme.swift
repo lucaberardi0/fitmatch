@@ -14,6 +14,19 @@ extension Color {
     static let shopGreenLight = Color(red: 230/255, green: 247/255, blue: 236/255) // #E6F7EC
     static let shopYellow = Color(red: 255/255, green: 179/255, blue: 0/255)
     static let shopOrange = Color(red: 255/255, green: 122/255, blue: 0/255)
+
+    init?(hex: String) {
+        var cleanHex = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
+        if cleanHex.count == 6 {
+            cleanHex.append("FF")
+        }
+        guard cleanHex.count == 8, let intVal = UInt64(cleanHex, radix: 16) else { return nil }
+        let r = Double((intVal >> 24) & 0xFF) / 255.0
+        let g = Double((intVal >> 16) & 0xFF) / 255.0
+        let b = Double((intVal >> 8) & 0xFF) / 255.0
+        let a = Double(intVal & 0xFF) / 255.0
+        self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
+    }
 }
 
 // MARK: - Shop Store Logo Component for 8 Verified Retailers

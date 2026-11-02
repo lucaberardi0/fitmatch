@@ -10,6 +10,14 @@ class Top4RunningScraper(BaseScraper):
     store_id = "top4running"
     store_name = "Top4Running"
     base_url = "https://top4running.it"
+    rating = 4.8
+    review_count = 950
+    formatted_review_count = "950"
+    card_theme = "grid"
+    accent_color = "#00B9F1"
+    free_shipping_threshold = 75.00
+    standard_shipping_cost = 4.90
+    courier = "DPD / BRT"
     tracker_id = "214346-281297"  # Luigi's Box Italian catalog tracker ID
     api_url = "https://live.luigisbox.com/search"
 

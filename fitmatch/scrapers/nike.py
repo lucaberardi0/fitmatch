@@ -16,6 +16,14 @@ class NikeScraper(BaseScraper):
     store_id = "nike"
     store_name = "Nike"
     base_url = "https://www.nike.com/it"
+    rating = 4.9
+    review_count = 4200
+    formatted_review_count = "4,2K"
+    card_theme = "olive"
+    accent_color = "#627D56"
+    free_shipping_threshold = 99.00
+    standard_shipping_cost = 5.00
+    courier = "UPS / DHL Express"
     search_base_url = "https://www.nike.com/it/w"
 
     def __init__(self, timeout: int = 15):

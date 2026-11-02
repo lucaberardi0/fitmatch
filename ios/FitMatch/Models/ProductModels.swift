@@ -421,6 +421,9 @@ struct StoreShowcase: Identifiable, Codable, Hashable {
     let avg_discount: Double
     let rating: String
     let review_count: String?
+    let card_theme: String?
+    let accent_color: String?
+    let logo_url: String?
     let products: [StoreShowcaseProduct]
 
     init(
@@ -430,6 +433,9 @@ struct StoreShowcase: Identifiable, Codable, Hashable {
         avg_discount: Double,
         rating: String,
         review_count: String? = nil,
+        card_theme: String? = nil,
+        accent_color: String? = nil,
+        logo_url: String? = nil,
         products: [StoreShowcaseProduct]
     ) {
         self.store_id = store_id
@@ -438,6 +444,9 @@ struct StoreShowcase: Identifiable, Codable, Hashable {
         self.avg_discount = avg_discount
         self.rating = rating
         self.review_count = review_count
+        self.card_theme = card_theme
+        self.accent_color = accent_color
+        self.logo_url = logo_url
         self.products = products
     }
 
@@ -446,24 +455,7 @@ struct StoreShowcase: Identifiable, Codable, Hashable {
         if let rev = review_count, !rev.isEmpty {
             return "\(r) ★ (\(rev))"
         }
-        let revStr: String
-        let s = store_id.lowercased()
-        if s.contains("nike") { revStr = "4,2K" }
-        else if s.contains("adidas") { revStr = "3,1K" }
-        else if s.contains("cisalfa") { revStr = "2,4K" }
-        else if s.contains("mister") { revStr = "1,8K" }
-        else if s.contains("maxi") { revStr = "1,4K" }
-        else if s.contains("top4") { revStr = "950" }
-        else if s.contains("alltricks") { revStr = "850" }
-        else if s.contains("depor") { revStr = "1,1K" }
-        else if s.contains("decathlon") { revStr = "3,5K" }
-        else if s.contains("running") || s.contains("warehouse") { revStr = "620" }
-        else if s.contains("star") { revStr = "787" }
-        else if s.contains("peak") { revStr = "1,4K" }
-        else if s.contains("diez") || s.contains("numero") { revStr = "1,9K" }
-        else if s.contains("drip") { revStr = "607" }
-        else { revStr = "\(max(total_offers * 6, 95))" }
-        return "\(r) ★ (\(revStr))"
+        return "\(r) ★"
     }
 }
 
