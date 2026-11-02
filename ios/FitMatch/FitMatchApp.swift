@@ -17,6 +17,46 @@ struct FitMatchApp: App {
                 AccountView()
             } else if ProcessInfo.processInfo.arguments.contains("-testWishlist") {
                 MainTabView(initialTab: 3)
+            } else if ProcessInfo.processInfo.arguments.contains("-testProductDetail") {
+                NavigationStack {
+                    ProductDetailView(
+                        product: MatchedProduct(
+                            canonical_name: "Asics Novablast 5",
+                            brand: "Asics",
+                            image_url: "https://img.runningwarehouse.eu/watermark/rs.php?path=ANB5M4-1.jpg&nw=500",
+                            gallery_images: [
+                                "https://img.runningwarehouse.eu/watermark/rs.php?path=ANB5M4-1.jpg&nw=500",
+                                "https://img.runningwarehouse.eu/watermark/rs.php?path=ANB5M4-2.jpg&nw=500",
+                                "https://img.runningwarehouse.eu/watermark/rs.php?path=ANB5M4-3.jpg&nw=500",
+                                "https://img.runningwarehouse.eu/watermark/rs.php?path=ANB5M4-4.jpg&nw=500"
+                            ],
+                            gender: "Uomo",
+                            offers: [
+                                Offer(
+                                    store_id: "runningwarehouse",
+                                    store_name: "Running Warehouse Europe",
+                                    title: "Asics Novablast 5",
+                                    brand: "Asics",
+                                    price: 119.90,
+                                    original_price: 150.00,
+                                    discount_pct: 20.0,
+                                    savings: 30.10,
+                                    url: "https://www.runningwarehouse.eu/asics-novablast-5",
+                                    image_url: "https://img.runningwarehouse.eu/watermark/rs.php?path=ANB5M4-1.jpg&nw=500",
+                                    gallery_images: [
+                                        "https://img.runningwarehouse.eu/watermark/rs.php?path=ANB5M4-1.jpg&nw=500",
+                                        "https://img.runningwarehouse.eu/watermark/rs.php?path=ANB5M4-2.jpg&nw=500"
+                                    ],
+                                    available_sizes: ["41.5", "42", "42.5", "43", "44"],
+                                    in_stock: true
+                                )
+                            ],
+                            best_price: 119.90,
+                            highest_price: 150.00,
+                            cross_store_savings: 30.10
+                        )
+                    )
+                }
             } else if ProcessInfo.processInfo.arguments.contains("-testMoveSheet") {
                 MoveToCollectionSheet(
                     item: WishlistManager.shared.items.first ?? WishlistItem(
