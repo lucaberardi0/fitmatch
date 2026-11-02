@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import uuid
+import json
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -139,6 +140,13 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_wishlist_collection ON wishlist(collection_name);
             """)
 
+            # Ensure gallery_images columns exist in local SQLite
+            for tbl in ["products", "store_offers"]:
+                try:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN gallery_images TEXT DEFAULT '[]'")
+                except Exception:
+                    pass
+
     def upsert_product_and_offer(
         self,
         cluster_key: str,
@@ -150,6 +158,7 @@ class Database:
     ) -> str:
         """Upsert canonical product and record current store offer + price history."""
         clean_off_img = clean_image_url(offer.image_url)
+        gallery_json = json.dumps(offer.gallery_images or [])
         if self.use_supabase and self.supabase:
             try:
                 self.supabase.upsert_product_and_offer(
@@ -168,8 +177,8 @@ class Database:
         with self.get_connection() as conn:
             # 1. Upsert product
             conn.execute("""
-                INSERT INTO products (id, canonical_name, brand, category, gender, image_url, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO products (id, canonical_name, brand, category, gender, image_url, gallery_images, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
                     canonical_name = excluded.canonical_name,
                     brand = COALESCE(excluded.brand, products.brand),
@@ -177,8 +186,9 @@ class Database:
                         WHEN products.image_url IS NOT NULL AND products.image_url LIKE 'http%' AND products.image_url NOT LIKE '%blank.gif%' THEN products.image_url
                         ELSE excluded.image_url
                     END,
+                    gallery_images = COALESCE(excluded.gallery_images, products.gallery_images),
                     updated_at = CURRENT_TIMESTAMP
-            """, (cluster_key, canonical_name, brand, category, gender, clean_off_img))
+            """, (cluster_key, canonical_name, brand, category, gender, clean_off_img, gallery_json))
 
             # 2. Offer ID is based on store_id + URL hash or store's product ID
             offer_id = f"{offer.store_id}:{offer.product_id or abs(hash(offer.url))}"
@@ -192,9 +202,9 @@ class Database:
                 INSERT INTO store_offers (
                     id, product_id, store_id, store_name, raw_title,
                     current_price, original_price, discount_pct,
-                    product_url, image_url, in_stock, last_checked_at
+                    product_url, image_url, gallery_images, in_stock, last_checked_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
                     product_id = excluded.product_id,
                     raw_title = excluded.raw_title,
@@ -203,6 +213,7 @@ class Database:
                     discount_pct = excluded.discount_pct,
                     product_url = excluded.product_url,
                     image_url = COALESCE(excluded.image_url, store_offers.image_url),
+                    gallery_images = COALESCE(excluded.gallery_images, store_offers.gallery_images),
                     in_stock = excluded.in_stock,
                     last_checked_at = CURRENT_TIMESTAMP
             """, (
@@ -216,6 +227,7 @@ class Database:
                 offer.discount_pct,
                 offer.url,
                 clean_off_img,
+                gallery_json,
                 1 if offer.in_stock else 0
             ))
 

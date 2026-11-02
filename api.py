@@ -173,6 +173,7 @@ def search_smart(
                         "category": eff_category or "running_shoes",
                         "gender": intent.gender or "Unisex",
                         "image_url": mp.image_url,
+                        "gallery_images": mp.gallery_images,
                         "offer_count": len(mp.offers),
                         "best_price": mp.best_price,
                         "max_price": mp.highest_price,

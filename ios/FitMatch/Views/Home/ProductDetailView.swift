@@ -5,9 +5,14 @@ struct ProductDetailView: View {
     @State private var selectedOfferIndex: Int = 0
     @State private var selectedSize: String? = nil
     @State private var showingAlertSheet: Bool = false
+    @State private var selectedImageIndex: Int = 0
 
     @ObservedObject private var wishlist = WishlistManager.shared
     @Environment(\.dismiss) private var dismiss
+
+    private var displayedImages: [String] {
+        product.allImages
+    }
 
     var currentOffer: Offer? {
         if product.offers.indices.contains(selectedOfferIndex) {
@@ -37,56 +42,164 @@ struct ProductDetailView: View {
         ZStack(alignment: .bottom) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    // 1. Hero Image in Shop Style
-                    ZStack(alignment: .topTrailing) {
-                        ZStack {
-                            Color.shopSurface
+                    // 1. Hero Image / Multi-Photo Carousel in Shop Style
+                    VStack(spacing: 12) {
+                        ZStack(alignment: .topTrailing) {
+                            ZStack(alignment: .bottom) {
+                                Color.shopSurface
 
-                            if let imageUrl = product.image_url, let url = URL(string: imageUrl) {
-                                AsyncImage(url: url) { phase in
-                                    if let image = phase.image {
-                                        image
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(height: 290)
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 20)
-                                    } else {
-                                        Rectangle()
-                                            .fill(Color.shopSurface)
-                                            .frame(height: 290)
-                                            .frame(maxWidth: .infinity)
+                                if displayedImages.count > 1 {
+                                    TabView(selection: $selectedImageIndex) {
+                                        ForEach(Array(displayedImages.enumerated()), id: \.offset) { index, imgUrlString in
+                                            if let url = URL(string: imgUrlString) {
+                                                AsyncImage(url: url) { phase in
+                                                    if let image = phase.image {
+                                                        image
+                                                            .resizable()
+                                                            .scaledToFit()
+                                                            .frame(height: 290)
+                                                            .frame(maxWidth: .infinity)
+                                                            .padding(.vertical, 20)
+                                                    } else {
+                                                        Rectangle()
+                                                            .fill(Color.shopSurface)
+                                                            .frame(height: 290)
+                                                            .frame(maxWidth: .infinity)
+                                                    }
+                                                }
+                                                .tag(index)
+                                            }
+                                        }
                                     }
+                                    .frame(height: 310)
+                                    .tabViewStyle(.page(indexDisplayMode: .never))
+
+                                    // Modern Capsule Indicators
+                                    HStack(spacing: 5) {
+                                        ForEach(0..<min(displayedImages.count, 7), id: \.self) { idx in
+                                            Capsule()
+                                                .fill(selectedImageIndex == idx ? Color.shopDark : Color.black.opacity(0.18))
+                                                .frame(width: selectedImageIndex == idx ? 16 : 6, height: 6)
+                                                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedImageIndex)
+                                        }
+                                        if displayedImages.count > 7 {
+                                            Text("+\(displayedImages.count - 7)")
+                                                .font(.system(size: 9, weight: .bold))
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Color.white.opacity(0.88))
+                                    .clipShape(Capsule())
+                                    .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 1)
+                                    .padding(.bottom, 12)
+                                } else if let firstImg = displayedImages.first ?? product.image_url, let url = URL(string: firstImg) {
+                                    AsyncImage(url: url) { phase in
+                                        if let image = phase.image {
+                                            image
+                                                .resizable()
+                                                .scaledToFit()
+                                                .frame(height: 290)
+                                                .frame(maxWidth: .infinity)
+                                                .padding(.vertical, 20)
+                                        } else {
+                                            Rectangle()
+                                                .fill(Color.shopSurface)
+                                                .frame(height: 290)
+                                                .frame(maxWidth: .infinity)
+                                        }
+                                    }
+                                    .frame(height: 310)
+                                } else {
+                                    Rectangle()
+                                        .fill(Color.shopSurface)
+                                        .frame(height: 310)
+                                        .frame(maxWidth: .infinity)
                                 }
                             }
-                        }
-                        .cornerRadius(22)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 22)
-                                .stroke(Color.shopBorder, lineWidth: 1)
-                        )
+                            .cornerRadius(22)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 22)
+                                    .stroke(Color.shopBorder, lineWidth: 1)
+                            )
 
-                        // Floating Top Action Buttons
-                        HStack(spacing: 10) {
-                            Button(action: {
-                                showingAlertSheet = true
-                            }) {
-                                Circle()
-                                    .fill(Color.white)
-                                    .frame(width: 38, height: 38)
-                                    .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
-                                    .overlay(
-                                        Image(systemName: wishlistItem?.isAlertEnabled == true ? "bell.badge.fill" : "bell")
-                                            .font(.system(size: 15, weight: .semibold))
-                                            .foregroundColor(wishlistItem?.isAlertEnabled == true ? .shopPurple : .shopDark)
-                                    )
+                            // Top Badges & Action Buttons
+                            HStack(alignment: .top) {
+                                if displayedImages.count > 1 {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "photo.stack")
+                                            .font(.system(size: 10, weight: .bold))
+                                        Text("\(selectedImageIndex + 1)/\(displayedImages.count)")
+                                            .font(.system(size: 11, weight: .bold))
+                                    }
+                                    .foregroundColor(.shopDark)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(Color.white.opacity(0.9))
+                                    .clipShape(Capsule())
+                                    .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 1)
+                                }
+
+                                Spacer()
+
+                                HStack(spacing: 10) {
+                                    Button(action: {
+                                        showingAlertSheet = true
+                                    }) {
+                                        Circle()
+                                            .fill(Color.white)
+                                            .frame(width: 38, height: 38)
+                                            .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+                                            .overlay(
+                                                Image(systemName: wishlistItem?.isAlertEnabled == true ? "bell.badge.fill" : "bell")
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .foregroundColor(wishlistItem?.isAlertEnabled == true ? .shopPurple : .shopDark)
+                                            )
+                                    }
+
+                                    WishlistButton(product: product, size: selectedSize)
+                                }
                             }
-
-                            WishlistButton(product: product, size: selectedSize)
+                            .padding(14)
                         }
-                        .padding(14)
+                        .padding(.horizontal, 16)
+
+                        // Thumbnails strip when multiple angles are available
+                        if displayedImages.count > 1 {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(Array(displayedImages.enumerated()), id: \.offset) { idx, imgUrl in
+                                        if let u = URL(string: imgUrl) {
+                                            Button(action: {
+                                                withAnimation(.easeInOut(duration: 0.2)) {
+                                                    selectedImageIndex = idx
+                                                }
+                                            }) {
+                                                AsyncImage(url: u) { phase in
+                                                    if let img = phase.image {
+                                                        img.resizable().scaledToFit()
+                                                    } else {
+                                                        Color.shopSurface
+                                                    }
+                                                }
+                                                .frame(width: 54, height: 54)
+                                                .padding(4)
+                                                .background(Color.shopSurface)
+                                                .cornerRadius(10)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 10)
+                                                        .stroke(selectedImageIndex == idx ? Color.shopDark : Color.shopBorder, lineWidth: selectedImageIndex == idx ? 2 : 1)
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                            }
+                        }
                     }
-                    .padding(.horizontal, 16)
 
                     // 2. Canonical Product Title & Brand
                     VStack(alignment: .leading, spacing: 6) {

@@ -13,6 +13,7 @@ struct Offer: Identifiable, Codable, Hashable {
     let savings: Double?
     let url: String
     let image_url: String?
+    let gallery_images: [String]?
     let available_sizes: [String]?
     let in_stock: Bool?
 
@@ -23,6 +24,50 @@ struct Offer: Identifiable, Codable, Hashable {
     let shipping_label: String?
     let free_shipping_threshold: Double?
     let courier: String?
+
+    init(
+        store_id: String,
+        store_name: String,
+        product_id: String? = nil,
+        title: String,
+        brand: String? = nil,
+        price: Double,
+        original_price: Double? = nil,
+        discount_pct: Double? = nil,
+        savings: Double? = nil,
+        url: String,
+        image_url: String? = nil,
+        gallery_images: [String]? = nil,
+        available_sizes: [String]? = nil,
+        in_stock: Bool? = nil,
+        shipping_cost: Double? = nil,
+        total_price: Double? = nil,
+        is_free_shipping: Bool? = nil,
+        shipping_label: String? = nil,
+        free_shipping_threshold: Double? = nil,
+        courier: String? = nil
+    ) {
+        self.store_id = store_id
+        self.store_name = store_name
+        self.product_id = product_id
+        self.title = title
+        self.brand = brand
+        self.price = price
+        self.original_price = original_price
+        self.discount_pct = discount_pct
+        self.savings = savings
+        self.url = url
+        self.image_url = image_url
+        self.gallery_images = gallery_images
+        self.available_sizes = available_sizes
+        self.in_stock = in_stock
+        self.shipping_cost = shipping_cost
+        self.total_price = total_price
+        self.is_free_shipping = is_free_shipping
+        self.shipping_label = shipping_label
+        self.free_shipping_threshold = free_shipping_threshold
+        self.courier = courier
+    }
 
     var calculatedShippingCost: Double {
         if let cost = shipping_cost { return cost }
@@ -75,6 +120,19 @@ struct Offer: Identifiable, Codable, Hashable {
         guard let discount_pct = discount_pct, discount_pct > 0 else { return nil }
         return String(format: "-%.0f%%", discount_pct)
     }
+
+    var allImages: [String] {
+        var imgs: [String] = []
+        if let primary = image_url, !primary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            imgs.append(primary)
+        }
+        if let g = gallery_images {
+            for img in g where !img.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !imgs.contains(img) { imgs.append(img) }
+            }
+        }
+        return imgs
+    }
 }
 
 struct MatchedProduct: Identifiable, Codable, Hashable {
@@ -82,6 +140,7 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
     let canonical_name: String
     let brand: String?
     let image_url: String?
+    let gallery_images: [String]?
     let gender: String?
     let offers: [Offer]
     let best_price: Double?
@@ -93,6 +152,7 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
         canonical_name: String,
         brand: String? = nil,
         image_url: String? = nil,
+        gallery_images: [String]? = nil,
         gender: String? = nil,
         offers: [Offer] = [],
         best_price: Double? = nil,
@@ -103,6 +163,7 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
         self.canonical_name = canonical_name
         self.brand = brand
         self.image_url = image_url
+        self.gallery_images = gallery_images
         self.gender = gender
         self.offers = offers
         self.best_price = best_price
@@ -115,11 +176,30 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
         case canonical_name
         case brand
         case image_url
+        case gallery_images
         case gender
         case offers
         case best_price
         case highest_price
         case cross_store_savings
+    }
+
+    var allImages: [String] {
+        var imgs: [String] = []
+        if let primary = image_url, !primary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            imgs.append(primary)
+        }
+        if let g = gallery_images {
+            for img in g where !img.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !imgs.contains(img) { imgs.append(img) }
+            }
+        }
+        for o in offers {
+            for oImg in o.allImages {
+                if !imgs.contains(oImg) { imgs.append(oImg) }
+            }
+        }
+        return imgs
     }
 
     var id: String {
@@ -216,6 +296,7 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
     let title: String
     let brand: String?
     let image_url: String?
+    let gallery_images: [String]?
     let current_price: Double
     let original_price: Double?
     let discount_pct: Double?
@@ -228,6 +309,44 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
     let shipping_label: String?
     let free_shipping_threshold: Double?
     let courier: String?
+
+    init(
+        id: String,
+        title: String,
+        brand: String? = nil,
+        image_url: String? = nil,
+        gallery_images: [String]? = nil,
+        current_price: Double,
+        original_price: Double? = nil,
+        discount_pct: Double? = nil,
+        product_url: String,
+        canonical_name: String,
+        product_id: String? = nil,
+        shipping_cost: Double? = nil,
+        total_price: Double? = nil,
+        is_free_shipping: Bool? = nil,
+        shipping_label: String? = nil,
+        free_shipping_threshold: Double? = nil,
+        courier: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.brand = brand
+        self.image_url = image_url
+        self.gallery_images = gallery_images
+        self.current_price = current_price
+        self.original_price = original_price
+        self.discount_pct = discount_pct
+        self.product_url = product_url
+        self.canonical_name = canonical_name
+        self.product_id = product_id
+        self.shipping_cost = shipping_cost
+        self.total_price = total_price
+        self.is_free_shipping = is_free_shipping
+        self.shipping_label = shipping_label
+        self.free_shipping_threshold = free_shipping_threshold
+        self.courier = courier
+    }
 
     var formattedPrice: String {
         String(format: "€%.2f", current_price)
@@ -243,6 +362,19 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         return String(format: "-%.0f%%", discount_pct)
     }
 
+    var allImages: [String] {
+        var imgs: [String] = []
+        if let primary = image_url, !primary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            imgs.append(primary)
+        }
+        if let g = gallery_images {
+            for img in g where !img.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !imgs.contains(img) { imgs.append(img) }
+            }
+        }
+        return imgs
+    }
+
     func toMatchedProduct(storeId: String, storeName: String) -> MatchedProduct {
         let offer = Offer(
             store_id: storeId,
@@ -256,6 +388,7 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
             savings: (original_price ?? current_price) - current_price,
             url: product_url,
             image_url: image_url,
+            gallery_images: gallery_images,
             available_sizes: [],
             in_stock: true,
             shipping_cost: shipping_cost,
@@ -270,6 +403,7 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
             canonical_name: canonical_name,
             brand: brand,
             image_url: image_url,
+            gallery_images: gallery_images,
             gender: nil,
             offers: [offer],
             best_price: current_price,

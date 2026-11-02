@@ -738,6 +738,15 @@ class CategoryCrawler:
                     if img_url and "nw=210" in img_url:
                         img_url = img_url.replace("nw=210", "nw=500")
 
+                    gallery_urls = []
+                    if img_url:
+                        gallery_urls.append(img_url)
+                    if pid:
+                        for i in range(1, 5):
+                            u = f"https://img.runningwarehouse.eu/watermark/rs.php?path={pid}-{i}.jpg&nw=500"
+                            if u not in gallery_urls:
+                                gallery_urls.append(u)
+
                     offer = Offer(
                         store_id=self.runningwarehouse.store_id,
                         store_name=self.runningwarehouse.store_name,
@@ -748,6 +757,7 @@ class CategoryCrawler:
                         original_price=orig_price,
                         url=product_url,
                         image_url=img_url,
+                        gallery_images=gallery_urls,
                         in_stock=True
                     )
 
@@ -852,16 +862,17 @@ class CategoryCrawler:
                     full_title = f"{brand} {title}" if brand and not title.lower().startswith(brand.lower()) else title
                     orig_price = pvp if (pvp and pvp > price) else None
 
-                    # Image
-                    img_url = None
-                    images = h.get("images")
-                    if isinstance(images, list) and images and images[0]:
-                        img_name = images[0]
-                        img_url = f"https://cdn.deporvillage.com/cdn-cgi/image/h=500,w=400,f=auto,q=75,fit=contain,background=white/product-vertical/{img_name}"
-                    elif isinstance(h.get("gallery"), list) and h.get("gallery"):
-                        img_url = h["gallery"][0]
-                    elif h.get("image") or h.get("image_url"):
-                        img_url = h.get("image") or h.get("image_url")
+                    # Images & Gallery
+                    gallery_data = h.get("gallery") or {}
+                    images = gallery_data.get("images", []) if isinstance(gallery_data, dict) else (h.get("images") or [])
+                    if not isinstance(images, list):
+                        images = []
+
+                    gallery_urls = [
+                        f"https://cdn.deporvillage.com/cdn-cgi/image/h=500,w=400,f=auto,q=75,fit=contain,background=white/product-vertical/{img_name}"
+                        for img_name in images if img_name
+                    ]
+                    img_url = gallery_urls[0] if gallery_urls else (h.get("image") or h.get("image_url"))
 
                     # Sizes
                     sizes = []
@@ -885,6 +896,7 @@ class CategoryCrawler:
                         original_price=orig_price,
                         url=url_str,
                         image_url=img_url,
+                        gallery_images=gallery_urls,
                         available_sizes=sizes,
                         in_stock=True
                     )

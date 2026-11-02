@@ -93,6 +93,15 @@ class RunningWarehouseScraper(BaseScraper):
                             cleaned = re.sub(r"\.0$", "", cleaned)
                             sizes.append(cleaned)
 
+                gallery_urls = []
+                if img_url:
+                    gallery_urls.append(img_url)
+                if pid:
+                    for i in range(1, 5):
+                        angle_url = f"https://img.runningwarehouse.eu/watermark/rs.php?path={pid}-{i}.jpg&nw=500"
+                        if angle_url not in gallery_urls:
+                            gallery_urls.append(angle_url)
+
                 offers.append(
                     Offer(
                         store_id=self.store_id,
@@ -104,6 +113,7 @@ class RunningWarehouseScraper(BaseScraper):
                         original_price=orig_price,
                         url=product_url,
                         image_url=img_url,
+                        gallery_images=gallery_urls,
                         available_sizes=sizes,
                         in_stock=True
                     )

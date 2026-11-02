@@ -316,11 +316,23 @@ class ProductNormalizer:
                 sorted_offers = sorted(cluster_offers, key=lambda o: o.price)
                 image = next((o.image_url for o in cluster_offers if o.image_url), None)
 
+                # Collect and deduplicate all distinct images across matching offers
+                gallery = []
+                if image:
+                    gallery.append(image)
+                for o in sorted_offers:
+                    if o.image_url and o.image_url not in gallery:
+                        gallery.append(o.image_url)
+                    for g_img in o.gallery_images:
+                        if g_img and g_img not in gallery:
+                            gallery.append(g_img)
+
                 groups.append(
                     MatchedProductGroup(
                         canonical_name=canonical,
                         brand=brand,
                         image_url=image,
+                        gallery_images=gallery,
                         offers=sorted_offers
                     )
                 )

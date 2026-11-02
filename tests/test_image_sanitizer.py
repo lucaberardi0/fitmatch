@@ -111,3 +111,70 @@ def test_supabase_search_indexed_fallback(monkeypatch):
     # RW offer with None must also inherit the valid product image
     rw_offer = next(o for o in prod["offers"] if o["store_id"] == "runningwarehouse")
     assert rw_offer["image_url"] == "https://top4running.it/cdn/peg41.jpg"
+    assert "gallery_images" in prod
+    assert "https://top4running.it/cdn/peg41.jpg" in prod["gallery_images"]
+
+
+def test_gallery_images_sanitization():
+    raw_gallery = [
+        "https://cdn.deporvillage.com/img1.jpg",
+        "/images/blank.gif",  # should be discarded
+        "https://cdn.deporvillage.com/img2.jpg",
+        "https://cdn.deporvillage.com/img1.jpg",  # duplicate, should be deduplicated
+        "ftp://invalid.com/img.jpg"  # non-http, should be discarded
+    ]
+    offer = Offer(
+        store_id="deporvillage",
+        store_name="Deporvillage",
+        title="Nike Vomero",
+        price=120.0,
+        url="https://deporvillage.it/item",
+        image_url="https://cdn.deporvillage.com/img1.jpg",
+        gallery_images=raw_gallery
+    )
+    assert len(offer.gallery_images) == 2
+    assert offer.gallery_images == [
+        "https://cdn.deporvillage.com/img1.jpg",
+        "https://cdn.deporvillage.com/img2.jpg"
+    ]
+
+
+def test_normalizer_aggregates_multi_store_galleries():
+    normalizer = ProductNormalizer()
+    offers = [
+        Offer(
+            store_id="runningwarehouse",
+            store_name="Running Warehouse",
+            title="Asics Novablast 4",
+            price=120.0,
+            url="https://runningwarehouse.eu/1",
+            image_url="https://img.runningwarehouse.eu/path=ANB4-1.jpg&nw=500",
+            gallery_images=[
+                "https://img.runningwarehouse.eu/path=ANB4-1.jpg&nw=500",
+                "https://img.runningwarehouse.eu/path=ANB4-2.jpg&nw=500",
+                "https://img.runningwarehouse.eu/path=ANB4-3.jpg&nw=500"
+            ]
+        ),
+        Offer(
+            store_id="top4running",
+            store_name="Top4Running",
+            title="Asics Novablast 4",
+            price=135.0,
+            url="https://top4running.it/1",
+            image_url="https://top4running.it/img/novablast4_front.jpg",
+            gallery_images=[
+                "https://top4running.it/img/novablast4_front.jpg",
+                "https://top4running.it/img/novablast4_sole.jpg"
+            ]
+        )
+    ]
+    groups = normalizer.group_offers(offers)
+    assert len(groups) == 1
+    g = groups[0]
+    # Primary image is RW's first image (best price)
+    assert g.image_url == "https://img.runningwarehouse.eu/path=ANB4-1.jpg&nw=500"
+    # Gallery must contain all unique angles from both stores
+    assert len(g.gallery_images) == 5
+    assert g.gallery_images[0] == g.image_url
+    assert "https://img.runningwarehouse.eu/path=ANB4-2.jpg&nw=500" in g.gallery_images
+    assert "https://top4running.it/img/novablast4_sole.jpg" in g.gallery_images

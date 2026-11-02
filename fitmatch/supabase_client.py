@@ -263,6 +263,14 @@ class SupabaseClient:
         clean_offer_img = clean_image_url(offer.image_url)
         clean_prod_img = clean_image_url(image_url) or clean_offer_img
 
+        offer_gallery = [clean_image_url(u) for u in (offer.gallery_images or []) if clean_image_url(u)]
+        if clean_offer_img and clean_offer_img not in offer_gallery:
+            offer_gallery.insert(0, clean_offer_img)
+
+        prod_gallery = list(offer_gallery)
+        if clean_prod_img and clean_prod_img not in prod_gallery:
+            prod_gallery.insert(0, clean_prod_img)
+
         prod_row: Dict[str, Any] = {
             "id": cluster_key,
             "canonical_name": canonical_name,
@@ -273,6 +281,8 @@ class SupabaseClient:
         }
         if clean_prod_img:
             prod_row["image_url"] = clean_prod_img
+        if prod_gallery:
+            prod_row["gallery_images"] = prod_gallery
         self.upsert_products([prod_row])
 
         offer_id = f"{offer.store_id}:{offer.product_id or offer.url}"
@@ -292,6 +302,7 @@ class SupabaseClient:
             "discount_pct": float(offer.discount_pct) if offer.discount_pct else None,
             "product_url": offer.url,
             "image_url": clean_offer_img or clean_prod_img,
+            "gallery_images": offer_gallery,
             "in_stock": offer.in_stock,
             "available_sizes": offer.available_sizes or [],
             "last_checked_at": now_iso
@@ -344,6 +355,9 @@ class SupabaseClient:
             ck = it["cluster_key"]
             off: Offer = it["offer"]
             clean_off_img = clean_image_url(off.image_url)
+            off_gallery = [clean_image_url(u) for u in (off.gallery_images or []) if clean_image_url(u)]
+            if clean_off_img and clean_off_img not in off_gallery:
+                off_gallery.insert(0, clean_off_img)
 
             if ck not in prod_map:
                 p_entry: Dict[str, Any] = {
@@ -352,13 +366,18 @@ class SupabaseClient:
                     "brand": it.get("brand"),
                     "category": it.get("category", "running_shoes"),
                     "gender": it.get("gender", "Unisex"),
+                    "gallery_images": list(off_gallery),
                     "updated_at": now_iso
                 }
                 if clean_off_img:
                     p_entry["image_url"] = clean_off_img
                 prod_map[ck] = p_entry
-            elif clean_off_img and "image_url" not in prod_map[ck]:
-                prod_map[ck]["image_url"] = clean_off_img
+            else:
+                if clean_off_img and "image_url" not in prod_map[ck]:
+                    prod_map[ck]["image_url"] = clean_off_img
+                for g_img in off_gallery:
+                    if g_img not in prod_map[ck].get("gallery_images", []):
+                        prod_map[ck].setdefault("gallery_images", []).append(g_img)
 
             oid = f"{off.store_id}:{off.product_id or off.url}"
             offer_rows.append({
@@ -372,6 +391,7 @@ class SupabaseClient:
                 "discount_pct": float(off.discount_pct) if off.discount_pct else None,
                 "product_url": off.url,
                 "image_url": clean_off_img or prod_map.get(ck, {}).get("image_url"),
+                "gallery_images": off_gallery,
                 "in_stock": off.in_stock,
                 "available_sizes": off.available_sizes or [],
                 "last_checked_at": now_iso
@@ -509,6 +529,21 @@ class SupabaseClient:
             if not p_img and valid_offer_imgs:
                 p_img = valid_offer_imgs[0]
 
+            # Build comprehensive product gallery
+            raw_prod_gallery = p.get("gallery_images") or []
+            if isinstance(raw_prod_gallery, str):
+                try:
+                    raw_prod_gallery = json.loads(raw_prod_gallery)
+                except Exception:
+                    raw_prod_gallery = [raw_prod_gallery]
+            prod_gallery = []
+            if p_img:
+                prod_gallery.append(p_img)
+            for g_img in raw_prod_gallery:
+                c = clean_image_url(g_img)
+                if c and c not in prod_gallery:
+                    prod_gallery.append(c)
+
             offers = []
             for o in sorted(offers_raw, key=lambda x: x.get("current_price") or 99999):
                 sid = (o.get("store_id") or "").lower().strip()
@@ -517,6 +552,25 @@ class SupabaseClient:
                 cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
                 is_free = (cost == 0.0)
                 off_img = clean_image_url(o.get("image_url")) or p_img
+
+                raw_off_gallery = o.get("gallery_images") or []
+                if isinstance(raw_off_gallery, str):
+                    try:
+                        raw_off_gallery = json.loads(raw_off_gallery)
+                    except Exception:
+                        raw_off_gallery = [raw_off_gallery]
+                off_gallery = []
+                if off_img:
+                    off_gallery.append(off_img)
+                for og in raw_off_gallery:
+                    c = clean_image_url(og)
+                    if c and c not in off_gallery:
+                        off_gallery.append(c)
+
+                # Add offer photos into product gallery as well
+                for u in off_gallery:
+                    if u not in prod_gallery:
+                        prod_gallery.append(u)
 
                 offers.append({
                     "store_id": o.get("store_id"),
@@ -528,6 +582,7 @@ class SupabaseClient:
                     "url": o.get("product_url"),
                     "product_url": o.get("product_url"),
                     "image_url": off_img,
+                    "gallery_images": off_gallery,
                     "title": o.get("raw_title") or p.get("canonical_name"),
                     "brand": p.get("brand"),
                     "in_stock": o.get("in_stock", True),
@@ -551,6 +606,7 @@ class SupabaseClient:
                 "category": p.get("category"),
                 "gender": p.get("gender", "Unisex"),
                 "image_url": p_img,
+                "gallery_images": prod_gallery,
                 "offer_count": len(offers),
                 "best_price": min_p,
                 "max_price": max_p,
@@ -622,7 +678,7 @@ class SupabaseClient:
                 "badges": ["Rivenditore Verificato", "Spedizione Rapida", "Pagamenti Sicuri"]
             }
 
-        endpoint = f"store_offers?store_id=eq.{sid}&select=id,raw_title,current_price,original_price,discount_pct,product_url,image_url,product_id,products(id,canonical_name,brand,category)&order=discount_pct.desc.nullslast&limit={limit}"
+        endpoint = f"store_offers?store_id=eq.{sid}&select=id,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,product_id,products(id,canonical_name,brand,category,gallery_images)&order=discount_pct.desc.nullslast&limit={limit}"
         resp = self._request(endpoint)
         offers_data = resp.get("data") or []
 
@@ -636,6 +692,20 @@ class SupabaseClient:
             is_free = (cost == 0.0)
             off_img = clean_image_url(o.get("image_url")) or clean_image_url(p_obj.get("image_url"))
 
+            raw_off_gallery = o.get("gallery_images") or []
+            if isinstance(raw_off_gallery, str):
+                try:
+                    raw_off_gallery = json.loads(raw_off_gallery)
+                except Exception:
+                    raw_off_gallery = [raw_off_gallery]
+            off_gallery = []
+            if off_img:
+                off_gallery.append(off_img)
+            for og in raw_off_gallery:
+                c = clean_image_url(og)
+                if c and c not in off_gallery:
+                    off_gallery.append(c)
+
             prods.append({
                 "id": o.get("id"),
                 "product_id": o.get("product_id"),
@@ -647,6 +717,7 @@ class SupabaseClient:
                 "discount_pct": o.get("discount_pct"),
                 "product_url": o.get("product_url"),
                 "image_url": off_img,
+                "gallery_images": off_gallery,
                 "shipping_cost": cost,
                 "total_price": round(price + cost, 2),
                 "is_free_shipping": is_free,

@@ -53,6 +53,7 @@ class Offer(BaseModel):
     currency: str = "EUR"
     url: str
     image_url: Optional[str] = None
+    gallery_images: List[str] = Field(default_factory=list)
     available_sizes: List[str] = Field(default_factory=list)
     in_stock: bool = True
     scraped_at: datetime = Field(default_factory=datetime.now)
@@ -61,6 +62,20 @@ class Offer(BaseModel):
     @classmethod
     def validate_image_url(cls, v: Any) -> Optional[str]:
         return clean_image_url(v)
+
+    @field_validator("gallery_images", mode="before")
+    @classmethod
+    def validate_gallery_images(cls, v: Any) -> List[str]:
+        if not v:
+            return []
+        if isinstance(v, str):
+            v = [v]
+        cleaned = []
+        for img in v:
+            c = clean_image_url(img)
+            if c and c not in cleaned:
+                cleaned.append(c)
+        return cleaned
 
     def matches_size(self, target_size: Optional[str]) -> bool:
         """Check if requested size is available, handling EU <-> US conversions."""
@@ -134,12 +149,27 @@ class MatchedProductGroup(BaseModel):
     canonical_name: str
     brand: Optional[str] = None
     image_url: Optional[str] = None
+    gallery_images: List[str] = Field(default_factory=list)
     offers: List[Offer] = Field(default_factory=list)
 
     @field_validator("image_url", mode="before")
     @classmethod
     def validate_image_url(cls, v: Any) -> Optional[str]:
         return clean_image_url(v)
+
+    @field_validator("gallery_images", mode="before")
+    @classmethod
+    def validate_gallery_images(cls, v: Any) -> List[str]:
+        if not v:
+            return []
+        if isinstance(v, str):
+            v = [v]
+        cleaned = []
+        for img in v:
+            c = clean_image_url(img)
+            if c and c not in cleaned:
+                cleaned.append(c)
+        return cleaned
 
     @computed_field
     @property

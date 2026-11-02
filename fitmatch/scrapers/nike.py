@@ -90,6 +90,11 @@ class NikeScraper(BaseScraper):
 
                     imgs = p.get("colorwayImages") or {}
                     img_url = imgs.get("squarishURL") or imgs.get("portraitURL")
+                    gallery_urls = []
+                    for k in ["squarishURL", "portraitURL"]:
+                        u = imgs.get(k)
+                        if u and u not in gallery_urls:
+                            gallery_urls.append(u)
 
                     offer = Offer(
                         store_id=self.store_id,
@@ -102,6 +107,7 @@ class NikeScraper(BaseScraper):
                         discount_pct=float(disc_pct) if disc_pct and disc_pct > 0 else None,
                         url=purl,
                         image_url=img_url,
+                        gallery_images=gallery_urls,
                         in_stock=True
                     )
                     offers.append(offer)

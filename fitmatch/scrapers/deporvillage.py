@@ -77,13 +77,17 @@ class DeporvillageScraper(BaseScraper):
 
             orig_price = pvp if (pvp and pvp > price) else None
 
-            # Build high-resolution image URL
-            gallery = h.get("gallery") or {}
-            images = gallery.get("images", []) if isinstance(gallery, dict) else []
-            img_url = None
-            if images and isinstance(images, list) and images[0]:
-                img_name = images[0]
-                img_url = f"https://cdn.deporvillage.com/cdn-cgi/image/h=500,w=400,f=auto,q=75,fit=contain,background=white/product-vertical/{img_name}"
+            # Build high-resolution image URL & full gallery
+            gallery_data = h.get("gallery") or {}
+            images = gallery_data.get("images", []) if isinstance(gallery_data, dict) else (h.get("images") or [])
+            if not isinstance(images, list):
+                images = []
+
+            gallery_urls = [
+                f"https://cdn.deporvillage.com/cdn-cgi/image/h=500,w=400,f=auto,q=75,fit=contain,background=white/product-vertical/{img}"
+                for img in images if img
+            ]
+            img_url = gallery_urls[0] if gallery_urls else None
 
             # Extract available sizes in stock
             raw_sizes = h.get("sizes") or []
@@ -102,6 +106,7 @@ class DeporvillageScraper(BaseScraper):
                     original_price=orig_price,
                     url=url_str,
                     image_url=img_url,
+                    gallery_images=gallery_urls,
                     available_sizes=sizes,
                     in_stock=True
                 )
