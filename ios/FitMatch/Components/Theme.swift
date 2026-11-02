@@ -44,6 +44,11 @@ struct ShopStoreLogo: View {
 
     var initials: String {
         let s = storeName.lowercased()
+        if s.contains("starcow") { return "STARCOW" }
+        if s.contains("peakpulse") || s.contains("peak") { return "PP" }
+        if s.contains("diez") || s.contains("numero") { return "10" }
+        if s.contains("drip") { return "DRIP" }
+        if s.contains("outlet") { return "SO" }
         if s.contains("end") { return "END." }
         if s.contains("arc") { return "ARC" }
         if s.contains("cisalfa") { return "CS" }
@@ -58,11 +63,18 @@ struct ShopStoreLogo: View {
         if s.contains("sportler") { return "SP" }
         if s.contains("nike") { return "NK" }
         if s.contains("adidas") { return "AD" }
-        return "FM"
+        let words = storeName.components(separatedBy: " ").filter { !$0.isEmpty }
+        if words.count >= 2 {
+            return "\(words[0].prefix(1))\(words[1].prefix(1))".uppercased()
+        }
+        return String(storeName.prefix(2)).uppercased()
     }
 
     var brandColor: Color {
         let s = storeName.lowercased()
+        if s.contains("starcow") { return Color.black }
+        if s.contains("peak") { return Color(red: 24/255, green: 24/255, blue: 27/255) }
+        if s.contains("diez") || s.contains("numero") { return Color(red: 235/255, green: 235/255, blue: 230/255) }
         if s.contains("cisalfa") { return Color(red: 227/255, green: 28/255, blue: 37/255) }
         if s.contains("maxi") { return Color(red: 245/255, green: 130/255, blue: 32/255) }
         if s.contains("mister") { return Color(red: 0/255, green: 114/255, blue: 206/255) }
@@ -100,8 +112,11 @@ struct ShopStoreLogo: View {
                         .fill(brandColor)
                         .frame(width: size, height: size)
                     Text(initials)
-                        .font(.system(size: size * 0.42, weight: .black, design: .rounded))
-                        .foregroundColor(.white)
+                        .font(.system(size: initials.count > 4 ? size * 0.22 : (initials.count > 2 ? size * 0.32 : size * 0.42), weight: .black, design: .rounded))
+                        .foregroundColor(brandColor == Color(red: 235/255, green: 235/255, blue: 230/255) ? .black : .white)
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                        .padding(.horizontal, 2)
                 }
             }
 

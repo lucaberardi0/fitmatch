@@ -26,13 +26,16 @@ class FollowedStoresManager: ObservableObject {
     static let shared = FollowedStoresManager()
 
     @Published var followedStores: [FollowedStoreItem] = []
+    @Published var hiddenStoreIds: Set<String> = []
     @Published var isLoading: Bool = false
     @Published var promoPosts: [StorePromoPost] = []
 
     private let storageKey = "fitmatch_followed_stores_cache"
+    private let hiddenStorageKey = "fitmatch_hidden_stores_cache"
 
     init() {
         loadFromCache()
+        loadHiddenStoresFromCache()
         setupPromoPosts()
         Task {
             await fetchFollowedStores()
@@ -40,6 +43,19 @@ class FollowedStoresManager: ObservableObject {
     }
 
     // MARK: - Local Cache
+
+    private func loadHiddenStoresFromCache() {
+        if let data = UserDefaults.standard.data(forKey: hiddenStorageKey),
+           let decoded = try? JSONDecoder().decode([String].self, from: data) {
+            self.hiddenStoreIds = Set(decoded)
+        }
+    }
+
+    private func saveHiddenStoresToCache() {
+        if let encoded = try? JSONEncoder().encode(Array(hiddenStoreIds)) {
+            UserDefaults.standard.set(encoded, forKey: hiddenStorageKey)
+        }
+    }
 
     private func loadFromCache() {
         if let data = UserDefaults.standard.data(forKey: storageKey),
@@ -65,11 +81,42 @@ class FollowedStoresManager: ObservableObject {
         }
     }
 
-    // MARK: - Query
+    // MARK: - Query & Filter
 
     func isFollowing(storeId: String) -> Bool {
         let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         return followedStores.contains { $0.store_id.lowercased() == cleanId }
+    }
+
+    func isStoreHidden(storeId: String) -> Bool {
+        let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        return hiddenStoreIds.contains(cleanId)
+    }
+
+    func hideStore(storeId: String) {
+        let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let gen = UIImpactFeedbackGenerator(style: .medium)
+        gen.impactOccurred()
+        _ = withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+            hiddenStoreIds.insert(cleanId)
+        }
+        saveHiddenStoresToCache()
+    }
+
+    func unhideStore(storeId: String) {
+        let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let gen = UIImpactFeedbackGenerator(style: .light)
+        gen.impactOccurred()
+        _ = withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+            hiddenStoreIds.remove(cleanId)
+        }
+        saveHiddenStoresToCache()
+    }
+
+    func reportStore(storeId: String, storeName: String, reason: String = "Inaccurate prices or bad experience") {
+        let gen = UINotificationFeedbackGenerator()
+        gen.notificationOccurred(.success)
+        print("FitMatch Store Report recorded for \(storeName) (\(storeId)): \(reason)")
     }
 
     // MARK: - Actions

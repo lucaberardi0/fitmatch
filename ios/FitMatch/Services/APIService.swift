@@ -36,7 +36,7 @@ class APIService: ObservableObject {
     func checkHealth() async -> Bool {
         guard let url = URL(string: "\(baseURL)/health") else { return false }
         do {
-            let (data, response) = try await session.data(from: url)
+            let (_, response) = try await session.data(from: url)
             if let http = response as? HTTPURLResponse, http.statusCode == 200 {
                 self.isCloudOnline = true
                 return true
