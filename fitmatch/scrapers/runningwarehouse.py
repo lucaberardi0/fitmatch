@@ -66,9 +66,19 @@ class RunningWarehouseScraper(BaseScraper):
                 if m_srp:
                     orig_price = self.parse_price(m_srp.group(1))
 
+                pid = cell.get("data-code")
+
                 # Image URL (upgrade to higher resolution 500px if available)
                 img_el = cell.select_one("img")
-                img_url = img_el.get("src") if img_el else None
+                raw_img = None
+                if img_el:
+                    raw_img = img_el.get("src")
+                    if not raw_img or "blank.gif" in raw_img:
+                        raw_img = img_el.get("data-src") or (img_el.get("data-srcset", "").split(" ")[0] if img_el.get("data-srcset") else None)
+                if (not raw_img or not raw_img.startswith("http")) and pid:
+                    raw_img = f"https://img.runningwarehouse.eu/watermark/rs.php?path={pid}-1.jpg&nw=500"
+
+                img_url = raw_img if raw_img and raw_img.startswith("http") else None
                 if img_url and "nw=210" in img_url:
                     img_url = img_url.replace("nw=210", "nw=500")
 
@@ -82,8 +92,6 @@ class RunningWarehouseScraper(BaseScraper):
                         if cleaned:
                             cleaned = re.sub(r"\.0$", "", cleaned)
                             sizes.append(cleaned)
-
-                pid = cell.get("data-code")
 
                 offers.append(
                     Offer(

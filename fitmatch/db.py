@@ -4,7 +4,7 @@ import uuid
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from fitmatch.models import Offer, MatchedProductGroup
+from fitmatch.models import Offer, MatchedProductGroup, clean_image_url
 from fitmatch.supabase_client import SupabaseClient, SUPABASE_URL, SUPABASE_KEY
 
 logger = logging.getLogger("fitmatch.db")
@@ -149,6 +149,7 @@ class Database:
         offer: Offer
     ) -> str:
         """Upsert canonical product and record current store offer + price history."""
+        clean_off_img = clean_image_url(offer.image_url)
         if self.use_supabase and self.supabase:
             try:
                 self.supabase.upsert_product_and_offer(
@@ -157,7 +158,7 @@ class Database:
                     brand=brand,
                     category=category,
                     gender=gender,
-                    image_url=offer.image_url,
+                    image_url=clean_off_img,
                     offer=offer
                 )
                 return cluster_key
@@ -172,9 +173,12 @@ class Database:
                 ON CONFLICT(id) DO UPDATE SET
                     canonical_name = excluded.canonical_name,
                     brand = COALESCE(excluded.brand, products.brand),
-                    image_url = COALESCE(products.image_url, excluded.image_url),
+                    image_url = CASE 
+                        WHEN products.image_url IS NOT NULL AND products.image_url LIKE 'http%' AND products.image_url NOT LIKE '%blank.gif%' THEN products.image_url
+                        ELSE excluded.image_url
+                    END,
                     updated_at = CURRENT_TIMESTAMP
-            """, (cluster_key, canonical_name, brand, category, gender, offer.image_url))
+            """, (cluster_key, canonical_name, brand, category, gender, clean_off_img))
 
             # 2. Offer ID is based on store_id + URL hash or store's product ID
             offer_id = f"{offer.store_id}:{offer.product_id or abs(hash(offer.url))}"
@@ -211,7 +215,7 @@ class Database:
                 offer.original_price,
                 offer.discount_pct,
                 offer.url,
-                offer.image_url,
+                clean_off_img,
                 1 if offer.in_stock else 0
             ))
 

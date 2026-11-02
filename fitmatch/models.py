@@ -1,6 +1,19 @@
-from pydantic import BaseModel, Field, computed_field
-from typing import Optional, List
+from pydantic import BaseModel, Field, computed_field, field_validator
+from typing import Optional, List, Any
 from datetime import datetime
+
+
+def clean_image_url(url: Optional[str]) -> Optional[str]:
+    """Validate and sanitize product/offer image URLs, eliminating placeholders and invalid paths."""
+    if not url or not isinstance(url, str):
+        return None
+    cleaned = url.strip()
+    if not (cleaned.startswith("http://") or cleaned.startswith("https://")):
+        return None
+    lower = cleaned.lower()
+    if any(p in lower for p in ("blank.gif", "pixel.gif", "spacer.gif", "placeholder")):
+        return None
+    return cleaned
 
 
 EU_TO_US_MEN = {
@@ -43,6 +56,11 @@ class Offer(BaseModel):
     available_sizes: List[str] = Field(default_factory=list)
     in_stock: bool = True
     scraped_at: datetime = Field(default_factory=datetime.now)
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def validate_image_url(cls, v: Any) -> Optional[str]:
+        return clean_image_url(v)
 
     def matches_size(self, target_size: Optional[str]) -> bool:
         """Check if requested size is available, handling EU <-> US conversions."""
@@ -117,6 +135,11 @@ class MatchedProductGroup(BaseModel):
     brand: Optional[str] = None
     image_url: Optional[str] = None
     offers: List[Offer] = Field(default_factory=list)
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def validate_image_url(cls, v: Any) -> Optional[str]:
+        return clean_image_url(v)
 
     @computed_field
     @property

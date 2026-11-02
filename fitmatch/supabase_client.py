@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 import certifi
 
-from fitmatch.models import Offer, STORE_SHIPPING_RULES
+from fitmatch.models import Offer, STORE_SHIPPING_RULES, clean_image_url
 
 logger = logging.getLogger("fitmatch.supabase")
 
@@ -260,15 +260,19 @@ class SupabaseClient:
     ) -> None:
         """Upsert a canonical product and its retailer offer directly to Supabase Cloud PostgreSQL."""
         now_iso = datetime.now(timezone.utc).isoformat()
-        prod_row = {
+        clean_offer_img = clean_image_url(offer.image_url)
+        clean_prod_img = clean_image_url(image_url) or clean_offer_img
+
+        prod_row: Dict[str, Any] = {
             "id": cluster_key,
             "canonical_name": canonical_name,
             "brand": brand,
             "category": category,
             "gender": gender or "Unisex",
-            "image_url": image_url or offer.image_url,
             "updated_at": now_iso
         }
+        if clean_prod_img:
+            prod_row["image_url"] = clean_prod_img
         self.upsert_products([prod_row])
 
         offer_id = f"{offer.store_id}:{offer.product_id or offer.url}"
@@ -287,7 +291,7 @@ class SupabaseClient:
             "original_price": float(offer.original_price) if offer.original_price else None,
             "discount_pct": float(offer.discount_pct) if offer.discount_pct else None,
             "product_url": offer.url,
-            "image_url": offer.image_url,
+            "image_url": clean_offer_img or clean_prod_img,
             "in_stock": offer.in_stock,
             "available_sizes": offer.available_sizes or [],
             "last_checked_at": now_iso
@@ -339,16 +343,23 @@ class SupabaseClient:
         for it in items:
             ck = it["cluster_key"]
             off: Offer = it["offer"]
+            clean_off_img = clean_image_url(off.image_url)
+
             if ck not in prod_map:
-                prod_map[ck] = {
+                p_entry: Dict[str, Any] = {
                     "id": ck,
                     "canonical_name": it["canonical_name"],
                     "brand": it.get("brand"),
                     "category": it.get("category", "running_shoes"),
                     "gender": it.get("gender", "Unisex"),
-                    "image_url": off.image_url,
                     "updated_at": now_iso
                 }
+                if clean_off_img:
+                    p_entry["image_url"] = clean_off_img
+                prod_map[ck] = p_entry
+            elif clean_off_img and "image_url" not in prod_map[ck]:
+                prod_map[ck]["image_url"] = clean_off_img
+
             oid = f"{off.store_id}:{off.product_id or off.url}"
             offer_rows.append({
                 "id": oid,
@@ -360,7 +371,7 @@ class SupabaseClient:
                 "original_price": float(off.original_price) if off.original_price else None,
                 "discount_pct": float(off.discount_pct) if off.discount_pct else None,
                 "product_url": off.url,
-                "image_url": off.image_url,
+                "image_url": clean_off_img or prod_map.get(ck, {}).get("image_url"),
                 "in_stock": off.in_stock,
                 "available_sizes": off.available_sizes or [],
                 "last_checked_at": now_iso
@@ -492,6 +503,12 @@ class SupabaseClient:
             if not offers_raw:
                 continue
 
+            # Fallback product image if missing/invalid
+            p_img = clean_image_url(p.get("image_url"))
+            valid_offer_imgs = [clean_image_url(o.get("image_url")) for o in offers_raw if clean_image_url(o.get("image_url"))]
+            if not p_img and valid_offer_imgs:
+                p_img = valid_offer_imgs[0]
+
             offers = []
             for o in sorted(offers_raw, key=lambda x: x.get("current_price") or 99999):
                 sid = (o.get("store_id") or "").lower().strip()
@@ -499,6 +516,7 @@ class SupabaseClient:
                 price = float(o.get("current_price", 0.0))
                 cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
                 is_free = (cost == 0.0)
+                off_img = clean_image_url(o.get("image_url")) or p_img
 
                 offers.append({
                     "store_id": o.get("store_id"),
@@ -509,7 +527,7 @@ class SupabaseClient:
                     "discount_pct": o.get("discount_pct"),
                     "url": o.get("product_url"),
                     "product_url": o.get("product_url"),
-                    "image_url": o.get("image_url") or p.get("image_url"),
+                    "image_url": off_img,
                     "title": o.get("raw_title") or p.get("canonical_name"),
                     "brand": p.get("brand"),
                     "in_stock": o.get("in_stock", True),
@@ -532,7 +550,7 @@ class SupabaseClient:
                 "brand": p.get("brand"),
                 "category": p.get("category"),
                 "gender": p.get("gender", "Unisex"),
-                "image_url": p.get("image_url"),
+                "image_url": p_img,
                 "offer_count": len(offers),
                 "best_price": min_p,
                 "max_price": max_p,
@@ -616,6 +634,7 @@ class SupabaseClient:
             price = float(o.get("current_price") or 0.0)
             cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
             is_free = (cost == 0.0)
+            off_img = clean_image_url(o.get("image_url")) or clean_image_url(p_obj.get("image_url"))
 
             prods.append({
                 "id": o.get("id"),
@@ -627,7 +646,7 @@ class SupabaseClient:
                 "original_price": o.get("original_price"),
                 "discount_pct": o.get("discount_pct"),
                 "product_url": o.get("product_url"),
-                "image_url": o.get("image_url"),
+                "image_url": off_img,
                 "shipping_cost": cost,
                 "total_price": round(price + cost, 2),
                 "is_free_shipping": is_free,
@@ -663,7 +682,11 @@ class SupabaseClient:
     def get_store_showcases(self, limit_per_store: int = 6) -> List[Dict[str, Any]]:
         """Return store highlights with their best discounted items from Supabase."""
         result = []
-        for sid in ["misterrunning", "alltricks", "top4running", "maxisport", "cisalfa", "runningwarehouse", "deporvillage"]:
+        for sid in [
+            "nike", "misterrunning", "alltricks", "top4running",
+            "maxisport", "cisalfa", "runningwarehouse", "deporvillage",
+            "sportler", "nencini", "decathlon"
+        ]:
             details = self.get_store_details(sid, limit=limit_per_store)
             if details:
                 result.append({

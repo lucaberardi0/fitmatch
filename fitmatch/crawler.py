@@ -721,12 +721,22 @@ class CategoryCrawler:
                             orig_price = self.runningwarehouse.parse_price(strike_el.get_text())
 
                     brand = self.normalizer.extract_brand(title)
-                    img_el = cell.select_one("img")
-                    img_url = (img_el.get("src") or img_el.get("data-src")) if img_el else None
-
                     pid = None
                     if "descpage-" in product_url:
                         pid = product_url.split("descpage-")[-1].split(".")[0]
+
+                    img_el = cell.select_one("img")
+                    raw_img = None
+                    if img_el:
+                        raw_img = img_el.get("src")
+                        if not raw_img or "blank.gif" in raw_img:
+                            raw_img = img_el.get("data-src") or (img_el.get("data-srcset", "").split(" ")[0] if img_el.get("data-srcset") else None)
+                    if (not raw_img or not raw_img.startswith("http")) and pid:
+                        raw_img = f"https://img.runningwarehouse.eu/watermark/rs.php?path={pid}-1.jpg&nw=500"
+
+                    img_url = raw_img if raw_img and raw_img.startswith("http") else None
+                    if img_url and "nw=210" in img_url:
+                        img_url = img_url.replace("nw=210", "nw=500")
 
                     offer = Offer(
                         store_id=self.runningwarehouse.store_id,
@@ -844,10 +854,13 @@ class CategoryCrawler:
 
                     # Image
                     img_url = None
-                    gallery = h.get("gallery")
-                    if isinstance(gallery, list) and gallery:
-                        img_url = gallery[0]
-                    if not img_url:
+                    images = h.get("images")
+                    if isinstance(images, list) and images and images[0]:
+                        img_name = images[0]
+                        img_url = f"https://cdn.deporvillage.com/cdn-cgi/image/h=500,w=400,f=auto,q=75,fit=contain,background=white/product-vertical/{img_name}"
+                    elif isinstance(h.get("gallery"), list) and h.get("gallery"):
+                        img_url = h["gallery"][0]
+                    elif h.get("image") or h.get("image_url"):
                         img_url = h.get("image") or h.get("image_url")
 
                     # Sizes
