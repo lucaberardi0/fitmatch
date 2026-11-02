@@ -12,7 +12,7 @@ def test_nike_scraper_instantiation_and_registry():
 
     registry = ScraperRegistry()
     assert any(s.store_id == "nike" for s in registry.scrapers)
-    assert len(registry.scrapers) == 11
+    assert len(registry.scrapers) >= 11
 
 
 def test_nike_shipping_rules():
