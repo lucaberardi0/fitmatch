@@ -22,7 +22,7 @@ struct MainTabView: View {
                 case 3:
                     WishlistView(selectedTab: $selectedTab)
                 default:
-                    HomeView(selectedTab: $selectedTab, initialSubTab: .perTe)
+                    HomeView(selectedTab: $selectedTab, initialSubTab: .offerte)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

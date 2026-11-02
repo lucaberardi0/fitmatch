@@ -36,6 +36,7 @@ struct ShopStoreLogo: View {
     var showVerified: Bool = true
     var showLabel: Bool = true
     var size: CGFloat = 16
+    var hasRedRing: Bool = false
 
     var assetName: String? {
         let s = storeName.lowercased()
@@ -111,7 +112,7 @@ struct ShopStoreLogo: View {
                     .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: 1)
                     .overlay(
                         Circle()
-                            .stroke(Color.shopBorder, lineWidth: 0.8)
+                            .stroke(hasRedRing ? Color(red: 225/255, green: 55/255, blue: 45/255) : Color.shopBorder, lineWidth: hasRedRing ? 1.6 : 0.8)
                     )
 
                 if let asset = assetName, let uiImage = UIImage(named: asset) {
@@ -124,6 +125,12 @@ struct ShopStoreLogo: View {
                     Circle()
                         .fill(brandColor)
                         .frame(width: size, height: size)
+                        .overlay(
+                            hasRedRing ?
+                                Circle()
+                                    .stroke(Color(red: 225/255, green: 55/255, blue: 45/255), lineWidth: 1.6)
+                                : nil
+                        )
                     Text(initials)
                         .font(.system(size: initials.count > 4 ? size * 0.22 : (initials.count > 2 ? size * 0.32 : size * 0.42), weight: .black, design: .rounded))
                         .foregroundColor(brandColor == Color(red: 235/255, green: 235/255, blue: 230/255) ? .black : .white)

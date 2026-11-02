@@ -77,7 +77,11 @@ struct HomeView: View {
                                 }
                             })
                         case .salvati:
-                            WishlistView(selectedTab: $selectedTab, embedded: true)
+                            WishlistView(selectedTab: $selectedTab, embedded: true, onSelectPerTe: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                    activeSubTab = .perTe
+                                }
+                            })
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -361,7 +365,6 @@ struct HomeView: View {
                         ZStack {
                             RoundedRectangle(cornerRadius: 18)
                                 .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
-                                .frame(width: thumbSize, height: thumbSize)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 18)
                                         .stroke(Color.black.opacity(0.04), lineWidth: 1)
@@ -373,19 +376,24 @@ struct HomeView: View {
                                         img
                                             .resizable()
                                             .scaledToFit()
-                                            .padding(6)
+                                            .frame(width: thumbSize - 16, height: thumbSize - 16)
+                                            .clipped()
                                     } else {
                                         Image(systemName: "photo")
                                             .font(.system(size: 22))
                                             .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                            .frame(width: thumbSize - 16, height: thumbSize - 16)
                                     }
                                 }
                             } else {
                                 Image(systemName: "clock")
                                     .font(.system(size: 22))
                                     .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                                    .frame(width: thumbSize - 16, height: thumbSize - 16)
                             }
                         }
+                        .frame(width: thumbSize, height: thumbSize)
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
                     }
                     .buttonStyle(.plain)
                 }
@@ -398,7 +406,6 @@ struct HomeView: View {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 18)
                                     .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
-                                    .frame(width: thumbSize, height: thumbSize)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 18)
                                             .stroke(Color.black.opacity(0.04), lineWidth: 1)
@@ -410,15 +417,19 @@ struct HomeView: View {
                                             img
                                                 .resizable()
                                                 .scaledToFit()
-                                                .padding(6)
+                                                .frame(width: thumbSize - 16, height: thumbSize - 16)
+                                                .clipped()
                                         } else {
                                             Image(systemName: "tag.fill")
                                                 .font(.system(size: 22))
                                                 .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                                .frame(width: thumbSize - 16, height: thumbSize - 16)
                                         }
                                     }
                                 }
                             }
+                            .frame(width: thumbSize, height: thumbSize)
+                            .clipShape(RoundedRectangle(cornerRadius: 18))
                         }
                         .buttonStyle(.plain)
                     }
@@ -426,7 +437,7 @@ struct HomeView: View {
             }
         }
         .padding(16)
-        .frame(width: cardWidth)
+        .frame(width: cardWidth, height: 162)
         .background(Color.white)
         .cornerRadius(24)
         .overlay(
@@ -477,7 +488,6 @@ struct HomeView: View {
                         ZStack {
                             RoundedRectangle(cornerRadius: 18)
                                 .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
-                                .frame(width: thumbSize, height: thumbSize)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 18)
                                         .stroke(Color.black.opacity(0.04), lineWidth: 1)
@@ -489,19 +499,24 @@ struct HomeView: View {
                                         img
                                             .resizable()
                                             .scaledToFit()
-                                            .padding(6)
+                                            .frame(width: thumbSize - 16, height: thumbSize - 16)
+                                            .clipped()
                                     } else {
                                         Image(systemName: "heart.fill")
                                             .font(.system(size: 20))
                                             .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.4))
+                                            .frame(width: thumbSize - 16, height: thumbSize - 16)
                                     }
                                 }
                             } else {
                                 Image(systemName: "heart.fill")
                                     .font(.system(size: 20))
                                     .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.4))
+                                    .frame(width: thumbSize - 16, height: thumbSize - 16)
                             }
                         }
+                        .frame(width: thumbSize, height: thumbSize)
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
                     }
                     .buttonStyle(.plain)
                 }
@@ -514,7 +529,6 @@ struct HomeView: View {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 18)
                                     .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
-                                    .frame(width: thumbSize, height: thumbSize)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 18)
                                             .stroke(Color.black.opacity(0.04), lineWidth: 1)
@@ -526,15 +540,19 @@ struct HomeView: View {
                                             img
                                                 .resizable()
                                                 .scaledToFit()
-                                                .padding(6)
+                                                .frame(width: thumbSize - 16, height: thumbSize - 16)
+                                                .clipped()
                                         } else {
                                             Image(systemName: "tag.fill")
                                                 .font(.system(size: 22))
                                                 .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                                .frame(width: thumbSize - 16, height: thumbSize - 16)
                                         }
                                     }
                                 }
                             }
+                            .frame(width: thumbSize, height: thumbSize)
+                            .clipShape(RoundedRectangle(cornerRadius: 18))
                         }
                         .buttonStyle(.plain)
                     }
@@ -542,7 +560,7 @@ struct HomeView: View {
             }
         }
         .padding(16)
-        .frame(width: cardWidth)
+        .frame(width: cardWidth, height: 162)
         .background(Color.white)
         .cornerRadius(24)
         .overlay(
@@ -846,7 +864,7 @@ struct HomeView: View {
                             .stroke(Color.black.opacity(0.04), lineWidth: 1)
                     )
 
-                // Product Image Centered
+                // Product Image Centered with Fixed Frame Height
                 VStack {
                     Spacer()
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
@@ -855,17 +873,20 @@ struct HomeView: View {
                                 img
                                     .resizable()
                                     .scaledToFit()
-                                    .padding(8)
+                                    .frame(width: 120, height: 120)
+                                    .clipped()
                             } else {
                                 Image(systemName: "photo")
                                     .font(.system(size: 26))
                                     .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                    .frame(width: 120, height: 120)
                             }
                         }
                     } else {
                         Image(systemName: "tag.fill")
                             .font(.system(size: 26))
                             .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                            .frame(width: 120, height: 120)
                     }
                     Spacer()
                 }
@@ -918,6 +939,8 @@ struct HomeView: View {
                 }
                 .frame(width: 138, height: 178)
             }
+            .frame(width: 138, height: 178)
+            .clipShape(RoundedRectangle(cornerRadius: 18))
         }
         .buttonStyle(.plain)
     }
@@ -936,7 +959,7 @@ struct HomeView: View {
                             .stroke(Color.black.opacity(0.04), lineWidth: 1)
                     )
 
-                // Product Image Centered
+                // Product Image Centered with Fixed Height
                 VStack {
                     Spacer()
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
@@ -945,17 +968,20 @@ struct HomeView: View {
                                 img
                                     .resizable()
                                     .scaledToFit()
-                                    .padding(8)
+                                    .frame(maxWidth: .infinity, maxHeight: 118)
+                                    .clipped()
                             } else {
                                 Image(systemName: "photo")
                                     .font(.system(size: 26))
                                     .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                    .frame(maxWidth: .infinity, maxHeight: 118)
                             }
                         }
                     } else {
                         Image(systemName: "tshirt.fill")
                             .font(.system(size: 26))
                             .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                            .frame(maxWidth: .infinity, maxHeight: 118)
                     }
                     Spacer()
                 }

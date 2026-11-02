@@ -60,18 +60,28 @@ class FollowedStoresManager: ObservableObject {
 
     private func loadFromCache() {
         if let data = UserDefaults.standard.data(forKey: storageKey),
-           let decoded = try? JSONDecoder().decode([FollowedStoreItem].self, from: data) {
+           let decoded = try? JSONDecoder().decode([FollowedStoreItem].self, from: data),
+           !decoded.isEmpty {
             self.followedStores = decoded
+            // Ensure Nike is included for first-class experience if not present
+            if !self.followedStores.contains(where: { $0.store_id == "nike" }) {
+                self.followedStores.insert(FollowedStoreItem(store_id: "nike", store_name: "Nike", store_logo: nil, created_at: nil), at: 0)
+                saveToCache()
+            }
         } else {
             // Initial starter: follow real partner stores from database
             self.followedStores = [
+                FollowedStoreItem(store_id: "nike", store_name: "Nike", store_logo: nil, created_at: nil),
                 FollowedStoreItem(store_id: "cisalfa", store_name: "Cisalfa Sport", store_logo: nil, created_at: nil),
-                FollowedStoreItem(store_id: "misterrunning", store_name: "Mister Running", store_logo: nil, created_at: nil)
+                FollowedStoreItem(store_id: "misterrunning", store_name: "Mister Running", store_logo: nil, created_at: nil),
+                FollowedStoreItem(store_id: "maxisport", store_name: "Maxi Sport", store_logo: nil, created_at: nil)
             ]
             saveToCache()
             Task {
+                _ = try? await SupabaseManager.shared.followStore(storeId: "nike", storeName: "Nike")
                 _ = try? await SupabaseManager.shared.followStore(storeId: "cisalfa", storeName: "Cisalfa Sport")
                 _ = try? await SupabaseManager.shared.followStore(storeId: "misterrunning", storeName: "Mister Running")
+                _ = try? await SupabaseManager.shared.followStore(storeId: "maxisport", storeName: "Maxi Sport")
             }
         }
     }

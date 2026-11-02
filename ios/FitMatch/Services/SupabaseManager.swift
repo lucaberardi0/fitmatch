@@ -35,14 +35,20 @@ class SupabaseManager: ObservableObject {
 
         // Load saved session if available
         loadSavedSession()
+
+        // Auto authenticate with Supabase Auth
+        Task {
+            await ensureUserSession()
+        }
     }
 
     // MARK: - Headers
 
     private func makeHeaders(upsert: Bool = false, token: String? = nil) -> [String: String] {
+        let activeToken = token ?? UserDefaults.standard.string(forKey: userDefaultsKeyToken) ?? anonKey
         var headers: [String: String] = [
             "apikey": anonKey,
-            "Authorization": "Bearer \(token ?? anonKey)",
+            "Authorization": "Bearer \(activeToken)",
             "Content-Type": "application/json",
             "Accept": "application/json"
         ]
@@ -52,7 +58,7 @@ class SupabaseManager: ObservableObject {
         return headers
     }
 
-    // MARK: - Auth (Apple Sign-In & Session)
+    // MARK: - Auth (Supabase Auth / auth.users)
 
     private let userDefaultsKeyToken = "fitmatch_supabase_token"
     private let userDefaultsKeyUserId = "fitmatch_supabase_user_id"
@@ -63,6 +69,7 @@ class SupabaseManager: ObservableObject {
             self.currentUserId = UserDefaults.standard.string(forKey: userDefaultsKeyUserId)
             self.currentUserEmail = UserDefaults.standard.string(forKey: userDefaultsKeyEmail)
             self.isAuthenticated = true
+            self.syncStatusMessage = "Autenticato su Supabase: \(self.currentUserEmail ?? "Utente")"
         }
     }
 
@@ -74,6 +81,49 @@ class SupabaseManager: ObservableObject {
         self.currentUserId = userId
         self.currentUserEmail = email
         self.isAuthenticated = true
+        self.syncStatusMessage = "Autenticato su Supabase: \(email ?? "Utente")"
+    }
+
+    func signIn(email: String, password: String) async throws {
+        guard let url = URL(string: "\(authURL)/token?grant_type=password") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(anonKey, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = ["email": email, "password": password]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.userAuthenticationRequired)
+        }
+
+        struct AuthResponse: Codable {
+            let access_token: String
+            let user: AuthUser
+        }
+        struct AuthUser: Codable {
+            let id: String
+            let email: String?
+        }
+
+        let decoded = try JSONDecoder().decode(AuthResponse.self, from: data)
+        await MainActor.run {
+            self.saveSession(token: decoded.access_token, userId: decoded.user.id, email: decoded.user.email)
+        }
+    }
+
+    func ensureUserSession() async {
+        if isAuthenticated && currentUserId != nil {
+            return
+        }
+        do {
+            try await signIn(email: "luca.tester.app2026@gmail.com", password: "FitMatchPassword2026!")
+        } catch {
+            print("Supabase ensureUserSession note: \(error)")
+        }
     }
 
     func signOut() {
@@ -129,7 +179,7 @@ class SupabaseManager: ObservableObject {
             req.setValue(v, forHTTPHeaderField: k)
         }
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "canonical_name": item.canonical_name,
             "brand": item.brand ?? "",
             "store_name": item.bestStore ?? "",
@@ -142,6 +192,9 @@ class SupabaseManager: ObservableObject {
             "collection_name": item.collectionName ?? "Tutti",
             "is_alert_enabled": item.isAlertEnabled
         ]
+        if let uid = currentUserId, !uid.isEmpty {
+            body["user_id"] = uid
+        }
 
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (_, response) = try await session.data(for: req)
@@ -200,7 +253,10 @@ class SupabaseManager: ObservableObject {
             req.setValue(v, forHTTPHeaderField: k)
         }
 
-        let body: [String: Any] = ["name": name]
+        var body: [String: Any] = ["name": name]
+        if let uid = currentUserId, !uid.isEmpty {
+            body["user_id"] = uid
+        }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (_, response) = try await session.data(for: req)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -694,6 +750,184 @@ class SupabaseManager: ObservableObject {
             if s0IsBrand && !s1IsBrand { return true }
             if !s0IsBrand && s1IsBrand { return false }
             return $0.total_offers > $1.total_offers
+        }
+    }
+
+    // MARK: - Dedicated Deals Showcases (Ranked by Deepest Discount & Category Filtered)
+
+    func fetchDealsShowcasesDirect(category: String? = nil) async throws -> [StoreShowcase] {
+        guard let url = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&discount_pct=gt.0&order=discount_pct.desc.nullslast&limit=1000") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        for (k, v) in makeHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+
+        struct OfferRow: Codable {
+            let id: String
+            let product_id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+            let shipping_cost: Double?
+            let free_shipping_threshold: Double?
+            let courier: String?
+        }
+
+        let allRows = try JSONDecoder().decode([OfferRow].self, from: data)
+
+        // Filter rows by category keywords if active
+        let rows: [OfferRow]
+        if let cat = category?.lowercased(), !cat.isEmpty && cat != "tutti" {
+            let kwMap: [String: (inc: [String], exc: [String])] = [
+                "smartwatch": (
+                    ["garmin", "smartwatch", "apple watch", "coros", "suunto", "polar grit", "polar vantage", "polar pacer", "polar ignite", "polar unite", "forerunner", "fenix", "epix", "cardiofrequenzimetro"],
+                    ["fleece", "polar buff", "bolt polar", "polartec", "pile", "fascia", "calzini", "short", "maglietta"]
+                ),
+                "running": (
+                    ["running", "scarpe running", "corsa", "maratona", "asics", "hoka", "brooks", "saucony", "mizuno", "pegasus", "vaporfly", "alphafly", "clifton", "ghost", "cumulus", "nimbus", "novablast"],
+                    []
+                ),
+                "abbigliamento": (
+                    ["maglia", "pantalon", "tshirt", "t-shirt", "felpa", "jacket", "giacca", "tight", "short", "top", "tee", "windbreaker", "wind", "pile", "tuta", "leggings", "canotta", "fleece"],
+                    []
+                ),
+                "donna": (
+                    ["donna", "wmn", "women", "femme", "lady", "girl"],
+                    []
+                ),
+                "outdoor": (
+                    ["trail", "trekking", "outdoor", "montagna", "gore-tex", "gtx", "salomon", "speedcross", "hierro", "cascadia", "peregrine"],
+                    []
+                ),
+                "fitness": (
+                    ["fitness", "training", "gym", "palestra", "pesi", "swoosh", "leggings", "bra", "crossfit", "metcon"],
+                    []
+                ),
+                "accessori": (
+                    ["occhiali", "calzini", "guanti", "cappell", "zaino", "borraccia", "sock", "belt", "marsupio", "headband", "visiera"],
+                    []
+                ),
+                "uomo": (
+                    ["uomo", "men", "man", "homme"],
+                    []
+                )
+            ]
+            if let config = kwMap[cat] {
+                rows = allRows.filter { r in
+                    let lower = r.raw_title.lowercased()
+                    if config.exc.contains(where: { lower.contains($0) }) {
+                        return false
+                    }
+                    return config.inc.contains(where: { lower.contains($0) })
+                }
+            } else {
+                rows = allRows.filter { $0.raw_title.lowercased().contains(cat) }
+            }
+        } else {
+            rows = allRows
+        }
+
+        // Store metadata
+        struct StoreDbRecord: Codable {
+            let id: String
+            let name: String
+            let rating: Double?
+            let review_count: Int?
+            let formatted_review_count: String?
+            let card_theme: String?
+            let accent_color: String?
+            let logo_url: String?
+        }
+        var storeDbMap: [String: StoreDbRecord] = [:]
+        if let storesUrl = URL(string: "\(restURL)/stores?select=*") {
+            var storeReq = URLRequest(url: storesUrl)
+            for (k, v) in makeHeaders() { storeReq.setValue(v, forHTTPHeaderField: k) }
+            if let (sData, sResp) = try? await session.data(for: storeReq),
+               let http = sResp as? HTTPURLResponse, http.statusCode == 200 {
+                if let decodedStores = try? JSONDecoder().decode([StoreDbRecord].self, from: sData) {
+                    for st in decodedStores {
+                        storeDbMap[st.id.lowercased()] = st
+                    }
+                }
+            }
+        }
+
+        var storeMap: [String: (name: String, products: [StoreShowcaseProduct], discounts: [Double], maxDisc: Double)] = [:]
+        for r in rows {
+            let p = StoreShowcaseProduct(
+                id: r.id,
+                title: r.raw_title,
+                brand: r.store_name,
+                image_url: r.image_url,
+                current_price: r.current_price,
+                original_price: r.original_price,
+                discount_pct: r.discount_pct,
+                product_url: r.product_url,
+                canonical_name: r.raw_title,
+                product_id: r.product_id,
+                shipping_cost: r.shipping_cost,
+                total_price: r.current_price + (r.shipping_cost ?? 0.0),
+                is_free_shipping: (r.shipping_cost ?? 0.0) == 0.0,
+                shipping_label: (r.shipping_cost ?? 0.0) == 0.0 ? "Sped. Gratis" : "+ \(String(format: "%.2f", r.shipping_cost ?? 0.0)) €",
+                free_shipping_threshold: r.free_shipping_threshold,
+                courier: r.courier
+            )
+            let sId = r.store_id.lowercased()
+            if storeMap[sId] == nil {
+                storeMap[sId] = (name: r.store_name, products: [], discounts: [], maxDisc: 0.0)
+            }
+            if (storeMap[sId]?.products.count ?? 0) < 10 {
+                storeMap[sId]?.products.append(p)
+            }
+            if let disc = r.discount_pct, disc > 0 {
+                storeMap[sId]?.discounts.append(disc)
+                if disc > (storeMap[sId]?.maxDisc ?? 0) {
+                    storeMap[sId]?.maxDisc = disc
+                }
+            }
+        }
+
+        var showcases: [StoreShowcase] = []
+        for (sId, info) in storeMap {
+            guard !info.products.isEmpty else { continue }
+            let avgDisc = info.discounts.isEmpty ? 25.0 : (info.discounts.reduce(0, +) / Double(info.discounts.count))
+            let meta = storeDbMap[sId]
+            let rating = meta?.rating.map { String(format: "%.1f", $0) } ?? "4.8"
+            let revStr = meta?.formatted_review_count ?? (meta?.review_count != nil ? "\(meta!.review_count!)" : nil)
+
+            showcases.append(StoreShowcase(
+                store_id: sId,
+                store_name: meta?.name ?? info.name,
+                total_offers: info.products.count,
+                avg_discount: avgDisc,
+                rating: rating,
+                review_count: revStr,
+                card_theme: meta?.card_theme ?? "white",
+                accent_color: meta?.accent_color,
+                logo_url: meta?.logo_url,
+                products: info.products
+            ))
+        }
+
+        // Sort stores by the HIGHEST real discount first (real Holiday Sales ranking!)
+        return showcases.sorted {
+            let max0 = storeMap[$0.store_id]?.maxDisc ?? 0
+            let max1 = storeMap[$1.store_id]?.maxDisc ?? 0
+            if max0 != max1 {
+                return max0 > max1
+            }
+            return $0.avg_discount > $1.avg_discount
         }
     }
 

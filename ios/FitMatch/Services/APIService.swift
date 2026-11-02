@@ -202,6 +202,18 @@ class APIService: ObservableObject {
         return []
     }
 
+    func getDealsShowcases(category: String? = nil) async throws -> [StoreShowcase] {
+        do {
+            let direct = try await SupabaseManager.shared.fetchDealsShowcasesDirect(category: category)
+            if !direct.isEmpty {
+                return direct
+            }
+        } catch {
+            print("APIService fetchDealsShowcasesDirect error: \(error)")
+        }
+        return try await getStoreShowcases()
+    }
+
     func getStoreDetails(storeId: String, query: String = "", sort: String = "discount") async throws -> StoreDetailResponse {
         var components = URLComponents(string: "\(baseURL)/api/stores/\(storeId)")!
         var queryItems: [URLQueryItem] = [

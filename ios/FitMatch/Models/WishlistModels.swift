@@ -191,4 +191,41 @@ struct WishlistItem: Identifiable, Codable, Hashable {
         guard diff > 0.5 else { return nil }
         return String(format: "-%.2f €", diff).replacingOccurrences(of: ".", with: ",")
     }
+
+    func toMatchedProduct() -> MatchedProduct {
+        let offer = Offer(
+            store_id: bestStore?.lowercased() ?? "store",
+            store_name: bestStore ?? "Negozio",
+            product_id: nil,
+            title: canonical_name,
+            brand: brand,
+            price: currentBestPrice,
+            original_price: highestPrice ?? initialPrice,
+            discount_pct: discountPct,
+            savings: savingsSinceAdded,
+            url: bestStoreUrl ?? "",
+            image_url: image_url,
+            gallery_images: nil,
+            available_sizes: selectedSize != nil ? [selectedSize!] : nil,
+            in_stock: true,
+            shipping_cost: 0.0,
+            total_price: currentBestPrice,
+            is_free_shipping: true,
+            shipping_label: "Spedizione gratuita",
+            free_shipping_threshold: nil,
+            courier: nil
+        )
+        return MatchedProduct(
+            id_val: id,
+            canonical_name: canonical_name,
+            brand: brand,
+            image_url: image_url,
+            gallery_images: nil,
+            gender: nil,
+            offers: [offer],
+            best_price: currentBestPrice,
+            highest_price: highestPrice ?? initialPrice,
+            cross_store_savings: savingsSinceAdded
+        )
+    }
 }
