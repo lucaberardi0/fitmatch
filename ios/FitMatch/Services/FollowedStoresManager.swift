@@ -39,6 +39,7 @@ class FollowedStoresManager: ObservableObject {
         setupPromoPosts()
         Task {
             await fetchFollowedStores()
+            await fetchHiddenStores()
         }
     }
 
@@ -93,7 +94,7 @@ class FollowedStoresManager: ObservableObject {
         return hiddenStoreIds.contains(cleanId)
     }
 
-    func hideStore(storeId: String) {
+    func hideStore(storeId: String, storeName: String? = nil) {
         let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let gen = UIImpactFeedbackGenerator(style: .medium)
         gen.impactOccurred()
@@ -101,6 +102,10 @@ class FollowedStoresManager: ObservableObject {
             hiddenStoreIds.insert(cleanId)
         }
         saveHiddenStoresToCache()
+
+        Task {
+            _ = try? await SupabaseManager.shared.hideStore(storeId: cleanId, storeName: storeName)
+        }
     }
 
     func unhideStore(storeId: String) {
@@ -111,12 +116,32 @@ class FollowedStoresManager: ObservableObject {
             hiddenStoreIds.remove(cleanId)
         }
         saveHiddenStoresToCache()
+
+        Task {
+            _ = try? await SupabaseManager.shared.unhideStore(storeId: cleanId)
+        }
     }
 
-    func reportStore(storeId: String, storeName: String, reason: String = "Inaccurate prices or bad experience") {
+    func fetchHiddenStores() async {
+        do {
+            let list = try await SupabaseManager.shared.fetchHiddenStores()
+            if !list.isEmpty {
+                self.hiddenStoreIds = Set(list)
+                saveHiddenStoresToCache()
+            }
+        } catch {
+            print("FollowedStoresManager fetchHiddenStores note: \(error)")
+        }
+    }
+
+    func reportStore(storeId: String, storeName: String, reason: String = "Prezzi non aggiornati o violazione", details: String? = nil) {
         let gen = UINotificationFeedbackGenerator()
         gen.notificationOccurred(.success)
         print("FitMatch Store Report recorded for \(storeName) (\(storeId)): \(reason)")
+
+        Task {
+            _ = try? await SupabaseManager.shared.reportStore(storeId: storeId, storeName: storeName, reason: reason, details: details)
+        }
     }
 
     // MARK: - Actions

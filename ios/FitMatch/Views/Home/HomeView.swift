@@ -795,7 +795,7 @@ struct HomeView: View {
 
             // 3. Non mi interessa
             Button {
-                followedManager.hideStore(storeId: showcase.store_id)
+                followedManager.hideStore(storeId: showcase.store_id, storeName: showcase.store_name)
                 hiddenStoreIdToUndo = showcase.store_id
                 withAnimation {
                     toastMessage = "Hai nascosto \(showcase.store_name) dai consigli."

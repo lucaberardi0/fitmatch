@@ -276,6 +276,87 @@ class SupabaseManager: ObservableObject {
         return [200, 204].contains(code)
     }
 
+    // MARK: - Hidden Stores & Store Reports (Cloud Database Sync)
+
+    func hideStore(storeId: String, storeName: String? = nil) async throws -> Bool {
+        guard let url = URL(string: "\(restURL)/hidden_stores?on_conflict=device_id,store_id") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        for (k, v) in makeHeaders(upsert: true) {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        var body: [String: Any] = [
+            "store_id": storeId,
+            "device_id": "default_device"
+        ]
+        if let name = storeName {
+            body["store_name"] = name
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, response) = try await session.data(for: req)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return [200, 201].contains(code)
+    }
+
+    func unhideStore(storeId: String) async throws -> Bool {
+        guard let url = URL(string: "\(restURL)/hidden_stores?store_id=eq.\(storeId)") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        for (k, v) in makeHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        let (_, response) = try await session.data(for: req)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return [200, 204].contains(code)
+    }
+
+    func fetchHiddenStores() async throws -> [String] {
+        guard let url = URL(string: "\(restURL)/hidden_stores?select=store_id") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        for (k, v) in makeHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            return []
+        }
+        struct HiddenRow: Codable {
+            let store_id: String
+        }
+        let rows = (try? JSONDecoder().decode([HiddenRow].self, from: data)) ?? []
+        return rows.map { $0.store_id.lowercased() }
+    }
+
+    func reportStore(storeId: String, storeName: String, reason: String, details: String? = nil) async throws -> Bool {
+        guard let url = URL(string: "\(restURL)/store_reports") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        for (k, v) in makeHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        var body: [String: Any] = [
+            "store_id": storeId,
+            "store_name": storeName,
+            "reason": reason,
+            "device_id": "default_device"
+        ]
+        if let d = details {
+            body["details"] = d
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, response) = try await session.data(for: req)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return [200, 201].contains(code)
+    }
+
     // MARK: - Recent Activity API
 
     func fetchRecentActivities() async throws -> [RecentActivityItem] {
