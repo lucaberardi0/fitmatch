@@ -186,7 +186,12 @@ def search_smart(
     # Live Multi-Store Federated Search Fallback:
     # If local indexed DB returns 0 products for this smart query, immediately trigger live scrapers across retailers!
     if not products:
-        live_kw = intent.target_keywords[0] if intent.target_keywords else q
+        brand_names = {"nike", "adidas", "puma", "asics", "brooks", "saucony", "hoka", "mizuno", "on", "new balance", "salomon", "garmin"}
+        candidate_kws = [k for k in (intent.target_keywords or []) if k.strip().lower() not in brand_names]
+        if candidate_kws:
+            live_kw = f"{intent.brand} {candidate_kws[0]}" if intent.brand and intent.brand.lower() not in candidate_kws[0].lower() else candidate_kws[0]
+        else:
+            live_kw = q
         logger.info(f"[search_smart] 0 local products for '{q}'. Triggering live multi-store crawler for '{live_kw}'")
         try:
             live_res = service.search_and_compare(query=live_kw, size=eff_size, limit_per_store=8, use_cache=True)

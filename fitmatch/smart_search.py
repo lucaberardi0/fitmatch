@@ -765,6 +765,12 @@ Il tuo obiettivo è analizzare la ricerca dell'utente e decidere:
    - follow_up_suggestions: 3 pulsanti pillola con domande di approfondimento coerenti (es. ["Mostrami Maison Margiela nere taglia 42", "Confronta Replica, Tabi e Future nere", "Mostrami solo opzioni sotto 700 euro"]).
    - chips: Filtri rapidi estratti (es. brand, prezzo, taglia, caratteristiche).
 
+REGOLE CRITICHE SUI FILTRI:
+- NON INVENTARE FILTRI: se l'utente NON ha specificato esplicitamente un prezzo massimo o minimo (es. 'sotto 150 euro'), imposta SEMPRE 'max_price': null e 'min_price': null! Non dedurre prezzi medi di mercato.
+- GENERE: imposta 'gender' a 'Uomo' o 'Donna' SOLO se l'utente lo ha specificato esplicitamente nella query (es. 'scarpe uomo', 'donna'). Altrimenti imposta SEMPRE 'gender': null!
+- TARGET KEYWORDS: includi 2-4 parole chiave mirate sul MODELLO e sul PRODOTTO (es. ['Vomero Plus', 'Nike Vomero']). Se c'è un modello specifico, mettilo per primo!
+- STRINGHE DI TESTO: 'conversational_header' deve essere una stringa breve (es. 'Ho cercato Nike Vomero Plus') e 'conversational_summary' una breve frase descrittiva; non impostarli MAI a null anche se search_mode è classic.
+
 Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
 {
   "search_mode": "deep_dive | classic",
@@ -877,6 +883,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
 
                     parsed = json.loads(clean_json)
 
+                    chips_list = parsed.get("chips") or []
                     chips = [
                         SmartSearchChip(
                             id=c.get("id", f"chip_{i}"),
@@ -884,28 +891,29 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
                             param_key=c.get("param_key", "keyword"),
                             value=str(c.get("value", ""))
                         )
-                        for i, c in enumerate(parsed.get("chips", []))
-                        if c.get("label")
+                        for i, c in enumerate(chips_list)
+                        if isinstance(c, dict) and c.get("label")
                     ]
 
+                    curated_list = parsed.get("curated_sections") or []
                     curated_sections = [
                         CuratedSectionDef(
                             id=s.get("id", f"sec_{i}"),
                             title=s.get("title", ""),
                             subtitle=s.get("subtitle", ""),
-                            keywords=s.get("keywords", [])
+                            keywords=s.get("keywords") or []
                         )
-                        for i, s in enumerate(parsed.get("curated_sections", []))
-                        if s.get("title")
+                        for i, s in enumerate(curated_list)
+                        if isinstance(s, dict) and s.get("title")
                     ]
 
                     spotlight_data = parsed.get("spotlight")
                     spotlight_obj = None
-                    if spotlight_data and isinstance(spotlight_data, dict):
+                    if spotlight_data and isinstance(spotlight_data, dict) and spotlight_data.get("target_keyword"):
                         spotlight_obj = SpotlightDef(
-                            target_keyword=spotlight_data.get("target_keyword", ""),
-                            badge_text=spotlight_data.get("badge_text", "Miglior Scelta"),
-                            highlights=spotlight_data.get("highlights", [])
+                            target_keyword=str(spotlight_data.get("target_keyword")),
+                            badge_text=str(spotlight_data.get("badge_text") or "Miglior Scelta"),
+                            highlights=spotlight_data.get("highlights") or []
                         )
 
                     search_mode = parsed.get("search_mode", "deep_dive")
@@ -915,25 +923,41 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
                         search_mode = force_mode
                         is_deep_dive = (force_mode == "deep_dive")
 
+                    header_text = parsed.get("conversational_header") or f"Ho cercato {user_query}"
+                    summary_text = parsed.get("conversational_summary") or f"Risultati per {user_query}"
+                    explanation_text = parsed.get("explanation") or summary_text
+
+                    target_kws = parsed.get("target_keywords") or [user_query]
+                    if not isinstance(target_kws, list):
+                        target_kws = [user_query]
+
+                    features_list = parsed.get("features") or []
+                    if not isinstance(features_list, list):
+                        features_list = []
+
+                    followups_list = parsed.get("follow_up_suggestions") or []
+                    if not isinstance(followups_list, list):
+                        followups_list = []
+
                     return SmartSearchIntent(
                         raw_query=user_query,
                         search_mode=search_mode,
                         is_deep_dive=is_deep_dive,
-                        conversational_header=parsed.get("conversational_header", "Ho cercato prodotti"),
-                        conversational_summary=parsed.get("conversational_summary", ""),
-                        target_keywords=parsed.get("target_keywords") or [user_query],
+                        conversational_header=header_text,
+                        conversational_summary=summary_text,
+                        target_keywords=target_kws,
                         brand=parsed.get("brand"),
                         category=parsed.get("category"),
                         gender=parsed.get("gender"),
                         max_price=float(parsed["max_price"]) if parsed.get("max_price") is not None else None,
                         min_price=float(parsed["min_price"]) if parsed.get("min_price") is not None else None,
                         size=str(parsed["size"]) if parsed.get("size") else None,
-                        features=parsed.get("features", []),
-                        explanation=parsed.get("conversational_summary", "Risultati selezionati con intelligenza artificiale"),
+                        features=features_list,
+                        explanation=explanation_text,
                         chips=chips,
                         curated_sections=curated_sections,
                         spotlight=spotlight_obj,
-                        follow_up_suggestions=parsed.get("follow_up_suggestions", []),
+                        follow_up_suggestions=followups_list,
                         source="openrouter"
                     )
             except Exception as e:

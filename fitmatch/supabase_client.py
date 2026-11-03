@@ -665,10 +665,15 @@ class SupabaseClient:
 
         filtered = []
         for p in raw_results:
-            if brand and p.get("brand") and brand.lower() not in p["brand"].lower():
+            p_brand = (p.get("brand") or "").lower()
+            p_name = (p.get("canonical_name") or "").lower()
+            if brand and p_brand and brand.lower() not in p_brand and brand.lower() not in p_name:
                 continue
-            if gender and gender.lower() != "unisex" and p.get("gender") and gender.lower() not in p["gender"].lower():
-                continue
+            if gender and gender.lower() not in ("unisex", "uomo | donna", "uomo/donna", "tutti", "all"):
+                req_g = gender.lower()
+                prod_g = (p.get("gender") or "unisex").lower()
+                if prod_g != "unisex" and req_g not in prod_g and prod_g not in req_g:
+                    continue
 
             matching_offers = []
             for o in p.get("offers", []):

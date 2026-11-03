@@ -531,6 +531,7 @@ struct SearchView: View {
                         spotlight = nil
                         followUpSuggestions = []
                         isSmartSearchActive = false
+                        errorMessage = nil
                     }
                 }) {
                     Circle()
@@ -600,6 +601,10 @@ struct SearchView: View {
                         .foregroundColor(.shopTextMuted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = errorMessage {
+                aiErrorView(error)
+            } else if curatedSections.isEmpty && searchResults.isEmpty && spotlight == nil {
+                aiEmptyView
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -621,14 +626,42 @@ struct SearchView: View {
                             }
 
                             // 3. Thematic Curated Carousels (Screenshot 1 & 2)
-                            ForEach(curatedSections) { section in
+                            if !curatedSections.isEmpty {
+                                ForEach(curatedSections) { section in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(section.title)
+                                            .font(.system(size: 18.5, weight: .bold))
+                                            .foregroundColor(.shopDark)
+                                            .padding(.horizontal, 18)
+
+                                        Text(section.subtitle)
+                                            .font(.system(size: 12.5, weight: .regular))
+                                            .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                                            .padding(.horizontal, 18)
+                                            .padding(.bottom, 4)
+
+                                        ScrollView(.horizontal, showsIndicators: false) {
+                                            HStack(spacing: 14) {
+                                                ForEach(section.products) { prod in
+                                                    ShopThemedCarouselCard(product: prod) {
+                                                        selectedRecentProduct = prod
+                                                    }
+                                                }
+                                            }
+                                            .padding(.horizontal, 18)
+                                            .padding(.vertical, 4)
+                                        }
+                                    }
+                                    .padding(.top, 8)
+                                }
+                            } else if !searchResults.isEmpty {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text(section.title)
+                                    Text("I Modelli Selezionati")
                                         .font(.system(size: 18.5, weight: .bold))
                                         .foregroundColor(.shopDark)
                                         .padding(.horizontal, 18)
 
-                                    Text(section.subtitle)
+                                    Text("Tutti i prodotti trovati per la tua ricerca")
                                         .font(.system(size: 12.5, weight: .regular))
                                         .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
                                         .padding(.horizontal, 18)
@@ -636,7 +669,7 @@ struct SearchView: View {
 
                                     ScrollView(.horizontal, showsIndicators: false) {
                                         HStack(spacing: 14) {
-                                            ForEach(section.products) { prod in
+                                            ForEach(searchResults) { prod in
                                                 ShopThemedCarouselCard(product: prod) {
                                                     selectedRecentProduct = prod
                                                 }
@@ -740,6 +773,118 @@ struct SearchView: View {
         }
     }
 
+    // MARK: - AI Deep Dive Error & Empty Views
+    private func aiErrorView(_ error: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 40))
+                .foregroundColor(.shopPurple)
+                .frame(width: 76, height: 76)
+                .background(Color.shopPurpleLight)
+                .clipShape(Circle())
+
+            Text("Impossibile caricare i risultati")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(.shopDark)
+
+            Text(error)
+                .font(.system(size: 13.5))
+                .foregroundColor(.shopTextMuted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 36)
+
+            VStack(spacing: 10) {
+                Button(action: {
+                    executeSearch()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Riprova la ricerca")
+                    }
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: 240)
+                    .padding(.vertical, 12)
+                    .background(Color.shopDark)
+                    .cornerRadius(22)
+                }
+
+                Button(action: {
+                    withAnimation {
+                        isDeepDiveMode = false
+                    }
+                    executeSearch()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "magnifyingglass")
+                        Text("Passa alla ricerca classica")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.shopPurple)
+                    .padding(.vertical, 8)
+                }
+            }
+            .padding(.top, 10)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.bottom, 80)
+    }
+
+    private var aiEmptyView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 38))
+                .foregroundColor(.shopPurple)
+                .frame(width: 76, height: 76)
+                .background(Color.shopPurpleLight)
+                .clipShape(Circle())
+
+            Text("Nessun prodotto trovato")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(.shopDark)
+
+            Text("L'IA non ha trovato prodotti per \"\(searchText)\". Prova con parole chiave come 'Scarpe running ammortizzate' o cerca per brand.")
+                .font(.system(size: 13.5))
+                .foregroundColor(.shopTextMuted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 36)
+
+            VStack(spacing: 10) {
+                Button(action: {
+                    executeSearch()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Ricarica")
+                    }
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: 220)
+                    .padding(.vertical, 12)
+                    .background(Color.shopDark)
+                    .cornerRadius(22)
+                }
+
+                Button(action: {
+                    withAnimation {
+                        isDeepDiveMode = false
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "magnifyingglass")
+                        Text("Passa alla ricerca classica")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.shopPurple)
+                    .padding(.vertical, 8)
+                }
+            }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.bottom, 80)
+    }
+
     // MARK: - Classic Mode: Pinned Header (Screenshot 4)
     private var classicHeaderBar: some View {
         VStack(spacing: 0) {
@@ -750,6 +895,7 @@ struct SearchView: View {
                         hasSearched = false
                         searchResults = []
                         isSmartSearchActive = false
+                        errorMessage = nil
                     }
                 }) {
                     Circle()
@@ -946,8 +1092,38 @@ struct SearchView: View {
                         .scaleEffect(1.2)
                         .tint(.shopDark)
                     Text("Ricerca tra 12 negozi partner in corso...")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 13.5, weight: .medium))
                         .foregroundColor(.shopTextMuted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = errorMessage {
+                VStack(spacing: 14) {
+                    Image(systemName: "wifi.exclamationmark")
+                        .font(.system(size: 44))
+                        .foregroundColor(.shopPurple)
+                    Text("Impossibile caricare i risultati")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.shopDark)
+                    Text(error)
+                        .font(.system(size: 13))
+                        .foregroundColor(.shopTextMuted)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                    Button(action: {
+                        executeSearch()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Riprova")
+                        }
+                        .font(.system(size: 13.5, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(Color.shopDark)
+                        .cornerRadius(20)
+                    }
+                    .padding(.top, 8)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !filteredAndSortedResults.isEmpty {
@@ -1046,6 +1222,8 @@ struct SearchView: View {
         recentManager.recordSearch(query)
         isLoading = true
         hasSearched = true
+        errorMessage = nil
+        conversationalHeader = "Ho cercato \(query)"
 
         Task {
             do {
@@ -1056,13 +1234,14 @@ struct SearchView: View {
                     store: selectedStore
                 )
                 await MainActor.run {
+                    self.errorMessage = nil
                     self.smartIntent = smartRes.intent
                     self.activeChips = smartRes.chips ?? []
                     self.searchResults = smartRes.results
                     self.curatedSections = smartRes.curated_sections ?? []
                     self.spotlight = smartRes.spotlight
                     self.followUpSuggestions = smartRes.follow_up_suggestions ?? []
-                    self.conversationalHeader = smartRes.conversational_header ?? "Ho cercato prodotti"
+                    self.conversationalHeader = smartRes.conversational_header ?? "Ho cercato \(query)"
                     self.conversationalSummary = smartRes.conversational_summary ?? (smartRes.intent?.explanation ?? "")
                     if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
                         self.isDeepDiveMode = false
@@ -1075,6 +1254,7 @@ struct SearchView: View {
             } catch {
                 if let local = try? await api.searchCatalog(query: query, limit: 30), !local.isEmpty {
                     await MainActor.run {
+                        self.errorMessage = nil
                         self.searchResults = local
                         self.isDeepDiveMode = false
                         self.isSmartSearchActive = false
@@ -1082,6 +1262,7 @@ struct SearchView: View {
                     }
                 } else if let live = try? await api.search(query: query, size: selectedSize), !live.isEmpty {
                     await MainActor.run {
+                        self.errorMessage = nil
                         self.searchResults = live
                         self.isDeepDiveMode = false
                         self.isSmartSearchActive = false
@@ -1089,6 +1270,7 @@ struct SearchView: View {
                     }
                 } else {
                     await MainActor.run {
+                        self.errorMessage = "Impossibile recuperare i risultati in questo momento. Il server potrebbe essere occupato, tocca Riprova per aggiornare."
                         self.isLoading = false
                     }
                 }

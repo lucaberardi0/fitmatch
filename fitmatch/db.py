@@ -612,7 +612,8 @@ class Database:
 
             # 2. Brand Filter
             if brand:
-                where_clauses.append("LOWER(COALESCE(p.brand, '')) LIKE ?")
+                where_clauses.append("(LOWER(COALESCE(p.brand, '')) LIKE ? OR LOWER(p.canonical_name) LIKE ?)")
+                params.append(f"%{brand.lower()}%")
                 params.append(f"%{brand.lower()}%")
 
             # 3. Category Filter
@@ -622,8 +623,8 @@ class Database:
 
             # 4. Gender Filter
             if gender and gender.lower() in ("donna", "uomo"):
-                where_clauses.append("(p.gender = ? OR p.gender = 'Unisex')")
-                params.append(gender)
+                where_clauses.append("(LOWER(p.gender) LIKE ? OR LOWER(p.gender) = 'unisex' OR p.gender IS NULL)")
+                params.append(f"%{gender.lower()}%")
 
             # 5. Price bounds on the product's lowest offer
             if max_price:
