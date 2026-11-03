@@ -645,8 +645,23 @@ class SupabaseClient:
         limit: int = 35
     ) -> List[Dict[str, Any]]:
         """Shopify Shop-style intelligent query on Supabase Cloud PostgreSQL with multi-store offers."""
-        query_term = target_keywords[0] if target_keywords else ""
-        raw_results = self.search_indexed(query=query_term, category=category, limit=limit * 2)
+        raw_results = []
+        seen_names = set()
+
+        keywords_to_query = target_keywords[:4] if target_keywords else [""]
+        for kw in keywords_to_query:
+            query_term = kw.strip()
+            # Try with category first if provided
+            prods = self.search_indexed(query=query_term, category=category, limit=limit)
+            # If 0 products and category was restrictive, retry without category
+            if not prods and category:
+                prods = self.search_indexed(query=query_term, category=None, limit=limit)
+
+            for p in prods:
+                p_ident = p.get("canonical_name") or p.get("id")
+                if p_ident not in seen_names:
+                    seen_names.add(p_ident)
+                    raw_results.append(p)
 
         filtered = []
         for p in raw_results:

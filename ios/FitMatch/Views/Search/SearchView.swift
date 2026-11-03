@@ -11,7 +11,17 @@ struct SearchView: View {
     @State private var errorMessage: String? = nil
     @State private var hasSearched: Bool = false
 
-    // Filters (Matching Shop App Screenshot 2)
+    // Shopify Shop Intelligent Search Mode (AI Deep Dive vs Classic)
+    @State private var isDeepDiveMode: Bool = true
+    @State private var conversationalHeader: String = "Ho cercato prodotti"
+    @State private var conversationalSummary: String = ""
+    @State private var curatedSections: [CuratedProductSection] = []
+    @State private var spotlight: SpotlightRecommendation? = nil
+    @State private var followUpSuggestions: [String] = []
+    @State private var followUpInputText: String = ""
+    @State private var userFeedback: Int? = nil // 1 for thumbs up, -1 for down
+
+    // Filters (Classic Search Mode)
     @State private var selectedFilterCountry: String? = nil // nil, "EU", "IT"
     @State private var selectedSize: String? = nil
     @State private var selectedStore: String? = nil
@@ -24,7 +34,7 @@ struct SearchView: View {
     @State private var showAiExplanation: Bool = false
     @State private var overrideMaxPrice: Double? = nil
 
-    // User Recent Activity (Shopify "Continua ad acquistare" real user history)
+    // User Recent Activity
     @ObservedObject private var recentManager = RecentActivityManager.shared
     @State private var selectedRecentProduct: MatchedProduct? = nil
 
@@ -39,10 +49,16 @@ struct SearchView: View {
 
     private let availableSizes = ["Tutte", "40", "41", "42", "42.5", "43", "44", "44.5", "45", "46"]
 
+    init(initialSearchQuery: String? = nil) {
+        _searchText = State(initialValue: initialSearchQuery ?? "")
+        if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
+            _isDeepDiveMode = State(initialValue: false)
+        }
+    }
+
     var filteredAndSortedResults: [MatchedProduct] {
         var list = searchResults
 
-        // Country / Store filters (Shop Screenshot 2: "Vende da 🇪🇺", "Vende da 🇮🇹")
         if let country = selectedFilterCountry {
             if country == "IT" {
                 let itStores = ["cisalfa", "maxi", "mister", "nencini", "decathlon", "sportler", "nike"]
@@ -95,10 +111,10 @@ struct SearchView: View {
                 Color.white.ignoresSafeArea()
 
                 if hasSearched || !searchResults.isEmpty {
-                    // SCREENSHOT 2: Results View with Top Nav, Filter Strip & Shop Cards
-                    resultsView
+                    // Results View: Dual-Mode (AI Deep Dive vs Classic)
+                    resultsContainerView
                 } else {
-                    // SCREENSHOT 1: Search Typing / History View
+                    // Search Typing / History View
                     searchTypingHistoryView
                 }
             }
@@ -110,15 +126,18 @@ struct SearchView: View {
             .navigationBarHidden(true)
             .task {
                 loadInitialTopSavings()
+                if !searchText.isEmpty && !hasSearched {
+                    executeSearch()
+                }
             }
         }
     }
 
-    // MARK: - SCREENSHOT 1: Search Typing & History View
+    // MARK: - Search Typing & History View
     private var searchTypingHistoryView: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
-                // Header pinned at top: "Continua ad acquistare ›" (Exact match to Screenshot 1)
+                // Header pinned at top: "Continua ad acquistare ›"
                 HStack(spacing: 6) {
                     Text("Continua ad acquistare")
                         .font(.system(size: 15, weight: .bold))
@@ -148,137 +167,142 @@ struct SearchView: View {
                 // AI Quick Access Strip
                 HStack(spacing: 10) {
                     NavigationLink(destination: AIAdvisorView()) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 6) {
                             Image(systemName: "sparkles")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.shopPurple)
+                            Text("Chiedi al Personal Shopper IA")
                                 .font(.system(size: 13, weight: .bold))
                                 .foregroundColor(.shopPurple)
-                            Text("Coach IA")
-                                .font(.system(size: 13, weight: .bold, design: .rounded))
-                                .foregroundColor(.shopDark)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.shopPurple.opacity(0.6))
                         }
-                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color.shopPurpleLight.opacity(0.6))
+                        .background(Color.shopPurpleLight)
                         .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.shopPurple.opacity(0.18), lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
-
-                    NavigationLink(destination: ModelCompareView()) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.left.arrow.right")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.blue)
-                            Text("Confronta 2 Modelli")
-                                .font(.system(size: 13, weight: .bold, design: .rounded))
-                                .foregroundColor(.shopDark)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color.blue.opacity(0.08))
-                        .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue.opacity(0.18), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
                 .padding(.bottom, 10)
 
-                // Real User Recent Activity List (Searches & Viewed Products)
-                ScrollView(showsIndicators: false) {
-                    if recentManager.activities.isEmpty {
-                        VStack(spacing: 10) {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .font(.system(size: 32))
-                                .foregroundColor(Color(red: 180/255, green: 180/255, blue: 190/255))
-                            Text("Nessuna attività recente")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.shopDark)
-                            Text("Le tue ricerche e i prodotti visualizzati appariranno qui.")
-                                .font(.system(size: 12))
-                                .foregroundColor(.shopTextMuted)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 40)
-                    } else {
-                        LazyVStack(spacing: 12) {
-                            ForEach(recentManager.activities) { item in
-                                Button(action: {
-                                    handleRecentItemTap(item)
-                                }) {
-                                    HStack(spacing: 16) {
-                                        // Left Thumbnail / Icon Card
-                                        ZStack {
-                                            RoundedRectangle(cornerRadius: 14)
-                                                .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
-                                                .frame(width: 52, height: 52)
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 14)
-                                                        .stroke(Color.black.opacity(0.04), lineWidth: 1)
-                                                )
-
-                                            if let imgUrl = item.imageUrl, let url = URL(string: imgUrl) {
-                                                AsyncImage(url: url) { phase in
-                                                    if let img = phase.image {
-                                                        img
-                                                            .resizable()
-                                                            .scaledToFit()
-                                                            .frame(width: 42, height: 42)
-                                                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                                                    } else {
-                                                        Image(systemName: "shoe.fill")
-                                                            .font(.system(size: 18))
-                                                            .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                                                    }
-                                                }
-                                            } else if let sys = item.systemIcon {
-                                                Image(systemName: sys)
-                                                    .font(.system(size: 20, weight: .semibold))
-                                                    .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
-                                            } else {
-                                                Image(systemName: "text.bubble.fill")
-                                                    .font(.system(size: 20, weight: .semibold))
-                                                    .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
-                                            }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        // Section 1: Recent Activity Carousel
+                        if !recentManager.activities.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 12) {
+                                        ForEach(recentManager.activities) { act in
+                                            recentActivityCard(act)
                                         }
-
-                                        // Title & Date/Subtext
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(item.title)
-                                                .font(.system(size: 15, weight: .semibold))
-                                                .foregroundColor(.shopDark)
-                                                .lineLimit(1)
-                                            Text(item.formattedDate)
-                                                .font(.system(size: 12, weight: .medium))
-                                                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                                        }
-
-                                        Spacer()
                                     }
                                     .padding(.horizontal, 20)
                                 }
-                                .buttonStyle(PlainButtonStyle())
-                                .contextMenu {
-                                    Button(role: .destructive, action: {
-                                        withAnimation {
-                                            recentManager.removeActivity(item)
+                            }
+                        }
+
+                        // Section 2: Quick Search Prompts
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Suggerimenti di Ricerca")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                                .padding(.horizontal, 20)
+
+                            VStack(spacing: 8) {
+                                smartPromptRow(
+                                    icon: "sparkles",
+                                    title: "Scarpe running ammortizzate per ginocchia pesanti",
+                                    query: "scarpe running ammortizzate per ginocchia pesanti sotto 150 euro"
+                                )
+                                smartPromptRow(
+                                    icon: "bolt.fill",
+                                    title: "Super scarpe veloci con piastra in carbonio",
+                                    query: "scarpe running con piastra in carbonio gara"
+                                )
+                                smartPromptRow(
+                                    icon: "figure.run",
+                                    title: "Migliori scarpe per iniziare a correre",
+                                    query: "scarpe comode per iniziare a correre asfalto"
+                                )
+                                smartPromptRow(
+                                    icon: "applewatch",
+                                    title: "Smartwatch GPS Garmin Forerunner",
+                                    query: "garmin forerunner 165 orologio corsa"
+                                )
+                            }
+                            .padding(.horizontal, 20)
+                        }
+
+                        // Section 3: Trending Deals in Italy
+                        if !topSavingsItems.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Text("Offerte Più Convenienti di Oggi")
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundColor(.shopDark)
+                                    Spacer()
+                                    Text("Multinegozio")
+                                        .font(.system(size: 11.5, weight: .bold))
+                                        .foregroundColor(.shopPurple)
+                                }
+                                .padding(.horizontal, 20)
+
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 12) {
+                                        ForEach(topSavingsItems.prefix(8)) { prod in
+                                            trendingDealCard(prod)
                                         }
-                                    }) {
-                                        Label("Rimuovi", systemImage: "trash")
                                     }
+                                    .padding(.horizontal, 20)
                                 }
                             }
                         }
-                        .padding(.top, 4)
-                        .padding(.bottom, 150) // Space for bottom floating search bar and island dock
+
+                        Spacer(minLength: 140)
                     }
+                    .padding(.top, 4)
                 }
             }
 
-            // Floating Bottom Search Bar (Exact match to Screenshot 1)
-            bottomSearchInputBar
-                .padding(.bottom, 84)
+            // Floating Bottom Search Pill Bar
+            floatingSearchInputBar
+                .padding(.bottom, 78)
         }
+    }
+
+    private func smartPromptRow(icon: String, title: String, query: String) -> some View {
+        Button(action: {
+            searchText = query
+            executeSearch()
+        }) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.shopPurple)
+                    .frame(width: 24, height: 24)
+                    .background(Color.shopPurpleLight)
+                    .clipShape(Circle())
+
+                Text(title)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundColor(.shopDark)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Image(systemName: "arrow.up.left")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(red: 180/255, green: 180/255, blue: 190/255))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(Color(red: 248/255, green: 248/255, blue: 250/255))
+            .cornerRadius(12)
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 
     private func handleRecentItemTap(_ item: RecentActivityItem) {
@@ -291,22 +315,134 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - Floating Bottom Search Input Bar (Screenshot 1)
-    private var bottomSearchInputBar: some View {
+    private func recentActivityCard(_ act: RecentActivityItem) -> some View {
+        Button(action: {
+            handleRecentItemTap(act)
+        }) {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
+                        .frame(width: 104, height: 104)
+
+                    if let img = act.imageUrl, let url = URL(string: img) {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 104, height: 104)
+                                    .cornerRadius(14)
+                            default:
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.gray.opacity(0.35))
+                                    .frame(width: 104, height: 104)
+                            }
+                        }
+                    } else if let sys = act.systemIcon {
+                        Image(systemName: sys)
+                            .font(.system(size: 24))
+                            .foregroundColor(.gray.opacity(0.4))
+                            .frame(width: 104, height: 104)
+                    } else {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 24))
+                            .foregroundColor(.gray.opacity(0.4))
+                            .frame(width: 104, height: 104)
+                    }
+                }
+
+                Text(act.title)
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundColor(.shopDark)
+                    .lineLimit(1)
+                    .frame(width: 104, alignment: .leading)
+
+                if let prod = act.productData, let best = prod.best_price {
+                    Text(String(format: "%.2f €", best).replacingOccurrences(of: ".", with: ","))
+                        .font(.system(size: 12, weight: .heavy))
+                        .foregroundColor(.shopDark)
+                }
+            }
+            .frame(width: 104)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func trendingDealCard(_ prod: MatchedProduct) -> some View {
+        Button(action: {
+            selectedRecentProduct = prod
+        }) {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
+                        .frame(width: 118, height: 118)
+
+                    if let img = prod.image_url, let url = URL(string: img) {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 118, height: 118)
+                                    .cornerRadius(14)
+                            default:
+                                Image(systemName: "photo")
+                                    .foregroundColor(.gray.opacity(0.35))
+                                    .frame(width: 118, height: 118)
+                            }
+                        }
+                    }
+
+                    if let sav = prod.cross_store_savings, sav > 1.0 {
+                        Text("Risparmia \(Int(sav)) €")
+                            .font(.system(size: 9, weight: .heavy))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2.5)
+                            .background(Color(red: 0/255, green: 170/255, blue: 100/255))
+                            .cornerRadius(5)
+                            .padding(6)
+                    }
+                }
+
+                Text(prod.displayTitle)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.shopDark)
+                    .lineLimit(1)
+                    .frame(width: 118, alignment: .leading)
+
+                if let price = prod.best_price {
+                    HStack(spacing: 4) {
+                        Text(String(format: "%.2f €", price).replacingOccurrences(of: ".", with: ","))
+                            .font(.system(size: 12.5, weight: .heavy))
+                            .foregroundColor(.shopDark)
+                        if let max = prod.highest_price, max > price {
+                            Text(String(format: "%.0f€", max))
+                                .font(.system(size: 10))
+                                .strikethrough()
+                                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                        }
+                    }
+                }
+            }
+            .frame(width: 118)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private var floatingSearchInputBar: some View {
         HStack(spacing: 10) {
-            // Main Search Capsule
             HStack(spacing: 10) {
-                // Camera Icon (Visual search scanner)
-                Button(action: {
-                    // Visual search camera trigger
-                }) {
+                Button(action: {}) {
                     Image(systemName: "camera")
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
                 }
                 .padding(.leading, 4)
 
-                // Input Field
                 TextField("Cerca o chiedi qualsiasi c...", text: $searchText)
                     .font(.system(size: 15.5))
                     .foregroundColor(.shopDark)
@@ -316,7 +452,6 @@ struct SearchView: View {
                         executeSearch()
                     }
 
-                // Circular Submit Arrow Button
                 Button(action: {
                     executeSearch()
                 }) {
@@ -341,7 +476,6 @@ struct SearchView: View {
             )
             .shadow(color: Color.black.opacity(0.08), radius: 10, y: 3)
 
-            // Separate Circular Dismiss Button (✕)
             Button(action: {
                 isSearchFieldFocused = false
                 searchText = ""
@@ -364,97 +498,340 @@ struct SearchView: View {
         .padding(.horizontal, 16)
     }
 
-    // MARK: - SCREENSHOT 2: Search Results View
-    private var resultsView: some View {
-        VStack(spacing: 0) {
-            // Pinned Top Header (Back + Search + Filter Pills) with solid opaque background
+    // MARK: - Dual-Mode Results Container View
+    private var resultsContainerView: some View {
+        ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
-                // 1. Top Nav Bar (Exact match to Screenshot 2: Back Button + Wide Search Pill)
-                HStack(spacing: 12) {
-                    // Circular Back Button (<)
-                    Button(action: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                            hasSearched = false
-                            searchResults = []
-                            smartIntent = nil
-                            activeChips = []
-                            isSmartSearchActive = false
-                        }
-                    }) {
-                        Circle()
-                            .fill(Color.white)
-                            .frame(width: 42, height: 42)
-                            .overlay(
-                                Circle()
-                                    .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                            )
-                            .overlay(
-                                Image(systemName: "chevron.left")
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(.shopDark)
-                            )
-                    }
+                if isDeepDiveMode {
+                    // SCREENSHOT 1, 2, 3: AI Deep Dive Results
+                    aiDeepDiveHeaderBar
+                    aiDeepDiveContentView
+                } else {
+                    // SCREENSHOT 4: Classic Results with Filters & List
+                    classicHeaderBar
+                    classicContentView
+                }
+            }
 
-                    // Wide Search Capsule Pill (Tap to re-edit)
-                    Button(action: {
+            // Bottom Sticky Follow-up Input Bar (Screenshots 1, 2, 3, 4)
+            stickyFollowUpInputBar
+        }
+    }
+
+    // MARK: - AI Deep Dive: Pinned Header (Screenshot 1)
+    private var aiDeepDiveHeaderBar: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: 12) {
+                // Back Button
+                Button(action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
                         hasSearched = false
-                        isSearchFieldFocused = true
-                    }) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundColor(Color(red: 80/255, green: 80/255, blue: 90/255))
-
-                            Text(searchText.isEmpty ? "Cerca prodotto..." : searchText)
-                                .font(.system(size: 15.5, weight: .medium))
+                        searchResults = []
+                        curatedSections = []
+                        spotlight = nil
+                        followUpSuggestions = []
+                        isSmartSearchActive = false
+                    }
+                }) {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 42, height: 42)
+                        .overlay(Circle().stroke(Color.black.opacity(0.1), lineWidth: 1))
+                        .overlay(
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(.shopDark)
-                                .lineLimit(1)
+                        )
+                }
 
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10.5)
+                Spacer()
+
+                // Query Pill Bubble (Screenshot 1: "Maison margiela scarpe nere")
+                Button(action: {
+                    hasSearched = false
+                    isSearchFieldFocused = true
+                }) {
+                    Text(searchText.isEmpty ? "Cerca prodotto..." : searchText)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.shopDark)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
                         .background(Color(red: 243/255, green: 243/255, blue: 245/255))
-                        .cornerRadius(24)
+                        .cornerRadius(22)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+
+            // "🔍 Cerca invece questo" Button (Exact match to Screenshot 1!)
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    isDeepDiveMode = false
+                }
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13, weight: .bold))
+                    Text("Cerca invece questo")
+                        .font(.system(size: 13, weight: .bold))
+                }
+                .foregroundColor(Color(red: 80/255, green: 40/255, blue: 220/255))
+            }
+            .padding(.trailing, 20)
+            .padding(.top, 2)
+            .padding(.bottom, 6)
+
+            Divider()
+        }
+        .background(Color.white)
+        .zIndex(10)
+    }
+
+    // MARK: - AI Deep Dive: Main Content View (Screenshots 1, 2, 3)
+    private var aiDeepDiveContentView: some View {
+        Group {
+            if isLoading {
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                        .tint(.shopDark)
+                    Text("Analisi approfondita dell'IA sui prodotti scraped...")
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundColor(.shopTextMuted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            // 1. Header: "Ho cercato prodotti" (Screenshot 1)
+                            Text(conversationalHeader)
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                                .padding(.horizontal, 18)
+                                .padding(.top, 8)
+
+                            // 2. Conversational Narrative Paragraph (Screenshot 1)
+                            if !conversationalSummary.isEmpty {
+                                Text(LocalizedStringKey(conversationalSummary))
+                                    .font(.system(size: 15.5, weight: .regular))
+                                    .foregroundColor(.shopDark)
+                                    .lineSpacing(4.5)
+                                    .padding(.horizontal, 18)
+                            }
+
+                            // 3. Thematic Curated Carousels (Screenshot 1 & 2)
+                            ForEach(curatedSections) { section in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(section.title)
+                                        .font(.system(size: 18.5, weight: .bold))
+                                        .foregroundColor(.shopDark)
+                                        .padding(.horizontal, 18)
+
+                                    Text(section.subtitle)
+                                        .font(.system(size: 12.5, weight: .regular))
+                                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                                        .padding(.horizontal, 18)
+                                        .padding(.bottom, 4)
+
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 14) {
+                                            ForEach(section.products) { prod in
+                                                ShopThemedCarouselCard(product: prod) {
+                                                    selectedRecentProduct = prod
+                                                }
+                                            }
+                                        }
+                                        .padding(.horizontal, 18)
+                                        .padding(.vertical, 4)
+                                    }
+                                }
+                                .padding(.top, 8)
+                            }
+
+                            // 4. Spotlight / Best Deal Card (Screenshot 3)
+                            if let spot = spotlight {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    ShopSpotlightCardView(spotlight: spot) {
+                                        selectedRecentProduct = spot.product
+                                    }
+                                    .padding(.horizontal, 18)
+                                    .padding(.top, 10)
+                                }
+                                .id("spotlight_section")
+                            }
+
+                            // 5. Follow-Up Suggestion Pills (Screenshot 3)
+                            if !followUpSuggestions.isEmpty {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    ForEach(followUpSuggestions, id: \.self) { suggestion in
+                                        ShopFollowUpPillButton(title: suggestion) {
+                                            searchText = suggestion
+                                            executeSearch()
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 18)
+                                .padding(.top, 14)
+                                .id("followups_section")
+                            }
+
+                            // 6. AI Disclaimer & Thumbs Feedback (Screenshot 3)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("L'IA può commettere errori, ricontrolla le risposte.")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                                    .padding(.horizontal, 18)
+                                    .padding(.top, 6)
+
+                                HStack(spacing: 12) {
+                                    Text("Cosa ne pensi?")
+                                        .font(.system(size: 12.5, weight: .medium))
+                                        .foregroundColor(Color(red: 100/255, green: 100/255, blue: 110/255))
+
+                                    Button(action: {
+                                        let impact = UIImpactFeedbackGenerator(style: .light)
+                                        impact.impactOccurred()
+                                        withAnimation { userFeedback = 1 }
+                                    }) {
+                                        Image(systemName: userFeedback == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")
+                                            .font(.system(size: 13))
+                                            .foregroundColor(userFeedback == 1 ? .shopPurple : Color(red: 100/255, green: 100/255, blue: 110/255))
+                                    }
+
+                                    Text("|")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Color(red: 210/255, green: 210/255, blue: 220/255))
+
+                                    Button(action: {
+                                        let impact = UIImpactFeedbackGenerator(style: .light)
+                                        impact.impactOccurred()
+                                        withAnimation { userFeedback = -1 }
+                                    }) {
+                                        Image(systemName: userFeedback == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                                            .font(.system(size: 13))
+                                            .foregroundColor(userFeedback == -1 ? .shopPurple : Color(red: 100/255, green: 100/255, blue: 110/255))
+                                    }
+
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color(red: 245/255, green: 245/255, blue: 247/255))
+                                .cornerRadius(12)
+                                .padding(.horizontal, 18)
+                            }
+
+                            // Spacing at bottom for floating follow-up bar and dock
+                            Spacer(minLength: 130)
+                        }
+                    }
+                    .onChange(of: curatedSections) { _ in
+                        if ProcessInfo.processInfo.arguments.contains("-testAiSearchScrolled") {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                withAnimation {
+                                    proxy.scrollTo("spotlight_section", anchor: .top)
+                                }
+                            }
+                        }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 10)
+            }
+        }
+    }
 
-                // 2. Horizontal Filter Strip (Exact match to Screenshot 2)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        // A. Sliders Filter Icon Button
-                        Button(action: {
-                            withAnimation { showAiExplanation.toggle() }
-                        }) {
-                            HStack {
-                                Image(systemName: "slider.horizontal.3")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(.shopDark)
-                            }
+    // MARK: - Classic Mode: Pinned Header (Screenshot 4)
+    private var classicHeaderBar: some View {
+        VStack(spacing: 0) {
+            // Top Nav Row
+            HStack(spacing: 12) {
+                Button(action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                        hasSearched = false
+                        searchResults = []
+                        isSmartSearchActive = false
+                    }
+                }) {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 42, height: 42)
+                        .overlay(Circle().stroke(Color.black.opacity(0.1), lineWidth: 1))
+                        .overlay(
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.shopDark)
+                        )
+                }
+
+                Button(action: {
+                    hasSearched = false
+                    isSearchFieldFocused = true
+                }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(Color(red: 80/255, green: 80/255, blue: 90/255))
+
+                        Text(searchText.isEmpty ? "Cerca prodotto..." : searchText)
+                            .font(.system(size: 15.5, weight: .medium))
+                            .foregroundColor(.shopDark)
+                            .lineLimit(1)
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10.5)
+                    .background(Color(red: 243/255, green: 243/255, blue: 245/255))
+                    .cornerRadius(24)
+                }
+
+                // Switch to AI Deep Dive Mode Button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isDeepDiveMode = true
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("IA")
+                            .font(.system(size: 12, weight: .bold))
+                    }
+                    .foregroundColor(.shopPurple)
+                    .padding(.horizontal, 10)
+                    .frame(height: 42)
+                    .background(Color.shopPurpleLight)
+                    .cornerRadius(21)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
+
+            // Horizontal Filter Strip (Screenshot 4)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    // Sliders Filter Icon Button
+                    Button(action: {
+                        withAnimation { showAiExplanation.toggle() }
+                    }) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.shopDark)
                             .frame(width: 40, height: 36)
                             .background(Color.white)
                             .cornerRadius(18)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18)
-                                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
-                            )
-                        }
+                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.black.opacity(0.12), lineWidth: 1))
+                    }
 
-                        // B. "Vende da 🇪🇺" Filter Pill
-                        let isEUSelected = (selectedFilterCountry == "EU")
-                        Button(action: {
-                            withAnimation {
-                                selectedFilterCountry = isEUSelected ? nil : "EU"
-                            }
-                        }) {
-                            HStack(spacing: 5) {
-                                Text("Vende da 🇪🇺")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.shopDark)
-                            }
+                    // "Vende da 🇪🇺" Filter Pill
+                    let isEUSelected = (selectedFilterCountry == "EU")
+                    Button(action: {
+                        withAnimation { selectedFilterCountry = isEUSelected ? nil : "EU" }
+                    }) {
+                        Text("Vende da 🇪🇺")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.shopDark)
                             .padding(.horizontal, 14)
                             .frame(height: 36)
                             .background(isEUSelected ? Color.shopPurpleLight : Color.white)
@@ -463,20 +840,16 @@ struct SearchView: View {
                                 RoundedRectangle(cornerRadius: 18)
                                     .stroke(isEUSelected ? Color.shopPurple : Color.black.opacity(0.12), lineWidth: 1)
                             )
-                        }
+                    }
 
-                        // C. "Vende da 🇮🇹" Filter Pill
-                        let isITSelected = (selectedFilterCountry == "IT")
-                        Button(action: {
-                            withAnimation {
-                                selectedFilterCountry = isITSelected ? nil : "IT"
-                            }
-                        }) {
-                            HStack(spacing: 5) {
-                                Text("Vende da 🇮🇹")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.shopDark)
-                            }
+                    // "Vende da 🇮🇹" Filter Pill
+                    let isITSelected = (selectedFilterCountry == "IT")
+                    Button(action: {
+                        withAnimation { selectedFilterCountry = isITSelected ? nil : "IT" }
+                    }) {
+                        Text("Vende da 🇮🇹")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.shopDark)
                             .padding(.horizontal, 14)
                             .frame(height: 36)
                             .background(isITSelected ? Color.shopPurpleLight : Color.white)
@@ -485,94 +858,94 @@ struct SearchView: View {
                                 RoundedRectangle(cornerRadius: 18)
                                     .stroke(isITSelected ? Color.shopPurple : Color.black.opacity(0.12), lineWidth: 1)
                             )
-                        }
-
-                        // D. "Prezzo ▾" Dropdown Menu
-                        Menu {
-                            ForEach(SortMode.allCases) { mode in
-                                Button(action: {
-                                    withAnimation { sortMode = mode }
-                                }) {
-                                    HStack {
-                                        Text(mode.rawValue)
-                                        if sortMode == mode {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Text("Prezzo")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.shopDark)
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.shopDark)
-                            }
-                            .padding(.horizontal, 14)
-                            .frame(height: 36)
-                            .background(Color.white)
-                            .cornerRadius(18)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18)
-                                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
-                            )
-                        }
-
-                        // E. "Taglia ▾" Dropdown Menu
-                        Menu {
-                            ForEach(availableSizes, id: \.self) { sz in
-                                Button(action: {
-                                    withAnimation {
-                                        selectedSize = (sz == "Tutte") ? nil : sz
-                                        executeSearch()
-                                    }
-                                }) {
-                                    HStack {
-                                        Text(sz)
-                                        if (sz == "Tutte" && selectedSize == nil) || (selectedSize == sz) {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Text(selectedSize == nil ? "Taglia" : "Tg. \(selectedSize!)")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.shopDark)
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.shopDark)
-                            }
-                            .padding(.horizontal, 14)
-                            .frame(height: 36)
-                            .background(selectedSize != nil ? Color.shopPurpleLight : Color.white)
-                            .cornerRadius(18)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18)
-                                    .stroke(selectedSize != nil ? Color.shopPurple : Color.black.opacity(0.12), lineWidth: 1)
-                            )
-                        }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
+
+                    // "Prezzo ▾" Dropdown Menu
+                    Menu {
+                        ForEach(SortMode.allCases) { mode in
+                            Button(action: {
+                                withAnimation { sortMode = mode }
+                            }) {
+                                HStack {
+                                    Text(mode.rawValue)
+                                    if sortMode == mode {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text("Prezzo")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.shopDark)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.shopDark)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .background(Color.white)
+                        .cornerRadius(18)
+                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.black.opacity(0.12), lineWidth: 1))
+                    }
+
+                    // "Taglia ▾" Dropdown Menu
+                    Menu {
+                        ForEach(availableSizes, id: \.self) { sz in
+                            Button(action: {
+                                withAnimation {
+                                    selectedSize = (sz == "Tutte") ? nil : sz
+                                    executeSearch()
+                                }
+                            }) {
+                                HStack {
+                                    Text(sz)
+                                    if (sz == "Tutte" && selectedSize == nil) || (selectedSize == sz) {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(selectedSize == nil ? "Taglia" : "Tg. \(selectedSize!)")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.shopDark)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.shopDark)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .background(selectedSize != nil ? Color.shopPurpleLight : Color.white)
+                        .cornerRadius(18)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(selectedSize != nil ? Color.shopPurple : Color.black.opacity(0.12), lineWidth: 1)
+                        )
+                    }
                 }
-
-                Divider()
-                    .padding(.top, 4)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
             }
-            .background(Color.white)
-            .zIndex(10)
 
-            // 3. Product Results List (Matching Screenshot 2 Cards)
+            Divider()
+                .padding(.top, 4)
+        }
+        .background(Color.white)
+        .zIndex(10)
+    }
+
+    // MARK: - Classic Mode: Main Content View (Screenshot 4)
+    private var classicContentView: some View {
+        Group {
             if isLoading {
                 VStack(spacing: 16) {
                     ProgressView()
                         .scaleEffect(1.2)
                         .tint(.shopDark)
-                    Text("Ricerca tra 8 negozi partner in corso...")
+                    Text("Ricerca tra 12 negozi partner in corso...")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.shopTextMuted)
                 }
@@ -586,7 +959,7 @@ struct SearchView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
-                    .padding(.bottom, 120) // Leave space for bottom AI assistant bar and floating dock
+                    .padding(.bottom, 130)
                 }
             } else {
                 VStack(spacing: 14) {
@@ -596,104 +969,81 @@ struct SearchView: View {
                     Text("Nessun prodotto trovato")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.shopDark)
-                    Text("Prova a cercare marchi come 'Nike', 'Hoka', 'Garmin' o 'Oakley'.")
+                    Text("Prova a cercare marchi come 'Nike', 'Hoka', 'Garmin' o 'Asics'.")
                         .font(.system(size: 13))
                         .foregroundColor(.shopTextMuted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-
-            // 4. Bottom AI Assistant Strip (Exact match to Screenshot 2)
-            bottomAiAssistantStrip
-                .padding(.bottom, 78)
         }
     }
 
-    // MARK: - Bottom AI Assistant Strip (Screenshot 2)
-    private var bottomAiAssistantStrip: some View {
-        VStack(spacing: 6) {
-            HStack(alignment: .center, spacing: 4) {
-                Text(assistantSummaryText)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.shopDark)
-                    .lineLimit(1)
+    // MARK: - Sticky Bottom Follow-Up Bar (Screenshots 1, 2, 3, 4)
+    private var stickyFollowUpInputBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "camera")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                .padding(.leading, 2)
 
+            TextField("Fai una domanda di follow-up", text: $followUpInputText)
+                .font(.system(size: 14.5, weight: .medium))
+                .foregroundColor(.shopDark)
+                .onSubmit {
+                    sendFollowUp()
+                }
+
+            if !followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button(action: {
-                    withAnimation { showAiExplanation.toggle() }
+                    sendFollowUp()
                 }) {
-                    Text("Visualizza altro ›")
-                        .font(.system(size: 13, weight: .bold))
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 26))
                         .foregroundColor(.shopPurple)
                 }
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .background(Color.white)
-
-            // Expandable AI Explanation & Chips
-            if showAiExplanation, let intent = smartIntent {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let exp = intent.explanation, !exp.isEmpty {
-                        Text(exp.replacingOccurrences(of: "**", with: ""))
-                            .font(.system(size: 12.5))
-                            .foregroundColor(.shopDark)
+            } else {
+                Button(action: {
+                    withAnimation {
+                        hasSearched = false
+                        isSearchFieldFocused = true
                     }
-
-                    if !activeChips.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(activeChips) { chip in
-                                    HStack(spacing: 4) {
-                                        Text(chip.label)
-                                            .font(.system(size: 11.5, weight: .bold))
-                                            .foregroundColor(.shopDark)
-                                        Button(action: {
-                                            removeChip(chip)
-                                        }) {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .font(.system(size: 11))
-                                                .foregroundColor(.shopTextMuted)
-                                        }
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.white)
-                                    .cornerRadius(8)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(Color.shopBorder, lineWidth: 1)
-                                    )
-                                }
-                            }
-                        }
-                    }
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                        .frame(width: 28, height: 28)
+                        .background(Color.black.opacity(0.05))
+                        .clipShape(Circle())
                 }
-                .padding(12)
-                .background(Color.shopPurpleLight.opacity(0.45))
-                .cornerRadius(12)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 6)
             }
         }
-        .padding(.bottom, 6)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.white)
+        .cornerRadius(26)
+        .overlay(
+            RoundedRectangle(cornerRadius: 26)
+                .stroke(Color.black.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 78) // Floating above bottom bar!
     }
 
-    private var assistantSummaryText: String {
-        if let intent = smartIntent, let cat = intent.category {
-            return "Posso restringere \(searchText) al mondo che ti interessa: \(cat)..."
-        }
-        return "Posso restringere \(searchText) al mondo che ti interessa di più: running..."
+    private func sendFollowUp() {
+        let text = followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        searchText = text
+        followUpInputText = ""
+        executeSearch()
     }
 
-    // MARK: - Actions
+    // MARK: - Search Execution
     private func executeSearch() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
 
-        // Record real user search to recent activity
         recentManager.recordSearch(query)
-
         isLoading = true
         hasSearched = true
 
@@ -707,8 +1057,18 @@ struct SearchView: View {
                 )
                 await MainActor.run {
                     self.smartIntent = smartRes.intent
-                    self.activeChips = smartRes.chips
+                    self.activeChips = smartRes.chips ?? []
                     self.searchResults = smartRes.results
+                    self.curatedSections = smartRes.curated_sections ?? []
+                    self.spotlight = smartRes.spotlight
+                    self.followUpSuggestions = smartRes.follow_up_suggestions ?? []
+                    self.conversationalHeader = smartRes.conversational_header ?? "Ho cercato prodotti"
+                    self.conversationalSummary = smartRes.conversational_summary ?? (smartRes.intent?.explanation ?? "")
+                    if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
+                        self.isDeepDiveMode = false
+                    } else {
+                        self.isDeepDiveMode = smartRes.is_deep_dive ?? true
+                    }
                     self.isSmartSearchActive = true
                     self.isLoading = false
                 }
@@ -716,12 +1076,14 @@ struct SearchView: View {
                 if let local = try? await api.searchCatalog(query: query, limit: 30), !local.isEmpty {
                     await MainActor.run {
                         self.searchResults = local
+                        self.isDeepDiveMode = false
                         self.isSmartSearchActive = false
                         self.isLoading = false
                     }
                 } else if let live = try? await api.search(query: query, size: selectedSize), !live.isEmpty {
                     await MainActor.run {
                         self.searchResults = live
+                        self.isDeepDiveMode = false
                         self.isSmartSearchActive = false
                         self.isLoading = false
                     }
@@ -759,7 +1121,269 @@ struct SearchView: View {
     }
 }
 
-// MARK: - Official Shop Product Card (Exact match to Screenshot 2)
+// MARK: - Horizontal Themed Carousel Card (Screenshots 1 & 2)
+struct ShopThemedCarouselCard: View {
+    let product: MatchedProduct
+    let onTap: () -> Void
+
+    var bestOffer: Offer? {
+        product.offers.min(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+    }
+
+    var maxOffer: Offer? {
+        product.offers.max(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+    }
+
+    var discountBadge: String? {
+        if let best = bestOffer, let disc = best.discount_pct, disc > 5 {
+            return "\(disc)% di sconto"
+        }
+        if let sav = product.cross_store_savings, sav > 10 {
+            return "Risparmia \(Int(sav)) €"
+        }
+        return nil
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
+                        .frame(width: 152, height: 152)
+
+                    if let imgUrl = product.image_url, let url = URL(string: imgUrl) {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 152, height: 152)
+                                    .cornerRadius(16)
+                            default:
+                                Image(systemName: "photo")
+                                    .foregroundColor(.gray.opacity(0.35))
+                                    .frame(width: 152, height: 152)
+                            }
+                        }
+                    }
+
+                    if let badge = discountBadge {
+                        Text(badge)
+                            .font(.system(size: 9.5, weight: .heavy))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(Color(red: 215/255, green: 40/255, blue: 40/255))
+                            .cornerRadius(6)
+                            .padding(8)
+                    }
+
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            ShopTranslucentHeartButton(product: product)
+                                .padding(8)
+                        }
+                    }
+                    .frame(width: 152, height: 152)
+                }
+
+                if let best = bestOffer {
+                    Text(best.store_name)
+                        .font(.system(size: 11.5, weight: .bold))
+                        .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                        .lineLimit(1)
+                }
+
+                Text(product.displayTitle)
+                    .font(.system(size: 13.5, weight: .bold))
+                    .foregroundColor(.shopDark)
+                    .lineLimit(1)
+
+                HStack(spacing: 5) {
+                    if let best = bestOffer {
+                        Text(String(format: "€ %.2f", best.calculatedTotalPrice))
+                            .font(.system(size: 13.5, weight: .heavy))
+                            .foregroundColor(.shopDark)
+
+                        if let max = maxOffer, max.calculatedTotalPrice > best.calculatedTotalPrice + 2 {
+                            Text(String(format: "€ %.2f", max.calculatedTotalPrice))
+                                .font(.system(size: 11.5))
+                                .strikethrough()
+                                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                        }
+                    }
+                }
+            }
+            .frame(width: 152)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Spotlight Card View (Screenshot 3)
+struct ShopSpotlightCardView: View {
+    let spotlight: SpotlightRecommendation
+    let onTap: () -> Void
+
+    var bestOffer: Offer? {
+        spotlight.product.offers.min(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+    }
+
+    var maxOffer: Offer? {
+        spotlight.product.offers.max(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Top Store Header
+                HStack(spacing: 8) {
+                    if let best = bestOffer {
+                        ShopStoreLogo(storeName: best.store_name, showVerified: false, showLabel: false, size: 26)
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(best.store_name)
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.shopDark)
+
+                            HStack(spacing: 3) {
+                                Text("4.8")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundColor(.shopDark)
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.shopDark)
+                                Text("(316)")
+                                    .font(.system(size: 11.5))
+                                    .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                            }
+                        }
+                    }
+                    Spacer()
+                }
+
+                // Main Content
+                HStack(alignment: .top, spacing: 14) {
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
+                            .frame(width: 128, height: 128)
+
+                        if let imgUrl = spotlight.product.image_url, let url = URL(string: imgUrl) {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image.resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(width: 128, height: 128)
+                                        .cornerRadius(14)
+                                default:
+                                    Image(systemName: "photo")
+                                        .foregroundColor(.gray.opacity(0.35))
+                                        .frame(width: 128, height: 128)
+                                }
+                            }
+                        }
+
+                        if let badge = spotlight.badge_text {
+                            Text(badge)
+                                .font(.system(size: 9.5, weight: .heavy))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color(red: 215/255, green: 40/255, blue: 40/255))
+                                .cornerRadius(5)
+                                .padding(6)
+                        }
+
+                        VStack {
+                            Spacer()
+                            HStack {
+                                Spacer()
+                                ShopTranslucentHeartButton(product: spotlight.product)
+                                    .padding(6)
+                            }
+                        }
+                        .frame(width: 128, height: 128)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(spotlight.product.displayTitle)
+                            .font(.system(size: 14.5, weight: .bold))
+                            .foregroundColor(.shopDark)
+                            .lineLimit(2)
+
+                        if let best = bestOffer {
+                            HStack(spacing: 6) {
+                                Text(String(format: "€ %.2f", best.calculatedTotalPrice))
+                                    .font(.system(size: 14.5, weight: .heavy))
+                                    .foregroundColor(.shopDark)
+
+                                if let max = maxOffer, max.calculatedTotalPrice > best.calculatedTotalPrice + 2 {
+                                    Text(String(format: "€ %.2f", max.calculatedTotalPrice))
+                                        .font(.system(size: 12))
+                                        .strikethrough()
+                                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                                }
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(spotlight.highlights, id: \.self) { hl in
+                                HStack(alignment: .top, spacing: 5) {
+                                    Text("•")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(.shopDark)
+                                    Text(hl)
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(Color(red: 80/255, green: 80/255, blue: 90/255))
+                                        .lineLimit(2)
+                                }
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
+                }
+            }
+            .padding(14)
+            .background(Color.white)
+            .cornerRadius(18)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 3)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Follow-Up Suggestion Purple Pill Button (Screenshot 3)
+struct ShopFollowUpPillButton: View {
+    let title: String
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color(red: 90/255, green: 50/255, blue: 220/255))
+                Spacer()
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(Color(red: 242/255, green: 238/255, blue: 255/255))
+            .cornerRadius(22)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Official Shop Product Card (Screenshot 4)
 struct ShopOfficialProductCard: View {
     let product: MatchedProduct
 
@@ -780,28 +1404,28 @@ struct ShopOfficialProductCard: View {
     var body: some View {
         NavigationLink(destination: ProductDetailView(product: product)) {
             HStack(alignment: .top, spacing: 14) {
-                // 1. Left Image Container (Rounded 20pt, Gray Fill, with Green Badge & Heart)
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 18)
                         .fill(Color(red: 243/255, green: 243/255, blue: 245/255))
                         .frame(width: 124, height: 124)
 
-                    // Product Image
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl) {
                         AsyncImage(url: url) { phase in
-                            if let img = phase.image {
-                                img
-                                    .resizable()
-                                    .scaledToFit()
-                                    .padding(8)
-                            } else {
-                                Color.clear
+                            switch phase {
+                            case .success(let image):
+                                image.resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 124, height: 124)
+                                    .cornerRadius(18)
+                            default:
+                                Image(systemName: "photo")
+                                    .foregroundColor(.gray.opacity(0.35))
+                                    .frame(width: 124, height: 124)
                             }
                         }
                         .frame(width: 124, height: 124)
                     }
 
-                    // Top-Left Green Savings Pill (Exact match to Screenshot 2: "Risparmia 10 €")
                     if savingsAmount > 1.0 {
                         Text("Risparmia \(String(format: "%.0f", savingsAmount)) €")
                             .font(.system(size: 10, weight: .heavy))
@@ -813,7 +1437,6 @@ struct ShopOfficialProductCard: View {
                             .padding(8)
                     }
 
-                    // Bottom-Right Translucent Heart Wishlist Button (Exact match to Screenshot 2)
                     VStack {
                         Spacer()
                         HStack {
@@ -825,16 +1448,13 @@ struct ShopOfficialProductCard: View {
                     .frame(width: 124, height: 124)
                 }
 
-                // 2. Right Product Info Column
                 VStack(alignment: .leading, spacing: 4) {
-                    // Title with Gender distinction
                     Text(product.displayTitle)
                         .font(.system(size: 14, weight: .bold))
                         .foregroundColor(.shopDark)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
 
-                    // Star Rating: ★★★★★ (X store)
                     HStack(spacing: 2) {
                         ForEach(0..<5) { _ in
                             Image(systemName: "star.fill")
@@ -847,7 +1467,6 @@ struct ShopOfficialProductCard: View {
                     }
                     .padding(.top, 1)
 
-                    // Price Row: Best Price + Strikethrough Original
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if let best = bestOffer {
                             Text(String(format: "%.2f €", best.calculatedTotalPrice).replacingOccurrences(of: ".", with: ","))
@@ -866,7 +1485,6 @@ struct ShopOfficialProductCard: View {
 
                     Spacer(minLength: 4)
 
-                    // Merchant Row: Circular Avatar + Name + Rating or Green Saving Pill
                     if let best = bestOffer {
                         HStack(spacing: 6) {
                             ShopStoreLogo(storeName: best.store_name, showVerified: false, showLabel: false, size: 18)
@@ -896,7 +1514,7 @@ struct ShopOfficialProductCard: View {
     }
 }
 
-// MARK: - Translucent Wishlist Heart Button (Screenshot 2)
+// MARK: - Translucent Wishlist Heart Button
 struct ShopTranslucentHeartButton: View {
     let product: MatchedProduct
     @ObservedObject private var wishlist = WishlistManager.shared

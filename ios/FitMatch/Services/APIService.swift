@@ -102,6 +102,7 @@ class APIService: ObservableObject {
 
     func smartSearch(
         query: String,
+        mode: String? = nil,
         maxPrice: Double? = nil,
         size: String? = nil,
         category: String? = nil,
@@ -109,6 +110,9 @@ class APIService: ObservableObject {
     ) async throws -> SmartSearchResponse {
         var components = URLComponents(string: "\(baseURL)/api/search/smart")!
         var queryItems = [URLQueryItem(name: "q", value: query)]
+        if let mode = mode {
+            queryItems.append(URLQueryItem(name: "mode", value: mode))
+        }
         if let maxPrice = maxPrice {
             queryItems.append(URLQueryItem(name: "max_price", value: "\(maxPrice)"))
         }

@@ -8,6 +8,7 @@ from fitmatch.crawler import CategoryCrawler
 from fitmatch.ai_advisor import AIShoppingAdvisor
 from fitmatch.ai_comparator import AIModelComparator, ModelComparisonResponse
 from fitmatch.smart_search import SmartSearchEngine
+from fitmatch.cache_manager import SearchCacheManager
 from fitmatch.updater import PriceUpdater
 from fitmatch.scheduler import SyncScheduler
 from fitmatch.models import SearchResult
@@ -34,7 +35,8 @@ service = ComparisonService()
 db = Database()
 updater = PriceUpdater.get_instance(db=db)
 scheduler = SyncScheduler.get_instance(db=db)
-smart_engine = SmartSearchEngine()
+cache_manager = SearchCacheManager.get_instance()
+smart_engine = SmartSearchEngine(cache_manager=cache_manager)
 
 
 advisor = AIShoppingAdvisor(service=service, db=db)
@@ -139,14 +141,31 @@ def compare_models(
 @app.get("/api/search/smart")
 def search_smart(
     q: str = Query(..., min_length=2, description="Natural language or keywords query (e.g. 'scarpe running ammortizzate sotto 140 euro')"),
+    mode: Optional[str] = Query(None, description="Force search mode: 'deep_dive' or 'classic'"),
     max_price: Optional[float] = Query(None, description="Explicit max price override from active chip"),
     size: Optional[str] = Query(None, description="Explicit size filter"),
     category: Optional[str] = Query(None, description="Category filter override"),
     store: Optional[str] = Query(None, description="Store filter (e.g. 'cisalfa', 'top4running')"),
     limit: int = Query(35, ge=1, le=100)
 ):
-    """Shopify Shop-style intelligent search: interprets user intent, extracts filters and returns ranked multi-store products."""
-    intent = smart_engine.parse_query(q)
+    """Shopify Shop-style intelligent search: interprets user intent, classifies query mode (AI deep dive vs classic),
+    clusters results into curated thematic carousels, provides spotlight recommendation and follow-up prompts.
+    """
+    # 1. Tier-2 Response Cache Check (Fast-path < 5ms)
+    cache_key = cache_manager.make_response_key(
+        query=q,
+        mode=mode,
+        max_price=max_price,
+        size=size,
+        category=category,
+        store=store,
+        limit=limit
+    )
+    cached_resp = cache_manager.get_search_response(cache_key)
+    if cached_resp is not None:
+        return cached_resp
+
+    intent = smart_engine.parse_query(q, force_mode=mode)
 
     # Use explicit query overrides if user modified/toggled active chips
     eff_max_price = max_price if max_price is not None else intent.max_price
@@ -208,9 +227,89 @@ def search_smart(
         except Exception as e:
             logger.error(f"[search_smart] Live crawl federation error: {e}")
 
-    return {
+    # Curate Thematic Carousels for AI Deep Dive
+    curated_sections_out = []
+    used_product_ids = set()
+
+    if intent.curated_sections and products:
+        for sec_def in intent.curated_sections:
+            sec_prods = []
+            sec_kws = [k.lower() for k in sec_def.keywords]
+            for p in products:
+                name_lower = (p.get("canonical_name") or "").lower()
+                brand_lower = (p.get("brand") or "").lower()
+                matched = any(k in name_lower or k in brand_lower for k in sec_kws) if sec_kws else False
+                if matched and p.get("id") not in used_product_ids:
+                    sec_prods.append(p)
+                    used_product_ids.add(p.get("id"))
+                if len(sec_prods) >= 8:
+                    break
+
+            # Fallback if specific keywords yielded few items: pull unassigned products
+            if len(sec_prods) < 2:
+                for p in products:
+                    if p.get("id") not in used_product_ids:
+                        sec_prods.append(p)
+                        used_product_ids.add(p.get("id"))
+                    if len(sec_prods) >= 3:
+                        break
+
+            if sec_prods:
+                curated_sections_out.append({
+                    "id": sec_def.id,
+                    "title": sec_def.title,
+                    "subtitle": sec_def.subtitle,
+                    "products": sec_prods
+                })
+
+    # If no sections could be formed, create one default section
+    if not curated_sections_out and products:
+        curated_sections_out.append({
+            "id": "sec_all",
+            "title": "I Modelli Selezionati",
+            "subtitle": "I migliori prodotti trovati in base alla tua ricerca.",
+            "products": products[:8]
+        })
+
+    # Populate Spotlight Deal / Best Pick Card
+    spotlight_out = None
+    if products and intent.spotlight:
+        target_kw = intent.spotlight.target_keyword.lower()
+        matched_spotlight_prod = next(
+            (p for p in products if target_kw in (p.get("canonical_name") or "").lower() or target_kw in (p.get("brand") or "").lower()),
+            products[0]
+        )
+        spotlight_out = {
+            "product": matched_spotlight_prod,
+            "badge_text": intent.spotlight.badge_text,
+            "highlights": intent.spotlight.highlights
+        }
+    elif products:
+        # Default spotlight on top discounted product
+        best_p = max(products, key=lambda x: x.get("cross_store_savings", 0.0))
+        spotlight_out = {
+            "product": best_p,
+            "badge_text": "Miglior Scelta",
+            "highlights": [
+                f"Miglior prezzo confrontato tra {len(best_p.get('offers', []))} negozi",
+                "Risparmio garantito rispetto al prezzo di listino",
+                "Spedizione e recensioni verificate"
+            ]
+        }
+
+    result_data = {
+        "search_mode": intent.search_mode,
+        "is_deep_dive": intent.is_deep_dive,
+        "conversational_header": intent.conversational_header,
+        "conversational_summary": intent.conversational_summary,
+        "curated_sections": curated_sections_out,
+        "spotlight": spotlight_out,
+        "follow_up_suggestions": intent.follow_up_suggestions,
+        "chips": [c.model_dump() for c in intent.chips],
         "intent": {
             "raw_query": intent.raw_query,
+            "search_mode": intent.search_mode,
+            "is_deep_dive": intent.is_deep_dive,
             "target_keywords": intent.target_keywords,
             "brand": intent.brand,
             "category": eff_category,
@@ -222,10 +321,13 @@ def search_smart(
             "explanation": intent.explanation,
             "source": intent.source
         },
-        "chips": [c.model_dump() for c in intent.chips],
         "total_found": len(products),
         "results": products
     }
+
+    # Store full curated response into L1 memory & L2 disk cache (20-min TTL)
+    cache_manager.set_search_response(cache_key, result_data)
+    return result_data
 
 
 
@@ -251,6 +353,7 @@ def trigger_crawl(
     store: Optional[str] = Query(None, description="Specific store ID to crawl (e.g. 'cisalfa', 'deporvillage') or all")
 ):
     """Trigger background crawler to update local catalog from all or specific stores."""
+    cache_manager.invalidate_responses()
     crawler = CategoryCrawler(db=db)
     stores = [store] if store else None
     background_tasks.add_task(crawler.run_full_sync, limit_per_store, stores)
@@ -318,6 +421,7 @@ def trigger_updater(
     """Trigger an on-demand price refresh across stores for indexed products."""
     if updater.is_running:
         return {"status": "busy", "message": "Aggiornamento prezzi già in corso in background."}
+    cache_manager.invalidate_responses()
     background_tasks.add_task(updater.run_update_sync, limit)
     return {
         "status": "scheduled",
@@ -495,6 +599,24 @@ def add_store_review_endpoint(store_id: str, payload: dict):
     if not res:
         raise HTTPException(status_code=500, detail="Impossibile salvare la recensione.")
     return {"status": "ok", "review": res}
+
+
+# MARK: - Smart Cache Management & Analytics
+
+@app.get("/api/cache/stats")
+def get_cache_stats():
+    """Retrieve real-time metrics on smart search cache efficiency, hit ratios and monetary savings."""
+    return cache_manager.get_metrics()
+
+
+@app.post("/api/cache/clear")
+def clear_cache(scope: str = Query("all", description="Scope: 'all' for full flush, 'responses' to only invalidate search product offers")):
+    """Clear or invalidate in-memory and persistent disk caches."""
+    if scope == "responses":
+        purged = cache_manager.invalidate_responses()
+        return {"status": "ok", "scope": "responses", "purged": purged, "message": f"Invalidati {purged} risultati di ricerca cached."}
+    cache_manager.clear_all()
+    return {"status": "ok", "scope": "all", "message": "Tutte le cache (intenti LLM e risultati catalogo) sono state svuotate."}
 
 
 if __name__ == "__main__":

@@ -545,8 +545,23 @@ struct SmartSearchChip: Identifiable, Codable, Hashable {
     let value: String
 }
 
+struct CuratedProductSection: Identifiable, Codable, Hashable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let products: [MatchedProduct]
+}
+
+struct SpotlightRecommendation: Codable, Hashable {
+    let product: MatchedProduct
+    let badge_text: String?
+    let highlights: [String]
+}
+
 struct SmartSearchIntent: Codable, Hashable {
     let raw_query: String
+    let search_mode: String?
+    let is_deep_dive: Bool?
     let target_keywords: [String]?
     let brand: String?
     let category: String?
@@ -560,8 +575,15 @@ struct SmartSearchIntent: Codable, Hashable {
 }
 
 struct SmartSearchResponse: Codable {
-    let intent: SmartSearchIntent
-    let chips: [SmartSearchChip]
+    let search_mode: String?
+    let is_deep_dive: Bool?
+    let conversational_header: String?
+    let conversational_summary: String?
+    let curated_sections: [CuratedProductSection]?
+    let spotlight: SpotlightRecommendation?
+    let follow_up_suggestions: [String]?
+    let intent: SmartSearchIntent?
+    let chips: [SmartSearchChip]?
     let total_found: Int
     let results: [MatchedProduct]
 }

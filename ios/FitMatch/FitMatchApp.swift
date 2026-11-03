@@ -21,6 +21,16 @@ struct FitMatchApp: App {
                 NotificationsView()
             } else if ProcessInfo.processInfo.arguments.contains("-testWishlist") {
                 MainTabView(initialTab: 3)
+            } else if ProcessInfo.processInfo.arguments.contains("-testSearch") {
+                MainTabView(initialTab: 1)
+            } else if ProcessInfo.processInfo.arguments.contains("-testAiSearchDeepDive") {
+                SearchView(initialSearchQuery: "scarpe running ammortizzate per ginocchia pesanti sotto 150 euro")
+            } else if ProcessInfo.processInfo.arguments.contains("-testAiSearchScrolled") {
+                SearchView(initialSearchQuery: "scarpe running ammortizzate per ginocchia pesanti sotto 150 euro")
+            } else if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
+                SearchView(initialSearchQuery: "scarpe running ammortizzate per ginocchia pesanti sotto 150 euro")
+            } else if ProcessInfo.processInfo.arguments.contains("-testAiSearchMaisonMargiela") {
+                SearchView(initialSearchQuery: "Maison margiela scarpe nere")
             } else if ProcessInfo.processInfo.arguments.contains("-testSalvatiHome") {
                 ZStack(alignment: .bottom) {
                     HomeView(selectedTab: .constant(0), initialSubTab: .salvati)
