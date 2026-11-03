@@ -31,12 +31,13 @@ struct HomeView: View {
     @ObservedObject private var wishlist = WishlistManager.shared
     @ObservedObject private var followedManager = FollowedStoresManager.shared
     @ObservedObject private var recentManager = RecentActivityManager.shared
+    @ObservedObject private var notifManager = NotificationManager.shared
 
     @State private var showcases: [StoreShowcase] = []
     @State private var isLoading = false
     @State private var searchText = ""
     @State private var showingAccountSheet = false
-    @State private var showingNotificationsAlert = false
+    @State private var showingNotificationsSheet = false
 
     // Interactive Menu States (Screenshot 3)
     @State private var reportingStore: StoreShowcase? = nil
@@ -136,10 +137,8 @@ struct HomeView: View {
             .sheet(isPresented: $showingAccountSheet) {
                 AccountView()
             }
-            .alert("Notifiche Attive", isPresented: $showingNotificationsAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text("Riceverai notifiche push istantanee per cali di prezzo dei tuoi articoli salvati e per i nuovi drop dei negozi che segui.")
+            .sheet(isPresented: $showingNotificationsSheet) {
+                NotificationsView()
             }
             .alert("Segnala Negozio", isPresented: $showingReportAlert, presenting: reportingStore) { store in
                 Button("Invia Segnalazione", role: .destructive) {
@@ -160,6 +159,7 @@ struct HomeView: View {
                 if showcases.isEmpty {
                     await fetchShowcases()
                 }
+                await notifManager.checkIntelligentNotifications()
             }
         }
     }
@@ -207,8 +207,12 @@ struct HomeView: View {
             .buttonStyle(.plain)
 
             // Bell Notifications Button
-            Button(action: { showingNotificationsAlert = true }) {
-                ZStack {
+            Button(action: {
+                let gen = UIImpactFeedbackGenerator(style: .light)
+                gen.impactOccurred()
+                showingNotificationsSheet = true
+            }) {
+                ZStack(alignment: .topTrailing) {
                     Circle()
                         .fill(Color.white)
                         .frame(width: 42, height: 42)
@@ -220,6 +224,18 @@ struct HomeView: View {
                     Image(systemName: "bell.fill")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                        .frame(width: 42, height: 42)
+
+                    if notifManager.unreadCount > 0 {
+                        Text("\(min(notifManager.unreadCount, 99))")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4.5)
+                            .padding(.vertical, 2)
+                            .background(Color(red: 228/255, green: 42/255, blue: 38/255))
+                            .clipShape(Capsule())
+                            .offset(x: 2, y: -2)
+                    }
                 }
             }
             .buttonStyle(.plain)
@@ -357,51 +373,32 @@ struct HomeView: View {
                 .buttonStyle(.plain)
             }
 
-            // Row of 3 Thumbnails
-            HStack(spacing: 10) {
-                let items = previewRecentProducts
-                ForEach(items) { prod in
-                    NavigationLink(destination: ProductDetailView(product: prod)) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 18)
-                                .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 18)
-                                        .stroke(Color.black.opacity(0.04), lineWidth: 1)
-                                )
-
-                            if let imgUrl = prod.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                                AsyncImage(url: url) { phase in
-                                    if let img = phase.image {
-                                        img
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(width: thumbSize - 16, height: thumbSize - 16)
-                                            .clipped()
-                                    } else {
-                                        Image(systemName: "photo")
-                                            .font(.system(size: 22))
-                                            .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
-                                            .frame(width: thumbSize - 16, height: thumbSize - 16)
-                                    }
-                                }
-                            } else {
-                                Image(systemName: "clock")
-                                    .font(.system(size: 22))
-                                    .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
-                                    .frame(width: thumbSize - 16, height: thumbSize - 16)
-                            }
-                        }
-                        .frame(width: thumbSize, height: thumbSize)
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
+            // Thumbnails of real recently viewed items
+            let items = previewRecentProducts
+            if items.isEmpty {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
+                            .frame(width: 52, height: 52)
+                        Image(systemName: "clock")
+                            .font(.system(size: 20))
+                            .foregroundColor(.shopTextMuted)
                     }
-                    .buttonStyle(.plain)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Nessun articolo recente")
+                            .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                            .foregroundColor(Color.shopDark)
+                        Text("I prodotti che visualizzi appariranno qui")
+                            .font(.system(size: 11.5, weight: .regular))
+                            .foregroundColor(.shopTextMuted)
+                    }
+                    Spacer()
                 }
-
-                // If user has viewed fewer than 3 items, fill with top database shoes
-                if items.count < 3 {
-                    let fallbackPicks = fallbackPopularProducts.prefix(3 - items.count)
-                    ForEach(fallbackPicks) { prod in
+                .frame(height: thumbSize)
+            } else {
+                HStack(spacing: 10) {
+                    ForEach(items) { prod in
                         NavigationLink(destination: ProductDetailView(product: prod)) {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 18)
@@ -417,15 +414,17 @@ struct HomeView: View {
                                             img
                                                 .resizable()
                                                 .scaledToFit()
-                                                .frame(width: thumbSize - 16, height: thumbSize - 16)
-                                                .clipped()
+                                                .padding(6)
                                         } else {
-                                            Image(systemName: "tag.fill")
+                                            Image(systemName: "photo")
                                                 .font(.system(size: 22))
                                                 .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
-                                                .frame(width: thumbSize - 16, height: thumbSize - 16)
                                         }
                                     }
+                                } else {
+                                    Image(systemName: "clock")
+                                        .font(.system(size: 22))
+                                        .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
                                 }
                             }
                             .frame(width: thumbSize, height: thumbSize)
@@ -433,6 +432,7 @@ struct HomeView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    Spacer(minLength: 0)
                 }
             }
         }
@@ -480,52 +480,33 @@ struct HomeView: View {
                 .buttonStyle(.plain)
             }
 
-            // Row of 3 Thumbnails
-            HStack(spacing: 10) {
-                let saved = Array(wishlist.items.prefix(3))
-                ForEach(saved) { item in
-                    NavigationLink(destination: ProductDetailView(product: item.toMatchedProduct())) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 18)
-                                .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 18)
-                                        .stroke(Color.black.opacity(0.04), lineWidth: 1)
-                                )
-
-                            if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                                AsyncImage(url: url) { phase in
-                                    if let img = phase.image {
-                                        img
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(width: thumbSize - 16, height: thumbSize - 16)
-                                            .clipped()
-                                    } else {
-                                        Image(systemName: "heart.fill")
-                                            .font(.system(size: 20))
-                                            .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.4))
-                                            .frame(width: thumbSize - 16, height: thumbSize - 16)
-                                    }
-                                }
-                            } else {
-                                Image(systemName: "heart.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.4))
-                                    .frame(width: thumbSize - 16, height: thumbSize - 16)
-                            }
-                        }
-                        .frame(width: thumbSize, height: thumbSize)
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
+            // Thumbnails of real saved items
+            let saved = Array(wishlist.items.prefix(3))
+            if saved.isEmpty {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
+                            .frame(width: 52, height: 52)
+                        Image(systemName: "heart")
+                            .font(.system(size: 20))
+                            .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.7))
                     }
-                    .buttonStyle(.plain)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Nessun articolo salvato")
+                            .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                            .foregroundColor(Color.shopDark)
+                        Text("Tocca l'icona del cuore sui prodotti")
+                            .font(.system(size: 11.5, weight: .regular))
+                            .foregroundColor(.shopTextMuted)
+                    }
+                    Spacer()
                 }
-
-                // If user has saved fewer than 3 items, fill with top picks
-                if saved.count < 3 {
-                    let fallbackPicks = fallbackPopularProducts.suffix(3 - saved.count)
-                    ForEach(fallbackPicks) { prod in
-                        NavigationLink(destination: ProductDetailView(product: prod)) {
+                .frame(height: thumbSize)
+            } else {
+                HStack(spacing: 10) {
+                    ForEach(saved) { item in
+                        NavigationLink(destination: ProductDetailView(product: item.toMatchedProduct())) {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 18)
                                     .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
@@ -534,21 +515,23 @@ struct HomeView: View {
                                             .stroke(Color.black.opacity(0.04), lineWidth: 1)
                                     )
 
-                                if let imgUrl = prod.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
+                                if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
                                     AsyncImage(url: url) { phase in
                                         if let img = phase.image {
                                             img
                                                 .resizable()
                                                 .scaledToFit()
-                                                .frame(width: thumbSize - 16, height: thumbSize - 16)
-                                                .clipped()
+                                                .padding(6)
                                         } else {
-                                            Image(systemName: "tag.fill")
-                                                .font(.system(size: 22))
-                                                .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
-                                                .frame(width: thumbSize - 16, height: thumbSize - 16)
+                                            Image(systemName: "heart.fill")
+                                                .font(.system(size: 20))
+                                                .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.4))
                                         }
                                     }
+                                } else {
+                                    Image(systemName: "heart.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.4))
                                 }
                             }
                             .frame(width: thumbSize, height: thumbSize)
@@ -556,6 +539,7 @@ struct HomeView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    Spacer(minLength: 0)
                 }
             }
         }
@@ -1070,19 +1054,6 @@ struct HomeView: View {
             }
         }
         return prod
-    }
-
-    // Fallback real products from the catalog if recent/saved are completely empty on first launch
-    private var fallbackPopularProducts: [MatchedProduct] {
-        var picks: [MatchedProduct] = []
-        for sc in showcases {
-            for prod in sc.products {
-                let m = prod.toMatchedProduct(storeId: sc.store_id, storeName: sc.store_name)
-                picks.append(m)
-                if picks.count >= 6 { return picks }
-            }
-        }
-        return picks
     }
 
     private func fetchShowcases() async {

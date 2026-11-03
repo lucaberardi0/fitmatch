@@ -12,19 +12,40 @@ struct FollowingView: View {
     @State private var fallbackStoreCounts: [String: Int] = [:]
     @State private var isLoading = false
 
-    // 10 Real verified partner sports stores from database
-    private let partnerStores: [(id: String, name: String, subtitle: String)] = [
-        ("nike", "Nike", "81 novità e modelli serie ZoomX"),
-        ("cisalfa", "Cisalfa Sport", "107 offerte running & sneaker a catalogo"),
-        ("misterrunning", "Mister Running", "175 modelli corsa con sconti fino al 68%"),
-        ("maxisport", "Maxi Sport", "106 articoli streetwear e scarpe running"),
-        ("top4running", "Top4Running", "103 modelli top con sconti fino al 55%"),
-        ("decathlon", "Decathlon", "65 modelli per corsa, trail e palestra"),
-        ("deporvillage", "Deporvillage", "128 offerte outdoor, scarpe e GPS Garmin"),
-        ("alltricks", "Alltricks", "171 articoli per running, trail e ciclismo"),
-        ("runningwarehouse", "Running Warehouse Europe", "102 modelli scarpe da gara e allenamento"),
-        ("nencini", "Nencini Sport", "110 articoli sportivi multimarca")
-    ]
+    struct PartnerStoreItem: Identifiable {
+        let id: String
+        let name: String
+        let subtitle: String
+    }
+
+    // Dynamic partner stores directly derived from real database catalog counts & offers
+    private var partnerStores: [PartnerStoreItem] {
+        if !showcases.isEmpty {
+            return showcases.map { sc in
+                let count = sc.total_offers
+                let promo = IntelligentPromoGenerator.generate(for: sc)
+                let sub = "\(count) articoli a catalogo • \(promo)"
+                return PartnerStoreItem(id: sc.store_id, name: sc.store_name, subtitle: sub)
+            }
+        }
+        // Base partner stores with real catalog counts from Supabase database
+        let baseStores: [(id: String, name: String, count: Int, highlight: String)] = [
+            ("nike", "Nike", 702, "Novità serie ZoomX e scarpe da gara"),
+            ("misterrunning", "Mister Running", 981, "Modelli corsa con sconti fino al 68%"),
+            ("alltricks", "Alltricks", 980, "Articoli per running, trail e ciclismo"),
+            ("cisalfa", "Cisalfa Sport", 641, "Offerte running & sneaker a catalogo"),
+            ("maxisport", "Maxi Sport", 631, "Articoli streetwear e scarpe running"),
+            ("top4running", "Top4Running", 613, "Modelli top con sconti di stagione"),
+            ("decathlon", "Decathlon", 478, "Modelli per corsa, trail e palestra"),
+            ("deporvillage", "Deporvillage", 475, "Offerte outdoor, scarpe e GPS Garmin"),
+            ("runningwarehouse", "Running Warehouse Europe", 218, "Modelli scarpe da gara e allenamento"),
+            ("nencini", "Nencini Sport", 110, "Articoli sportivi multimarca")
+        ]
+        return baseStores.map { s in
+            let c = fallbackStoreCounts[s.id] ?? s.count
+            return PartnerStoreItem(id: s.id, name: s.name, subtitle: "\(c) articoli • \(s.highlight)")
+        }
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {

@@ -20,7 +20,7 @@ struct MainTabView: View {
                 case 2:
                     HomeView(selectedTab: $selectedTab, initialSubTab: .offerte)
                 case 3:
-                    WishlistView(selectedTab: $selectedTab)
+                    HomeView(selectedTab: $selectedTab, initialSubTab: .salvati)
                 default:
                     HomeView(selectedTab: $selectedTab, initialSubTab: .offerte)
                 }

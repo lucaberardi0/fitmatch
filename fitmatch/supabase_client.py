@@ -883,11 +883,29 @@ class SupabaseClient:
         for sid in candidate_stores:
             details = self.get_store_details(sid, limit=limit_per_store)
             if details and details.get("products"):
+                prods = details["products"][:limit_per_store]
+                discounts = [p.get("discount_pct") or 0 for p in prods]
+                max_d = int(round(max(discounts))) if discounts else int(round(details.get("avg_discount") or 0))
+                rule = details.get("shipping_rule") or {}
+                free_th = int(round(rule.get("free_threshold") or 0)) if rule.get("free_threshold") else None
+
+                if max_d >= 70:
+                    promo_text = f"Risparmia fino al {max_d}% • Spedizione gratis da {free_th} €" if free_th else f"Risparmia fino al {max_d}% sui saldi di stagione"
+                elif max_d >= 40:
+                    promo_text = f"Sconti fino al {max_d}% e spedizione gratis da {free_th} €" if free_th else f"Sconti fino al {max_d}% su modelli selezionati"
+                elif max_d > 0:
+                    promo_text = f"Prezzi ribassati fino al -{max_d}%"
+                elif free_th:
+                    promo_text = f"Spedizione gratuita da {free_th} €"
+                else:
+                    promo_text = details.get("description", "Rivenditore autorizzato con offerte esclusive.")
+
                 result.append({
                     "store_id": sid,
                     "store_name": details["store_name"],
                     "base_url": details["base_url"],
                     "description": details["description"],
+                    "promo_text": promo_text,
                     "badges": details["badges"],
                     "total_offers": details["total_offers"],
                     "avg_discount": details["avg_discount"],
@@ -896,7 +914,7 @@ class SupabaseClient:
                     "card_theme": details.get("card_theme"),
                     "accent_color": details.get("accent_color"),
                     "logo_url": details.get("logo_url"),
-                    "products": details["products"][:limit_per_store]
+                    "products": prods
                 })
         # Prioritize official flagship stores first (Nike, Adidas), then by total real offers
         return sorted(result, key=lambda s: (0 if s["store_id"] in ("nike", "adidas") else 1, -s["total_offers"]))

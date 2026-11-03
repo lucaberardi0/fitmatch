@@ -17,8 +17,17 @@ struct FitMatchApp: App {
                 }
             } else if ProcessInfo.processInfo.arguments.contains("-testAccount") {
                 AccountView()
+            } else if ProcessInfo.processInfo.arguments.contains("-testNotifications") {
+                NotificationsView()
             } else if ProcessInfo.processInfo.arguments.contains("-testWishlist") {
                 MainTabView(initialTab: 3)
+            } else if ProcessInfo.processInfo.arguments.contains("-testSalvatiHome") {
+                ZStack(alignment: .bottom) {
+                    HomeView(selectedTab: .constant(0), initialSubTab: .salvati)
+                    ShopFloatingIslandDock(selectedTab: .constant(0))
+                        .padding(.bottom, 16)
+                }
+                .ignoresSafeArea(.keyboard)
             } else if ProcessInfo.processInfo.arguments.contains("-testProductDetail") {
                 NavigationStack {
                     ProductDetailView(

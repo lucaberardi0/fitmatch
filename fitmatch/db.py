@@ -784,9 +784,25 @@ class Database:
                     p["free_shipping_threshold"] = rule["free_threshold"]
                     p["courier"] = rule["courier"]
 
+                discounts = [p.get("discount_pct") or 0 for p in products]
+                max_d = int(round(max(discounts))) if discounts else int(round(s["avg_discount"] or 0))
+                free_th = int(round(rule["free_threshold"])) if rule.get("free_threshold") else None
+
+                if max_d >= 70:
+                    promo_text = f"Risparmia fino al {max_d}% • Spedizione gratis da {free_th} €" if free_th else f"Risparmia fino al {max_d}% sui saldi di stagione"
+                elif max_d >= 40:
+                    promo_text = f"Sconti fino al {max_d}% e spedizione gratis da {free_th} €" if free_th else f"Sconti fino al {max_d}% su modelli selezionati"
+                elif max_d > 0:
+                    promo_text = f"Prezzi ribassati fino al -{max_d}%"
+                elif free_th:
+                    promo_text = f"Spedizione gratuita da {free_th} €"
+                else:
+                    promo_text = "Rivenditore autorizzato con offerte esclusive."
+
                 result.append({
                     "store_id": sid,
                     "store_name": sname,
+                    "promo_text": promo_text,
                     "total_offers": s["total_offers"],
                     "avg_discount": round(s["avg_discount"] or 0, 1),
                     "rating": ratings.get(sid, "4.8"),

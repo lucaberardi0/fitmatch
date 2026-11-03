@@ -35,23 +35,6 @@ struct DealsView: View {
         DealCategoryFilter(id: "uomo", name: "Uomo", icon: "figure.stand")
     ]
 
-    // Partner store promos matching Image 2 ("Risparmia 15 € su ordini superiori a ...")
-    private let storePromos: [String: String] = [
-        "top4running": "Risparmia fino al 80% sui saldi di stagione",
-        "decathlon": "Prezzi ribassati fine serie fino al -75%",
-        "tradeinn": "Grandi sconti outlet fino al 70% su 3M+ prodotti",
-        "df_sportspecialist": "Sconti fino al 60% e spedizione gratis da 60 €",
-        "misterrunning": "Risparmia 15 € su ordini superiori a 50 €",
-        "maxisport": "Risparmia 10 € su ordini superiori a 60 €",
-        "cisalfa": "Risparmia 15 € su ordini superiori a 50 €",
-        "deporvillage": "Risparmia 15 € su ordini superiori a 80 €",
-        "alltricks": "Risparmia 10 € su ordini superiori a 50 €",
-        "runningwarehouse": "Risparmia 15 € su ordini superiori a 70 €",
-        "nike": "Fino al -40% su modelli selezionati",
-        "adidas": "Risparmia 15 € su ordini superiori a 60 €",
-        "nencini": "Risparmia 15 € su ordini superiori a 70 €"
-    ]
-
     var body: some View {
         VStack(spacing: 0) {
             // MARK: - 1. Pinned Category Pill Bar (Always visible at top, matching Image 2)
@@ -232,7 +215,7 @@ struct DealsView: View {
     // MARK: - 2. Store Deals Section (Matching Image 2: Red Ring Logo, Coral Subtitle, 195pt Uniform Image Box)
 
     private func storeDealsSection(showcase: StoreShowcase) -> some View {
-        let promoText = storePromos[showcase.store_id.lowercased()] ?? "Risparmia fino al \(String(format: "%.0f", showcase.avg_discount))% su ordini superiori a 50 €"
+        let promoText = showcase.dynamicPromoSubtitle(category: selectedCategory)
 
         return VStack(alignment: .leading, spacing: 14) {
             // Header: Store Logo with Red Ring + Bold Name + Coral Promo Subtitle + Ellipsis
@@ -318,16 +301,6 @@ struct ShopDealProductCard: View {
             }
         }
         return nil
-    }
-
-    var reviewCountDisplay: String {
-        if let rev = storeReviewCount, !rev.isEmpty {
-            return rev
-        }
-        // Stable, realistic review count based on product id
-        let hash = abs(product.id.hashValue)
-        let thousands = Double(hash % 35 + 12) / 10.0
-        return String(format: "%.1fK", thousands).replacingOccurrences(of: ".", with: ",")
     }
 
     var body: some View {
@@ -427,21 +400,6 @@ struct ShopDealProductCard: View {
                     .truncationMode(.tail)
                     .frame(width: 168, alignment: .leading)
                     .padding(.top, 2)
-
-                // Rating & Star Row (Matching Image 2: "★★★★★ (3,7K)")
-                HStack(spacing: 3) {
-                    HStack(spacing: 1.5) {
-                        ForEach(0..<5) { _ in
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 9))
-                                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
-                        }
-                    }
-
-                    Text("(\(reviewCountDisplay))")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(Color(red: 40/255, green: 40/255, blue: 45/255))
-                }
 
                 // Price Row: Bold current price + strikethrough original price (Matching Image 2)
                 HStack(spacing: 5) {

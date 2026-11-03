@@ -6,11 +6,12 @@ struct WishlistView: View {
     var onSelectPerTe: (() -> Void)? = nil
 
     @ObservedObject private var wishlist = WishlistManager.shared
+    @ObservedObject private var notifManager = NotificationManager.shared
     @StateObject private var api = APIService.shared
 
     @State private var searchText: String = ""
     @State private var showingAccountSheet: Bool = false
-    @State private var showingNotificationsAlert: Bool = false
+    @State private var showingNotificationsSheet: Bool = false
     @State private var showingCreateCollectionSheet: Bool = false
     @State private var showingAddToCollectionSheet: Bool = false
     @State private var newlyCreatedCollectionName: String = ""
@@ -68,12 +69,15 @@ struct WishlistView: View {
 
                         mainContent
                     }
-                    .background(Color.white.ignoresSafeArea())
+                    .background(Color(red: 245/255, green: 246/255, blue: 248/255).ignoresSafeArea())
                 }
             }
         }
         .sheet(isPresented: $showingAccountSheet) {
             AccountView()
+        }
+        .sheet(isPresented: $showingNotificationsSheet) {
+            NotificationsView()
         }
         .sheet(item: $selectedProductForDetail) { product in
             ProductDetailView(product: product)
@@ -108,7 +112,7 @@ struct WishlistView: View {
 
     private var mainContent: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
                 if wishlist.items.isEmpty {
                     // Empty Saved State
                     emptySavedState
@@ -118,11 +122,14 @@ struct WishlistView: View {
                     collectionsSection
                         .padding(.top, 4)
 
-                    // 2. Saved Products 2-Column Grid
+                    // 2. Active Filter Banner
+                    filterHeaderBanner
+
+                    // 3. Saved Products 2-Column Grid
                     if displayItems.isEmpty {
                         emptyFilteredState
                             .padding(.horizontal, 16)
-                            .padding(.top, 20)
+                            .padding(.top, 10)
                     } else {
                         savedProductsGrid
                             .padding(.horizontal, 16)
@@ -132,7 +139,7 @@ struct WishlistView: View {
                 Spacer(minLength: 120)
             }
         }
-        .background(Color.white)
+        .background(Color(red: 245/255, green: 246/255, blue: 248/255))
         .refreshable {
             await wishlist.syncWithDatabase()
         }
@@ -235,41 +242,45 @@ struct WishlistView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Screen 5: Collections Carousel (Matching Reference Image 5)
+    // MARK: - Collections Carousel
 
     private var collectionsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Header: "Collezioni >" on left, "+" on right
+        VStack(alignment: .leading, spacing: 12) {
+            // Header: "Collezioni" + count pill + "Nuova" button
             HStack {
-                Button(action: {
-                    withAnimation(.spring(response: 0.25)) {
-                        selectedCollectionFilter = "Tutti"
-                    }
-                }) {
-                    HStack(spacing: 6) {
-                        Text("Collezioni")
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopDark)
+                HStack(spacing: 6) {
+                    Text("Collezioni")
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
 
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(Color(red: 120/255, green: 120/255, blue: 125/255))
-                            .frame(width: 22, height: 22)
-                            .background(Color(red: 240/255, green: 240/255, blue: 244/255))
-                            .clipShape(Circle())
+                    let totalCols = wishlist.getAvailableCollections().count
+                    if totalCols > 0 {
+                        Text("\(totalCols)")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.1))
+                            .clipShape(Capsule())
                     }
                 }
-                .buttonStyle(.plain)
 
                 Spacer()
 
                 Button(action: {
                     showingCreateCollectionSheet = true
                 }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 21, weight: .regular))
-                        .foregroundColor(.shopDark)
-                        .frame(width: 36, height: 36)
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("Nuova")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.1))
+                    .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -277,16 +288,33 @@ struct WishlistView: View {
 
             // Horizontal Scroll of Collection Cards
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
+                HStack(spacing: 12) {
+                    // 1. ALWAYS FIRST: "Tutti i salvati" Home Base Card
+                    ShopAllSavedCard(
+                        totalCount: wishlist.items.count,
+                        isSelected: selectedCollectionFilter == "Tutti",
+                        thumbnails: wishlist.getThumbnails(for: "Tutti", limit: 2),
+                        onTap: {
+                            let gen = UIImpactFeedbackGenerator(style: .light)
+                            gen.impactOccurred()
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                                selectedCollectionFilter = "Tutti"
+                            }
+                        }
+                    )
+
+                    // 2. User-Created Collections
                     ForEach(wishlist.getAvailableCollections()) { col in
                         let isSelected = selectedCollectionFilter.caseInsensitiveCompare(col.name) == .orderedSame
-                        let thumb = wishlist.getThumbnails(for: col.name, limit: 1).first
+                        let thumbs = wishlist.getThumbnails(for: col.name, limit: 2)
 
                         ShopCollectionCard(
                             collection: col,
                             isSelected: isSelected,
-                            thumbnailUrl: thumb,
+                            thumbnails: thumbs,
                             onTap: {
+                                let gen = UIImpactFeedbackGenerator(style: .light)
+                                gen.impactOccurred()
                                 withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
                                     if isSelected {
                                         selectedCollectionFilter = "Tutti"
@@ -298,43 +326,156 @@ struct WishlistView: View {
                             onDelete: {
                                 withAnimation(.spring(response: 0.25)) {
                                     wishlist.deleteCollection(name: col.name)
+                                    if selectedCollectionFilter.caseInsensitiveCompare(col.name) == .orderedSame {
+                                        selectedCollectionFilter = "Tutti"
+                                    }
                                 }
                             }
                         )
                     }
 
-                    // "Crea collezione" Card
+                    // 3. "Crea nuova collezione" Card
                     ShopCreateCollectionCard {
                         showingCreateCollectionSheet = true
                     }
                 }
                 .padding(.horizontal, 16)
+                .padding(.vertical, 4)
             }
         }
     }
 
-    // Empty filtered state
-    private var emptyFilteredState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "folder")
-                .font(.system(size: 36))
-                .foregroundColor(.shopTextMuted)
-            Text("Nessun articolo salvato in '\(selectedCollectionFilter)'")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.shopDark)
-            Button("Aggiungi articoli") {
-                newlyCreatedCollectionName = selectedCollectionFilter
-                showingAddToCollectionSheet = true
+    // MARK: - Filter Header Banner (Active Filter Indicator with Instant Reset)
+
+    private var filterHeaderBanner: some View {
+        HStack(alignment: .center) {
+            if selectedCollectionFilter == "Tutti" {
+                HStack(spacing: 6) {
+                    Text("Tutti gli articoli")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
+
+                    Text("(\(wishlist.items.count))")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                }
+            } else {
+                HStack(spacing: 7) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 13))
+                        .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+
+                    Text(selectedCollectionFilter)
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
+
+                    Text("(\(displayItems.count))")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                }
             }
-            .font(.system(size: 13, weight: .bold))
-            .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
-            .padding(.top, 2)
+
+            Spacer()
+
+            if selectedCollectionFilter != "Tutti" {
+                Button(action: {
+                    let gen = UIImpactFeedbackGenerator(style: .light)
+                    gen.impactOccurred()
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                        selectedCollectionFilter = "Tutti"
+                    }
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                        Text("Mostra tutti (\(wishlist.items.count))")
+                            .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.1))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 2)
+    }
+
+    // MARK: - Empty Filtered State
+
+    private var emptyFilteredState: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 64, height: 64)
+                    .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
+
+                Image(systemName: "folder.badge.questionmark")
+                    .font(.system(size: 26))
+                    .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+            }
+            .padding(.top, 12)
+
+            Text("Nessun articolo in '\(selectedCollectionFilter)'")
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundColor(.shopDark)
+
+            Text("Non ci sono articoli in questa collezione. Tutti i tuoi articoli salvati (\(wishlist.items.count)) rimangono comunque visibili in 'Tutti i salvati'.")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(.shopTextMuted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 28)
+                .lineSpacing(2)
+
+            HStack(spacing: 12) {
+                Button(action: {
+                    newlyCreatedCollectionName = selectedCollectionFilter
+                    showingAddToCollectionSheet = true
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                        Text("Aggiungi articoli")
+                    }
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(red: 99/255, green: 59/255, blue: 238/255))
+                    .clipShape(Capsule())
+                    .shadow(color: Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.25), radius: 4, x: 0, y: 2)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: {
+                    withAnimation(.spring(response: 0.25)) {
+                        selectedCollectionFilter = "Tutti"
+                    }
+                }) {
+                    Text("Mostra tutti (\(wishlist.items.count))")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(.shopDark)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color.white)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(Color(red: 230/255, green: 232/255, blue: 238/255), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
+        .padding(.vertical, 24)
     }
 
-    // MARK: - Saved Products 2-Column Grid (Matching Reference Image)
+    // MARK: - Saved Products 2-Column Grid
 
     private var savedProductsGrid: some View {
         LazyVGrid(
@@ -357,6 +498,11 @@ struct WishlistView: View {
                     },
                     onMoveToCollection: {
                         itemToMoveInCollection = item
+                    },
+                    onRemoveFromCollection: item.collectionName == nil ? nil : {
+                        withAnimation(.spring(response: 0.25)) {
+                            wishlist.moveItem(canonicalName: item.canonical_name, toCollection: nil)
+                        }
                     }
                 )
             }
@@ -406,8 +552,12 @@ struct WishlistView: View {
                     .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
             )
 
-            Button(action: { showingNotificationsAlert = true }) {
-                ZStack {
+            Button(action: {
+                let gen = UIImpactFeedbackGenerator(style: .light)
+                gen.impactOccurred()
+                showingNotificationsSheet = true
+            }) {
+                ZStack(alignment: .topTrailing) {
                     Circle()
                         .fill(Color.white)
                         .frame(width: 42, height: 42)
@@ -419,6 +569,18 @@ struct WishlistView: View {
                     Image(systemName: "bell.fill")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                        .frame(width: 42, height: 42)
+
+                    if notifManager.unreadCount > 0 {
+                        Text("\(min(notifManager.unreadCount, 99))")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4.5)
+                            .padding(.vertical, 2)
+                            .background(Color(red: 228/255, green: 42/255, blue: 38/255))
+                            .clipShape(Capsule())
+                            .offset(x: 2, y: -2)
+                    }
                 }
             }
             .buttonStyle(.plain)
@@ -428,135 +590,281 @@ struct WishlistView: View {
     // MARK: - Navigation Pills
 
     private var navigationPills: some View {
-        HStack(spacing: 4) {
-            Button(action: {
-                withAnimation(.spring(response: 0.25)) { selectedTab = 0 }
-            }) {
-                Text("Per te")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(Color(red: 50/255, green: 50/255, blue: 55/255))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Button(action: {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) { selectedTab = 0 }
+                }) {
+                    Text("Per te")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(Color(red: 90/255, green: 90/255, blue: 100/255))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
 
-            Spacer()
+                Button(action: {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) { selectedTab = 2 }
+                }) {
+                    Text("Saldi per le feste")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(Color(red: 90/255, green: 90/255, blue: 100/255))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
 
-            Button(action: {
-                withAnimation(.spring(response: 0.25)) { selectedTab = 2 }
-            }) {
-                Text("Saldi per le feste")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(Color(red: 50/255, green: 50/255, blue: 55/255))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
+                Button(action: {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) { selectedTab = 0 }
+                }) {
+                    Text("Segui già")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(Color(red: 90/255, green: 90/255, blue: 100/255))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
 
-            Spacer()
-
-            Button(action: {
-                withAnimation(.spring(response: 0.25)) { selectedTab = 0 }
-            }) {
-                Text("Segui già")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(Color(red: 50/255, green: 50/255, blue: 55/255))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            // Active Pill
-            ZStack {
-                Capsule()
-                    .fill(Color.white)
-                    .overlay(
-                        Capsule()
-                            .stroke(Color(red: 230/255, green: 230/255, blue: 235/255), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
-
+                // Active Pill: "Salvati"
                 Text("Salvati")
                     .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule()
+                            .fill(Color.white)
+                            .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 1)
+                    )
+                    .overlay(
+                        Capsule()
+                            .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                    )
             }
-            .frame(width: 86, height: 38)
+            .padding(.horizontal, 16)
         }
     }
 }
 
-// MARK: - Collection Card (Matching Reference Screenshot)
+// MARK: - All Saved Items Card (Home Base, Always First)
+
+struct ShopAllSavedCard: View {
+    let totalCount: Int
+    let isSelected: Bool
+    let thumbnails: [String]
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 7) {
+                // Preview Container (132x88)
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color(red: 244/255, green: 244/255, blue: 248/255))
+                        .frame(width: 132, height: 88)
+
+                    if !thumbnails.isEmpty {
+                        if thumbnails.count == 1, let url = URL(string: thumbnails[0]) {
+                            AsyncImage(url: url) { phase in
+                                if let img = phase.image {
+                                    img.resizable()
+                                        .scaledToFit()
+                                        .padding(6)
+                                } else {
+                                    Image(systemName: "heart.fill")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                                }
+                            }
+                            .frame(width: 132, height: 88)
+                            .clipShape(RoundedRectangle(cornerRadius: 15))
+                        } else {
+                            // 2 items collage side by side
+                            HStack(spacing: 3) {
+                                ForEach(0..<min(thumbnails.count, 2), id: \.self) { idx in
+                                    if let url = URL(string: thumbnails[idx]) {
+                                        AsyncImage(url: url) { phase in
+                                            if let img = phase.image {
+                                                img.resizable()
+                                                    .scaledToFit()
+                                                    .padding(3)
+                                            } else {
+                                                Color.white
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                        .background(Color.white)
+                                        .clipShape(RoundedRectangle(cornerRadius: 9))
+                                    }
+                                }
+                            }
+                            .padding(4)
+                            .frame(width: 132, height: 88)
+                        }
+                    } else {
+                        VStack {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 26))
+                                .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                        }
+                        .frame(width: 132, height: 88)
+                    }
+
+                    // Count Badge
+                    Text("\(totalCount)")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(isSelected ? .white : Color(red: 40/255, green: 40/255, blue: 45/255))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule()
+                                .fill(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.white)
+                        )
+                        .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1)
+                        .padding(6)
+                }
+
+                // Titles
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tutti i salvati")
+                        .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                        .foregroundColor(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.shopDark)
+                        .lineLimit(1)
+
+                    Text(totalCount == 1 ? "1 articolo" : "\(totalCount) articoli")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 138/255))
+                }
+                .padding(.horizontal, 2)
+            }
+            .padding(6)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.05) : Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(
+                        isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color(red: 235/255, green: 236/255, blue: 240/255),
+                        lineWidth: isSelected ? 2 : 1
+                    )
+            )
+            .shadow(color: isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.12) : Color.black.opacity(0.03), radius: isSelected ? 6 : 2, x: 0, y: 2)
+            .frame(width: 144)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Modern Collection Card
 
 struct ShopCollectionCard: View {
     let collection: WishlistCollection
     let isSelected: Bool
-    let thumbnailUrl: String?
+    let thumbnails: [String]
     let onTap: () -> Void
     var onDelete: (() -> Void)? = nil
 
     var body: some View {
         Button(action: onTap) {
-            ZStack(alignment: .bottomLeading) {
-                // Background Rounded Card
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(Color(red: 244/255, green: 244/255, blue: 247/255))
-                    .frame(width: 165, height: 180)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22)
-                            .stroke(
-                                isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.clear,
-                                lineWidth: isSelected ? 2 : 0
-                            )
-                    )
+            VStack(alignment: .leading, spacing: 7) {
+                // Preview Container (132x88)
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color(red: 244/255, green: 244/255, blue: 248/255))
+                        .frame(width: 132, height: 88)
 
-                // Centered white tilted tile with product preview
-                VStack {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.white)
-                            .frame(width: 88, height: 88)
-                            .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 3)
-                            .rotationEffect(.degrees(-6))
-
-                        if let thumb = thumbnailUrl, let url = URL(string: thumb), !thumb.isEmpty {
+                    if !thumbnails.isEmpty {
+                        if thumbnails.count == 1, let url = URL(string: thumbnails[0]) {
                             AsyncImage(url: url) { phase in
                                 if let img = phase.image {
                                     img.resizable()
                                         .scaledToFit()
-                                        .padding(8)
+                                        .padding(6)
                                 } else {
-                                    Image(systemName: "shoe.fill")
-                                        .font(.system(size: 26))
-                                        .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                    Image(systemName: "folder.fill")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
                                 }
                             }
-                            .frame(width: 88, height: 88)
-                            .rotationEffect(.degrees(-6))
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .frame(width: 132, height: 88)
+                            .clipShape(RoundedRectangle(cornerRadius: 15))
                         } else {
-                            Image(systemName: "photo")
-                                .font(.system(size: 26, weight: .light))
-                                .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
-                                .rotationEffect(.degrees(-6))
+                            // 2 items collage side by side
+                            HStack(spacing: 3) {
+                                ForEach(0..<min(thumbnails.count, 2), id: \.self) { idx in
+                                    if let url = URL(string: thumbnails[idx]) {
+                                        AsyncImage(url: url) { phase in
+                                            if let img = phase.image {
+                                                img.resizable()
+                                                    .scaledToFit()
+                                                    .padding(3)
+                                            } else {
+                                                Color.white
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                        .background(Color.white)
+                                        .clipShape(RoundedRectangle(cornerRadius: 9))
+                                    }
+                                }
+                            }
+                            .padding(4)
+                            .frame(width: 132, height: 88)
                         }
+                    } else {
+                        VStack(spacing: 4) {
+                            Image(systemName: "folder")
+                                .font(.system(size: 24, weight: .light))
+                                .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
+                            Text("Vuota")
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
+                        }
+                        .frame(width: 132, height: 88)
                     }
-                    .padding(.top, 22)
 
-                    Spacer()
+                    // Count Badge
+                    Text("\(collection.item_count)")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(isSelected ? .white : Color(red: 40/255, green: 40/255, blue: 45/255))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule()
+                                .fill(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.white)
+                        )
+                        .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1)
+                        .padding(6)
                 }
-                .frame(width: 165, height: 180)
 
-                // Collection Name in Bottom-Left
-                Text(collection.name)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
-                    .lineLimit(1)
-                    .padding(.leading, 16)
-                    .padding(.bottom, 16)
+                // Titles
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(collection.name)
+                        .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                        .foregroundColor(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.shopDark)
+                        .lineLimit(1)
+
+                    Text(collection.item_count == 1 ? "1 articolo" : "\(collection.item_count) articoli")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 138/255))
+                }
+                .padding(.horizontal, 2)
             }
-            .frame(width: 165, height: 180)
+            .padding(6)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.05) : Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(
+                        isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color(red: 235/255, green: 236/255, blue: 240/255),
+                        lineWidth: isSelected ? 2 : 1
+                    )
+            )
+            .shadow(color: isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.12) : Color.black.opacity(0.03), radius: isSelected ? 6 : 2, x: 0, y: 2)
+            .frame(width: 144)
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -569,125 +877,247 @@ struct ShopCollectionCard: View {
     }
 }
 
-// MARK: - Create Collection Card (Matching Reference Screenshot)
+// MARK: - Modern Create Collection Card
 
 struct ShopCreateCollectionCard: View {
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(Color(red: 244/255, green: 244/255, blue: 247/255))
-                    .frame(width: 165, height: 180)
+            VStack(spacing: 7) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color(red: 247/255, green: 247/255, blue: 250/255))
+                        .frame(width: 132, height: 88)
 
-                VStack(spacing: 8) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 24, weight: .regular))
-                        .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 38, height: 38)
+                        .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
+                        .overlay(
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                        )
+                }
 
-                    Text("Crea collezione")
-                        .font(.system(size: 14.5, weight: .semibold))
-                        .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
+                VStack(spacing: 2) {
+                    Text("Crea nuova")
+                        .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                        .foregroundColor(Color.shopDark)
+                        .lineLimit(1)
+
+                    Text("Collezione")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 138/255))
                 }
             }
-            .frame(width: 165, height: 180)
+            .padding(6)
+            .background(Color.white)
+            .cornerRadius(18)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(
+                        Color(red: 228/255, green: 230/255, blue: 236/255),
+                        style: StrokeStyle(lineWidth: 1.2, dash: [4, 4])
+                    )
+            )
+            .frame(width: 144)
         }
         .buttonStyle(.plain)
     }
 }
 
-// MARK: - Saved Product Card (Matching Reference Screenshot)
+// MARK: - Saved Product Card with Collection Badge & Full Context Menu
 
 struct ShopSavedProductCard: View {
     let item: WishlistItem
     let onTap: () -> Void
     let onRemove: () -> Void
     var onMoveToCollection: (() -> Void)? = nil
+    var onRemoveFromCollection: (() -> Void)? = nil
+
+    private var originalPriceToDisplay: Double? {
+        if let h = item.highestPrice, h > item.currentBestPrice {
+            return h
+        }
+        if item.initialPrice > item.currentBestPrice {
+            return item.initialPrice
+        }
+        if let disc = item.discountPct, disc > 0 {
+            return item.currentBestPrice / (1.0 - (disc / 100.0))
+        }
+        return nil
+    }
+
+    private var discountPercentText: String? {
+        if let disc = item.discountPct, disc > 0 {
+            return "\(Int(disc.rounded()))% di sconto"
+        }
+        if let orig = originalPriceToDisplay, orig > item.currentBestPrice {
+            let pct = ((orig - item.currentBestPrice) / orig) * 100.0
+            if pct >= 5 {
+                return "\(Int(pct.rounded()))% di sconto"
+            }
+        }
+        return nil
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            // Product Container with Floating Purple Heart Badge
-            ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(Color(red: 244/255, green: 244/255, blue: 247/255))
-                    .frame(height: 168)
+        VStack(alignment: .leading, spacing: 4) {
+            // Product Container with Floating Discount Badge, Collection Pill & Translucent Heart Button
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color.white)
+                    .frame(height: 180)
+                    .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
 
                 // Product Image
                 Button(action: onTap) {
-                    VStack {
-                        Spacer()
+                    ZStack {
                         if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
                             AsyncImage(url: url) { phase in
-                                if let img = phase.image {
-                                    img.resizable()
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
                                         .scaledToFit()
-                                        .padding(14)
-                                } else {
-                                    Image(systemName: "shoe.fill")
+                                        .padding(12)
+                                        .frame(maxWidth: .infinity, maxHeight: 180)
+                                case .failure:
+                                    Image(systemName: "photo")
                                         .font(.system(size: 30))
                                         .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                                        .frame(maxWidth: .infinity, maxHeight: 180)
+                                case .empty:
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .tint(.shopDark)
+                                        .frame(maxWidth: .infinity, maxHeight: 180)
+                                @unknown default:
+                                    EmptyView()
                                 }
                             }
                         } else {
                             Image(systemName: "shoe.fill")
                                 .font(.system(size: 30))
                                 .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                                .frame(maxWidth: .infinity, maxHeight: 180)
                         }
-                        Spacer()
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: 180)
+                    .contentShape(Rectangle())
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
                 }
                 .buttonStyle(.plain)
 
-                // Floating Purple Heart Badge (#633BEE, white heart)
-                Button(action: onRemove) {
-                    ZStack {
-                        Circle()
-                            .fill(Color(red: 99/255, green: 59/255, blue: 238/255))
-                            .frame(width: 34, height: 34)
-                            .shadow(color: Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.35), radius: 4, x: 0, y: 2)
+                // Subtle border matching DealsView and FollowingView
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                    .frame(height: 180)
 
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 13, weight: .bold))
+                // Top-Left Badges: Discount Badge + Collection Pill
+                VStack(alignment: .leading, spacing: 4) {
+                    if let discText = discountPercentText {
+                        Text(discText)
+                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(Color(red: 228/255, green: 42/255, blue: 38/255))
+                            .clipShape(Capsule())
+                    }
+
+                    if let col = item.collectionName, !col.isEmpty {
+                        HStack(spacing: 3) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 8))
+                            Text(col)
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .lineLimit(1)
+                        }
+                        .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.white.opacity(0.95))
+                        .clipShape(Capsule())
+                        .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1)
                     }
                 }
-                .buttonStyle(.plain)
-                .padding([.bottom, .trailing], 10)
+                .padding([.top, .leading], 9)
+
+                // Bottom-Right Translucent Heart Button (Matching Image 2 & 3)
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            let gen = UIImpactFeedbackGenerator(style: .medium)
+                            gen.impactOccurred()
+                            onRemove()
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.black.opacity(0.35))
+                                    .frame(width: 32, height: 32)
+
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.red)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding([.bottom, .trailing], 9)
+                    }
+                }
+                .frame(height: 180)
             }
-            .frame(height: 168)
+            .frame(height: 180)
 
-            // Store Name (e.g. "The Closet Inc.")
+            // Store Name (e.g. "Top4Running")
             Text(item.bestStore ?? item.brand ?? "Negozio partner")
-                .font(.system(size: 12.5, weight: .regular))
-                .foregroundColor(Color(red: 115/255, green: 115/255, blue: 120/255))
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(Color(red: 120/255, green: 120/255, blue: 125/255))
                 .lineLimit(1)
-                .padding(.top, 4)
+                .padding(.top, 2)
 
-            // Title (Bold, 1 line limit with tail truncation)
+            // Title (Matching Image 2 & 3: 1 line with clean ellipsis)
             Text(item.canonical_name)
-                .font(.system(size: 13.5, weight: .bold))
-                .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
                 .lineLimit(1)
                 .truncationMode(.tail)
 
-            // Price (Bold, formatted Italian style "97,95 €")
-            Text(String(format: "%.2f €", item.currentBestPrice).replacingOccurrences(of: ".", with: ","))
-                .font(.system(size: 14.5, weight: .bold))
-                .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
+            // Price Row: Bold current price + Strikethrough original price (Matching Image 3)
+            HStack(spacing: 5) {
+                Text(String(format: "%.2f €", item.currentBestPrice).replacingOccurrences(of: ".", with: ","))
+                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                    .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
 
-            // Size / Detail (e.g. "8")
+                if let orig = originalPriceToDisplay, orig > item.currentBestPrice {
+                    Text(String(format: "%.2f €", orig).replacingOccurrences(of: ".", with: ","))
+                        .font(.system(size: 11.5, weight: .regular))
+                        .foregroundColor(.shopTextMuted)
+                        .strikethrough()
+                }
+            }
+
+            // Size / Detail (if present)
             if let size = item.selectedSize, !size.isEmpty, size != "Standard" {
                 Text(size)
-                    .font(.system(size: 12.5, weight: .regular))
-                    .foregroundColor(Color(red: 115/255, green: 115/255, blue: 120/255))
+                    .font(.system(size: 11.5, weight: .regular))
+                    .foregroundColor(Color(red: 120/255, green: 120/255, blue: 125/255))
             }
         }
         .contextMenu {
             if let onMove = onMoveToCollection {
                 Button(action: onMove) {
                     Label("Organizza in collezione", systemImage: "folder.badge.plus")
+                }
+            }
+            if let onRemoveCol = onRemoveFromCollection {
+                Button(action: onRemoveCol) {
+                    Label("Rimuovi dalla collezione", systemImage: "folder.badge.minus")
                 }
             }
             Button(role: .destructive, action: onRemove) {
@@ -899,7 +1329,7 @@ struct AddToCollectionSheet: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
             }
-            .navigationTitle("Aggiungi dai salvati")
+            .navigationTitle("Aggiungi a \(collectionName)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -916,20 +1346,33 @@ struct AddToCollectionSheet: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
                         // Assign selected items to collection in Supabase & locally
-                        for canonical in selectedItems {
-                            wishlist.moveItem(canonicalName: canonical, toCollection: collectionName)
+                        for item in wishlist.items {
+                            let wasInCollection = item.collectionName?.caseInsensitiveCompare(collectionName) == .orderedSame
+                            let isSelectedNow = selectedItems.contains(item.canonical_name)
+
+                            if isSelectedNow && !wasInCollection {
+                                wishlist.moveItem(canonicalName: item.canonical_name, toCollection: collectionName)
+                            } else if !isSelectedNow && wasInCollection {
+                                wishlist.moveItem(canonicalName: item.canonical_name, toCollection: nil)
+                            }
                         }
                         isPresented = false
                     }) {
                         Text("Fatto")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopDark)
+                            .foregroundColor(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 7)
-                            .background(Color(red: 242/255, green: 242/255, blue: 246/255))
+                            .background(Color(red: 99/255, green: 59/255, blue: 238/255))
                             .clipShape(Capsule())
                     }
                 }
+            }
+            .onAppear {
+                let existing = wishlist.items
+                    .filter { $0.collectionName?.caseInsensitiveCompare(collectionName) == .orderedSame }
+                    .map { $0.canonical_name }
+                selectedItems = Set(existing)
             }
         }
     }

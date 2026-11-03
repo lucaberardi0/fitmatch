@@ -424,6 +424,7 @@ struct StoreShowcase: Identifiable, Codable, Hashable {
     let card_theme: String?
     let accent_color: String?
     let logo_url: String?
+    let promo_text: String?
     let products: [StoreShowcaseProduct]
 
     init(
@@ -436,6 +437,7 @@ struct StoreShowcase: Identifiable, Codable, Hashable {
         card_theme: String? = nil,
         accent_color: String? = nil,
         logo_url: String? = nil,
+        promo_text: String? = nil,
         products: [StoreShowcaseProduct]
     ) {
         self.store_id = store_id
@@ -447,6 +449,7 @@ struct StoreShowcase: Identifiable, Codable, Hashable {
         self.card_theme = card_theme
         self.accent_color = accent_color
         self.logo_url = logo_url
+        self.promo_text = promo_text
         self.products = products
     }
 
@@ -456,6 +459,11 @@ struct StoreShowcase: Identifiable, Codable, Hashable {
             return "\(r) ★ (\(rev))"
         }
         return "\(r) ★"
+    }
+
+    /// Dynamically computes an authentic, intelligent promo headline based on actual products, discounts, and category.
+    func dynamicPromoSubtitle(category: String? = nil) -> String {
+        return IntelligentPromoGenerator.generate(for: self, category: category)
     }
 }
 

@@ -866,6 +866,64 @@ class SupabaseManager: ObservableObject {
         return nil
     }
 
+    // MARK: - Direct Live Price & Offer Lookup for Smart Notifications
+
+    struct LiveOfferResult {
+        let price: Double
+        let originalPrice: Double?
+        let discountPct: Double?
+        let storeName: String
+        let storeId: String
+        let url: String
+        let imageUrl: String?
+    }
+
+    func findBestLiveOfferDirect(canonicalName: String) async -> LiveOfferResult? {
+        let stopWords: Set<String> = ["scarpe", "scarpa", "donna", "uomo", "modello", "edition"]
+        let rawWords = canonicalName
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 3 }
+
+        let filteredWords = rawWords.filter { !stopWords.contains($0.lowercased()) }
+        let searchWords = filteredWords.isEmpty ? Array(rawWords.prefix(3)) : Array(filteredWords.prefix(3))
+
+        guard !searchWords.isEmpty else { return nil }
+
+        let pattern = searchWords.joined(separator: "*")
+        guard let encodedPattern = "*\(pattern)*".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(restURL)/store_offers?raw_title=ilike.\(encodedPattern)&order=current_price.asc&limit=1") else {
+            return nil
+        }
+
+        var req = URLRequest(url: url)
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+        guard let (data, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+
+        struct OfferMatchRow: Codable {
+            let store_id: String
+            let store_name: String
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+        }
+
+        if let list = try? JSONDecoder().decode([OfferMatchRow].self, from: data), let best = list.first {
+            return LiveOfferResult(
+                price: best.current_price,
+                originalPrice: best.original_price,
+                discountPct: best.discount_pct,
+                storeName: best.store_name,
+                storeId: best.store_id,
+                url: best.product_url,
+                imageUrl: best.image_url
+            )
+        }
+        return nil
+    }
+
     // MARK: - Dedicated Deals Showcases (Ranked by Deepest Discount & Category Filtered)
 
     func fetchDealsShowcasesDirect(category: String? = nil) async throws -> [StoreShowcase] {

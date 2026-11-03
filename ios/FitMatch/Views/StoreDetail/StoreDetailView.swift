@@ -453,18 +453,6 @@ struct StoreDetailView: View {
                     .multilineTextAlignment(.leading)
                     .frame(height: 34, alignment: .topLeading)
 
-                // 5 Small Stars Rating & Review Count (Screenshot 1: ★★★★★ (231))
-                HStack(spacing: 2) {
-                    ForEach(0..<5) { _ in
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 9))
-                            .foregroundColor(.shopDark)
-                    }
-                    Text(" (\(reviewsFor(item: item)))")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.shopTextMuted)
-                }
-
                 // Price Row: Bold current price + Strikethrough original if discounted
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(item.formattedPrice)
@@ -481,12 +469,6 @@ struct StoreDetailView: View {
             }
             .padding(.horizontal, 2)
         }
-    }
-
-    private func reviewsFor(item: StoreShowcaseProduct) -> String {
-        let hash = abs(item.id.hashValue)
-        let count = (hash % 280) + 15
-        return "\(count)"
     }
 
     // MARK: - Error State View
