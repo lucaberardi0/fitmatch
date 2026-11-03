@@ -22,3 +22,18 @@ def test_substantive_tokens_preserved():
     intent = LocalHeuristicParser.parse("asics novablast 4")
     assert intent.brand == "Asics"
     assert any("novablast" in kw.lower() for kw in intent.target_keywords)
+
+
+def test_padel_intent_categorization():
+    intent = LocalHeuristicParser.parse("Racchetta da padel Bullpadel Hack 04")
+    assert intent.brand == "Bullpadel"
+    assert intent.category == "padel"
+    assert any("hack" in kw.lower() for kw in intent.target_keywords)
+
+
+def test_cycling_intent_categorization():
+    intent = LocalHeuristicParser.parse("rullo smart tacx per bici da corsa sotto 600 euro")
+    assert intent.brand == "Tacx"
+    assert intent.category == "cycling"
+    assert intent.max_price == 600.0
+

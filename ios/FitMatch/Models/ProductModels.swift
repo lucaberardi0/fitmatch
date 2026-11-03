@@ -685,6 +685,20 @@ struct CategoryFilterMatcher {
             return inc.contains(where: { t.contains($0) })
         }
 
+        if cat == "padel" {
+            let exc = ["scarpe running", "smartwatch", "trail", "trekking"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            let inc = ["padel", "racchetta", "pala", "bullpadel", "nox", "starvie", "siux", "kuikma", "babolat technical", "head speed", "overgrip", "tubo palline"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "cycling" || cat == "ciclismo" {
+            let exc = ["scarpe running", "trail running"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            let inc = ["ciclismo", "bici", "ciclocomputer", "rullo", "smart trainer", "kickr", "flux", "tacx", "wahoo", "favero", "assioma", "kask", "poc ventral", "castelli", "sportful", "santini", "salopette", "shimano", "copertone"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
         return t.contains(cat)
     }
 }

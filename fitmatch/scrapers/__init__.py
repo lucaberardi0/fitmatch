@@ -11,6 +11,8 @@ from fitmatch.scrapers.decathlon import DecathlonScraper
 from fitmatch.scrapers.sportler import SportlerScraper
 from fitmatch.scrapers.nike import NikeScraper
 from fitmatch.scrapers.adidas import AdidasScraper
+from fitmatch.scrapers.tradeinn import TradeinnScraper
+from fitmatch.scrapers.df_sport import DFSportScraper
 
 __all__ = [
     "BaseScraper",
@@ -25,5 +27,7 @@ __all__ = [
     "DecathlonScraper",
     "SportlerScraper",
     "NikeScraper",
-    "AdidasScraper"
+    "AdidasScraper",
+    "TradeinnScraper",
+    "DFSportScraper"
 ]

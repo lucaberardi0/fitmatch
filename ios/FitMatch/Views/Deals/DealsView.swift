@@ -25,6 +25,8 @@ struct DealsView: View {
         DealCategoryFilter(id: "tutti", name: "Tutte", icon: "flame.fill"),
         DealCategoryFilter(id: "running", name: "Running", icon: "figure.run"),
         DealCategoryFilter(id: "smartwatch", name: "Smartwatch", icon: "applewatch"),
+        DealCategoryFilter(id: "padel", name: "Padel", icon: "tennisball.fill"),
+        DealCategoryFilter(id: "cycling", name: "Ciclismo", icon: "bicycle"),
         DealCategoryFilter(id: "abbigliamento", name: "Abbigliamento", icon: "tshirt.fill"),
         DealCategoryFilter(id: "donna", name: "Donna", icon: "figure.walk"),
         DealCategoryFilter(id: "fitness", name: "Fitness", icon: "dumbbell.fill"),
@@ -37,6 +39,8 @@ struct DealsView: View {
     private let storePromos: [String: String] = [
         "top4running": "Risparmia fino al 80% sui saldi di stagione",
         "decathlon": "Prezzi ribassati fine serie fino al -75%",
+        "tradeinn": "Grandi sconti outlet fino al 70% su 3M+ prodotti",
+        "df_sportspecialist": "Sconti fino al 60% e spedizione gratis da 60 €",
         "misterrunning": "Risparmia 15 € su ordini superiori a 50 €",
         "maxisport": "Risparmia 10 € su ordini superiori a 60 €",
         "cisalfa": "Risparmia 15 € su ordini superiori a 50 €",

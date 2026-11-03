@@ -42,7 +42,7 @@ flowchart TD
 
 ---
 
-## 🎯 10 Negozi Partner Integrati
+## 🎯 14 Negozi Partner Integrati
 
 1. **Decathlon** (`decathlon.it`): Leader globale retail sportivo e marketplace.
 2. **Cisalfa Sport** (`cisalfasport.it`): Catena retail #1 in Italia (Salesforce Commerce Cloud).
@@ -54,6 +54,10 @@ flowchart TD
 8. **Deporvillage** (`deporvillage.it`): Leader Sud Europa in outdoor, ciclismo, elettronica Garmin/Polar, occhiali Oakley (Algolia Fast Search).
 9. **Alltricks** (`alltricks.it` — Gruppo Decathlon): Gigante europeo per ciclismo, trail, GPS, caschi e nutrizione (Constructor.io API).
 10. **Sportler** (`sportler.com`): Leader del retail sportivo alpino e Nord Italia con 30+ megastore (FactFinder Suggest API e parsing GTM).
+11. **Nike Ufficiale** (`nike.com/it`): Store ufficiale del brand #1 mondiale dello sport.
+12. **Adidas Ufficiale** (`adidas.it`): Store ufficiale e catalogo Adizero / Terrex.
+13. **Tradeinn** (`tradeinn.com` — Runnerinn, Bikeinn, Smashinn, Trekkinn): Gigante europeo con 3M+ articoli e Google Retail Search API.
+14. **DF Sport Specialist** (`df-sportspecialist.it`): Storica catena italiana per running, montagna, outdoor, padel e ciclismo su piattaforma Shopify.
 
 ---
 

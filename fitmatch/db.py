@@ -740,7 +740,13 @@ class Database:
             "top4running": "4.8",
             "runningwarehouse": "4.9",
             "deporvillage": "4.3",
-            "alltricks": "4.4"
+            "alltricks": "4.4",
+            "decathlon": "4.8",
+            "sportler": "4.8",
+            "nike": "4.9",
+            "adidas": "4.8",
+            "tradeinn": "4.7",
+            "df_sportspecialist": "4.8"
         }
         with self.get_connection() as conn:
             stores = conn.execute("""
@@ -956,6 +962,46 @@ class Database:
                     "positive_pct": "92%",
                     "review_count": "45.800+",
                     "platform": "Trustpilot / Avis Vérifiés"
+                }
+            },
+            "tradeinn": {
+                "name": "Tradeinn",
+                "base_url": "https://www.tradeinn.com",
+                "rating": "4.7",
+                "review_count": "18.5k recensioni",
+                "description": "Gigante europeo dell'e-commerce sportivo con megastore verticali: Runnerinn, Bikeinn, Smashinn e Trekkinn.",
+                "full_description": "Tradeinn è uno dei più grandi network europei di negozi sportivi specializzati con oltre 3 milioni di prodotti in catalogo. Comprende canali dedicati come Runnerinn per la corsa, Bikeinn per il ciclismo, Smashinn per il padel e Trekkinn per l'outdoor, offrendo prezzi altamente competitivi e spedizioni tracciate verso l'Italia.",
+                "badges": ["Catalogo Globale 3M+", "Prezzi Outlet Garantiti", "Reso 30 Giorni", "Pagamenti Sicuri"],
+                "highlights": ["3M+ Prodotti a Stock", "Specialista Multi-Sport", "Prezzi Ultra Competitivi"],
+                "location": "Hub Logistico Europeo: Celrà (Girona), Spagna con consegna espressa in Italia",
+                "shipping_info": "Spedizione standard 4,99 € • Gratuita da 150,00 € con corriere Poste Italiane / GLS",
+                "shipping_rule": {"standard": 4.99, "free_threshold": 150.0, "label": "Gratis da 150 €", "courier": "Poste / GLS / DPD"},
+                "return_policy": "30 giorni per il reso semplice",
+                "rating_breakdown": {
+                    "score": 4.7,
+                    "positive_pct": "95%",
+                    "review_count": "18.500+",
+                    "platform": "Trustpilot / eKomi"
+                }
+            },
+            "df_sportspecialist": {
+                "name": "DF Sport Specialist",
+                "base_url": "https://www.df-sportspecialist.it",
+                "rating": "4.8",
+                "review_count": "5.4k recensioni",
+                "description": "Storica catena italiana punto di riferimento per corsa, montagna, outdoor, ciclismo e padel.",
+                "full_description": "Fondata da Sergio Longoni, DF Sport Specialist è la catena di negozi sportivi di riferimento nel Nord Italia con oltre 15 megastore e un portale e-commerce moderno su Shopify. Conosciuta per l'eccellenza dello staff tecnico e la qualità dei brand trattati, offre assistenza specializzata per la scelta delle scarpe da corsa, attrezzatura da alpinismo e racchette da padel.",
+                "badges": ["15+ Megastore in Italia", "Spedizione Veloce 24/48h", "Staff Tecnico Esperto", "Reso Facile 30 Giorni"],
+                "highlights": ["15 Megastore Fisici", "Consulenza Tecnica Specializzata", "Spedizione Gratuita da 60€"],
+                "location": "Sede Centrale: Barzanò (LC), Italia",
+                "shipping_info": "Spedizione standard 5,90 € • Gratuita in tutta Italia da 60,00 € con GLS / BRT",
+                "shipping_rule": {"standard": 5.90, "free_threshold": 60.0, "label": "Gratis da 60 €", "courier": "GLS / BRT"},
+                "return_policy": "30 giorni per reso in negozio o con corriere",
+                "rating_breakdown": {
+                    "score": 4.8,
+                    "positive_pct": "96%",
+                    "review_count": "5.400+",
+                    "platform": "Feedaty / Trustpilot"
                 }
             }
         }

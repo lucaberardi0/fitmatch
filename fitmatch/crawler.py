@@ -18,6 +18,8 @@ from fitmatch.scrapers.decathlon import DecathlonScraper
 from fitmatch.scrapers.sportler import SportlerScraper
 from fitmatch.scrapers.nike import NikeScraper
 from fitmatch.scrapers.adidas import AdidasScraper
+from fitmatch.scrapers.tradeinn import TradeinnScraper
+from fitmatch.scrapers.df_sport import DFSportScraper
 
 logger = logging.getLogger("fitmatch.crawler")
 
@@ -42,6 +44,8 @@ class CategoryCrawler:
         self.sportler = SportlerScraper()
         self.nike = NikeScraper()
         self.adidas = AdidasScraper()
+        self.tradeinn = TradeinnScraper()
+        self.df_sport = DFSportScraper()
 
     def _flush_batch(self, batch: List[Dict[str, Any]]) -> int:
         """Helper to flush pending offers to DB in a single transaction."""
@@ -82,9 +86,19 @@ class CategoryCrawler:
         ]):
             return "nutrition"
         if any(w in tl for w in [
-            "casco", "pompa", "luce", "bici", "padel", "racchetta", "overgrip", "tubo palline",
-            "kask", "poc ", "bullpadel", "nox", "babolat", "copertone", "salopette", "shimano",
-            "wilson blade", "head speed"
+            "padel", "racchetta", "pala", "overgrip", "tubo palline", "bullpadel", "nox", "starvie",
+            "siux", "kuikma", "babolat technical", "head speed", "head gravity", "wilson blade"
+        ]):
+            return "padel"
+        if any(w in tl for w in [
+            "ciclismo", "bici", "ciclocomputer", "rullo", "smart trainer", "kickr", "flux", "tacx",
+            "wahoo", "favero", "assioma", "kask", "poc ", "castelli", "sportful", "santini",
+            "salopette", "shimano", "sram", "campagnolo", "copertone", "casco bici", "gravel"
+        ]):
+            return "cycling"
+        if any(w in tl for w in [
+            "casco", "pompa", "luce", "bici",
+            "kask", "poc ", "copertone", "salopette", "shimano"
         ]):
             return "gear"
         if any(w in tl for w in [
@@ -1460,6 +1474,100 @@ class CategoryCrawler:
         logger.info(f"[Adidas] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
+    def crawl_tradeinn(self, max_items: int = 500) -> int:
+        """Crawl Tradeinn catalog across sports categories."""
+        start_time = time.time()
+        logger.info(f"[Tradeinn] Starting catalog crawl (target: {max_items} items)...")
+        queries = [
+            "running", "scarpe running", "trail running", "garmin", "smartwatch",
+            "bullpadel", "racchetta padel", "ciclismo", "rullo", "oakley"
+        ]
+        total_indexed = 0
+        batch: List[Dict[str, Any]] = []
+
+        for q in queries:
+            try:
+                offers = self.tradeinn.search(q, limit=min(max_items - total_indexed, 40))
+                for offer in offers:
+                    brand = self.normalizer.extract_brand(offer.title, offer.brand)
+                    cleaned_title, _ = self.normalizer.clean_title(offer.title, brand)
+                    category = self._detect_category(offer.title)
+                    gender = self.normalizer.extract_gender(offer.title, offer.url)
+                    cluster_key = self.normalizer.extract_cluster_key(offer)
+                    canonical = f"{brand} {cleaned_title}".strip() if brand else cleaned_title
+
+                    batch.append({
+                        "cluster_key": cluster_key,
+                        "canonical_name": canonical,
+                        "brand": brand,
+                        "category": category,
+                        "gender": gender,
+                        "offer": offer
+                    })
+                    total_indexed += 1
+                    if len(batch) >= self.BATCH_SIZE:
+                        self._flush_batch(batch)
+
+                    if total_indexed >= max_items:
+                        break
+            except Exception as e:
+                logger.debug(f"[Tradeinn] Crawl query {q} error: {e}")
+            if total_indexed >= max_items:
+                break
+
+        self._flush_batch(batch)
+        duration = time.time() - start_time
+        self.db.record_crawl_log("tradeinn", "catalog", total_indexed, duration)
+        logger.info(f"[Tradeinn] Indexed {total_indexed} products in {round(duration, 1)}s.")
+        return total_indexed
+
+    def crawl_df_sport(self, max_items: int = 500) -> int:
+        """Crawl DF Sport Specialist catalog across sports categories."""
+        start_time = time.time()
+        logger.info(f"[DF Sport Specialist] Starting catalog crawl (target: {max_items} items)...")
+        queries = [
+            "running", "trail running", "scarpe", "garmin", "smartwatch",
+            "padel", "ciclismo", "trekking", "salewa", "asics", "hoka"
+        ]
+        total_indexed = 0
+        batch: List[Dict[str, Any]] = []
+
+        for q in queries:
+            try:
+                offers = self.df_sport.search(q, limit=min(max_items - total_indexed, 40))
+                for offer in offers:
+                    brand = self.normalizer.extract_brand(offer.title, offer.brand)
+                    cleaned_title, _ = self.normalizer.clean_title(offer.title, brand)
+                    category = self._detect_category(offer.title)
+                    gender = self.normalizer.extract_gender(offer.title, offer.url)
+                    cluster_key = self.normalizer.extract_cluster_key(offer)
+                    canonical = f"{brand} {cleaned_title}".strip() if brand else cleaned_title
+
+                    batch.append({
+                        "cluster_key": cluster_key,
+                        "canonical_name": canonical,
+                        "brand": brand,
+                        "category": category,
+                        "gender": gender,
+                        "offer": offer
+                    })
+                    total_indexed += 1
+                    if len(batch) >= self.BATCH_SIZE:
+                        self._flush_batch(batch)
+
+                    if total_indexed >= max_items:
+                        break
+            except Exception as e:
+                logger.debug(f"[DFSport] Crawl query {q} error: {e}")
+            if total_indexed >= max_items:
+                break
+
+        self._flush_batch(batch)
+        duration = time.time() - start_time
+        self.db.record_crawl_log("df_sportspecialist", "catalog", total_indexed, duration)
+        logger.info(f"[DF Sport Specialist] Indexed {total_indexed} products in {round(duration, 1)}s.")
+        return total_indexed
+
     def crawl_store(self, store_id: str, max_items: int = 500) -> int:
         """Crawl a specific store by its ID."""
         crawlers = {
@@ -1473,7 +1581,10 @@ class CategoryCrawler:
             "alltricks": self.crawl_alltricks,
             "decathlon": self.crawl_decathlon,
             "nike": self.crawl_nike,
-            "adidas": self.crawl_adidas
+            "adidas": self.crawl_adidas,
+            "tradeinn": self.crawl_tradeinn,
+            "df_sportspecialist": self.crawl_df_sport,
+            "df_sport": self.crawl_df_sport,
         }
         crawler_fn = crawlers.get(store_id.lower())
         if not crawler_fn:
@@ -1496,7 +1607,9 @@ class CategoryCrawler:
             ("alltricks", self.crawl_alltricks),
             ("decathlon", self.crawl_decathlon),
             ("nike", self.crawl_nike),
-            ("adidas", self.crawl_adidas)
+            ("adidas", self.crawl_adidas),
+            ("tradeinn", self.crawl_tradeinn),
+            ("df_sportspecialist", self.crawl_df_sport),
         ]
 
         target_stores = all_stores

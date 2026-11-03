@@ -15,10 +15,10 @@ KNOWN_BRANDS = [
 
     # Cycling & Helmets
     "shimano", "poc", "kask", "abus", "castelli", "sportful", "santini", "giro",
-    "sidi", "sram", "campagnolo", "met",
+    "sidi", "sram", "campagnolo", "met", "tacx", "favero", "assioma", "elite",
 
     # Padel & Tennis
-    "bullpadel", "babolat", "head", "wilson", "nox", "starvie", "siux", "dunlop",
+    "bullpadel", "babolat", "head", "wilson", "nox", "starvie", "siux", "dunlop", "kuikma",
 
     # Outdoor, Packs & Hydration
     "the north face", "north face", "patagonia", "columbia", "arc'teryx", "arcteryx",
@@ -77,6 +77,12 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
     ]),
     ("eyewear", [
         r"\bocchial[ii]\b", r"\bsunglasses\b", r"\blent[ie]\b", r"\bmascher[ae]\b"
+    ]),
+    ("racket", [
+        r"\bracchett[ae]\b", r"\bpala\b", r"\bpalas\b", r"\bracks?\b", r"\bpadel\b"
+    ]),
+    ("trainer", [
+        r"\brull[oi]\b", r"\bsmart trainer\b", r"\btrainer\b", r"\bkickr\b", r"\bflux\b", r"\bneo\b", r"\bsuito\b"
     ]),
     ("gear", [
         r"\bsmartwatch\b", r"\borolog[io]\b", r"\bgps\b", r"\bciclocomputer\b",
@@ -195,7 +201,11 @@ class ProductNormalizer:
         Generates a strictly partitioned cluster key:
         Prevents cases/straps/packs from sharing keys with core devices or shoes,
         and retains exact model generation numbers (e.g. 965, 55, 41, Pro 5, v14).
+        If a clean barcode/GTIN is present, ensures 100% deterministic grouping.
         """
+        if offer.barcode and len(offer.barcode.strip()) >= 8:
+            return f"barcode:{offer.barcode.strip()}"
+
         brand = cls.extract_brand(offer.title, offer.brand) or "Generic"
         gender = cls.extract_gender(offer.title, offer.url)
         art_type = cls.detect_article_type(offer.title)
@@ -309,6 +319,10 @@ class ProductNormalizer:
                     canonical += " (Pantaloni/Shorts)"
                 elif art_type == "top" and not any(w in canonical.lower() for w in ("maglia", "maglietta", "t-shirt", "canotta", "top")):
                     canonical += " (Maglia)"
+                elif art_type == "racket" and not any(w in canonical.lower() for w in ("racchetta", "pala", "racket")):
+                    canonical += " (Racchetta Padel)"
+                elif art_type == "trainer" and not any(w in canonical.lower() for w in ("rullo", "trainer")):
+                    canonical += " (Rullo Smart)"
 
                 if gender in ("Donna", "Junior") and gender.lower() not in canonical.lower():
                     canonical += f" ({gender})"

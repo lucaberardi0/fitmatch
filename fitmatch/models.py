@@ -39,6 +39,9 @@ STORE_SHIPPING_RULES = {
     "sportler": {"standard": 5.00, "free_threshold": 50.0, "courier": "GLS / DPD"},
     "nike": {"standard": 5.00, "free_threshold": 99.0, "courier": "UPS / DPD"},
     "adidas": {"standard": 4.99, "free_threshold": 50.0, "courier": "DHL / GLS"},
+    "tradeinn": {"standard": 4.99, "free_threshold": 150.0, "courier": "Poste / GLS / DPD"},
+    "df_sportspecialist": {"standard": 5.90, "free_threshold": 60.0, "courier": "GLS / BRT"},
+    "df_sport": {"standard": 5.90, "free_threshold": 60.0, "courier": "GLS / BRT"},
 }
 
 
@@ -47,6 +50,7 @@ class Offer(BaseModel):
     store_id: str
     store_name: str
     product_id: Optional[str] = None
+    barcode: Optional[str] = None
     title: str
     brand: Optional[str] = None
     price: float

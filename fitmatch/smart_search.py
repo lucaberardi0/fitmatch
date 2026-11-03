@@ -97,6 +97,18 @@ SPORTS_KNOWLEDGE = {
         "category": "nutrition",
         "description": "Gel isotonici, maltodestrine ed elettroliti per energia immediata e prevenzione crampi."
     },
+    "padel": {
+        "models": ["bullpadel hack", "bullpadel vertex", "nox at10", "babolat technical viper", "head speed pro", "siux diablo", "kuikma"],
+        "label": "Padel & Racchette",
+        "category": "padel",
+        "description": "Racchette da padel, scarpe con suola a spiga, borse e accessori per il campo."
+    },
+    "cycling": {
+        "models": ["garmin edge", "wahoo kickr", "tacx flux", "tacx neo", "favero assioma", "kask protone", "kask wasabi", "poc ventral", "castelli espresso"],
+        "label": "Ciclismo & Rulli Smart",
+        "category": "cycling",
+        "description": "Rulli interattivi per allenamento indoor, ciclocomputer GPS, caschi e abbigliamento per bici da corsa e gravel."
+    },
     "gear": {
         "models": ["poc", "kask", "abus", "casco", "abbigliamento termico"],
         "label": "Ciclismo & Attrezzatura",
@@ -108,7 +120,8 @@ SPORTS_KNOWLEDGE = {
 KNOWN_BRANDS = [
     "nike", "adidas", "asics", "hoka", "brooks", "garmin", "polar", "suunto",
     "salomon", "oakley", "theragun", "therabody", "enervit", "saucony",
-    "mizuno", "new balance", "new-balance", "la sportiva", "poc", "kask", "abus"
+    "mizuno", "new balance", "new-balance", "la sportiva", "poc", "kask", "abus",
+    "bullpadel", "nox", "babolat", "starvie", "siux", "wahoo", "tacx", "favero", "castelli"
 ]
 
 
@@ -194,7 +207,11 @@ class LocalHeuristicParser:
             archetype_key = "fitness"
         elif re.search(r"\b(gel|barrett[ae]|integrator[ei]|enervit|sali|maltodestrin[ae]|nutrizione)\b", text):
             archetype_key = "nutrition"
-        elif re.search(r"\b(casco|caschi|ciclismo|bici|padel|kask|poc|abus)\b", text):
+        elif re.search(r"\b(padel|racchett[ae]|pala|bullpadel|nox|starvie|siux|overgrip)\b", text):
+            archetype_key = "padel"
+        elif re.search(r"\b(ciclismo|bici|bicicletta|rull[oi]|smart trainer|kickr|flux|tacx|wahoo|assioma|favero|castelli)\b", text):
+            archetype_key = "cycling"
+        elif re.search(r"\b(casco|caschi|kask|poc|abus)\b", text):
             archetype_key = "gear"
         elif re.search(r"\b(trail|sterrato|fango|montagna|sentier[oi]|bosco)\b", text):
             archetype_key = "trail_running"
@@ -213,7 +230,7 @@ class LocalHeuristicParser:
 
         # 6. Generate Target Keywords
         exact_model_match = re.search(
-            r"\b(alphafly(?:\s*\d+)?|vaporfly(?:\s*\d+)?|zoom\s*fly(?:\s*\d+)?|vomero(?:\s*\d+)?|pegasus(?:\s*\w+)?|nimbus(?:\s*\d+)?|clifton(?:\s*\d+)?|bondi(?:\s*\d+)?|ghost(?:\s*\d+)?|streakfly(?:\s*\d+)?|invincible(?:\s*\d+)?|adizero(?:\s*\w+)?|speedgoat(?:\s*\d+)?|forerunner(?:\s*\d+)?|fenix(?:\s*\d+)?|novablast(?:\s*\d+)?|superblast(?:\s*\d+)?|endorphin(?:\s*\w+)?|deviate(?:\s*\w+)?|radar\s*ev|sutro)\b",
+            r"\b(alphafly(?:\s*\d+)?|vaporfly(?:\s*\d+)?|zoom\s*fly(?:\s*\d+)?|vomero(?:\s*\d+)?|pegasus(?:\s*\w+)?|nimbus(?:\s*\d+)?|clifton(?:\s*\d+)?|bondi(?:\s*\d+)?|ghost(?:\s*\d+)?|streakfly(?:\s*\d+)?|invincible(?:\s*\d+)?|adizero(?:\s*\w+)?|speedgoat(?:\s*\d+)?|forerunner(?:\s*\d+)?|fenix(?:\s*\d+)?|novablast(?:\s*\d+)?|superblast(?:\s*\d+)?|endorphin(?:\s*\w+)?|deviate(?:\s*\w+)?|radar\s*ev|sutro|hack(?:\s*\d+)?|vertex(?:\s*\d+)?|at10|kickr|flux(?:\s*\w+)?)\b",
             text
         )
 

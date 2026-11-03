@@ -90,3 +90,28 @@ def test_price_sanity_outlier_guardrail(normalizer):
     assert len(partitions[0]) == 2
     assert len(partitions[1]) == 1
     assert partitions[1][0].price == 15.0
+
+
+def test_barcode_exact_matching(normalizer):
+    """Ensure offers with the same EAN/barcode group together deterministically."""
+    offers = [
+        Offer(store_id="df_sportspecialist", store_name="DF Sport Specialist", barcode="198729183163", title="Scarpe Nike Pegasus Trail", price=99.9, url="http://1"),
+        Offer(store_id="tradeinn", store_name="Tradeinn", barcode="198729183163", title="Nike Pegasus Trail 4 Man", price=94.5, url="http://2"),
+        Offer(store_id="cisalfa", store_name="Cisalfa", barcode="843512345678", title="Racchetta Bullpadel Hack 04", price=199.0, url="http://3"),
+    ]
+
+    groups = normalizer.group_offers(offers)
+    assert len(groups) == 2
+    pegasus_group = next(g for g in groups if len(g.offers) == 2)
+    assert len(pegasus_group.offers) == 2
+    assert pegasus_group.best_price == 94.5
+    assert pegasus_group.cross_store_savings == round(99.9 - 94.5, 2)
+
+
+def test_padel_and_cycling_article_types(normalizer):
+    """Ensure rackets and bike trainers are properly typed and named."""
+    assert normalizer.detect_article_type("Racchetta Padel Bullpadel Hack 04") == "racket"
+    assert normalizer.detect_article_type("Pala de padel Nox AT10 Genius") == "racket"
+    assert normalizer.detect_article_type("Rullo Smart Tacx Flux 2") == "trainer"
+    assert normalizer.detect_article_type("Wahoo Kickr V6 Smart Trainer") == "trainer"
+
