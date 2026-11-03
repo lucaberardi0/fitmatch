@@ -16,4 +16,8 @@ data/*.db-wal
 ios/build/
 ios/DerivedData/
 ios/screenshots/
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+ios/*.xcworkspace/xcuserdata/
+*.xcuserdatad
 .build/

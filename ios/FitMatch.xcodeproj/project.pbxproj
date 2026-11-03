@@ -64,7 +64,7 @@
 		767BFC124E804744A8ACA475 /* IntelligentPromoGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligentPromoGenerator.swift; sourceTree = "<group>"; };
 		77C67467BE3D6FD9CE33B15B /* UserPreferencesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserPreferencesManager.swift; sourceTree = "<group>"; };
 		793CF4D4C0351CD0450FF69D /* RecentlyViewedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentlyViewedView.swift; sourceTree = "<group>"; };
-		7CEC7A3E09C541258C7BB35F /* FitMatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FitMatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7CEC7A3E09C541258C7BB35F /* FitMatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FitMatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		96802C6BE10AFF3B926DD290 /* WishlistManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WishlistManager.swift; sourceTree = "<group>"; };
 		9742386325EDFBBDC344E123 /* WishlistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WishlistView.swift; sourceTree = "<group>"; };
 		AC3362497A90C3594B4018BB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -263,8 +263,6 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = 0BB4BEE60EE6AD3B200AC47F /* Build configuration list for PBXProject "FitMatch" */;
 			developmentRegion = en;
@@ -344,6 +342,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 6F8J3B65D7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FitMatch/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -351,7 +350,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.fitmatch.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lucaberardi06.frontend;
 				SDKROOT = iphoneos;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				TARGETED_DEVICE_FAMILY = 1;
@@ -363,6 +362,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 6F8J3B65D7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FitMatch/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -370,7 +370,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.fitmatch.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lucaberardi06.frontend;
 				SDKROOT = iphoneos;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				TARGETED_DEVICE_FAMILY = 1;
