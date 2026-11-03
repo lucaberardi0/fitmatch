@@ -13,12 +13,12 @@ struct UserPreferences: Codable {
     var isAutoRefreshEnabled: Bool
 
     static let `default` = UserPreferences(
-        userName: "Luca",
-        userEmail: "luca.runner@fitmatch.it",
-        preferredShoeSize: "43",
+        userName: "Ospite",
+        userEmail: "",
+        preferredShoeSize: "42",
         preferredApparelSize: "M",
-        selectedSports: ["Running Corsa", "Trail Running", "Ciclismo & GPS"],
-        favoriteBrands: ["Nike", "Asics", "Garmin", "Salomon", "Hoka", "Brooks"],
+        selectedSports: [],
+        favoriteBrands: [],
         minDiscountThreshold: 20,
         isPushNotificationEnabled: true,
         isHapticFeedbackEnabled: true,

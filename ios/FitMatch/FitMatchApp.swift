@@ -17,6 +17,8 @@ struct FitMatchApp: App {
                 }
             } else if ProcessInfo.processInfo.arguments.contains("-testAccount") {
                 AccountView()
+            } else if ProcessInfo.processInfo.arguments.contains("-testAuthSheet") {
+                AuthSheetView()
             } else if ProcessInfo.processInfo.arguments.contains("-testNotifications") {
                 NotificationsView()
             } else if ProcessInfo.processInfo.arguments.contains("-testWishlist") {

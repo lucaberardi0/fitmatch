@@ -1241,8 +1241,6 @@ class Database:
                 logger.error(f"[Database] Error get_wishlist from Supabase: {e}")
 
         with self.get_connection() as conn:
-            self._seed_initial_wishlist_if_empty(conn)
-
             if collection_name and collection_name.lower() != "tutti":
                 sql = "SELECT * FROM wishlist WHERE LOWER(collection_name) = LOWER(?) ORDER BY created_at DESC"
                 rows = conn.execute(sql, (collection_name,)).fetchall()
@@ -1331,7 +1329,6 @@ class Database:
                 logger.error(f"[Database] Error get_collections from Supabase: {e}")
 
         with self.get_connection() as conn:
-            self._seed_initial_wishlist_if_empty(conn)
             rows = conn.execute("""
                 SELECT c.name, COUNT(w.id) as item_count 
                 FROM collections c 

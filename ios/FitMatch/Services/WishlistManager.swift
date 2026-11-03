@@ -29,6 +29,19 @@ class WishlistManager: ObservableObject {
     init() {
         loadItems()
         loadCollections()
+
+        // One-time purge of legacy seed items from previous test installs
+        if !UserDefaults.standard.bool(forKey: "fitmatch_wishlist_seed_purged_v3") {
+            let seedNames: Set<String> = [
+                "Nike Air Zoom Pegasus 40",
+                "Garmin Forerunner 265",
+                "Mizuno Printed Running Tights"
+            ]
+            self.items.removeAll { seedNames.contains($0.canonical_name) }
+            saveItems()
+            UserDefaults.standard.set(true, forKey: "fitmatch_wishlist_seed_purged_v3")
+        }
+
         Task {
             await syncWithDatabase()
         }
@@ -65,24 +78,19 @@ class WishlistManager: ObservableObject {
             async let supaCols = SupabaseManager.shared.fetchCollections()
 
             let (items, cols) = try await (supaItems, supaCols)
-            if !items.isEmpty {
-                var processed = items
-                for i in 0..<processed.count {
-                    if Self.isOldDefaultCategory(processed[i].collectionName) {
-                        processed[i].collectionName = nil
-                    }
+            var processed = items
+            for i in 0..<processed.count {
+                if Self.isOldDefaultCategory(processed[i].collectionName) {
+                    processed[i].collectionName = nil
                 }
-                self.items = processed
-                saveItems()
             }
-            if !cols.isEmpty {
-                let validCols = cols.filter { !Self.isOldDefaultCategory($0.name) }
-                self.collections = validCols
-                saveCollections()
-            }
-            if !items.isEmpty {
-                return
-            }
+            self.items = processed
+            saveItems()
+
+            let validCols = cols.filter { !Self.isOldDefaultCategory($0.name) }
+            self.collections = validCols
+            saveCollections()
+            return
         } catch {
             print("Supabase direct sync note: \(error.localizedDescription), trying gateway...")
         }

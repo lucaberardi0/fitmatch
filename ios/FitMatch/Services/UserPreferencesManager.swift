@@ -22,7 +22,12 @@ class UserPreferencesManager: ObservableObject {
     init() {
         if let data = UserDefaults.standard.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode(UserPreferences.self, from: data) {
-            self.preferences = decoded
+            // Reset to default anonymous preferences if the old hardcoded developer values were stored
+            if decoded.userEmail == "luca.runner@fitmatch.it" || (decoded.userName == "Luca" && decoded.userEmail.isEmpty) {
+                self.preferences = .default
+            } else {
+                self.preferences = decoded
+            }
         } else {
             self.preferences = .default
         }

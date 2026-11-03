@@ -12,6 +12,8 @@ struct AccountView: View {
     @State private var tempName = ""
     @State private var showingClearCacheAlert = false
     @State private var showingDeleteAccountAlert = false
+    @State private var showingAuthSheet = false
+    @State private var showingSignOutAlert = false
 
     private let shoeSizes = [
         "38", "39", "40", "40.5", "41", "42", "42.5", "43", "43.5", "44", "44.5", "45", "45.5", "46", "47", "48"
@@ -98,6 +100,9 @@ struct AccountView: View {
                 _ = await api.checkHealth()
                 await prefs.checkUpdaterStatus(apiService: api)
             }
+            .sheet(isPresented: $showingAuthSheet) {
+                AuthSheetView()
+            }
             .alert("Modifica Nome", isPresented: $showingEditNameAlert) {
                 TextField("Il tuo nome", text: $tempName)
                 Button("Annulla", role: .cancel) { }
@@ -106,6 +111,14 @@ struct AccountView: View {
                         prefs.preferences.userName = tempName.trimmingCharacters(in: .whitespaces)
                     }
                 }
+            }
+            .alert("Disconnetti Account", isPresented: $showingSignOutAlert) {
+                Button("Annulla", role: .cancel) { }
+                Button("Disconnetti", role: .destructive) {
+                    supabase.signOut()
+                }
+            } message: {
+                Text("Tornerai alla modalità account anonimo locale. I tuoi dati su questo dispositivo rimarranno comunque disponibili.")
             }
             .alert("Cache Svuotata", isPresented: $showingClearCacheAlert) {
                 Button("OK", role: .cancel) { }
@@ -133,23 +146,29 @@ struct AccountView: View {
             ZStack {
                 Circle()
                     .fill(
+                        supabase.isAuthenticated ?
                         LinearGradient(
                             colors: [Color.shopPurple, Color.shopPurpleDark],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ) :
+                        LinearGradient(
+                            colors: [Color(red: 140/255, green: 145/255, blue: 165/255), Color(red: 100/255, green: 105/255, blue: 125/255)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .frame(width: 68, height: 68)
-                    .shadow(color: Color.shopPurple.opacity(0.35), radius: 8, x: 0, y: 4)
+                    .shadow(color: (supabase.isAuthenticated ? Color.shopPurple : Color.black).opacity(0.25), radius: 8, x: 0, y: 4)
 
-                Image(systemName: "figure.run")
+                Image(systemName: supabase.isAuthenticated ? "figure.run" : "person.fill")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.white)
             }
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
-                    Text(prefs.preferences.userName)
+                    Text(prefs.preferences.userName.isEmpty ? "Ospite" : prefs.preferences.userName)
                         .font(.system(size: 20, weight: .bold, design: .rounded))
                         .foregroundColor(.shopDark)
 
@@ -164,12 +183,12 @@ struct AccountView: View {
                 }
 
                 HStack(spacing: 6) {
-                    Text("SMART SHOPPER")
+                    Text(supabase.isAuthenticated ? "ACCOUNT ATTIVO" : "ACCOUNT ANONIMO")
                         .font(.system(size: 10, weight: .black))
-                        .foregroundColor(.shopPurple)
+                        .foregroundColor(supabase.isAuthenticated ? Color(red: 16/255, green: 140/255, blue: 80/255) : .shopPurple)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(Color.shopPurpleLight)
+                        .background(supabase.isAuthenticated ? Color(red: 220/255, green: 247/255, blue: 232/255) : Color.shopPurpleLight)
                         .cornerRadius(6)
 
                     Text("• 9 Negozi Collegati")
@@ -177,9 +196,10 @@ struct AccountView: View {
                         .foregroundColor(.shopTextMuted)
                 }
 
-                Text(prefs.preferences.userEmail)
-                    .font(.system(size: 12))
+                Text(supabase.isAuthenticated ? (supabase.currentUserEmail ?? "Autenticato") : "Modalità Ospite • Dati salvati su questo dispositivo")
+                    .font(.system(size: 11.5))
                     .foregroundColor(.shopTextMuted)
+                    .lineLimit(1)
             }
 
             Spacer()
@@ -190,7 +210,7 @@ struct AccountView: View {
         .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
     }
 
-    // MARK: - Supabase Production Cloud Card & Apple Auth
+    // MARK: - Supabase Production Cloud Card & Apple/Email Auth
 
     private var supabaseCloudCard: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -207,7 +227,7 @@ struct AccountView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text("FitMatch Cloud Production")
+                        Text("FitMatch Cloud Sync")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
                             .foregroundColor(.shopDark)
 
@@ -220,7 +240,7 @@ struct AccountView: View {
                             .cornerRadius(5)
                     }
 
-                    Text("Render Docker Backend + Supabase PostgreSQL eu-central-1")
+                    Text("Supabase Cloud + Render Docker Engine")
                         .font(.system(size: 11))
                         .foregroundColor(.shopTextMuted)
                 }
@@ -256,11 +276,11 @@ struct AccountView: View {
                 }
 
                 HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
+                    Image(systemName: supabase.isAuthenticated ? "checkmark.circle.fill" : "person.badge.shield.checkmark.fill")
                         .font(.system(size: 11))
-                        .foregroundColor(Color(red: 62/255, green: 207/255, blue: 142/255))
+                        .foregroundColor(supabase.isAuthenticated ? Color(red: 62/255, green: 207/255, blue: 142/255) : .shopPurple)
 
-                    Text("Database: " + supabase.syncStatusMessage)
+                    Text("Stato: " + supabase.syncStatusMessage)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.shopDark)
                 }
@@ -273,14 +293,14 @@ struct AccountView: View {
 
             Divider()
 
-            // Apple Sign-In / User Profile
+            // Authentication & Account Linking
             if supabase.isAuthenticated {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Account Connesso")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(.shopTextMuted)
-                        Text(supabase.currentUserEmail ?? "Utente Apple")
+                        Text(supabase.currentUserEmail ?? "Utente")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(.shopDark)
                     }
@@ -288,32 +308,77 @@ struct AccountView: View {
                     Spacer()
 
                     Button("Disconnetti") {
-                        supabase.signOut()
+                        showingSignOutAlert = true
                     }
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.red)
                 }
             } else {
-                SignInWithAppleButton(
-                    onRequest: { request in
-                        request.requestedScopes = [.fullName, .email]
-                    },
-                    onCompletion: { result in
-                        switch result {
-                        case .success(let authorization):
-                            if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
-                                let userId = appleIDCredential.user
-                                let email = appleIDCredential.email ?? prefs.preferences.userEmail
-                                supabase.saveSession(token: userId, userId: userId, email: email)
-                            }
-                        case .failure(let error):
-                            print("Apple Sign In failed: \(error)")
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 16))
+                            .foregroundColor(.shopPurple)
+                            .padding(.top, 2)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Salva e sincronizza i tuoi dati")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopDark)
+
+                            Text("Accedi per sincronizzare i preferiti sul cloud, proteggere gli avvisi di prezzo e ritrovare i tuoi prodotti su tutti i dispositivi.")
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.shopTextMuted)
+                                .lineSpacing(2)
                         }
                     }
-                )
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 44)
-                .cornerRadius(12)
+
+                    // 1. Apple Sign In
+                    SignInWithAppleButton(
+                        onRequest: { request in
+                            request.requestedScopes = [.fullName, .email]
+                        },
+                        onCompletion: { result in
+                            switch result {
+                            case .success(let authorization):
+                                if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
+                                    let userId = appleIDCredential.user
+                                    let email = appleIDCredential.email ?? (prefs.preferences.userEmail.isEmpty ? "utente.apple@icloud.com" : prefs.preferences.userEmail)
+                                    supabase.saveSession(token: userId, userId: userId, email: email)
+                                    if let fullName = appleIDCredential.fullName {
+                                        let name = [fullName.givenName, fullName.familyName].compactMap { $0 }.joined(separator: " ")
+                                        if !name.isEmpty {
+                                            prefs.preferences.userName = name
+                                        }
+                                    }
+                                }
+                            case .failure(let error):
+                                print("Apple Sign In note: \(error)")
+                            }
+                        }
+                    )
+                    .signInWithAppleButtonStyle(.black)
+                    .frame(height: 44)
+                    .cornerRadius(12)
+
+                    // 2. Email Sign In / Sign Up Button
+                    Button(action: {
+                        showingAuthSheet = true
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "envelope.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("Accedi o Registrati con Email")
+                                .font(.system(size: 13.5, weight: .bold))
+                        }
+                        .foregroundColor(.shopDark)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(Color(red: 242/255, green: 243/255, blue: 247/255))
+                        .cornerRadius(12)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .padding(18)
@@ -911,5 +976,279 @@ struct AccountView: View {
         .background(Color.white)
         .cornerRadius(22)
         .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+    }
+}
+
+// MARK: - Auth Sheet (Login & Registration with Supabase Auth)
+
+struct AuthSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var supabase = SupabaseManager.shared
+    @ObservedObject private var wishlist = WishlistManager.shared
+
+    @State private var isRegistering: Bool = false
+    @State private var email: String = ""
+    @State private var password: String = ""
+    @State private var confirmPassword: String = ""
+    @State private var isPasswordVisible: Bool = false
+    @State private var isLoading: Bool = false
+    @State private var errorMessage: String? = nil
+    @State private var successMessage: String? = nil
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Header Icon & Title
+                    VStack(spacing: 8) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.shopPurpleLight)
+                                .frame(width: 60, height: 60)
+                            Image(systemName: isRegistering ? "person.badge.plus" : "lock.shield.fill")
+                                .font(.system(size: 26))
+                                .foregroundColor(.shopPurple)
+                        }
+                        .padding(.top, 12)
+
+                        Text(isRegistering ? "Crea il tuo Account" : "Bentornato su FitMatch")
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopDark)
+
+                        Text(isRegistering ?
+                             "Registrati per sincronizzare preferiti, taglie e prezzi monitorati nel cloud." :
+                             "Accedi con le tue credenziali per sincronizzare i tuoi prodotti salvati.")
+                            .font(.system(size: 13))
+                            .foregroundColor(.shopTextMuted)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 20)
+                    }
+
+                    // Mode Selector (Accedi / Registrati)
+                    Picker("Modalità", selection: $isRegistering) {
+                        Text("Accedi").tag(false)
+                        Text("Registrati").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 4)
+
+                    // Error Banner
+                    if let err = errorMessage {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.red)
+                            Text(err)
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundColor(.red)
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(Color.red.opacity(0.08))
+                        .cornerRadius(10)
+                    }
+
+                    // Success Banner
+                    if let success = successMessage {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text(success)
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundColor(.green)
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(Color.green.opacity(0.08))
+                        .cornerRadius(10)
+                    }
+
+                    // Form Fields
+                    VStack(spacing: 14) {
+                        // Email Field
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Email")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.shopDark)
+
+                            HStack {
+                                Image(systemName: "envelope")
+                                    .foregroundColor(.shopTextMuted)
+                                    .frame(width: 20)
+                                TextField("nome@esempio.it", text: $email)
+                                    .keyboardType(.emailAddress)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled(true)
+                            }
+                            .padding(14)
+                            .background(Color.white)
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.shopBorder, lineWidth: 1)
+                            )
+                        }
+
+                        // Password Field
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Password")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.shopDark)
+
+                            HStack {
+                                Image(systemName: "lock")
+                                    .foregroundColor(.shopTextMuted)
+                                    .frame(width: 20)
+                                if isPasswordVisible {
+                                    TextField("Password", text: $password)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled(true)
+                                } else {
+                                    SecureField("Password", text: $password)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled(true)
+                                }
+                                Button(action: { isPasswordVisible.toggle() }) {
+                                    Image(systemName: isPasswordVisible ? "eye.slash" : "eye")
+                                        .foregroundColor(.shopTextMuted)
+                                }
+                            }
+                            .padding(14)
+                            .background(Color.white)
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.shopBorder, lineWidth: 1)
+                            )
+                        }
+
+                        // Confirm Password (Registration only)
+                        if isRegistering {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Conferma Password")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.shopDark)
+
+                                HStack {
+                                    Image(systemName: "lock.shield")
+                                        .foregroundColor(.shopTextMuted)
+                                        .frame(width: 20)
+                                    SecureField("Ripeti la password", text: $confirmPassword)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled(true)
+                                }
+                                .padding(14)
+                                .background(Color.white)
+                                .cornerRadius(12)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.shopBorder, lineWidth: 1)
+                                )
+                            }
+                        }
+                    }
+
+                    // Action Button
+                    Button(action: {
+                        Task { await handleAuthSubmit() }
+                    }) {
+                        HStack {
+                            if isLoading {
+                                ProgressView()
+                                    .tint(.white)
+                                    .padding(.trailing, 4)
+                            }
+                            Text(isRegistering ? "Crea Account" : "Accedi")
+                                .font(.system(size: 15, weight: .bold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.shopPurple)
+                        .cornerRadius(14)
+                        .shadow(color: Color.shopPurple.opacity(0.3), radius: 6, y: 3)
+                    }
+                    .disabled(isLoading || email.isEmpty || password.isEmpty)
+                    .opacity((isLoading || email.isEmpty || password.isEmpty) ? 0.6 : 1.0)
+                    .padding(.top, 8)
+
+                    // Anonymous Mode Note
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.shield")
+                            .font(.system(size: 11))
+                            .foregroundColor(.shopTextMuted)
+                        Text("I dati salvati finora come ospite verranno uniti al tuo account.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.shopTextMuted)
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(20)
+            }
+            .background(Color(red: 247/255, green: 248/255, blue: 250/255))
+            .navigationTitle(isRegistering ? "Registrazione" : "Accedi")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Chiudi") {
+                        dismiss()
+                    }
+                    .foregroundColor(.shopPurple)
+                }
+            }
+        }
+    }
+
+    private func handleAuthSubmit() async {
+        errorMessage = nil
+        successMessage = nil
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard cleanEmail.contains("@") && cleanEmail.contains(".") else {
+            errorMessage = "Inserisci un indirizzo email valido."
+            return
+        }
+        guard password.count >= 6 else {
+            errorMessage = "La password deve contenere almeno 6 caratteri."
+            return
+        }
+        if isRegistering && password != confirmPassword {
+            errorMessage = "Le due password non coincidono."
+            return
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        if isRegistering {
+            do {
+                let res = try await supabase.signUp(email: cleanEmail, password: password)
+                let gen = UINotificationFeedbackGenerator()
+                gen.notificationOccurred(.success)
+                if supabase.isAuthenticated {
+                    await wishlist.syncWithDatabase()
+                    try? await Task.sleep(nanoseconds: 600_000_000)
+                    dismiss()
+                } else {
+                    successMessage = res.message
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                let gen = UINotificationFeedbackGenerator()
+                gen.notificationOccurred(.error)
+            }
+        } else {
+            do {
+                try await supabase.signIn(email: cleanEmail, password: password)
+                let gen = UINotificationFeedbackGenerator()
+                gen.notificationOccurred(.success)
+                await wishlist.syncWithDatabase()
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+                let gen = UINotificationFeedbackGenerator()
+                gen.notificationOccurred(.error)
+            }
+        }
     }
 }

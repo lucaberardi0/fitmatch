@@ -124,6 +124,12 @@ class RecentActivityManager: ObservableObject {
 
     init() {
         loadActivities()
+        // Purge legacy test activities from previous shared simulator/tester session
+        if !UserDefaults.standard.bool(forKey: "fitmatch_recent_purged_v3") {
+            self.activities.removeAll()
+            saveActivities()
+            UserDefaults.standard.set(true, forKey: "fitmatch_recent_purged_v3")
+        }
         Task {
             await syncFromDatabase()
         }
@@ -132,10 +138,8 @@ class RecentActivityManager: ObservableObject {
     func syncFromDatabase() async {
         do {
             let supaItems = try await SupabaseManager.shared.fetchRecentActivities()
-            if !supaItems.isEmpty {
-                self.activities = supaItems
-                saveActivities()
-            }
+            self.activities = supaItems
+            saveActivities()
         } catch {
             print("RecentActivityManager sync note: \(error)")
         }
@@ -272,6 +276,9 @@ class RecentActivityManager: ObservableObject {
     func clearAll() {
         activities.removeAll()
         saveActivities()
+        Task {
+            _ = try? await SupabaseManager.shared.clearRecentActivities()
+        }
     }
 
     // MARK: - Persistence

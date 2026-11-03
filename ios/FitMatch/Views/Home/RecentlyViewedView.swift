@@ -68,7 +68,7 @@ struct RecentlyViewedView: View {
             Button("Annulla", role: .cancel) { }
             Button("Cancella tutto", role: .destructive) {
                 withAnimation(.easeInOut) {
-                    recentManager.activities.removeAll { $0.type == .product || $0.type == .store }
+                    recentManager.clearAll()
                 }
             }
         } message: {
