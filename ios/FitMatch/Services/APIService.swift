@@ -211,7 +211,40 @@ class APIService: ObservableObject {
         } catch {
             print("APIService fetchDealsShowcasesDirect error: \(error)")
         }
-        return try await getStoreShowcases()
+
+        // If category is nil or "tutti", fallback to general store showcases
+        guard let cat = category?.lowercased(), !cat.isEmpty && cat != "tutti" else {
+            return try await getStoreShowcases()
+        }
+
+        // If a specific category was requested, filter fallback products so unrelated items (e.g. shoes for smartwatch) are NEVER shown
+        let allStores = try await getStoreShowcases()
+        return filterShowcasesByCategory(allStores, category: cat)
+    }
+
+    private func filterShowcasesByCategory(_ showcases: [StoreShowcase], category: String) -> [StoreShowcase] {
+        let cat = category.lowercased()
+        guard cat != "tutti" && !cat.isEmpty else { return showcases }
+
+        var filtered: [StoreShowcase] = []
+        for sc in showcases {
+            let matched = sc.products.filter { CategoryFilterMatcher.matches(title: $0.title, category: cat) }
+            if !matched.isEmpty {
+                filtered.append(StoreShowcase(
+                    store_id: sc.store_id,
+                    store_name: sc.store_name,
+                    total_offers: matched.count,
+                    avg_discount: sc.avg_discount,
+                    rating: sc.rating,
+                    review_count: sc.review_count,
+                    card_theme: sc.card_theme,
+                    accent_color: sc.accent_color,
+                    logo_url: sc.logo_url,
+                    products: matched
+                ))
+            }
+        }
+        return filtered
     }
 
     func getStoreDetails(storeId: String, query: String = "", sort: String = "discount") async throws -> StoreDetailResponse {
@@ -343,6 +376,25 @@ class APIService: ObservableObject {
         guard let url = URL(string: "\(baseURL)/api/followed_stores/\(encoded)") else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    // MARK: - Store Reviews API
+
+    func submitStoreReview(storeId: String, authorName: String, rating: Int, reviewText: String) async throws -> Bool {
+        let encoded = storeId.lowercased().addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? storeId
+        guard let url = URL(string: "\(baseURL)/api/stores/\(encoded)/reviews") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "author_name": authorName,
+            "rating": rating,
+            "review_text": reviewText,
+            "device_id": "default_device"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (_, response) = try await session.data(for: request)
         return (response as? HTTPURLResponse)?.statusCode == 200
     }

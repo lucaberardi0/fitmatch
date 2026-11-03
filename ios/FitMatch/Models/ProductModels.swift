@@ -471,11 +471,32 @@ struct StoreRatingBreakdown: Codable {
 }
 
 struct StoreCustomerReview: Identifiable, Codable, Hashable {
-    var id: String { author + date + text }
+    var id: String
     let author: String
     let rating: Double
     let text: String
     let date: String
+
+    init(id: String = UUID().uuidString, author: String, rating: Double, text: String, date: String) {
+        self.id = id
+        self.author = author
+        self.rating = rating
+        self.text = text
+        self.date = date
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, author, rating, text, date
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? container.decode(String.self, forKey: .id)) ?? UUID().uuidString
+        self.author = (try? container.decode(String.self, forKey: .author)) ?? "Cliente Verificato"
+        self.rating = (try? container.decode(Double.self, forKey: .rating)) ?? 5.0
+        self.text = (try? container.decode(String.self, forKey: .text)) ?? ""
+        self.date = (try? container.decode(String.self, forKey: .date)) ?? "Recentemente"
+    }
 }
 
 struct StoreDetailResponse: Codable {
@@ -595,5 +616,78 @@ struct ModelComparisonResponse: Codable, Hashable {
     let price_delta: Double?
     let source: String?
 }
+
+// MARK: - Dedicated Category Filter Matcher for Deals & Search
+
+struct CategoryFilterMatcher {
+    static func matches(title: String, category: String) -> Bool {
+        let t = title.lowercased()
+        let cat = category.lowercased()
+        if cat == "tutti" || cat.isEmpty { return true }
+
+        if cat == "smartwatch" {
+            let exc = ["fleece", "buff", "bolt polar", "polartec", "pile", "fascia", "calzini", "short", "maglia", "canott", "watching", "polaroid", "guanti", "pantalon", "protezione", "vetro", "pellicola", "custodia", "cover", "cinturino", "strap", "supporto", "sostegno", "manubrio", "attacco", "adattatore", "cavo", "sensore"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            let incStrong = ["smartwatch", "apple watch", "garmin", "suunto", "coros", "forerunner", "fenix", "epix", "cardiofrequenzimetro", "instinct", "vivoactive", "venu", "enduro"]
+            if incStrong.contains(where: { t.contains($0) }) { return true }
+            if t.contains("polar") && ["grit", "vantage", "pacer", "ignite", "unite", "orologio", "gps", "cardio"].contains(where: { t.contains($0) }) {
+                return true
+            }
+            return false
+        }
+
+        if cat == "running" {
+            let exc = ["smartwatch", "apple watch", "garmin", "polar grit", "polar vantage", "polar pacer", "polar ignite", "fleece", "pile"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            let inc = ["running", "scarpe running", "corsa", "maratona", "asics", "hoka", "brooks", "saucony", "mizuno", "pegasus", "vaporfly", "alphafly", "clifton", "ghost", "cumulus", "nimbus", "novablast", "adizero", "supernova", "vomero", "invincible", "endorphin", "deviate", "boston", "zoom fly"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "abbigliamento" {
+            let exc = ["scarpe", "sneaker", "smartwatch", "apple watch", "garmin", "occhiali", "borraccia"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            let inc = ["maglia", "pantalon", "tshirt", "t-shirt", "felpa", "jacket", "giacca", "tight", "short", "top", "tee", "windbreaker", "wind", "pile", "tuta", "leggings", "canotta", "fleece", "reggiseno", "bra", "calze", "calzini"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "donna" {
+            let exc = ["uomo", "men", "man", "homme", "bambino", "bambina", "junior", "jr"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            let inc = ["donna", "wmn", "women", "femme", "lady", "girl", "reggiseno", "bra"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "outdoor" {
+            let exc = ["smartwatch", "apple watch", "t-shirt", "canotta"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            let inc = ["trail", "trekking", "outdoor", "montagna", "gore-tex", "gtx", "salomon", "speedcross", "hierro", "cascadia", "peregrine", "terrex", "scarpone", "wildhorse", "mafate", "speedgoat"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "fitness" {
+            let exc = ["smartwatch", "apple watch", "occhiali", "scarpe outdoor"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            let inc = ["fitness", "training", "gym", "palestra", "pesi", "swoosh", "leggings", "bra", "crossfit", "metcon", "tuta", "manubri"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "accessori" {
+            let exc = ["scarpe", "maglia", "pantalone", "felpa", "giacca"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            let inc = ["occhiali", "calzini", "guanti", "cappell", "zaino", "borraccia", "sock", "belt", "marsupio", "headband", "visiera", "cinturino", "strap", "cappello", "berretto"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "uomo" {
+            let exc = ["donna", "women", "wmn", "femme", "bambino", "bambina", "junior", "jr"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            let inc = ["uomo", "men", "man", "homme"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        return t.contains(cat)
+    }
+}
+
 
 

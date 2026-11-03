@@ -844,13 +844,22 @@ struct StoreInfoSheetView: View {
                                     }
                                 }
 
-                                // Text
-                                Text(rev.text)
-                                    .font(.system(size: 12.5))
-                                    .foregroundColor(.shopDark)
-                                    .lineSpacing(2)
-                                    .lineLimit(4)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                // Text (if provided)
+                                if !rev.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Text(rev.text)
+                                        .font(.system(size: 12.5))
+                                        .foregroundColor(.shopDark)
+                                        .lineSpacing(2)
+                                        .lineLimit(4)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                } else {
+                                    Text("Valutazione a stelle")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.shopTextMuted.opacity(0.8))
+                                        .italic()
+                                }
+
+                                Spacer()
 
                                 // Author Avatar Initial + Date
                                 HStack(spacing: 8) {
@@ -1268,15 +1277,15 @@ struct WriteReviewSheetView: View {
                     .background(Color(red: 248/255, green: 249/255, blue: 251/255))
                     .cornerRadius(18)
 
-                    // Form Fields
+                    // Form Fields (Both Name and Review are optional: user can submit with just star rating)
                     VStack(alignment: .leading, spacing: 16) {
-                        // Author Name
+                        // Author Name (Optional)
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("IL TUO NOME O NICKNAME")
+                            Text("IL TUO NOME O NICKNAME (FACOLTATIVO)")
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundColor(.shopTextMuted)
 
-                            TextField("Es. Marco B. o Runner Milano", text: $authorName)
+                            TextField("Es. Marco B. (facoltativo)", text: $authorName)
                                 .font(.system(size: 14))
                                 .foregroundColor(.shopDark)
                                 .padding(12)
@@ -1288,15 +1297,15 @@ struct WriteReviewSheetView: View {
                                 )
                         }
 
-                        // Review Text
+                        // Review Text (Optional)
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("LA TUA RECENSIONE")
+                            Text("LA TUA RECENSIONE (FACOLTATIVO)")
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundColor(.shopTextMuted)
 
                             ZStack(alignment: .topLeading) {
                                 if reviewText.isEmpty {
-                                    Text("Racconta la tua esperienza d'acquisto: consegna puntuale, corriere, imballaggio o conformità dell'articolo...")
+                                    Text("Condividi la tua esperienza con le spedizioni, i prezzi o il servizio (facoltativo)...")
                                         .font(.system(size: 13.5))
                                         .foregroundColor(.shopTextMuted.opacity(0.7))
                                         .padding(.horizontal, 14)
@@ -1326,7 +1335,7 @@ struct WriteReviewSheetView: View {
                             .multilineTextAlignment(.center)
                     }
 
-                    // Submit Button
+                    // Submit Button (Always enabled: ratings can be submitted with or without text/name)
                     Button(action: submitReview) {
                         HStack(spacing: 8) {
                             if isSubmitting {
@@ -1339,10 +1348,10 @@ struct WriteReviewSheetView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 15)
-                        .background(reviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color(red: 160/255, green: 165/255, blue: 175/255) : Color(red: 24/255, green: 24/255, blue: 27/255))
+                        .background(isSubmitting ? Color(red: 160/255, green: 165/255, blue: 175/255) : Color(red: 24/255, green: 24/255, blue: 27/255))
                         .clipShape(Capsule())
                     }
-                    .disabled(reviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
+                    .disabled(isSubmitting)
                     .buttonStyle(.plain)
                 }
                 .padding(20)
@@ -1362,12 +1371,13 @@ struct WriteReviewSheetView: View {
     }
 
     private func submitReview() {
-        let text = reviewText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !isSubmitting else { return }
         isSubmitting = true
         errorMessage = nil
 
-        let name = authorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Runner" : authorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = reviewText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanName = authorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = cleanName.isEmpty ? "Cliente Verificato" : cleanName
 
         Task {
             let ok = await SupabaseManager.shared.submitStoreReview(

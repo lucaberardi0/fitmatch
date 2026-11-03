@@ -16,6 +16,7 @@ struct WishlistView: View {
     @State private var newlyCreatedCollectionName: String = ""
     @State private var selectedProductForDetail: MatchedProduct? = nil
     @State private var selectedCollectionFilter: String = "Tutti"
+    @State private var itemToMoveInCollection: WishlistItem? = nil
 
     init(selectedTab: Binding<Int>? = nil, embedded: Bool = false, onSelectPerTe: (() -> Void)? = nil) {
         self.embedded = embedded
@@ -67,7 +68,7 @@ struct WishlistView: View {
 
                         mainContent
                     }
-                    .background(Color(red: 250/255, green: 250/255, blue: 252/255).ignoresSafeArea())
+                    .background(Color.white.ignoresSafeArea())
                 }
             }
         }
@@ -76,6 +77,9 @@ struct WishlistView: View {
         }
         .sheet(item: $selectedProductForDetail) { product in
             ProductDetailView(product: product)
+        }
+        .sheet(item: $itemToMoveInCollection) { item in
+            MoveToCollectionSheet(item: item)
         }
         .sheet(isPresented: $showingCreateCollectionSheet) {
             CreateCollectionSheet(
@@ -106,22 +110,15 @@ struct WishlistView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
                 if wishlist.items.isEmpty {
-                    // MARK: - Screen 1: Empty State (Matching reference Image 1)
+                    // Empty Saved State
                     emptySavedState
                         .padding(.top, 40)
                 } else {
-                    // MARK: - Screen 5: Active Collections & Saved Items (Matching reference Image 5)
                     // 1. Collections Section Header & Horizontal Carousel
                     collectionsSection
                         .padding(.top, 4)
 
-                    // 2. Active Collection Filter Tag (if filtered)
-                    if selectedCollectionFilter != "Tutti" {
-                        activeCollectionFilterPill
-                            .padding(.horizontal, 16)
-                    }
-
-                    // 3. Saved Products 2-Column Grid
+                    // 2. Saved Products 2-Column Grid
                     if displayItems.isEmpty {
                         emptyFilteredState
                             .padding(.horizontal, 16)
@@ -135,6 +132,7 @@ struct WishlistView: View {
                 Spacer(minLength: 120)
             }
         }
+        .background(Color.white)
         .refreshable {
             await wishlist.syncWithDatabase()
         }
@@ -296,6 +294,11 @@ struct WishlistView: View {
                                         selectedCollectionFilter = col.name
                                     }
                                 }
+                            },
+                            onDelete: {
+                                withAnimation(.spring(response: 0.25)) {
+                                    wishlist.deleteCollection(name: col.name)
+                                }
                             }
                         )
                     }
@@ -308,33 +311,6 @@ struct WishlistView: View {
                 .padding(.horizontal, 16)
             }
         }
-    }
-
-    // Active collection filter pill
-    private var activeCollectionFilterPill: some View {
-        HStack(spacing: 8) {
-            Text("Filtro: \(selectedCollectionFilter)")
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(.shopDark)
-
-            Spacer()
-
-            Button("Mostra tutti") {
-                withAnimation(.spring(response: 0.25)) {
-                    selectedCollectionFilter = "Tutti"
-                }
-            }
-            .font(.system(size: 12, weight: .bold))
-            .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Color.white)
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-        )
     }
 
     // Empty filtered state
@@ -358,7 +334,7 @@ struct WishlistView: View {
         .padding(.vertical, 30)
     }
 
-    // MARK: - Saved Products 2-Column Grid (Matching Reference Image 5)
+    // MARK: - Saved Products 2-Column Grid (Matching Reference Image)
 
     private var savedProductsGrid: some View {
         LazyVGrid(
@@ -378,6 +354,9 @@ struct WishlistView: View {
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.72)) {
                             wishlist.removeFromWishlist(item.canonical_name)
                         }
+                    },
+                    onMoveToCollection: {
+                        itemToMoveInCollection = item
                     }
                 )
             }
@@ -406,7 +385,7 @@ struct WishlistView: View {
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
 
-                TextField("Cerca nei salvati", text: $searchText)
+                TextField("Cerca", text: $searchText)
                     .font(.system(size: 15, weight: .regular))
                     .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
 
@@ -508,136 +487,131 @@ struct WishlistView: View {
     }
 }
 
-// MARK: - Collection Card (Matching Reference Image 5)
+// MARK: - Collection Card (Matching Reference Screenshot)
 
 struct ShopCollectionCard: View {
     let collection: WishlistCollection
     let isSelected: Bool
     let thumbnailUrl: String?
     let onTap: () -> Void
+    var onDelete: (() -> Void)? = nil
 
     var body: some View {
         Button(action: onTap) {
             ZStack(alignment: .bottomLeading) {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color(red: 243/255, green: 243/255, blue: 246/255))
-                    .frame(width: 165, height: 170)
+                // Background Rounded Card
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(Color(red: 244/255, green: 244/255, blue: 247/255))
+                    .frame(width: 165, height: 180)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 18)
+                        RoundedRectangle(cornerRadius: 22)
                             .stroke(
-                                isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.black.opacity(0.04),
-                                lineWidth: isSelected ? 2 : 1
+                                isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.clear,
+                                lineWidth: isSelected ? 2 : 0
                             )
                     )
 
-                // Centered white tilted card with item preview
+                // Centered white tilted tile with product preview
                 VStack {
                     ZStack {
                         RoundedRectangle(cornerRadius: 14)
                             .fill(Color.white)
                             .frame(width: 88, height: 88)
-                            .shadow(color: Color.black.opacity(0.06), radius: 5, x: 0, y: 2)
+                            .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 3)
+                            .rotationEffect(.degrees(-6))
 
                         if let thumb = thumbnailUrl, let url = URL(string: thumb), !thumb.isEmpty {
                             AsyncImage(url: url) { phase in
                                 if let img = phase.image {
-                                    img.resizable().scaledToFit().padding(6)
+                                    img.resizable()
+                                        .scaledToFit()
+                                        .padding(8)
                                 } else {
                                     Image(systemName: "shoe.fill")
-                                        .font(.system(size: 24))
-                                        .foregroundColor(Color(red: 190/255, green: 190/255, blue: 200/255))
+                                        .font(.system(size: 26))
+                                        .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
                                 }
                             }
                             .frame(width: 88, height: 88)
+                            .rotationEffect(.degrees(-6))
                             .clipShape(RoundedRectangle(cornerRadius: 14))
                         } else {
-                            Image(systemName: "tag.fill")
-                                .font(.system(size: 26))
-                                .foregroundColor(Color(red: 190/255, green: 190/255, blue: 200/255))
+                            Image(systemName: "photo")
+                                .font(.system(size: 26, weight: .light))
+                                .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                .rotationEffect(.degrees(-6))
                         }
                     }
-                    .padding(.top, 16)
+                    .padding(.top, 22)
 
                     Spacer()
                 }
-                .frame(width: 165, height: 170)
+                .frame(width: 165, height: 180)
 
                 // Collection Name in Bottom-Left
                 Text(collection.name)
-                    .font(.system(size: 16.5, weight: .bold, design: .rounded))
-                    .foregroundColor(.shopDark)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
                     .lineLimit(1)
-                    .padding(14)
+                    .padding(.leading, 16)
+                    .padding(.bottom, 16)
             }
-            .frame(width: 165, height: 170)
+            .frame(width: 165, height: 180)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if let onDelete = onDelete {
+                Button(role: .destructive, action: onDelete) {
+                    Label("Elimina collezione", systemImage: "trash")
+                }
+            }
+        }
     }
 }
 
-// MARK: - Create Collection Card (Matching Reference Image 5)
+// MARK: - Create Collection Card (Matching Reference Screenshot)
 
 struct ShopCreateCollectionCard: View {
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            ZStack(alignment: .bottomLeading) {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color(red: 243/255, green: 243/255, blue: 246/255))
-                    .frame(width: 165, height: 170)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(Color.black.opacity(0.04), lineWidth: 1)
-                    )
+            ZStack {
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(Color(red: 244/255, green: 244/255, blue: 247/255))
+                    .frame(width: 165, height: 180)
 
-                // Centered plus icon and title
                 VStack(spacing: 8) {
-                    Spacer()
                     Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundColor(.shopDark)
+                        .font(.system(size: 24, weight: .regular))
+                        .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
 
                     Text("Crea collezione")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.shopDark)
-                    Spacer()
+                        .font(.system(size: 14.5, weight: .semibold))
+                        .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
                 }
-                .frame(width: 165, height: 170)
-
-                // Faint thumbnail in corner
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white.opacity(0.8))
-                        .frame(width: 26, height: 26)
-                        .shadow(color: Color.black.opacity(0.05), radius: 2)
-                }
-                .padding([.bottom, .leading], 12)
             }
-            .frame(width: 165, height: 170)
+            .frame(width: 165, height: 180)
         }
         .buttonStyle(.plain)
     }
 }
 
-// MARK: - Saved Product Card (Matching Reference Image 5)
+// MARK: - Saved Product Card (Matching Reference Screenshot)
 
 struct ShopSavedProductCard: View {
     let item: WishlistItem
     let onTap: () -> Void
     let onRemove: () -> Void
+    var onMoveToCollection: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            // Product Container with Purple Heart Badge
+            // Product Container with Floating Purple Heart Badge
             ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color(red: 243/255, green: 243/255, blue: 246/255))
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(Color(red: 244/255, green: 244/255, blue: 247/255))
                     .frame(height: 168)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(Color.black.opacity(0.04), lineWidth: 1)
-                    )
 
                 // Product Image
                 Button(action: onTap) {
@@ -646,16 +620,18 @@ struct ShopSavedProductCard: View {
                         if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
                             AsyncImage(url: url) { phase in
                                 if let img = phase.image {
-                                    img.resizable().scaledToFit().frame(width: 140, height: 140).clipped()
+                                    img.resizable()
+                                        .scaledToFit()
+                                        .padding(14)
                                 } else {
                                     Image(systemName: "shoe.fill")
-                                        .font(.system(size: 28))
+                                        .font(.system(size: 30))
                                         .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
                                 }
                             }
                         } else {
-                            Image(systemName: "tag.fill")
-                                .font(.system(size: 28))
+                            Image(systemName: "shoe.fill")
+                                .font(.system(size: 30))
                                 .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
                         }
                         Spacer()
@@ -664,13 +640,13 @@ struct ShopSavedProductCard: View {
                 }
                 .buttonStyle(.plain)
 
-                // Purple Heart Badge (Matching Reference Image 5)
+                // Floating Purple Heart Badge (#633BEE, white heart)
                 Button(action: onRemove) {
                     ZStack {
                         Circle()
                             .fill(Color(red: 99/255, green: 59/255, blue: 238/255))
                             .frame(width: 34, height: 34)
-                            .shadow(color: Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.3), radius: 3, x: 0, y: 1)
+                            .shadow(color: Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.35), radius: 4, x: 0, y: 2)
 
                         Image(systemName: "heart.fill")
                             .font(.system(size: 13, weight: .bold))
@@ -678,33 +654,45 @@ struct ShopSavedProductCard: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .padding([.bottom, .trailing], 9)
+                .padding([.bottom, .trailing], 10)
             }
             .frame(height: 168)
 
-            // Store Name (Image 5: "The Closet Inc.")
+            // Store Name (e.g. "The Closet Inc.")
             Text(item.bestStore ?? item.brand ?? "Negozio partner")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundColor(Color(red: 120/255, green: 120/255, blue: 125/255))
+                .font(.system(size: 12.5, weight: .regular))
+                .foregroundColor(Color(red: 115/255, green: 115/255, blue: 120/255))
                 .lineLimit(1)
                 .padding(.top, 4)
 
-            // Title (Image 5: 1 line truncated)
+            // Title (Bold, 1 line limit with tail truncation)
             Text(item.canonical_name)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                .font(.system(size: 13.5, weight: .bold))
+                .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
                 .lineLimit(1)
                 .truncationMode(.tail)
 
-            // Price (Image 5: Bold)
+            // Price (Bold, formatted Italian style "97,95 €")
             Text(String(format: "%.2f €", item.currentBestPrice).replacingOccurrences(of: ".", with: ","))
-                .font(.system(size: 14.5, weight: .bold, design: .rounded))
-                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                .font(.system(size: 14.5, weight: .bold))
+                .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
 
-            // Size / Detail (Image 5: "8")
-            Text((item.selectedSize ?? "").isEmpty || item.selectedSize == "Standard" ? "Disponibile" : (item.selectedSize ?? "Disponibile"))
-                .font(.system(size: 11.5, weight: .regular))
-                .foregroundColor(Color(red: 130/255, green: 130/255, blue: 135/255))
+            // Size / Detail (e.g. "8")
+            if let size = item.selectedSize, !size.isEmpty, size != "Standard" {
+                Text(size)
+                    .font(.system(size: 12.5, weight: .regular))
+                    .foregroundColor(Color(red: 115/255, green: 115/255, blue: 120/255))
+            }
+        }
+        .contextMenu {
+            if let onMove = onMoveToCollection {
+                Button(action: onMove) {
+                    Label("Organizza in collezione", systemImage: "folder.badge.plus")
+                }
+            }
+            Button(role: .destructive, action: onRemove) {
+                Label("Rimuovi dai salvati", systemImage: "trash")
+            }
         }
     }
 }

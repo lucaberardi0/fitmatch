@@ -1,16 +1,5 @@
 import SwiftUI
 
-struct FollowingPost: Identifiable, Hashable {
-    let id: String
-    let storeId: String
-    let storeName: String
-    let imageUrl: String
-    let isPromoGraphic: Bool
-    let promoHeading: String?
-    let promoDiscount: String?
-    let promoCode: String?
-}
-
 struct FollowingView: View {
     var onGoShopping: (() -> Void)? = nil
 
@@ -19,61 +8,9 @@ struct FollowingView: View {
     @StateObject private var api = APIService.shared
 
     @State private var showcases: [StoreShowcase] = []
+    @State private var fallbackStoreProducts: [String: [StoreShowcaseProduct]] = [:]
+    @State private var fallbackStoreCounts: [String: Int] = [:]
     @State private var isLoading = false
-
-    // 5 Editorial Lookbook / Promo Stories matching reference image
-    private let lookbookPosts: [FollowingPost] = [
-        FollowingPost(
-            id: "post_1",
-            storeId: "nike",
-            storeName: "Nike",
-            imageUrl: "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=500&q=80",
-            isPromoGraphic: false,
-            promoHeading: nil,
-            promoDiscount: nil,
-            promoCode: nil
-        ),
-        FollowingPost(
-            id: "post_2",
-            storeId: "maxisport",
-            storeName: "Maxi Sport",
-            imageUrl: "https://images.unsplash.com/photo-1552346154-21d32810aba3?w=500&q=80",
-            isPromoGraphic: false,
-            promoHeading: nil,
-            promoDiscount: nil,
-            promoCode: nil
-        ),
-        FollowingPost(
-            id: "post_3",
-            storeId: "cisalfa",
-            storeName: "Cisalfa Sport",
-            imageUrl: "https://images.unsplash.com/photo-1508746829417-e6f548d8d6ed?w=500&q=80",
-            isPromoGraphic: true,
-            promoHeading: "MID SEASON SALE",
-            promoDiscount: "25% OFF\nSITEWIDE",
-            promoCode: "USE CODE: FINALSALE"
-        ),
-        FollowingPost(
-            id: "post_4",
-            storeId: "deporvillage",
-            storeName: "Deporvillage",
-            imageUrl: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&q=80",
-            isPromoGraphic: false,
-            promoHeading: nil,
-            promoDiscount: nil,
-            promoCode: nil
-        ),
-        FollowingPost(
-            id: "post_5",
-            storeId: "misterrunning",
-            storeName: "Mister Running",
-            imageUrl: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500&q=80",
-            isPromoGraphic: false,
-            promoHeading: nil,
-            promoDiscount: nil,
-            promoCode: nil
-        )
-    ]
 
     // 10 Real verified partner sports stores from database
     private let partnerStores: [(id: String, name: String, subtitle: String)] = [
@@ -105,10 +42,7 @@ struct FollowingView: View {
                     followedStoriesRow
                         .padding(.top, 6)
 
-                    // 2. "Post recenti" Editorial Story Lookbook Carousel
-                    recentPostsSection
-
-                    // 3. Followed Stores Products Carousels
+                    // 2. Followed Stores Products Carousels
                     followedStoresFeed
                 }
 
@@ -178,103 +112,15 @@ struct FollowingView: View {
         }
     }
 
-    // MARK: - 2. "Post recenti" Carousel (Matching Reference Image: 112x174pt vertical lookbooks, bottom-left badge)
-
-    private var recentPostsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Post recenti")
-                .font(.system(size: 19.5, weight: .bold, design: .rounded))
-                .foregroundColor(.shopDark)
-                .padding(.horizontal, 16)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(lookbookPosts) { post in
-                        NavigationLink(destination: StoreDetailView(storeId: post.storeId, initialStoreName: post.storeName)) {
-                            ZStack(alignment: .bottomLeading) {
-                                // Background Photo / Editorial Image
-                                AsyncImage(url: URL(string: post.imageUrl)) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 112, height: 174)
-                                            .clipped()
-                                    case .failure:
-                                        Color(red: 35/255, green: 35/255, blue: 40/255)
-                                            .frame(width: 112, height: 174)
-                                    case .empty:
-                                        Color(red: 240/255, green: 240/255, blue: 245/255)
-                                            .frame(width: 112, height: 174)
-                                            .overlay(ProgressView().controlSize(.small))
-                                    @unknown default:
-                                        EmptyView()
-                                    }
-                                }
-                                .frame(width: 112, height: 174)
-                                .clipShape(RoundedRectangle(cornerRadius: 18))
-
-                                // Promo Graphic Overlay (Matching card 3 in reference screenshot)
-                                if post.isPromoGraphic {
-                                    Color.black.opacity(0.38)
-                                        .frame(width: 112, height: 174)
-                                        .clipShape(RoundedRectangle(cornerRadius: 18))
-
-                                    VStack(spacing: 3) {
-                                        if let heading = post.promoHeading {
-                                            Text(heading)
-                                                .font(.system(size: 7.5, weight: .bold))
-                                                .foregroundColor(.white.opacity(0.85))
-                                                .tracking(0.8)
-                                        }
-
-                                        if let discount = post.promoDiscount {
-                                            Text(discount)
-                                                .font(.system(size: 13, weight: .black, design: .rounded))
-                                                .foregroundColor(.white)
-                                                .multilineTextAlignment(.center)
-                                                .lineSpacing(-2)
-                                        }
-
-                                        if let code = post.promoCode {
-                                            Text(code)
-                                                .font(.system(size: 7, weight: .heavy))
-                                                .foregroundColor(.white.opacity(0.8))
-                                                .padding(.top, 1)
-                                        }
-                                    }
-                                    .frame(width: 112, height: 174, alignment: .center)
-                                }
-
-                                // Subtle border outline
-                                RoundedRectangle(cornerRadius: 18)
-                                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                                    .frame(width: 112, height: 174)
-
-                                // Store Logo Watermark Badge in Bottom-Left (Matching Reference Screenshot)
-                                ShopStoreLogo(storeName: post.storeName, showVerified: false, showLabel: false, size: 28)
-                                    .shadow(color: Color.black.opacity(0.3), radius: 3, x: 0, y: 1)
-                                    .padding([.bottom, .leading], 9)
-                            }
-                            .frame(width: 112, height: 174)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-        }
-    }
-
-    // MARK: - 3. Followed Stores Products Carousels (Matching Reference Image)
+    // MARK: - 2. Followed Stores Products Carousels (Matching Reference Image)
 
     private var followedStoresFeed: some View {
         VStack(spacing: 28) {
             ForEach(followedManager.followedStores) { store in
-                let storeShowcase = showcases.first(where: { $0.store_id.lowercased() == store.store_id.lowercased() })
-                let products = storeShowcase?.products ?? []
-                let totalOffers = storeShowcase?.total_offers ?? products.count
+                let sId = store.store_id.lowercased()
+                let storeShowcase = showcases.first(where: { $0.store_id.lowercased() == sId })
+                let products = (storeShowcase?.products.isEmpty == false) ? (storeShowcase?.products ?? []) : (fallbackStoreProducts[sId] ?? [])
+                let totalOffers = storeShowcase?.total_offers ?? (fallbackStoreCounts[sId] ?? products.count)
 
                 VStack(alignment: .leading, spacing: 14) {
                     // Header: Store Logo + Name + "X articoli aggiunti di recente"
@@ -345,6 +191,22 @@ struct FollowingView: View {
                                 }
                             }
                             .padding(.horizontal, 16)
+                        }
+                    }
+                }
+                .task(id: store.store_id) {
+                    if products.isEmpty {
+                        if let direct = try? await SupabaseManager.shared.fetchStoreOffersDirect(storeId: store.store_id, limit: 12), !direct.isEmpty {
+                            await MainActor.run {
+                                fallbackStoreProducts[sId] = direct
+                            }
+                        }
+                    }
+                    if totalOffers == 0 {
+                        if let count = await SupabaseManager.shared.fetchStoreCatalogCountDirect(storeId: store.store_id) {
+                            await MainActor.run {
+                                fallbackStoreCounts[sId] = count
+                            }
                         }
                     }
                 }

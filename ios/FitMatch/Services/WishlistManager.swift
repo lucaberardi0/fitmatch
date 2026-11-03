@@ -14,17 +14,43 @@ class WishlistManager: ObservableObject {
     @Published var lastCheckMessage: String? = nil
 
     private let saveFileName = "fitmatch_wishlist.json"
+    private let collectionsFileName = "fitmatch_user_collections.json"
 
     private var fileURL: URL {
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         return paths[0].appendingPathComponent(saveFileName)
     }
 
+    private var collectionsFileURL: URL {
+        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+        return paths[0].appendingPathComponent(collectionsFileName)
+    }
+
     init() {
         loadItems()
+        loadCollections()
         Task {
             await syncWithDatabase()
         }
+    }
+
+    // MARK: - Legacy Category Detection (Ensure NO pre-created categories exist)
+
+    static func isOldDefaultCategory(_ name: String?) -> Bool {
+        guard let n = name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !n.isEmpty else {
+            return true
+        }
+        let oldDefaults: Set<String> = [
+            "tutti",
+            "scarpe da corsa",
+            "smartwatch & gps",
+            "trail & outdoor",
+            "offerte speciali",
+            "sneakers",
+            "running",
+            "abbigliamento"
+        ]
+        return oldDefaults.contains(n)
     }
 
     // MARK: - Database Sync (Supabase Cloud + Local Gateway)
@@ -42,15 +68,19 @@ class WishlistManager: ObservableObject {
             if !items.isEmpty {
                 var processed = items
                 for i in 0..<processed.count {
-                    if processed[i].collectionName == nil || processed[i].collectionName == "Tutti" || processed[i].collectionName?.isEmpty == true {
-                        processed[i].collectionName = Self.inferCollection(for: processed[i].canonical_name, discountPct: processed[i].discountPct)
+                    if Self.isOldDefaultCategory(processed[i].collectionName) {
+                        processed[i].collectionName = nil
                     }
                 }
                 self.items = processed
                 saveItems()
-                if !cols.isEmpty {
-                    self.collections = cols
-                }
+            }
+            if !cols.isEmpty {
+                let validCols = cols.filter { !Self.isOldDefaultCategory($0.name) }
+                self.collections = validCols
+                saveCollections()
+            }
+            if !items.isEmpty {
                 return
             }
         } catch {
@@ -67,15 +97,17 @@ class WishlistManager: ObservableObject {
             if !dbItems.isEmpty {
                 var processed = dbItems
                 for i in 0..<processed.count {
-                    if processed[i].collectionName == nil || processed[i].collectionName == "Tutti" || processed[i].collectionName?.isEmpty == true {
-                        processed[i].collectionName = Self.inferCollection(for: processed[i].canonical_name, discountPct: processed[i].discountPct)
+                    if Self.isOldDefaultCategory(processed[i].collectionName) {
+                        processed[i].collectionName = nil
                     }
                 }
                 self.items = processed
                 saveItems()
             }
             if !dbCols.isEmpty {
-                self.collections = dbCols
+                let validCols = dbCols.filter { !Self.isOldDefaultCategory($0.name) }
+                self.collections = validCols
+                saveCollections()
             }
         } catch {
             print("Wishlist sync warning: \(error.localizedDescription)")
@@ -84,6 +116,30 @@ class WishlistManager: ObservableObject {
     }
 
     // MARK: - Persistence
+
+    func loadCollections() {
+        guard FileManager.default.fileExists(atPath: collectionsFileURL.path) else {
+            return
+        }
+        do {
+            let data = try Data(contentsOf: collectionsFileURL)
+            let decoded = try JSONDecoder().decode([WishlistCollection].self, from: data)
+            self.collections = decoded.filter { !Self.isOldDefaultCategory($0.name) }
+        } catch {
+            print("Errore caricamento collezioni locali: \(error)")
+        }
+    }
+
+    func saveCollections() {
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted]
+            let data = try encoder.encode(collections)
+            try data.write(to: collectionsFileURL, options: [.atomicWrite, .completeFileProtection])
+        } catch {
+            print("Errore salvataggio collezioni: \(error)")
+        }
+    }
 
     func loadItems() {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
@@ -95,10 +151,10 @@ class WishlistManager: ObservableObject {
             decoder.dateDecodingStrategy = .iso8601
             var decoded = try decoder.decode([WishlistItem].self, from: data)
 
-            // Auto-categorize items that don't have a specific collection assigned yet
+            // Clean up any old mock categories from previous sessions
             for i in 0..<decoded.count {
-                if decoded[i].collectionName == nil || decoded[i].collectionName == "Tutti" || decoded[i].collectionName?.isEmpty == true {
-                    decoded[i].collectionName = Self.inferCollection(for: decoded[i].canonical_name, discountPct: decoded[i].discountPct)
+                if Self.isOldDefaultCategory(decoded[i].collectionName) {
+                    decoded[i].collectionName = nil
                 }
             }
 
@@ -143,19 +199,6 @@ class WishlistManager: ObservableObject {
         }
     }
 
-    static func inferCollection(for canonicalName: String, discountPct: Double? = nil) -> String {
-        let lower = canonicalName.lowercased()
-        if lower.contains("garmin") || lower.contains("polar") || lower.contains("suunto") || lower.contains("smartwatch") || lower.contains("coros") || lower.contains("forerunner") || lower.contains("fenix") || lower.contains("apple watch") || lower.contains("cardio") {
-            return "Smartwatch & GPS"
-        } else if lower.contains("trail") || lower.contains("outdoor") || lower.contains("gtx") || lower.contains("gore-tex") || lower.contains("speedcross") || lower.contains("hiking") || lower.contains("trekking") || lower.contains("vibram") {
-            return "Trail & Outdoor"
-        } else if (discountPct ?? 0) >= 20 {
-            return "Offerte Speciali"
-        } else {
-            return "Scarpe da Corsa"
-        }
-    }
-
     func addToWishlist(product: MatchedProduct, selectedSize: String? = nil, targetPrice: Double? = nil, collection: String? = nil) {
         let bestPrice = product.best_price ?? product.bestOffer?.price ?? 0.0
         let bestOffer = product.bestOffer
@@ -169,11 +212,11 @@ class WishlistManager: ObservableObject {
             return nil
         }()
 
-        let assignedCollection: String = {
-            if let c = collection, c != "Tutti", !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return c
+        let assignedCollection: String? = {
+            if let c = collection, !Self.isOldDefaultCategory(c) {
+                return c.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            return Self.inferCollection(for: product.canonical_name, discountPct: discountPct)
+            return nil
         }()
 
         let newItem = WishlistItem(
@@ -228,31 +271,10 @@ class WishlistManager: ObservableObject {
         }
     }
 
-    static let defaultCollectionNames = [
-        "Tutti",
-        "Scarpe da Corsa",
-        "Smartwatch & GPS",
-        "Trail & Outdoor",
-        "Offerte Speciali"
-    ]
-
     func getAvailableCollections() -> [WishlistCollection] {
-        var names: [String] = WishlistManager.defaultCollectionNames
-        for c in collections {
-            if !names.contains(where: { $0.caseInsensitiveCompare(c.name) == .orderedSame }) {
-                names.append(c.name)
-            }
-        }
-        for item in items {
-            if let cName = item.collectionName, !cName.isEmpty {
-                if !names.contains(where: { $0.caseInsensitiveCompare(cName) == .orderedSame }) {
-                    names.append(cName)
-                }
-            }
-        }
-        return names.map { name in
-            WishlistCollection(name: name, item_count: getItemCount(for: name))
-        }
+        return collections
+            .filter { !Self.isOldDefaultCategory($0.name) }
+            .map { WishlistCollection(name: $0.name, item_count: getItemCount(for: $0.name)) }
     }
 
     func getItemCount(for collectionName: String) -> Int {
@@ -262,44 +284,47 @@ class WishlistManager: ObservableObject {
         return items.filter { $0.collectionName?.caseInsensitiveCompare(collectionName) == .orderedSame }.count
     }
 
-    func getThumbnails(for collectionName: String, limit: Int = 4) -> [String] {
+    func getThumbnails(for collectionName: String, limit: Int = 1) -> [String] {
         let matching = (collectionName.caseInsensitiveCompare("Tutti") == .orderedSame)
             ? items
             : items.filter { $0.collectionName?.caseInsensitiveCompare(collectionName) == .orderedSame }
-        return matching.compactMap { $0.image_url }.prefix(limit).map { $0 }
+        return matching.compactMap { $0.image_url }.filter { !$0.isEmpty }.prefix(limit).map { $0 }
     }
 
-    func moveItem(canonicalName: String, toCollection: String) {
+    func moveItem(canonicalName: String, toCollection: String?) {
         guard let index = items.firstIndex(where: { $0.canonical_name.caseInsensitiveCompare(canonicalName) == .orderedSame }) else {
             return
         }
         let gen = UIImpactFeedbackGenerator(style: .medium)
         gen.impactOccurred()
 
-        items[index].collectionName = toCollection
+        let target = (toCollection == nil || toCollection?.caseInsensitiveCompare("Tutti") == .orderedSame) ? nil : toCollection
+        items[index].collectionName = target
         saveItems()
 
         let updatedItem = items[index]
         Task {
-            _ = try? await APIService.shared.updateItemCollection(canonicalName: canonicalName, collectionName: toCollection)
+            _ = try? await APIService.shared.updateItemCollection(canonicalName: canonicalName, collectionName: target ?? "Tutti")
             _ = try? await SupabaseManager.shared.upsertWishlistItem(item: updatedItem)
         }
     }
 
     func deleteCollection(name: String) {
-        guard name.caseInsensitiveCompare("Tutti") != .orderedSame else { return }
+        guard !Self.isOldDefaultCategory(name) else { return }
         let gen = UIImpactFeedbackGenerator(style: .medium)
         gen.impactOccurred()
 
-        // Reassign any items in this collection to Tutti
+        // Reassign any items in this collection to nil
         for i in 0..<items.count {
             if items[i].collectionName?.caseInsensitiveCompare(name) == .orderedSame {
-                items[i].collectionName = "Tutti"
+                items[i].collectionName = nil
             }
         }
         saveItems()
 
         collections.removeAll { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        saveCollections()
+
         if selectedCollection.caseInsensitiveCompare(name) == .orderedSame {
             selectedCollection = "Tutti"
         }
@@ -311,15 +336,15 @@ class WishlistManager: ObservableObject {
     }
 
     func createCollection(name: String) {
-        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty, !Self.isOldDefaultCategory(cleanName) else { return }
         if !collections.contains(where: { $0.name.caseInsensitiveCompare(cleanName) == .orderedSame }) {
             collections.append(WishlistCollection(name: cleanName, item_count: 0))
+            saveCollections()
         }
         Task {
             _ = try? await SupabaseManager.shared.createCollection(name: cleanName)
             _ = try? await APIService.shared.createCollection(name: cleanName)
-            await syncWithDatabase()
         }
     }
 

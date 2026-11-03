@@ -10,7 +10,7 @@ struct MoveToCollectionSheet: View {
     @State private var isCreatingNew: Bool = false
 
     private var currentCollection: String {
-        item.collectionName ?? "Tutti"
+        item.collectionName ?? "Nessuna collezione"
     }
 
     var body: some View {
@@ -35,8 +35,56 @@ struct MoveToCollectionSheet: View {
                             .padding(.top, 16)
 
                         VStack(spacing: 8) {
-                            ForEach(wishlist.getAvailableCollections()) { col in
-                                collectionRow(col)
+                            if wishlist.getAvailableCollections().isEmpty {
+                                Text("Nessuna collezione creata. Puoi crearne una nuova qui sotto.")
+                                    .font(.system(size: 13.5, weight: .regular))
+                                    .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 8)
+                            } else {
+                                ForEach(wishlist.getAvailableCollections()) { col in
+                                    collectionRow(col)
+                                }
+                            }
+
+                            if item.collectionName != nil {
+                                Button(action: {
+                                    wishlist.moveItem(canonicalName: item.canonical_name, toCollection: nil)
+                                    dismiss()
+                                }) {
+                                    HStack(spacing: 12) {
+                                        ZStack {
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .fill(Color(red: 240/255, green: 240/255, blue: 245/255))
+                                                .frame(width: 36, height: 36)
+
+                                            Image(systemName: "folder.badge.minus")
+                                                .font(.system(size: 15))
+                                                .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                                        }
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Nessuna collezione")
+                                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                                                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+
+                                            Text("Rimuovi dalla collezione attuale")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                                        }
+
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                    .background(Color.white)
+                                    .cornerRadius(14)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .stroke(Color(red: 235/255, green: 236/255, blue: 240/255), lineWidth: 1)
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, 20)

@@ -44,8 +44,13 @@ class SupabaseManager: ObservableObject {
 
     // MARK: - Headers
 
-    private func makeHeaders(upsert: Bool = false, token: String? = nil) -> [String: String] {
-        let activeToken = token ?? UserDefaults.standard.string(forKey: userDefaultsKeyToken) ?? anonKey
+    private func makeHeaders(upsert: Bool = false, token: String? = nil, isPublic: Bool = false) -> [String: String] {
+        let activeToken: String
+        if isPublic {
+            activeToken = anonKey
+        } else {
+            activeToken = token ?? UserDefaults.standard.string(forKey: userDefaultsKeyToken) ?? anonKey
+        }
         var headers: [String: String] = [
             "apikey": anonKey,
             "Authorization": "Bearer \(activeToken)",
@@ -56,6 +61,14 @@ class SupabaseManager: ObservableObject {
             headers["Prefer"] = "resolution=merge-duplicates"
         }
         return headers
+    }
+
+    func handleAuthFailure() {
+        UserDefaults.standard.removeObject(forKey: userDefaultsKeyToken)
+        self.isAuthenticated = false
+        Task {
+            await ensureUserSession()
+        }
     }
 
     // MARK: - Auth (Supabase Auth / auth.users)
@@ -422,7 +435,7 @@ class SupabaseManager: ObservableObject {
         }
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
-        for (k, v) in makeHeaders() {
+        for (k, v) in makeHeaders(isPublic: true) {
             req.setValue(v, forHTTPHeaderField: k)
         }
         do {
@@ -434,15 +447,16 @@ class SupabaseManager: ObservableObject {
                 let id: String?
                 let author_name: String
                 let rating: Double
-                let review_text: String
+                let review_text: String?
                 let created_at: String?
             }
             let rows = (try? JSONDecoder().decode([ReviewRow].self, from: data)) ?? []
             return rows.map { r in
                 StoreCustomerReview(
-                    author: r.author_name,
+                    id: r.id ?? UUID().uuidString,
+                    author: r.author_name.isEmpty ? "Cliente Verificato" : r.author_name,
                     rating: r.rating,
-                    text: r.review_text,
+                    text: r.review_text ?? "",
                     date: Self.formatRelativeDate(r.created_at)
                 )
             }
@@ -455,27 +469,44 @@ class SupabaseManager: ObservableObject {
         guard let url = URL(string: "\(restURL)/store_reviews") else { return false }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        for (k, v) in makeHeaders() {
+        for (k, v) in makeHeaders(isPublic: true) {
             req.setValue(v, forHTTPHeaderField: k)
         }
+        let cleanAuthor = authorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanText = reviewText.trimmingCharacters(in: .whitespacesAndNewlines)
         let body: [String: Any] = [
             "store_id": storeId.lowercased(),
-            "author_name": authorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Runner" : authorName,
+            "author_name": cleanAuthor.isEmpty ? "Cliente Verificato" : cleanAuthor,
             "rating": max(1, min(5, rating)),
-            "review_text": reviewText.trimmingCharacters(in: .whitespacesAndNewlines),
+            "review_text": cleanText,
             "device_id": "default_device"
         ]
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         req.httpBody = jsonData
         do {
-            let (_, response) = try await session.data(for: req)
-            if let http = response as? HTTPURLResponse, [200, 201].contains(http.statusCode) {
-                return true
+            let (data, response) = try await session.data(for: req)
+            if let http = response as? HTTPURLResponse {
+                if [200, 201].contains(http.statusCode) {
+                    return true
+                }
+                if http.statusCode == 401 {
+                    handleAuthFailure()
+                }
+                print("[SupabaseManager] submitStoreReview failed with code \(http.statusCode): \(String(data: data, encoding: .utf8) ?? "")")
             }
-            return false
         } catch {
-            return false
+            print("[SupabaseManager] submitStoreReview network error: \(error)")
         }
+
+        // Fallback to local FastAPI if Supabase fails
+        let apiFallback = (try? await APIService.shared.submitStoreReview(
+            storeId: storeId,
+            authorName: cleanAuthor.isEmpty ? "Cliente Verificato" : cleanAuthor,
+            rating: rating,
+            reviewText: cleanText
+        )) ?? false
+
+        return apiFallback
     }
 
     private static func formatRelativeDate(_ iso: String?) -> String {
@@ -616,18 +647,6 @@ class SupabaseManager: ObservableObject {
     // MARK: - Direct Store Showcases from Supabase Cloud Database
 
     func fetchStoreShowcasesDirect() async throws -> [StoreShowcase] {
-        guard let url = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&order=discount_pct.desc.nullslast&limit=1000") else {
-            throw URLError(.badURL)
-        }
-        var req = URLRequest(url: url)
-        for (k, v) in makeHeaders() {
-            req.setValue(v, forHTTPHeaderField: k)
-        }
-        let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-
         struct OfferRow: Codable {
             let id: String
             let product_id: String?
@@ -644,10 +663,35 @@ class SupabaseManager: ObservableObject {
             let courier: String?
         }
 
-        let rows = try JSONDecoder().decode([OfferRow].self, from: data)
+        var fetchedOffers: [OfferRow] = []
+
+        // 1. First fetch top showcase offers partitioned per store from our view store_showcase_offers (guarantees Nike, Adidas, and all stores get equal showcase representation)
+        if let viewUrl = URL(string: "\(restURL)/store_showcase_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&order=rn.asc") {
+            var req = URLRequest(url: viewUrl)
+            for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+            if let (data, resp) = try? await session.data(for: req),
+               let http = resp as? HTTPURLResponse, http.statusCode == 200,
+               let rows = try? JSONDecoder().decode([OfferRow].self, from: data),
+               !rows.isEmpty {
+                fetchedOffers = rows
+            }
+        }
+
+        // Safety fallback to raw store_offers if view is ever unreachable
+        if fetchedOffers.isEmpty {
+            if let rawUrl = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&limit=2500") {
+                var req = URLRequest(url: rawUrl)
+                for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+                if let (data, resp) = try? await session.data(for: req),
+                   let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                   let rows = try? JSONDecoder().decode([OfferRow].self, from: data) {
+                    fetchedOffers = rows
+                }
+            }
+        }
 
         var storeMap: [String: (name: String, products: [StoreShowcaseProduct], discounts: [Double], totalCount: Int)] = [:]
-        for r in rows {
+        for r in fetchedOffers {
             let p = StoreShowcaseProduct(
                 id: r.id,
                 title: r.raw_title,
@@ -671,7 +715,7 @@ class SupabaseManager: ObservableObject {
                 storeMap[sId] = (name: r.store_name, products: [], discounts: [], totalCount: 0)
             }
             storeMap[sId]?.totalCount += 1
-            if (storeMap[sId]?.products.count ?? 0) < 10 {
+            if (storeMap[sId]?.products.count ?? 0) < 12 {
                 storeMap[sId]?.products.append(p)
             }
             if let disc = r.discount_pct, disc > 0 {
@@ -679,7 +723,26 @@ class SupabaseManager: ObservableObject {
             }
         }
 
-        // 1. Query real store metadata (ratings, review counts, card theme, accent color) directly from public.stores in Supabase
+        // 2. Query real total offer counts & average discount per store from store_catalog_stats view
+        struct StoreCatalogStats: Codable {
+            let store_id: String
+            let total_offers: Int
+            let avg_discount: Double?
+        }
+        var storeStatsMap: [String: StoreCatalogStats] = [:]
+        if let statsUrl = URL(string: "\(restURL)/store_catalog_stats?select=store_id,total_offers,avg_discount") {
+            var statsReq = URLRequest(url: statsUrl)
+            for (k, v) in makeHeaders(isPublic: true) { statsReq.setValue(v, forHTTPHeaderField: k) }
+            if let (statsData, statsResp) = try? await session.data(for: statsReq),
+               let http = statsResp as? HTTPURLResponse, http.statusCode == 200,
+               let decodedStats = try? JSONDecoder().decode([StoreCatalogStats].self, from: statsData) {
+                for st in decodedStats {
+                    storeStatsMap[st.store_id.lowercased()] = st
+                }
+            }
+        }
+
+        // 3. Query real store metadata (ratings, review counts, card theme, accent color) directly from public.stores in Supabase
         struct StoreDbRecord: Codable {
             let id: String
             let name: String
@@ -693,7 +756,7 @@ class SupabaseManager: ObservableObject {
         var storeDbMap: [String: StoreDbRecord] = [:]
         if let storesUrl = URL(string: "\(restURL)/stores?select=*") {
             var storeReq = URLRequest(url: storesUrl)
-            for (k, v) in makeHeaders() { storeReq.setValue(v, forHTTPHeaderField: k) }
+            for (k, v) in makeHeaders(isPublic: true) { storeReq.setValue(v, forHTTPHeaderField: k) }
             if let (sData, sResp) = try? await session.data(for: storeReq),
                let http = sResp as? HTTPURLResponse, http.statusCode == 200 {
                 if let decodedStores = try? JSONDecoder().decode([StoreDbRecord].self, from: sData) {
@@ -704,30 +767,15 @@ class SupabaseManager: ObservableObject {
             }
         }
 
-        // 2. Query real total offer counts per store directly from Supabase
-        var realStoreCounts: [String: Int] = [:]
-        if let countsUrl = URL(string: "\(restURL)/store_offers?select=store_id&limit=1000") {
-            var countReq = URLRequest(url: countsUrl)
-            for (k, v) in makeHeaders() { countReq.setValue(v, forHTTPHeaderField: k) }
-            if let (cData, cResp) = try? await session.data(for: countReq),
-               let http = cResp as? HTTPURLResponse, http.statusCode == 200 {
-                struct StoreIdRow: Codable { let store_id: String }
-                if let countRows = try? JSONDecoder().decode([StoreIdRow].self, from: cData) {
-                    for cr in countRows {
-                        realStoreCounts[cr.store_id.lowercased(), default: 0] += 1
-                    }
-                }
-            }
-        }
-
         var showcases: [StoreShowcase] = []
         for (sId, info) in storeMap {
             guard !info.products.isEmpty else { continue }
-            let avgDisc = info.discounts.isEmpty ? 25.0 : (info.discounts.reduce(0, +) / Double(info.discounts.count))
             let meta = storeDbMap[sId]
+            let stats = storeStatsMap[sId]
+            let avgDisc = stats?.avg_discount ?? (info.discounts.isEmpty ? 25.0 : (info.discounts.reduce(0, +) / Double(info.discounts.count)))
             let rating = meta?.rating.map { String(format: "%.1f", $0) } ?? "4.8"
             let revStr = meta?.formatted_review_count ?? (meta?.review_count != nil ? "\(meta!.review_count!)" : nil)
-            let realCount = realStoreCounts[sId] ?? info.totalCount
+            let realCount = stats?.total_offers ?? info.totalCount
 
             showcases.append(StoreShowcase(
                 store_id: sId,
@@ -753,21 +801,74 @@ class SupabaseManager: ObservableObject {
         }
     }
 
-    // MARK: - Dedicated Deals Showcases (Ranked by Deepest Discount & Category Filtered)
+    // MARK: - Direct Store Products Fetcher (For Followed Stores Fallback)
 
-    func fetchDealsShowcasesDirect(category: String? = nil) async throws -> [StoreShowcase] {
-        guard let url = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&discount_pct=gt.0&order=discount_pct.desc.nullslast&limit=1000") else {
+    func fetchStoreOffersDirect(storeId: String, limit: Int = 12) async throws -> [StoreShowcaseProduct] {
+        let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: "\(restURL)/store_offers?store_id=eq.\(cleanId)&order=discount_pct.desc.nullslast,current_price.desc&limit=\(limit)&select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier") else {
             throw URLError(.badURL)
         }
         var req = URLRequest(url: url)
-        for (k, v) in makeHeaders() {
-            req.setValue(v, forHTTPHeaderField: k)
-        }
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
+        struct OfferRow: Codable {
+            let id: String
+            let product_id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+            let shipping_cost: Double?
+            let free_shipping_threshold: Double?
+            let courier: String?
+        }
+        let rows = try JSONDecoder().decode([OfferRow].self, from: data)
+        return rows.map { r in
+            StoreShowcaseProduct(
+                id: r.id,
+                title: r.raw_title,
+                brand: r.store_name,
+                image_url: r.image_url,
+                current_price: r.current_price,
+                original_price: r.original_price,
+                discount_pct: r.discount_pct,
+                product_url: r.product_url,
+                canonical_name: r.raw_title,
+                product_id: r.product_id,
+                shipping_cost: r.shipping_cost,
+                total_price: r.current_price + (r.shipping_cost ?? 0.0),
+                is_free_shipping: (r.shipping_cost ?? 0.0) == 0.0,
+                shipping_label: (r.shipping_cost ?? 0.0) == 0.0 ? "Sped. Gratis" : "+ \(String(format: "%.2f", r.shipping_cost ?? 0.0)) €",
+                free_shipping_threshold: r.free_shipping_threshold,
+                courier: r.courier
+            )
+        }
+    }
 
+    func fetchStoreCatalogCountDirect(storeId: String) async -> Int? {
+        let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: "\(restURL)/store_catalog_stats?store_id=eq.\(cleanId)&select=total_offers") else { return nil }
+        var req = URLRequest(url: url)
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+        guard let (data, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+        struct StatRow: Codable { let total_offers: Int }
+        if let list = try? JSONDecoder().decode([StatRow].self, from: data), let first = list.first {
+            return first.total_offers
+        }
+        return nil
+    }
+
+    // MARK: - Dedicated Deals Showcases (Ranked by Deepest Discount & Category Filtered)
+
+    func fetchDealsShowcasesDirect(category: String? = nil) async throws -> [StoreShowcase] {
         struct OfferRow: Codable {
             let id: String
             let product_id: String?
@@ -784,58 +885,44 @@ class SupabaseManager: ObservableObject {
             let courier: String?
         }
 
-        let allRows = try JSONDecoder().decode([OfferRow].self, from: data)
+        let isAllCategories = (category == nil || category!.lowercased() == "tutti" || category!.isEmpty)
+        var fetchedOffers: [OfferRow] = []
+
+        if isAllCategories {
+            if let viewUrl = URL(string: "\(restURL)/store_showcase_offers?discount_pct=gt.0&order=rn.asc") {
+                var req = URLRequest(url: viewUrl)
+                for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+                if let (data, resp) = try? await session.data(for: req),
+                   let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                   let rows = try? JSONDecoder().decode([OfferRow].self, from: data),
+                   !rows.isEmpty {
+                    fetchedOffers = rows
+                }
+            }
+        }
+
+        if fetchedOffers.isEmpty {
+            guard let url = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&discount_pct=gt.0&order=discount_pct.desc.nullslast&limit=2500") else {
+                throw URLError(.badURL)
+            }
+            var req = URLRequest(url: url)
+            for (k, v) in makeHeaders(isPublic: true) {
+                req.setValue(v, forHTTPHeaderField: k)
+            }
+            let (data, response) = try await session.data(for: req)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                if let http = response as? HTTPURLResponse, http.statusCode == 401 { handleAuthFailure() }
+                throw URLError(.badServerResponse)
+            }
+            fetchedOffers = try JSONDecoder().decode([OfferRow].self, from: data)
+        }
 
         // Filter rows by category keywords if active
         let rows: [OfferRow]
         if let cat = category?.lowercased(), !cat.isEmpty && cat != "tutti" {
-            let kwMap: [String: (inc: [String], exc: [String])] = [
-                "smartwatch": (
-                    ["garmin", "smartwatch", "apple watch", "coros", "suunto", "polar grit", "polar vantage", "polar pacer", "polar ignite", "polar unite", "forerunner", "fenix", "epix", "cardiofrequenzimetro"],
-                    ["fleece", "polar buff", "bolt polar", "polartec", "pile", "fascia", "calzini", "short", "maglietta"]
-                ),
-                "running": (
-                    ["running", "scarpe running", "corsa", "maratona", "asics", "hoka", "brooks", "saucony", "mizuno", "pegasus", "vaporfly", "alphafly", "clifton", "ghost", "cumulus", "nimbus", "novablast"],
-                    []
-                ),
-                "abbigliamento": (
-                    ["maglia", "pantalon", "tshirt", "t-shirt", "felpa", "jacket", "giacca", "tight", "short", "top", "tee", "windbreaker", "wind", "pile", "tuta", "leggings", "canotta", "fleece"],
-                    []
-                ),
-                "donna": (
-                    ["donna", "wmn", "women", "femme", "lady", "girl"],
-                    []
-                ),
-                "outdoor": (
-                    ["trail", "trekking", "outdoor", "montagna", "gore-tex", "gtx", "salomon", "speedcross", "hierro", "cascadia", "peregrine"],
-                    []
-                ),
-                "fitness": (
-                    ["fitness", "training", "gym", "palestra", "pesi", "swoosh", "leggings", "bra", "crossfit", "metcon"],
-                    []
-                ),
-                "accessori": (
-                    ["occhiali", "calzini", "guanti", "cappell", "zaino", "borraccia", "sock", "belt", "marsupio", "headband", "visiera"],
-                    []
-                ),
-                "uomo": (
-                    ["uomo", "men", "man", "homme"],
-                    []
-                )
-            ]
-            if let config = kwMap[cat] {
-                rows = allRows.filter { r in
-                    let lower = r.raw_title.lowercased()
-                    if config.exc.contains(where: { lower.contains($0) }) {
-                        return false
-                    }
-                    return config.inc.contains(where: { lower.contains($0) })
-                }
-            } else {
-                rows = allRows.filter { $0.raw_title.lowercased().contains(cat) }
-            }
+            rows = fetchedOffers.filter { CategoryFilterMatcher.matches(title: $0.raw_title, category: cat) }
         } else {
-            rows = allRows
+            rows = fetchedOffers
         }
 
         // Store metadata
@@ -852,7 +939,7 @@ class SupabaseManager: ObservableObject {
         var storeDbMap: [String: StoreDbRecord] = [:]
         if let storesUrl = URL(string: "\(restURL)/stores?select=*") {
             var storeReq = URLRequest(url: storesUrl)
-            for (k, v) in makeHeaders() { storeReq.setValue(v, forHTTPHeaderField: k) }
+            for (k, v) in makeHeaders(isPublic: true) { storeReq.setValue(v, forHTTPHeaderField: k) }
             if let (sData, sResp) = try? await session.data(for: storeReq),
                let http = sResp as? HTTPURLResponse, http.statusCode == 200 {
                 if let decodedStores = try? JSONDecoder().decode([StoreDbRecord].self, from: sData) {

@@ -10,7 +10,7 @@ struct FitMatchApp: App {
     var body: some Scene {
         WindowGroup {
             if ProcessInfo.processInfo.arguments.contains("-testWriteReview") {
-                WriteReviewSheetView(storeId: "misterrunning", storeName: "Mister Running", onReviewSubmitted: { _ in })
+                WriteReviewSheetView(storeId: "nike", storeName: "Nike", onReviewSubmitted: { _ in })
             } else if ProcessInfo.processInfo.arguments.contains("-testStoreDetail") {
                 NavigationStack {
                     StoreDetailView(storeId: "misterrunning", initialStoreName: "Mister Running")

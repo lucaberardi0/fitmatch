@@ -17,6 +17,8 @@ struct DealsView: View {
     @State private var showcases: [StoreShowcase] = []
     @State private var isLoading = false
     @State private var selectedCategory: String = "tutti"
+    @State private var dealsCache: [String: [StoreShowcase]] = [:]
+    @State private var isCategorySwitching = false
 
     // Top categories with clean visual cards matching Image 2
     private let categories: [DealCategoryFilter] = [
@@ -28,7 +30,7 @@ struct DealsView: View {
         DealCategoryFilter(id: "fitness", name: "Fitness", icon: "dumbbell.fill"),
         DealCategoryFilter(id: "outdoor", name: "Outdoor", icon: "mountain.2.fill"),
         DealCategoryFilter(id: "accessori", name: "Accessori", icon: "eyeglasses"),
-        DealCategoryFilter(id: "uomo", name: "Uomo", icon: "figure.walk")
+        DealCategoryFilter(id: "uomo", name: "Uomo", icon: "figure.stand")
     ]
 
     // Partner store promos matching Image 2 ("Risparmia 15 € su ordini superiori a ...")
@@ -55,13 +57,13 @@ struct DealsView: View {
 
             // MARK: - 2. Store Deals Sections (Real DB Deals Ranked by Deepest Discount)
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 24) {
-                    if isLoading && showcases.isEmpty {
+                VStack(spacing: 20) {
+                    if isCategorySwitching || (isLoading && showcases.isEmpty) {
                         VStack(spacing: 14) {
                             ProgressView()
                                 .scaleEffect(1.2)
                                 .tint(.shopDark)
-                            Text("Caricamento migliori offerte dal database...")
+                            Text("Caricamento offerte \(categoryTitle(for: selectedCategory))...")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.shopTextMuted)
                         }
@@ -72,12 +74,12 @@ struct DealsView: View {
                             Image(systemName: "tag.slash")
                                 .font(.system(size: 36))
                                 .foregroundColor(Color.shopTextMuted.opacity(0.6))
-                            Text("Nessuna offerta trovata per questa categoria")
+                            Text("Nessuna offerta trovata per \(categoryTitle(for: selectedCategory))")
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(.shopDark)
                             Button("Mostra tutte le offerte") {
                                 selectedCategory = "tutti"
-                                Task { await loadDeals(category: "tutti") }
+                                selectCategory("tutti")
                             }
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(.shopPurple)
@@ -86,6 +88,23 @@ struct DealsView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 50)
                     } else {
+                        if selectedCategory != "tutti" {
+                            let totalProducts = showcases.reduce(0) { $0 + $1.products.count }
+                            HStack(spacing: 6) {
+                                Image(systemName: "tag.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.shopPurple)
+                                Text("\(totalProducts) offerte in \(showcases.count) negozi")
+                                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                                    .foregroundColor(Color(red: 100/255, green: 104/255, blue: 116/255))
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 2)
+                            .padding(.bottom, -6)
+                            .transition(.opacity)
+                        }
+
                         ForEach(showcases) { showcase in
                             storeDealsSection(showcase: showcase)
                         }
@@ -95,6 +114,7 @@ struct DealsView: View {
                 }
             }
             .refreshable {
+                dealsCache[selectedCategory] = nil
                 await loadDeals(category: selectedCategory)
             }
         }
@@ -105,80 +125,103 @@ struct DealsView: View {
         }
     }
 
+    private func categoryTitle(for id: String) -> String {
+        categories.first(where: { $0.id == id })?.name ?? "offerte"
+    }
+
+    private func selectCategory(_ catId: String) {
+        if let cached = dealsCache[catId] {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                self.showcases = cached
+                self.isCategorySwitching = false
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                self.isCategorySwitching = true
+            }
+        }
+        Task {
+            await loadDeals(category: catId)
+        }
+    }
+
     private func loadDeals(category: String) async {
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            isCategorySwitching = false
+        }
         do {
             let sc = try await api.getDealsShowcases(category: category == "tutti" ? nil : category)
             await MainActor.run {
-                self.showcases = sc
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    self.showcases = sc
+                    self.dealsCache[category] = sc
+                }
             }
         } catch {
             print("DealsView loadDeals error: \(error)")
         }
     }
 
-    // MARK: - 1. Visual Category Card Bar (Matching Image 2: Soft Grey Card, Clean Cutout Icon, Name Below)
+    // MARK: - 1. Visual Category Card Bar (Modern Segmented Capsule Filter Chips)
 
     private var categoryPillsBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(categories) { cat in
-                    let isSelected = selectedCategory == cat.id
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(categories) { cat in
+                        let isSelected = selectedCategory == cat.id
 
-                    Button(action: {
-                        let gen = UIImpactFeedbackGenerator(style: .light)
-                        gen.impactOccurred()
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
-                            selectedCategory = cat.id
-                        }
-                        Task {
-                            await loadDeals(category: cat.id)
-                        }
-                    }) {
-                        VStack(spacing: 5) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(isSelected ? Color(red: 22/255, green: 22/255, blue: 26/255) : Color(red: 242/255, green: 242/255, blue: 246/255))
-                                    .frame(width: 78, height: 48)
-
-                                // High quality, transparent icons & assets matching Image 2
-                                if cat.id == "running" {
-                                    Image("prod_nike1")
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(width: 44, height: 32)
-                                } else if cat.id == "donna" {
-                                    Image("prod_nike2")
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(width: 44, height: 32)
-                                } else if cat.id == "tutti" {
-                                    Image(systemName: "flame.fill")
-                                        .font(.system(size: 20))
-                                        .foregroundColor(isSelected ? .white : Color(red: 230/255, green: 65/255, blue: 45/255))
-                                } else if cat.id == "smartwatch" {
-                                    Image(systemName: "applewatch")
-                                        .font(.system(size: 22, weight: .semibold))
-                                        .foregroundColor(isSelected ? .white : Color(red: 35/255, green: 35/255, blue: 40/255))
-                                } else {
-                                    Image(systemName: cat.icon)
-                                        .font(.system(size: 20, weight: .medium))
-                                        .foregroundColor(isSelected ? .white : Color(red: 45/255, green: 45/255, blue: 50/255))
-                                }
+                        Button(action: {
+                            let gen = UIImpactFeedbackGenerator(style: .light)
+                            gen.impactOccurred()
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                                selectedCategory = cat.id
                             }
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo(cat.id, anchor: .center)
+                            }
+                            selectCategory(cat.id)
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: cat.icon)
+                                    .font(.system(size: 13, weight: isSelected ? .bold : .semibold))
+                                    .foregroundColor(
+                                        isSelected
+                                            ? (cat.id == "tutti" ? Color(red: 255/255, green: 110/255, blue: 50/255) : Color.white)
+                                            : (cat.id == "tutti" ? Color(red: 230/255, green: 65/255, blue: 45/255) : Color(red: 90/255, green: 94/255, blue: 106/255))
+                                    )
 
-                            Text(cat.name)
-                                .font(.system(size: 11.5, weight: isSelected ? .bold : .medium, design: .rounded))
-                                .foregroundColor(isSelected ? Color.shopDark : Color(red: 90/255, green: 90/255, blue: 95/255))
-                                .lineLimit(1)
+                                Text(cat.name)
+                                    .font(.system(size: 13, weight: isSelected ? .bold : .medium, design: .rounded))
+                                    .foregroundColor(isSelected ? .white : Color(red: 35/255, green: 38/255, blue: 46/255))
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(isSelected ? Color(red: 22/255, green: 22/255, blue: 26/255) : Color.white)
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(
+                                        isSelected ? Color.clear : Color(red: 228/255, green: 230/255, blue: 236/255),
+                                        lineWidth: 1
+                                    )
+                            )
+                            .shadow(color: isSelected ? Color.black.opacity(0.12) : Color.black.opacity(0.02), radius: isSelected ? 6 : 2, x: 0, y: isSelected ? 2 : 1)
+                            .scaleEffect(isSelected ? 1.02 : 1.0)
+                            .contentShape(Capsule())
                         }
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .id(cat.id)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
             }
-            .padding(.horizontal, 16)
         }
     }
 
