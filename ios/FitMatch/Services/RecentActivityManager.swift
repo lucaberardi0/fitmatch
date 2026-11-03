@@ -5,6 +5,7 @@ import Combine
 enum ActivityType: String, Codable {
     case search
     case product
+    case store
 }
 
 struct RecentActivityItem: Identifiable, Codable, Hashable {
@@ -16,6 +17,76 @@ struct RecentActivityItem: Identifiable, Codable, Hashable {
     let systemIcon: String?
     let timestamp: Date
     let productData: MatchedProduct?
+    var storeId: String? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, title, subtitle, imageUrl, systemIcon, timestamp, productData, storeId
+    }
+
+    init(
+        id: UUID = UUID(),
+        type: ActivityType,
+        title: String,
+        subtitle: String? = nil,
+        imageUrl: String? = nil,
+        systemIcon: String? = nil,
+        timestamp: Date = Date(),
+        productData: MatchedProduct? = nil,
+        storeId: String? = nil
+    ) {
+        self.id = id
+        self.type = type
+        self.title = title
+        self.subtitle = subtitle
+        self.imageUrl = imageUrl
+        self.systemIcon = systemIcon
+        self.timestamp = timestamp
+        self.productData = productData
+        self.storeId = storeId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.type = try container.decode(ActivityType.self, forKey: .type)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
+        self.imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
+        self.systemIcon = try container.decodeIfPresent(String.self, forKey: .systemIcon)
+        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
+        self.productData = try container.decodeIfPresent(MatchedProduct.self, forKey: .productData)
+        self.storeId = try container.decodeIfPresent(String.self, forKey: .storeId)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(type, forKey: .type)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(subtitle, forKey: .subtitle)
+        try container.encodeIfPresent(imageUrl, forKey: .imageUrl)
+        try container.encodeIfPresent(systemIcon, forKey: .systemIcon)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encodeIfPresent(productData, forKey: .productData)
+        try container.encodeIfPresent(storeId, forKey: .storeId)
+    }
+
+    var effectiveProduct: MatchedProduct {
+        if let prod = productData {
+            return prod
+        }
+        return MatchedProduct(
+            id_val: id.uuidString,
+            canonical_name: title,
+            brand: subtitle,
+            image_url: imageUrl,
+            gender: nil,
+            offers: [],
+            best_price: nil,
+            highest_price: nil,
+            cross_store_savings: nil
+        )
+    }
 
     var formattedDate: String {
         let calendar = Calendar.current
@@ -149,6 +220,46 @@ class RecentActivityManager: ObservableObject {
                 originalPrice: origPrice,
                 storeId: sId,
                 storeName: store
+            )
+        }
+    }
+
+    func recordStoreView(storeId: String, storeName: String, logoUrl: String? = nil) {
+        let clean = storeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+
+        // Deduplicate: remove any previous entry for this store
+        activities.removeAll { $0.type == .store && ($0.storeId == storeId || $0.title.caseInsensitiveCompare(clean) == .orderedSame) }
+
+        let newItem = RecentActivityItem(
+            id: UUID(),
+            type: .store,
+            title: clean,
+            subtitle: "Negozio",
+            imageUrl: logoUrl,
+            systemIcon: "bag.fill",
+            timestamp: Date(),
+            productData: nil,
+            storeId: storeId
+        )
+
+        activities.insert(newItem, at: 0)
+
+        if activities.count > 30 {
+            activities = Array(activities.prefix(30))
+        }
+
+        saveActivities()
+
+        // Background Sync to Supabase
+        Task {
+            _ = try? await SupabaseManager.shared.recordRecentActivity(
+                type: "store",
+                title: clean,
+                subtitle: "Negozio",
+                imageUrl: logoUrl,
+                storeId: storeId,
+                storeName: clean
             )
         }
     }

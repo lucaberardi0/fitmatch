@@ -511,6 +511,11 @@ struct StoreDetailView: View {
                 await MainActor.run {
                     self.storeDetails = details
                     self.isLoading = false
+                    RecentActivityManager.shared.recordStoreView(
+                        storeId: storeId,
+                        storeName: details.store_name,
+                        logoUrl: nil
+                    )
                 }
             } catch {
                 await MainActor.run {

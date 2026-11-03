@@ -559,7 +559,14 @@ class SupabaseManager: ObservableObject {
         let isoFormatter = ISO8601DateFormatter()
         return rows.map { r in
             let date = r.created_at.flatMap { isoFormatter.date(from: $0) } ?? Date()
-            let actType: ActivityType = r.activity_type == "search" ? .search : .product
+            let actType: ActivityType
+            if r.activity_type == "search" {
+                actType = .search
+            } else if r.activity_type == "store" {
+                actType = .store
+            } else {
+                actType = .product
+            }
             let productData: MatchedProduct? = (r.price != nil) ? MatchedProduct(
                 id_val: r.id.uuidString,
                 canonical_name: r.title,
@@ -578,9 +585,10 @@ class SupabaseManager: ObservableObject {
                 title: r.title,
                 subtitle: r.subtitle,
                 imageUrl: r.image_url,
-                systemIcon: actType == .search ? "sparkles" : nil,
+                systemIcon: actType == .search ? "sparkles" : (actType == .store ? "bag.fill" : nil),
                 timestamp: date,
-                productData: productData
+                productData: productData,
+                storeId: r.store_id
             )
         }
     }
