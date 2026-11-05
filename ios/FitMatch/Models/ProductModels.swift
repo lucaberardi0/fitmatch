@@ -1,5 +1,57 @@
 import Foundation
 
+// MARK: - Brand Detection & Cleaning Helper
+
+struct ProductBrandHelper {
+    static let knownBrands = [
+        "Nike", "Adidas", "Asics", "Hoka", "Brooks", "Saucony", "Puma", "Mizuno",
+        "New Balance", "Salomon", "On", "Garmin", "Polar", "Suunto", "Coros",
+        "Under Armour", "La Sportiva", "Altra", "Compressport", "Oakley", "The North Face"
+    ]
+
+    static let knownStores: Set<String> = [
+        "mister running", "misterrunning", "alltricks", "top4running", "maxi sport",
+        "maxisport", "cisalfa", "cisalfa sport", "running warehouse", "runningwarehouse",
+        "deporvillage", "sportler", "nencini", "nencini sport", "df sport specialist",
+        "tradeinn", "decathlon"
+    ]
+
+    static func extractBrand(from text: String, fallback: String? = nil) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+
+        // 1. Check title/text against known brands
+        for b in knownBrands {
+            let bLow = b.lowercased()
+            if lower.hasPrefix(bLow + " ") || lower == bLow || lower.contains(" " + bLow + " ") || lower.contains(bLow + "-") {
+                return b
+            }
+        }
+
+        // 2. If fallback is a valid brand and not a store name, use it
+        if let fb = fallback?.trimmingCharacters(in: .whitespacesAndNewlines), !fb.isEmpty {
+            let fbLow = fb.lowercased()
+            if !knownStores.contains(fbLow) {
+                for b in knownBrands {
+                    if fbLow.contains(b.lowercased()) { return b }
+                }
+                return fb
+            }
+        }
+
+        // 3. Fallback: check first word if not a generic Italian product word or store
+        let words = trimmed.components(separatedBy: CharacterSet.whitespacesAndNewlines)
+        if let first = words.first, first.count >= 3 {
+            let ignore = ["scarpe", "scarpa", "t-shirt", "maglia", "pantaloncini", "shorts", "giacca", "calze", "orologio"]
+            if !ignore.contains(first.lowercased()) && !knownStores.contains(first.lowercased()) {
+                return first
+            }
+        }
+
+        return fallback ?? ""
+    }
+}
+
 struct Offer: Identifiable, Codable, Hashable {
     var id: String { "\(store_id)_\(url)" }
     let store_id: String
@@ -15,6 +67,7 @@ struct Offer: Identifiable, Codable, Hashable {
     let image_url: String?
     let gallery_images: [String]?
     let available_sizes: [String]?
+    let variant_name: String?
     let in_stock: Bool?
 
     // Verified real shipping fields
@@ -39,6 +92,7 @@ struct Offer: Identifiable, Codable, Hashable {
         image_url: String? = nil,
         gallery_images: [String]? = nil,
         available_sizes: [String]? = nil,
+        variant_name: String? = nil,
         in_stock: Bool? = nil,
         shipping_cost: Double? = nil,
         total_price: Double? = nil,
@@ -60,6 +114,7 @@ struct Offer: Identifiable, Codable, Hashable {
         self.image_url = image_url
         self.gallery_images = gallery_images
         self.available_sizes = available_sizes
+        self.variant_name = variant_name
         self.in_stock = in_stock
         self.shipping_cost = shipping_cost
         self.total_price = total_price
@@ -67,6 +122,43 @@ struct Offer: Identifiable, Codable, Hashable {
         self.shipping_label = shipping_label
         self.free_shipping_threshold = free_shipping_threshold
         self.courier = courier
+    }
+
+    var displayVariant: String? {
+        if let v = variant_name, !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return v
+        }
+        let parts = title.components(separatedBy: " - ")
+        if parts.count > 1 {
+            let col = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if col.count >= 3 { return col }
+        }
+        return nil
+    }
+
+    var effectiveBrand: String {
+        ProductBrandHelper.extractBrand(from: title, fallback: brand)
+    }
+
+    func hasSize(_ targetSize: String?) -> Bool {
+        guard let target = targetSize, !target.isEmpty else { return true }
+        guard let sizes = available_sizes, !sizes.isEmpty else { return false }
+        let normTarget = target.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+
+        if sizes.contains(normTarget) { return true }
+
+        let euToUs: [String: String] = [
+            "36": "4.5", "37": "5", "37.5": "5.5", "38": "6", "38.5": "6",
+            "39": "6.5", "40": "7", "40.5": "7.5", "41": "8", "42": "8.5",
+            "42.5": "9", "43": "9.5", "44": "10", "44.5": "10.5", "45": "11",
+            "45.5": "11.5", "46": "12", "47": "12.5", "47.5": "13", "48": "13.5"
+        ]
+        let usToEu = Dictionary(euToUs.map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+
+        if let us = euToUs[normTarget], sizes.contains(us) { return true }
+        if let eu = usToEu[normTarget], sizes.contains(eu) { return true }
+
+        return false
     }
 
     var calculatedShippingCost: Double {
@@ -211,11 +303,81 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
         return "\(canonical_name)_\(g)_\(p)"
     }
 
+    var effectiveBrand: String {
+        ProductBrandHelper.extractBrand(from: canonical_name, fallback: brand)
+    }
+
     var displayTitle: String {
-        if let g = gender, !g.isEmpty && g.lowercased() != "unisex" && !canonical_name.lowercased().contains(g.lowercased()) {
-            return "\(canonical_name) (\(g))"
+        let base = cleanTitle
+        if let g = gender, !g.isEmpty && g.lowercased() != "unisex" && !base.lowercased().contains(g.lowercased()) {
+            return "\(base) (\(g))"
         }
-        return canonical_name
+        return base
+    }
+
+    var cleanTitle: String {
+        var base = canonical_name
+        let b = effectiveBrand
+        if !b.isEmpty {
+            let pattern = "(?i)^(" + NSRegularExpression.escapedPattern(for: b) + "\\s+)+"
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let range = NSRange(location: 0, length: base.utf16.count)
+                base = regex.stringByReplacingMatches(in: base, options: [], range: range, withTemplate: "\(b) ")
+            }
+        }
+        return base.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var isComparable: Bool {
+        let text = (canonical_name + " " + (gender ?? "") + " " + offers.map { $0.title }.joined(separator: " ")).lowercased()
+        let nonShoeKeywords = [
+            "fascia", "porta ipod", "porta cellulare", "strap", "cintura", "marsupio",
+            "calze", "socks", "maglia", "t-shirt", "pantaloncini", "shorts", "giacca",
+            "cappellino", "guanti", "borraccia", "gel", "barretta", "integratore"
+        ]
+        for neg in nonShoeKeywords {
+            if text.contains(neg) { return false }
+        }
+        let shoeKeywords = [
+            "scarpa", "scarpe", "shoe", "shoes", "running", "trail", "sneaker",
+            "zoom fly", "pegasus", "vomero", "invincible", "alphafly", "vaporfly",
+            "ghost", "glycerin", "clifton", "bondi", "nimbus", "cumulus", "kayano",
+            "novablast", "endorphin", "ride", "triumph", "adizero", "boston",
+            "ultraboost", "supernova", "prodigio", "speedcross", "cloudmonster",
+            "cloudsurfer", "forerunner", "fenix", "venu", "epix", "instinct",
+            "coros", "polar", "suunto"
+        ]
+        for kw in shoeKeywords {
+            if text.contains(kw) { return true }
+        }
+        return false
+    }
+
+    var allAvailableSizes: [String] {
+        var set = Set<String>()
+        for offer in offers {
+            if let sizes = offer.available_sizes {
+                for s in sizes {
+                    let cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+                    if !cleaned.isEmpty { set.insert(cleaned) }
+                }
+            }
+        }
+        if set.isEmpty {
+            return []
+        }
+        return set.sorted { s1, s2 in
+            if let d1 = Double(s1), let d2 = Double(s2) {
+                return d1 < d2
+            }
+            return s1 < s2
+        }
+    }
+
+    func bestOffer(for size: String?) -> Offer? {
+        guard let sz = size, !sz.isEmpty else { return bestOffer }
+        let matching = offers.filter { $0.hasSize(sz) }
+        return matching.min(by: { $0.price < $1.price }) ?? bestOffer
     }
 
     var bestOffer: Offer? {
@@ -297,6 +459,7 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
     let brand: String?
     let image_url: String?
     let gallery_images: [String]?
+    let available_sizes: [String]?
     let current_price: Double
     let original_price: Double?
     let discount_pct: Double?
@@ -316,6 +479,7 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         brand: String? = nil,
         image_url: String? = nil,
         gallery_images: [String]? = nil,
+        available_sizes: [String]? = nil,
         current_price: Double,
         original_price: Double? = nil,
         discount_pct: Double? = nil,
@@ -334,6 +498,7 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         self.brand = brand
         self.image_url = image_url
         self.gallery_images = gallery_images
+        self.available_sizes = available_sizes
         self.current_price = current_price
         self.original_price = original_price
         self.discount_pct = discount_pct
@@ -346,6 +511,10 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         self.shipping_label = shipping_label
         self.free_shipping_threshold = free_shipping_threshold
         self.courier = courier
+    }
+
+    var effectiveBrand: String {
+        ProductBrandHelper.extractBrand(from: title, fallback: brand)
     }
 
     var formattedPrice: String {
@@ -376,12 +545,13 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
     }
 
     func toMatchedProduct(storeId: String, storeName: String) -> MatchedProduct {
+        let effBrand = ProductBrandHelper.extractBrand(from: title, fallback: brand)
         let offer = Offer(
             store_id: storeId,
             store_name: storeName,
             product_id: product_id,
             title: title,
-            brand: brand,
+            brand: effBrand,
             price: current_price,
             original_price: original_price,
             discount_pct: discount_pct,
@@ -389,7 +559,7 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
             url: product_url,
             image_url: image_url,
             gallery_images: gallery_images,
-            available_sizes: [],
+            available_sizes: available_sizes ?? [],
             in_stock: true,
             shipping_cost: shipping_cost,
             total_price: total_price,
@@ -401,7 +571,7 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         return MatchedProduct(
             id_val: "\(storeId)_\(product_id ?? UUID().uuidString)",
             canonical_name: canonical_name,
-            brand: brand,
+            brand: effBrand,
             image_url: image_url,
             gallery_images: gallery_images,
             gender: nil,

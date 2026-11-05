@@ -3,7 +3,6 @@ import SwiftUI
 enum NotificationFilter: String, CaseIterable, Identifiable {
     case all = "Tutte"
     case priceDrop = "Cali prezzo"
-    case storeDrop = "Nuovi drop"
     case promo = "Promozioni"
 
     var id: String { rawValue }
@@ -12,7 +11,6 @@ enum NotificationFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all: return "bell.fill"
         case .priceDrop: return "flame.fill"
-        case .storeDrop: return "sparkles"
         case .promo: return "tag.fill"
         }
     }
@@ -34,8 +32,6 @@ struct NotificationsView: View {
             return notifManager.notifications
         case .priceDrop:
             return notifManager.notifications.filter { $0.type == .priceDrop }
-        case .storeDrop:
-            return notifManager.notifications.filter { $0.type == .storeDrop }
         case .promo:
             return notifManager.notifications.filter { $0.type == .promo }
         }
@@ -190,7 +186,6 @@ struct NotificationsView: View {
                         switch filter {
                         case .all: return notifManager.notifications.count
                         case .priceDrop: return notifManager.notifications.filter { $0.type == .priceDrop }.count
-                        case .storeDrop: return notifManager.notifications.filter { $0.type == .storeDrop }.count
                         case .promo: return notifManager.notifications.filter { $0.type == .promo }.count
                         }
                     }()
@@ -317,7 +312,7 @@ struct NotificationsView: View {
                 }
             }
 
-            Text("FitMatch scansiona costantemente i 10 negozi partner ufficiali e confronta i prezzi degli articoli salvati e dei negozi che segui.")
+            Text("FitMatch scansiona costantemente i 10 negozi partner ufficiali. Il watcher cloud sul server ti invia notifiche push APNs in tempo reale a schermo bloccato quando il prezzo di un articolo salvato cala o c'è un'offerta speciale.")
                 .font(.system(size: 11.5, weight: .regular))
                 .foregroundColor(Color(red: 100/255, green: 100/255, blue: 110/255))
                 .lineSpacing(1.5)
@@ -382,7 +377,7 @@ struct NotificationsView: View {
                 .font(.system(size: 16.5, weight: .bold, design: .rounded))
                 .foregroundColor(Color.shopDark)
 
-            Text("Ti avviseremo automaticamente non appena rileviamo un calo di prezzo sui tuoi articoli salvati o nuovi drop dei tuoi negozi preferiti.")
+            Text("Ti avviseremo automaticamente con notifiche push in tempo reale non appena rileviamo un calo di prezzo o un'offerta speciale sui tuoi articoli salvati.")
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(.shopTextMuted)
                 .multilineTextAlignment(.center)

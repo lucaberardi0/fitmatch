@@ -2,11 +2,47 @@ import SwiftUI
 
 struct ModelCompareView: View {
     @StateObject private var api = APIService.shared
-    @State private var modelA: String = "Nike Pegasus 41"
-    @State private var modelB: String = "Asics Gel Nimbus 26"
+    @State private var modelA: String
+    @State private var modelB: String
     @State private var isLoading: Bool = false
     @State private var comparisonResult: ModelComparisonResponse? = nil
     @State private var errorMessage: String? = nil
+    private var autoStart: Bool = false
+
+    init(initialModelA: String? = nil, initialModelB: String? = nil) {
+        let firstModel = initialModelA?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Nike Pegasus 41"
+        let secondModel: String
+        if let b = initialModelB, !b.isEmpty {
+            secondModel = b
+        } else if let a = initialModelA {
+            let lower = a.lowercased()
+            if lower.contains("zoom fly") {
+                secondModel = "Saucony Endorphin Speed 4"
+            } else if lower.contains("alphafly") {
+                secondModel = "Nike Vaporfly 3"
+            } else if lower.contains("vaporfly") {
+                secondModel = "Adidas Adizero Adios Pro 3"
+            } else if lower.contains("clifton") {
+                secondModel = "Asics Novablast 4"
+            } else if lower.contains("nimbus") {
+                secondModel = "Brooks Glycerin 21"
+            } else if lower.contains("pegasus") {
+                secondModel = "Asics Gel Nimbus 26"
+            } else if lower.contains("novablast") {
+                secondModel = "Hoka Mach 6"
+            } else if lower.contains("garmin") {
+                secondModel = "Coros Pace 3"
+            } else {
+                secondModel = "Asics Novablast 4"
+            }
+        } else {
+            secondModel = "Asics Gel Nimbus 26"
+        }
+
+        _modelA = State(initialValue: firstModel)
+        _modelB = State(initialValue: secondModel)
+        self.autoStart = (initialModelA != nil)
+    }
 
     private let quickPresets: [(String, String, String)] = [
         ("Pegasus vs Nimbus", "Nike Pegasus 41", "Asics Gel Nimbus 26"),
@@ -49,6 +85,11 @@ struct ModelCompareView: View {
                     Spacer(minLength: 60)
                 }
                 .padding(.vertical, 16)
+            }
+            .task {
+                if autoStart && comparisonResult == nil && !isLoading {
+                    runComparison()
+                }
             }
             .background(Color(red: 247/255, green: 247/255, blue: 250/255).ignoresSafeArea())
             .navigationTitle("Confronto Modelli IA")

@@ -42,7 +42,7 @@ struct MoveToCollectionSheet: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.vertical, 8)
                             } else {
-                                ForEach(wishlist.getAvailableCollections()) { col in
+                                ForEach(wishlist.getAvailableCollections(), id: \.name) { col in
                                     collectionRow(col)
                                 }
                             }
@@ -230,7 +230,12 @@ struct MoveToCollectionSheet: View {
         let isSelected = col.name.caseInsensitiveCompare(currentCollection) == .orderedSame
 
         return Button(action: {
-            wishlist.moveItem(canonicalName: item.canonical_name, toCollection: col.name)
+            if isSelected {
+                // Tapping active collection unassigns item
+                wishlist.moveItem(canonicalName: item.canonical_name, toCollection: nil)
+            } else {
+                wishlist.moveItem(canonicalName: item.canonical_name, toCollection: col.name)
+            }
             dismiss()
         }) {
             HStack(spacing: 12) {

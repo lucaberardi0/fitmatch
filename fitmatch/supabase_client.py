@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 import ssl
@@ -10,7 +11,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 import certifi
 
-from fitmatch.models import Offer, STORE_SHIPPING_RULES, clean_image_url
+from fitmatch.models import Offer, STORE_SHIPPING_RULES, clean_image_url, normalize_sizes, extract_variant_title
 
 logger = logging.getLogger("fitmatch.supabase")
 
@@ -587,6 +588,7 @@ class SupabaseClient:
                     if u not in prod_gallery:
                         prod_gallery.append(u)
 
+                off_sizes = normalize_sizes(o.get("available_sizes"))
                 offers.append({
                     "store_id": o.get("store_id"),
                     "store_name": o.get("store_name"),
@@ -599,6 +601,8 @@ class SupabaseClient:
                     "image_url": off_img,
                     "gallery_images": off_gallery,
                     "title": o.get("raw_title") or p.get("canonical_name"),
+                    "variant_name": extract_variant_title(o.get("raw_title")),
+                    "available_sizes": off_sizes,
                     "brand": p.get("brand"),
                     "in_stock": o.get("in_stock", True),
                     "shipping_cost": cost,
@@ -614,14 +618,36 @@ class SupabaseClient:
             max_p = max(prices)
             savings = round(max_p - min_p, 2) if len(prices) > 1 else 0.0
 
+            # Clean duplicate brand prefix in canonical_name
+            p_brand = p.get("brand") or ""
+            c_name = p.get("canonical_name") or ""
+            if p_brand:
+                import re
+                c_name = re.sub(r"^(" + re.escape(p_brand) + r"\s+)+", f"{p_brand} ", c_name, flags=re.IGNORECASE).strip()
+
+            # Aggregate and sort all available sizes across all offers
+            prod_all_sizes = set()
+            for o in offers:
+                for sz in o.get("available_sizes", []):
+                    prod_all_sizes.add(sz)
+
+            def _size_sort_key(s):
+                try:
+                    return (0, float(s))
+                except ValueError:
+                    return (1, s)
+
+            sorted_sizes = sorted(list(prod_all_sizes), key=_size_sort_key)
+
             results.append({
                 "id": p["id"],
-                "canonical_name": p["canonical_name"],
+                "canonical_name": c_name,
                 "brand": p.get("brand"),
                 "category": p.get("category"),
                 "gender": p.get("gender", "Unisex"),
                 "image_url": p_img,
                 "gallery_images": prod_gallery,
+                "available_sizes": sorted_sizes,
                 "offer_count": len(offers),
                 "best_price": min_p,
                 "max_price": max_p,
@@ -641,12 +667,23 @@ class SupabaseClient:
         gender: Optional[str] = None,
         max_price: Optional[float] = None,
         min_price: Optional[float] = None,
+        size: Optional[str] = None,
         store_id: Optional[str] = None,
         limit: int = 35
     ) -> List[Dict[str, Any]]:
         """Shopify Shop-style intelligent query on Supabase Cloud PostgreSQL with multi-store offers."""
         raw_results = []
         seen_names = set()
+
+        norm_size = size.strip().replace(",", ".") if size else None
+        target_size_candidates = set()
+        if norm_size:
+            target_size_candidates.add(norm_size)
+            from fitmatch.models import EU_TO_US_MEN, US_TO_EU_MEN
+            if norm_size in EU_TO_US_MEN:
+                target_size_candidates.add(EU_TO_US_MEN[norm_size])
+            if norm_size in US_TO_EU_MEN:
+                target_size_candidates.add(US_TO_EU_MEN[norm_size])
 
         keywords_to_query = target_keywords[:4] if target_keywords else [""]
         for kw in keywords_to_query:
@@ -675,6 +712,11 @@ class SupabaseClient:
                 if prod_g != "unisex" and req_g not in prod_g and prod_g not in req_g:
                     continue
 
+            # If product has explicit available sizes and size filter was requested
+            p_sizes = set(p.get("available_sizes") or [])
+            if target_size_candidates and p_sizes and not target_size_candidates.intersection(p_sizes):
+                continue
+
             matching_offers = []
             for o in p.get("offers", []):
                 if store_id and o.get("store_id") != store_id.lower().strip():
@@ -683,6 +725,10 @@ class SupabaseClient:
                     continue
                 if min_price is not None and o.get("price", 0) < min_price:
                     continue
+                if target_size_candidates:
+                    off_sizes = set(o.get("available_sizes") or [])
+                    if off_sizes and not target_size_candidates.intersection(off_sizes):
+                        continue
                 matching_offers.append(o)
 
             if matching_offers:
@@ -723,7 +769,7 @@ class SupabaseClient:
         privacy_policy_url = db_store.get("privacy_policy_url") or base_url
         terms_url = db_store.get("terms_url") or base_url
 
-        endpoint = f"store_offers?store_id=eq.{sid}&select=id,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,product_id,products(id,canonical_name,brand,category,gallery_images)&order=discount_pct.desc.nullslast&limit={limit}"
+        endpoint = f"store_offers?store_id=eq.{sid}&select=id,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,product_id,available_sizes,products(id,canonical_name,brand,category,gallery_images)&order=discount_pct.desc.nullslast&limit={limit}"
         resp = self._request(endpoint, count_exact=True)
         offers_data = resp.get("data") or []
         cr = resp.get("content_range") or ""
@@ -753,18 +799,28 @@ class SupabaseClient:
                 if c and c not in off_gallery:
                     off_gallery.append(c)
 
+            from fitmatch.matcher.normalizer import ProductNormalizer
+            inferred = ProductNormalizer().extract_brand(o.get("raw_title") or "")
+            p_brand = inferred or p_obj.get("brand")
+            store_names_lower = {"mister running", "misterrunning", "alltricks", "top4running", "maxi sport", "maxisport", "cisalfa", "running warehouse", "deporvillage", "sportler", "nencini", "df sport specialist", "tradeinn", "decathlon"}
+            if not p_brand or p_brand.lower() in store_names_lower:
+                p_brand = inferred or ""
+
+            norm_sizes = normalize_sizes(o.get("available_sizes"))
+
             prods.append({
                 "id": o.get("id"),
                 "product_id": o.get("product_id"),
                 "title": o.get("raw_title") or p_obj.get("canonical_name"),
                 "canonical_name": p_obj.get("canonical_name"),
-                "brand": p_obj.get("brand"),
+                "brand": p_brand,
                 "current_price": price,
                 "original_price": o.get("original_price"),
                 "discount_pct": o.get("discount_pct"),
                 "product_url": o.get("product_url"),
                 "image_url": off_img,
                 "gallery_images": off_gallery,
+                "available_sizes": norm_sizes,
                 "shipping_cost": cost,
                 "total_price": round(price + cost, 2),
                 "is_free_shipping": is_free,
@@ -1016,9 +1072,14 @@ class SupabaseClient:
         return results
 
     def create_collection(self, name: str) -> Dict[str, Any]:
+        clean_name = name.strip()
+        url = f"collections?name=eq.{urllib.parse.quote(clean_name)}"
+        existing = self._request(url, method="GET")
+        if existing.get("data") and len(existing["data"]) > 0:
+            return existing["data"][0]
         cid = str(uuid.uuid4())
-        body = {"id": cid, "name": name}
-        self._request("collections", method="POST", data=body, upsert=True)
+        body = {"id": cid, "name": clean_name}
+        self._request("collections", method="POST", data=body)
         return body
 
     def delete_collection(self, name: str) -> bool:
@@ -1137,3 +1198,66 @@ class SupabaseClient:
                 return res["data"][0]
             return payload
         return None
+
+    # MARK: - Device Tokens & Production Push Notifications
+
+    def register_device_token(
+        self,
+        device_token: str,
+        device_id: str,
+        user_id: Optional[str] = None,
+        platform: str = "ios",
+        environment: str = "production",
+        notify_price_drop: bool = True,
+        notify_targeted_promo: bool = True,
+        min_discount_pct: float = 5.0,
+        preferred_size: Optional[str] = None,
+        app_version: Optional[str] = None
+    ) -> bool:
+        """Upsert APNs device token for push notification delivery."""
+        token = device_token.strip().replace(" ", "").replace("<", "").replace(">", "")
+        payload = {
+            "device_token": token,
+            "device_id": device_id.strip(),
+            "platform": platform.lower(),
+            "environment": environment.lower(),
+            "is_active": True,
+            "notify_price_drop": notify_price_drop,
+            "notify_targeted_promo": notify_targeted_promo,
+            "min_discount_pct": min_discount_pct,
+            "preferred_size": preferred_size,
+            "app_version": app_version,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        if user_id:
+            payload["user_id"] = user_id
+        res = self._request("device_tokens?on_conflict=device_token", method="POST", data=payload, upsert=True)
+        return res.get("status") in (200, 201)
+
+    def get_user_notifications(self, device_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieve stored notification history for a device from Supabase."""
+        did = device_id.strip()
+        url = f"notifications?device_id=eq.{urllib.parse.quote(did)}&order=created_at.desc&limit={limit}"
+        res = self._request(url, method="GET")
+        if res.get("status") == 200 and isinstance(res.get("data"), list):
+            return res.get("data")
+        return []
+
+    def mark_notification_read(self, notification_id: str) -> bool:
+        """Mark a notification as read."""
+        url = f"notifications?id=eq.{urllib.parse.quote(notification_id.strip())}"
+        res = self._request(url, method="PATCH", data={"is_read": True})
+        return res.get("status") in (200, 204)
+
+    def mark_all_notifications_read(self, device_id: str) -> bool:
+        """Mark all notifications for a device as read."""
+        url = f"notifications?device_id=eq.{urllib.parse.quote(device_id.strip())}"
+        res = self._request(url, method="PATCH", data={"is_read": True})
+        return res.get("status") in (200, 204)
+
+    def delete_notification(self, notification_id: str) -> bool:
+        """Delete a notification from Supabase."""
+        url = f"notifications?id=eq.{urllib.parse.quote(notification_id.strip())}"
+        res = self._request(url, method="DELETE")
+        return res.get("status") in (200, 204)
+

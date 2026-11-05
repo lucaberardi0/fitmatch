@@ -14,10 +14,13 @@ struct WishlistView: View {
     @State private var showingNotificationsSheet: Bool = false
     @State private var showingCreateCollectionSheet: Bool = false
     @State private var showingAddToCollectionSheet: Bool = false
-    @State private var newlyCreatedCollectionName: String = ""
+    @State private var collectionForAddSheet: String = ""
     @State private var selectedProductForDetail: MatchedProduct? = nil
     @State private var selectedCollectionFilter: String = "Tutti"
     @State private var itemToMoveInCollection: WishlistItem? = nil
+    @State private var showingRenameAlert: Bool = false
+    @State private var collectionToRename: String = ""
+    @State private var newNameForRename: String = ""
 
     init(selectedTab: Binding<Int>? = nil, embedded: Bool = false, onSelectPerTe: (() -> Void)? = nil) {
         self.embedded = embedded
@@ -25,7 +28,7 @@ struct WishlistView: View {
         if let tab = selectedTab {
             self._selectedTab = tab
         } else {
-            self._selectedTab = .constant(3)
+            self._selectedTab = .constant(2)
         }
     }
 
@@ -63,10 +66,6 @@ struct WishlistView: View {
                             .padding(.top, 6)
                             .padding(.bottom, 10)
 
-                        navigationPills
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 12)
-
                         mainContent
                     }
                     .background(Color(red: 245/255, green: 246/255, blue: 248/255).ignoresSafeArea())
@@ -89,22 +88,40 @@ struct WishlistView: View {
             CreateCollectionSheet(
                 isPresented: $showingCreateCollectionSheet,
                 onSave: { name in
-                    newlyCreatedCollectionName = name
+                    collectionForAddSheet = name
                     wishlist.createCollection(name: name)
                     withAnimation(.spring(response: 0.3)) {
                         selectedCollectionFilter = name
                     }
                     if !wishlist.items.isEmpty {
-                        showingAddToCollectionSheet = true
+                        // Delay opening AddToCollectionSheet to allow CreateCollectionSheet to finish dismissal
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            showingAddToCollectionSheet = true
+                        }
                     }
                 }
             )
         }
         .sheet(isPresented: $showingAddToCollectionSheet) {
             AddToCollectionSheet(
-                collectionName: newlyCreatedCollectionName,
+                collectionName: collectionForAddSheet,
                 isPresented: $showingAddToCollectionSheet
             )
+        }
+        .alert("Rinomina collezione", isPresented: $showingRenameAlert) {
+            TextField("Nuovo nome", text: $newNameForRename)
+            Button("Annulla", role: .cancel) { }
+            Button("Salva") {
+                let trimmed = newNameForRename.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                let old = collectionToRename
+                wishlist.renameCollection(oldName: old, newName: trimmed)
+                if selectedCollectionFilter.caseInsensitiveCompare(old) == .orderedSame {
+                    selectedCollectionFilter = trimmed
+                }
+            }
+        } message: {
+            Text("Inserisci il nuovo nome per la collezione '\(collectionToRename)'.")
         }
     }
 
@@ -304,7 +321,7 @@ struct WishlistView: View {
                     )
 
                     // 2. User-Created Collections
-                    ForEach(wishlist.getAvailableCollections()) { col in
+                    ForEach(wishlist.getAvailableCollections(), id: \.name) { col in
                         let isSelected = selectedCollectionFilter.caseInsensitiveCompare(col.name) == .orderedSame
                         let thumbs = wishlist.getThumbnails(for: col.name, limit: 2)
 
@@ -322,6 +339,15 @@ struct WishlistView: View {
                                         selectedCollectionFilter = col.name
                                     }
                                 }
+                            },
+                            onManageItems: {
+                                collectionForAddSheet = col.name
+                                showingAddToCollectionSheet = true
+                            },
+                            onRename: {
+                                collectionToRename = col.name
+                                newNameForRename = col.name
+                                showingRenameAlert = true
                             },
                             onDelete: {
                                 withAnimation(.spring(response: 0.25)) {
@@ -378,26 +404,46 @@ struct WishlistView: View {
             Spacer()
 
             if selectedCollectionFilter != "Tutti" {
-                Button(action: {
-                    let gen = UIImpactFeedbackGenerator(style: .light)
-                    gen.impactOccurred()
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
-                        selectedCollectionFilter = "Tutti"
+                HStack(spacing: 8) {
+                    Button(action: {
+                        collectionForAddSheet = selectedCollectionFilter
+                        showingAddToCollectionSheet = true
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Aggiungi")
+                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color(red: 99/255, green: 59/255, blue: 238/255))
+                        .clipShape(Capsule())
                     }
-                }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
-                        Text("Mostra tutti (\(wishlist.items.count))")
-                            .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                    .buttonStyle(.plain)
+
+                    Button(action: {
+                        let gen = UIImpactFeedbackGenerator(style: .light)
+                        gen.impactOccurred()
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                            selectedCollectionFilter = "Tutti"
+                        }
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                            Text("Mostra tutti (\(wishlist.items.count))")
+                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.1))
+                        .clipShape(Capsule())
                     }
-                    .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.1))
-                    .clipShape(Capsule())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 16)
@@ -433,7 +479,7 @@ struct WishlistView: View {
 
             HStack(spacing: 12) {
                 Button(action: {
-                    newlyCreatedCollectionName = selectedCollectionFilter
+                    collectionForAddSheet = selectedCollectionFilter
                     showingAddToCollectionSheet = true
                 }) {
                     HStack(spacing: 6) {
@@ -586,64 +632,6 @@ struct WishlistView: View {
             .buttonStyle(.plain)
         }
     }
-
-    // MARK: - Navigation Pills
-
-    private var navigationPills: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                Button(action: {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) { selectedTab = 0 }
-                }) {
-                    Text("Per te")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(Color(red: 90/255, green: 90/255, blue: 100/255))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.plain)
-
-                Button(action: {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) { selectedTab = 2 }
-                }) {
-                    Text("Saldi per le feste")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(Color(red: 90/255, green: 90/255, blue: 100/255))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.plain)
-
-                Button(action: {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) { selectedTab = 0 }
-                }) {
-                    Text("Segui già")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(Color(red: 90/255, green: 90/255, blue: 100/255))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.plain)
-
-                // Active Pill: "Salvati"
-                Text("Salvati")
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundColor(Color(red: 20/255, green: 20/255, blue: 25/255))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(
-                        Capsule()
-                            .fill(Color.white)
-                            .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 1)
-                    )
-                    .overlay(
-                        Capsule()
-                            .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
-                    )
-            }
-            .padding(.horizontal, 16)
-        }
-    }
 }
 
 // MARK: - All Saved Items Card (Home Base, Always First)
@@ -763,6 +751,8 @@ struct ShopCollectionCard: View {
     let isSelected: Bool
     let thumbnails: [String]
     let onTap: () -> Void
+    var onManageItems: (() -> Void)? = nil
+    var onRename: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
 
     var body: some View {
@@ -868,6 +858,16 @@ struct ShopCollectionCard: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            if let onManage = onManageItems {
+                Button(action: onManage) {
+                    Label("Aggiungi o rimuovi articoli", systemImage: "folder.badge.plus")
+                }
+            }
+            if let onRename = onRename {
+                Button(action: onRename) {
+                    Label("Rinomina collezione", systemImage: "pencil")
+                }
+            }
             if let onDelete = onDelete {
                 Button(role: .destructive, action: onDelete) {
                     Label("Elimina collezione", systemImage: "trash")
@@ -1029,19 +1029,26 @@ struct ShopSavedProductCard: View {
                     }
 
                     if let col = item.collectionName, !col.isEmpty {
-                        HStack(spacing: 3) {
-                            Image(systemName: "folder.fill")
-                                .font(.system(size: 8))
-                            Text(col)
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                                .lineLimit(1)
+                        Button(action: {
+                            let gen = UIImpactFeedbackGenerator(style: .light)
+                            gen.impactOccurred()
+                            onMoveToCollection?()
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 8.5))
+                                Text(col)
+                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .lineLimit(1)
+                            }
+                            .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(Color.white.opacity(0.95))
+                            .clipShape(Capsule())
+                            .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1)
                         }
-                        .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color.white.opacity(0.95))
-                        .clipShape(Capsule())
-                        .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1)
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding([.top, .leading], 9)
@@ -1228,106 +1235,166 @@ struct AddToCollectionSheet: View {
     @ObservedObject private var wishlist = WishlistManager.shared
     @State private var selectedItems: Set<String> = []
 
+    private func toggleItem(_ canonicalName: String) {
+        let gen = UIImpactFeedbackGenerator(style: .light)
+        gen.impactOccurred()
+        withAnimation(.spring(response: 0.25)) {
+            if selectedItems.contains(canonicalName) {
+                selectedItems.remove(canonicalName)
+            } else {
+                selectedItems.insert(canonicalName)
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 14),
-                        GridItem(.flexible(), spacing: 14)
-                    ],
-                    spacing: 18
-                ) {
-                    ForEach(wishlist.items) { item in
-                        let isSelected = selectedItems.contains(item.canonical_name)
+            Group {
+                if wishlist.items.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "heart.slash")
+                            .font(.system(size: 40))
+                            .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
+                        Text("Nessun articolo salvato")
+                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopDark)
+                        Text("Salva prima qualche prodotto nei tuoi preferiti per poterlo organizzare in questa collezione.")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(.shopTextMuted)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.flexible(), spacing: 14),
+                                GridItem(.flexible(), spacing: 14)
+                            ],
+                            spacing: 18
+                        ) {
+                            ForEach(wishlist.items) { item in
+                                let isSelected = selectedItems.contains(item.canonical_name)
 
-                        VStack(alignment: .leading, spacing: 3) {
-                            // Product Image Box with Selection Button
-                            ZStack(alignment: .bottomTrailing) {
-                                RoundedRectangle(cornerRadius: 18)
-                                    .fill(Color(red: 243/255, green: 243/255, blue: 246/255))
+                                VStack(alignment: .leading, spacing: 3) {
+                                    // Product Image Box with Selection Button
+                                    ZStack(alignment: .bottomTrailing) {
+                                        RoundedRectangle(cornerRadius: 18)
+                                            .fill(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.06) : Color(red: 243/255, green: 243/255, blue: 246/255))
+                                            .frame(height: 168)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 18)
+                                                    .stroke(
+                                                        isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.black.opacity(0.05),
+                                                        lineWidth: isSelected ? 2 : 1
+                                                    )
+                                            )
+
+                                        if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
+                                            AsyncImage(url: url) { phase in
+                                                if let img = phase.image {
+                                                    img.resizable().scaledToFit().frame(width: 135, height: 135).clipped()
+                                                } else {
+                                                    Image(systemName: "shoe.fill")
+                                                        .font(.system(size: 28))
+                                                        .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                                                }
+                                            }
+                                        }
+
+                                        // Badge if currently in another collection
+                                        if let otherCol = item.collectionName,
+                                           !otherCol.isEmpty,
+                                           otherCol.caseInsensitiveCompare(collectionName) != .orderedSame {
+                                            VStack {
+                                                HStack {
+                                                    HStack(spacing: 3) {
+                                                        Image(systemName: "folder.fill")
+                                                            .font(.system(size: 7.5))
+                                                        Text("In \"\(otherCol)\"")
+                                                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                                            .lineLimit(1)
+                                                    }
+                                                    .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 3)
+                                                    .background(Color.white.opacity(0.95))
+                                                    .clipShape(Capsule())
+                                                    .shadow(color: Color.black.opacity(0.06), radius: 2, x: 0, y: 1)
+                                                    Spacer()
+                                                }
+                                                .padding([.top, .leading], 8)
+                                                Spacer()
+                                            }
+                                        }
+
+                                        // Selection Circle: Gray "+" or Purple Checkmark
+                                        Button(action: {
+                                            toggleItem(item.canonical_name)
+                                        }) {
+                                            ZStack {
+                                                Circle()
+                                                    .fill(
+                                                        isSelected
+                                                        ? Color(red: 99/255, green: 59/255, blue: 238/255)
+                                                        : Color.black.opacity(0.35)
+                                                    )
+                                                    .frame(width: 34, height: 34)
+
+                                                Image(systemName: isSelected ? "checkmark" : "plus")
+                                                    .font(.system(size: 14, weight: .bold))
+                                                    .foregroundColor(.white)
+                                            }
+                                        }
+                                        .buttonStyle(.plain)
+                                        .padding([.bottom, .trailing], 9)
+                                    }
                                     .frame(height: 168)
 
-                                if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                                    AsyncImage(url: url) { phase in
-                                        if let img = phase.image {
-                                            img.resizable().scaledToFit().frame(width: 135, height: 135).clipped()
-                                        } else {
-                                            Image(systemName: "shoe.fill")
-                                                .font(.system(size: 28))
-                                                .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                                    // Metadata
+                                    Text(item.bestStore ?? item.brand ?? "Negozio")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(.shopTextMuted)
+                                        .lineLimit(1)
+                                        .padding(.top, 4)
+
+                                    Text(item.canonical_name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.shopDark)
+                                        .lineLimit(1)
+
+                                    HStack(spacing: 2) {
+                                        HStack(spacing: 1) {
+                                            ForEach(0..<5) { _ in
+                                                Image(systemName: "star.fill")
+                                                    .font(.system(size: 8))
+                                                    .foregroundColor(.shopDark)
+                                            }
                                         }
+                                        Text("(55)")
+                                            .font(.system(size: 10.5, weight: .medium))
+                                            .foregroundColor(.shopTextMuted)
                                     }
-                                }
 
-                                // Selection Circle: Gray "+" (Image 3) or Purple Checkmark (Image 4)
-                                Button(action: {
-                                    let gen = UIImpactFeedbackGenerator(style: .light)
-                                    gen.impactOccurred()
-                                    withAnimation(.spring(response: 0.25)) {
-                                        if isSelected {
-                                            selectedItems.remove(item.canonical_name)
-                                        } else {
-                                            selectedItems.insert(item.canonical_name)
-                                        }
-                                    }
-                                }) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(
-                                                isSelected
-                                                ? Color(red: 99/255, green: 59/255, blue: 238/255)
-                                                : Color.black.opacity(0.35)
-                                            )
-                                            .frame(width: 34, height: 34)
+                                    Text(String(format: "%.2f €", item.currentBestPrice).replacingOccurrences(of: ".", with: ", "))
+                                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                                        .foregroundColor(.shopDark)
 
-                                        Image(systemName: isSelected ? "checkmark" : "plus")
-                                            .font(.system(size: 14, weight: .bold))
-                                            .foregroundColor(.white)
-                                    }
+                                    Text((item.selectedSize ?? "").isEmpty || item.selectedSize == "Standard" ? "Disponibile" : (item.selectedSize ?? "Disponibile"))
+                                        .font(.system(size: 11.5, weight: .regular))
+                                        .foregroundColor(.shopTextMuted)
                                 }
-                                .buttonStyle(.plain)
-                                .padding([.bottom, .trailing], 9)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    toggleItem(item.canonical_name)
+                                }
                             }
-                            .frame(height: 168)
-
-                            // Metadata matching Images 3 & 4
-                            Text(item.bestStore ?? item.brand ?? "Negozio")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(.shopTextMuted)
-                                .lineLimit(1)
-                                .padding(.top, 4)
-
-                            Text(item.canonical_name)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.shopDark)
-                                .lineLimit(1)
-
-                            HStack(spacing: 2) {
-                                HStack(spacing: 1) {
-                                    ForEach(0..<5) { _ in
-                                        Image(systemName: "star.fill")
-                                            .font(.system(size: 8))
-                                            .foregroundColor(.shopDark)
-                                    }
-                                }
-                                Text("(55)")
-                                    .font(.system(size: 10.5, weight: .medium))
-                                    .foregroundColor(.shopTextMuted)
-                            }
-
-                            Text(String(format: "%.2f €", item.currentBestPrice).replacingOccurrences(of: ".", with: ", "))
-                                .font(.system(size: 14, weight: .bold, design: .rounded))
-                                .foregroundColor(.shopDark)
-
-                            Text((item.selectedSize ?? "").isEmpty || item.selectedSize == "Standard" ? "Disponibile" : (item.selectedSize ?? "Disponibile"))
-                                .font(.system(size: 11.5, weight: .regular))
-                                .foregroundColor(.shopTextMuted)
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
             }
             .navigationTitle("Aggiungi a \(collectionName)")
             .navigationBarTitleDisplayMode(.inline)
@@ -1345,20 +1412,10 @@ struct AddToCollectionSheet: View {
 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
-                        // Assign selected items to collection in Supabase & locally
-                        for item in wishlist.items {
-                            let wasInCollection = item.collectionName?.caseInsensitiveCompare(collectionName) == .orderedSame
-                            let isSelectedNow = selectedItems.contains(item.canonical_name)
-
-                            if isSelectedNow && !wasInCollection {
-                                wishlist.moveItem(canonicalName: item.canonical_name, toCollection: collectionName)
-                            } else if !isSelectedNow && wasInCollection {
-                                wishlist.moveItem(canonicalName: item.canonical_name, toCollection: nil)
-                            }
-                        }
+                        wishlist.setItemsForCollection(collectionName: collectionName, selectedCanonicalNames: selectedItems)
                         isPresented = false
                     }) {
-                        Text("Fatto")
+                        Text(selectedItems.isEmpty ? "Fatto" : "Fatto (\(selectedItems.count))")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
                             .padding(.horizontal, 16)

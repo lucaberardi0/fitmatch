@@ -306,6 +306,8 @@ class ProductNormalizer:
                 # Canonical Name Generation
                 cleaned_base, _ = cls.clean_title(sample_offer.title, brand)
                 canonical = f"{brand} {cleaned_base.title()}" if brand and brand.lower() not in cleaned_base.lower() else cleaned_base.title()
+                if brand:
+                    canonical = re.sub(r"^(" + re.escape(brand) + r"\s+)+", f"{brand} ", canonical, flags=re.IGNORECASE).strip()
 
                 if art_type == "case" and "custodia" not in canonical.lower() and "case" not in canonical.lower():
                     canonical += " (Custodia)"

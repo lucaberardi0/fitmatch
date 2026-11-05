@@ -4,14 +4,12 @@ enum HomeSubTab: Int, CaseIterable {
     case perTe = 0
     case offerte = 1
     case seguiGia = 2
-    case salvati = 3
 
     var title: String {
         switch self {
         case .perTe: return "Per te"
         case .offerte: return "Saldi per le feste"
         case .seguiGia: return "Segui già"
-        case .salvati: return "Salvati"
         }
     }
 }
@@ -73,12 +71,6 @@ struct HomeView: View {
                             })
                         case .seguiGia:
                             FollowingView(onGoShopping: {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
-                                    activeSubTab = .perTe
-                                }
-                            })
-                        case .salvati:
-                            WishlistView(selectedTab: $selectedTab, embedded: true, onSelectPerTe: {
                                 withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
                                     activeSubTab = .perTe
                                 }
@@ -465,7 +457,7 @@ struct HomeView: View {
                     let gen = UIImpactFeedbackGenerator(style: .light)
                     gen.impactOccurred()
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
-                        activeSubTab = .salvati
+                        selectedTab = 2
                     }
                 }) {
                     Circle()

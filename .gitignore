@@ -21,3 +21,6 @@ ios/*.xcodeproj/project.xcworkspace/xcuserdata/
 ios/*.xcworkspace/xcuserdata/
 *.xcuserdatad
 .build/
+certs/
+*.p8
+

@@ -61,7 +61,7 @@ struct WishlistItem: Identifiable, Codable, Hashable {
         bestStoreUrl: String? = nil,
         offersCount: Int = 1,
         selectedSize: String? = nil,
-        collectionName: String? = "Tutti",
+        collectionName: String? = nil,
         targetAlertPrice: Double? = nil,
         isAlertEnabled: Bool = true,
         dateAdded: Date = Date(),
@@ -122,9 +122,13 @@ struct WishlistItem: Identifiable, Codable, Hashable {
         self.offersCount = try container.decodeIfPresent(Int.self, forKey: .offersCount) ?? 1
         self.selectedSize = try container.decodeIfPresent(String.self, forKey: .selectedSize)
             ?? container.decodeIfPresent(String.self, forKey: .selected_size)
-        self.collectionName = try container.decodeIfPresent(String.self, forKey: .collectionName)
+        let rawCol = try container.decodeIfPresent(String.self, forKey: .collectionName)
             ?? container.decodeIfPresent(String.self, forKey: .collection_name)
-            ?? "Tutti"
+        if let c = rawCol?.trimmingCharacters(in: .whitespacesAndNewlines), !c.isEmpty && c.lowercased() != "tutti" {
+            self.collectionName = c
+        } else {
+            self.collectionName = nil
+        }
 
         self.targetAlertPrice = try container.decodeIfPresent(Double.self, forKey: .targetAlertPrice)
         self.isAlertEnabled = try container.decodeIfPresent(Bool.self, forKey: .isAlertEnabled) ?? true

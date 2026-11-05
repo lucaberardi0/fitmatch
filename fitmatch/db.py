@@ -570,6 +570,7 @@ class Database:
         gender: Optional[str] = None,
         max_price: Optional[float] = None,
         min_price: Optional[float] = None,
+        size: Optional[str] = None,
         store_id: Optional[str] = None,
         limit: int = 30
     ) -> List[Dict[str, Any]]:
@@ -583,6 +584,7 @@ class Database:
                     gender=gender,
                     max_price=max_price,
                     min_price=min_price,
+                    size=size,
                     store_id=store_id,
                     limit=limit
                 )

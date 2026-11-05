@@ -1,8 +1,38 @@
 import SwiftUI
 
+// MARK: - Tab Bar Visibility Manager
+
+final class TabBarVisibilityManager: ObservableObject {
+    static let shared = TabBarVisibilityManager()
+    @Published var isHidden: Bool = false
+    private var hideCount: Int = 0
+
+    func hide() {
+        hideCount += 1
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+            isHidden = true
+        }
+    }
+
+    func show() {
+        hideCount = max(0, hideCount - 1)
+        if hideCount == 0 {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                isHidden = false
+            }
+        }
+    }
+
+    func reset() {
+        hideCount = 0
+        isHidden = false
+    }
+}
+
 struct MainTabView: View {
     @State private var selectedTab: Int
     @ObservedObject private var wishlist = WishlistManager.shared
+    @ObservedObject private var tabVisibility = TabBarVisibilityManager.shared
 
     init(initialTab: Int = 0) {
         _selectedTab = State(initialValue: initialTab)
@@ -14,35 +44,36 @@ struct MainTabView: View {
             Group {
                 switch selectedTab {
                 case 0:
-                    HomeView(selectedTab: $selectedTab, initialSubTab: .perTe)
+                    HomeView(selectedTab: $selectedTab)
                 case 1:
                     SearchView()
                 case 2:
-                    HomeView(selectedTab: $selectedTab, initialSubTab: .offerte)
-                case 3:
-                    HomeView(selectedTab: $selectedTab, initialSubTab: .salvati)
+                    WishlistView(selectedTab: $selectedTab)
                 default:
-                    HomeView(selectedTab: $selectedTab, initialSubTab: .offerte)
+                    HomeView(selectedTab: $selectedTab)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Floating Island Dock (Clean White Pill matching Shop Screenshot 2)
-            ShopFloatingIslandDock(selectedTab: $selectedTab)
-                .padding(.bottom, 16)
+            // Floating Island Dock (Hidden when entering Detail pages to prevent overlapping purchase buttons)
+            if !tabVisibility.isHidden {
+                ShopFloatingIslandDock(selectedTab: $selectedTab)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .ignoresSafeArea(.keyboard)
     }
 }
 
-// MARK: - Floating Island Dock Component (Shopify Shop Style)
+// MARK: - Floating Island Dock Component (Home, Search, Saved)
 
 struct ShopFloatingIslandDock: View {
     @Binding var selectedTab: Int
     @ObservedObject private var wishlist = WishlistManager.shared
 
     var body: some View {
-        HStack(spacing: 38) {
+        HStack(spacing: 50) {
             // 1. Home
             dockButton(
                 index: 0,
@@ -50,44 +81,21 @@ struct ShopFloatingIslandDock: View {
                 size: 21
             )
 
-            // 2. AI Assistant / Search (Speech bubble with sparkle cutout)
-            Button(action: {
-                let gen = UIImpactFeedbackGenerator(style: .light)
-                gen.impactOccurred()
-                withAnimation(.spring(response: 0.26, dampingFraction: 0.72)) {
-                    selectedTab = 1
-                }
-            }) {
-                ZStack {
-                    Image(systemName: "bubble.left.fill")
-                        .font(.system(size: 21, weight: .semibold))
-                        .foregroundColor(selectedTab == 1 ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(red: 175/255, green: 175/255, blue: 185/255))
+            // 2. Search
+            dockButton(
+                index: 1,
+                icon: "magnifyingglass",
+                size: 21
+            )
 
-                    Image(systemName: "sparkle")
-                        .font(.system(size: 9.5, weight: .heavy))
-                        .foregroundColor(selectedTab == 1 ? .white : Color(red: 240/255, green: 240/255, blue: 245/255))
-                        .offset(x: -0.5, y: -2)
-                }
-                .scaleEffect(selectedTab == 1 ? 1.08 : 1.0)
-                .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.plain)
-
-            // 3. Catalog / Explore
+            // 3. Saved (Heart Icon)
             dockButton(
                 index: 2,
-                icon: "square.grid.2x2.fill",
-                size: 19
-            )
-
-            // 4. Saved / Bag
-            dockButton(
-                index: 3,
-                icon: "bag.fill",
-                size: 20
+                icon: selectedTab == 2 ? "heart.fill" : "heart",
+                size: 21
             )
         }
-        .padding(.horizontal, 28)
+        .padding(.horizontal, 34)
         .padding(.vertical, 14)
         .background(
             Capsule()

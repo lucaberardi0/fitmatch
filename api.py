@@ -13,6 +13,8 @@ from fitmatch.updater import PriceUpdater
 from fitmatch.scheduler import SyncScheduler
 from fitmatch.models import SearchResult
 from fitmatch.scrapers.registry import ScraperRegistry
+from fitmatch.push_service import APNsPushService
+from fitmatch.price_drop_watcher import PriceDropWatcher
 
 logger = logging.getLogger("fitmatch.api")
 
@@ -41,6 +43,8 @@ smart_engine = SmartSearchEngine(cache_manager=cache_manager)
 
 advisor = AIShoppingAdvisor(service=service, db=db)
 comparator = AIModelComparator(service=service)
+push_service = APNsPushService()
+price_watcher = PriceDropWatcher(supabase=db.supabase, push_service=push_service)
 
 
 @app.on_event("startup")
@@ -179,6 +183,7 @@ def search_smart(
         gender=intent.gender,
         max_price=eff_max_price,
         min_price=intent.min_price,
+        size=eff_size,
         store_id=store,
         limit=limit
     )
@@ -622,6 +627,91 @@ def clear_cache(scope: str = Query("all", description="Scope: 'all' for full flu
         return {"status": "ok", "scope": "responses", "purged": purged, "message": f"Invalidati {purged} risultati di ricerca cached."}
     cache_manager.clear_all()
     return {"status": "ok", "scope": "all", "message": "Tutte le cache (intenti LLM e risultati catalogo) sono state svuotate."}
+
+
+# MARK: - Device Tokens & Production Push Notifications (Piano B)
+
+@app.post("/api/devices/register")
+def register_device(payload: dict):
+    """Register or update an iOS device token for APNs push notifications."""
+    token = payload.get("device_token")
+    device_id = payload.get("device_id")
+    if not token or not device_id:
+        raise HTTPException(status_code=400, detail="device_token e device_id sono obbligatori.")
+    
+    success = db.supabase.register_device_token(
+        device_token=token,
+        device_id=device_id,
+        user_id=payload.get("user_id"),
+        platform=payload.get("platform", "ios"),
+        environment=payload.get("environment", "production"),
+        notify_price_drop=payload.get("notify_price_drop", True),
+        notify_targeted_promo=payload.get("notify_targeted_promo", True),
+        min_discount_pct=float(payload.get("min_discount_pct", 5.0)),
+        preferred_size=payload.get("preferred_size"),
+        app_version=payload.get("app_version")
+    )
+    if not success:
+        raise HTTPException(status_code=500, detail="Impossibile registrare il device token in Supabase.")
+    return {"status": "ok", "message": "Device token registrato con successo per le push notifications."}
+
+
+@app.get("/api/notifications")
+def get_user_notifications(device_id: str = Query(..., description="Device ID")):
+    """Retrieve stored in-app notifications feed from Supabase."""
+    items = db.supabase.get_user_notifications(device_id=device_id)
+    return {"status": "ok", "notifications": items}
+
+
+@app.post("/api/notifications/read")
+def mark_notification_read(payload: dict):
+    """Mark one or all notifications as read."""
+    notif_id = payload.get("notification_id")
+    device_id = payload.get("device_id")
+    if notif_id:
+        db.supabase.mark_notification_read(notif_id)
+    elif device_id:
+        db.supabase.mark_all_notifications_read(device_id)
+    else:
+        raise HTTPException(status_code=400, detail="Fornire notification_id o device_id.")
+    return {"status": "ok"}
+
+
+@app.delete("/api/notifications/{notification_id}")
+def delete_notification(notification_id: str):
+    """Delete a notification from user history."""
+    db.supabase.delete_notification(notification_id)
+    return {"status": "ok"}
+
+
+@app.get("/api/notifications/apns-status")
+def get_apns_status():
+    """Return Apple Push Notification service (APNs) credential configuration status."""
+    return push_service.get_status()
+
+
+@app.post("/api/notifications/trigger-watcher")
+async def trigger_price_watcher(min_drop: float = Query(1.0, description="Min price drop amount in EUR")):
+    """Trigger the server-side price drop watcher to scan wishlists and dispatch push notifications."""
+    result = await price_watcher.run_check(min_drop_amount=min_drop)
+    return {"status": "ok", "scan_results": result}
+
+
+@app.post("/api/notifications/test-push")
+async def send_test_push(payload: dict):
+    """Send a test push notification to verify APNs integration."""
+    token = payload.get("device_token")
+    if not token:
+        raise HTTPException(status_code=400, detail="device_token obbligatorio.")
+    title = payload.get("title", "🔥 Test Push FitMatch")
+    body = payload.get("body", "Le notifiche push in tempo reale sono configurate correttamente!")
+    res = await push_service.send_push(
+        device_token=token,
+        title=title,
+        body=body,
+        custom_data={"type": "test"}
+    )
+    return {"status": "ok", "push_result": res}
 
 
 if __name__ == "__main__":

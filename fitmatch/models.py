@@ -1,3 +1,5 @@
+import re
+import json
 from pydantic import BaseModel, Field, computed_field, field_validator
 from typing import Optional, List, Any
 from datetime import datetime
@@ -24,6 +26,94 @@ EU_TO_US_MEN = {
     "48.5": "14", "49": "14.5"
 }
 US_TO_EU_MEN = {v: k for k, v in EU_TO_US_MEN.items()}
+
+
+def normalize_sizes(raw_sizes: Any) -> List[str]:
+    """Standardizes shoe and apparel sizes, converting US to EU when applicable and sorting numerically."""
+    if not raw_sizes:
+        return []
+    if isinstance(raw_sizes, str):
+        try:
+            raw_sizes = json.loads(raw_sizes)
+        except Exception:
+            raw_sizes = [s.strip() for s in raw_sizes.split(",") if s.strip()]
+
+    if not isinstance(raw_sizes, (list, set, tuple)):
+        return []
+
+    eu_sizes = set()
+    clothing_order = {"XXS": 1, "XS": 2, "S": 3, "M": 4, "L": 5, "XL": 6, "XXL": 7, "2XL": 7, "3XL": 8}
+    clothing_sizes = []
+
+    for item in raw_sizes:
+        if not item:
+            continue
+        s_str = str(item).strip().rstrip(".").replace(",", ".")
+        s_upper = s_str.upper()
+
+        if s_upper in clothing_order:
+            clothing_sizes.append(s_upper)
+            continue
+
+        try:
+            val = float(s_str)
+            if 32.0 <= val <= 52.0:
+                fmt = f"{val:.1f}" if val % 1 != 0 else f"{int(val)}"
+                eu_sizes.add(fmt)
+            elif 4.0 <= val <= 16.0:
+                s_key = f"{val:.1f}" if val % 1 != 0 else f"{int(val)}"
+                if s_key in US_TO_EU_MEN:
+                    eu_sizes.add(US_TO_EU_MEN[s_key])
+                elif s_str in US_TO_EU_MEN:
+                    eu_sizes.add(US_TO_EU_MEN[s_str])
+                else:
+                    approx_eu = round((val + 33.5) * 2) / 2
+                    fmt = f"{approx_eu:.1f}" if approx_eu % 1 != 0 else f"{int(approx_eu)}"
+                    eu_sizes.add(fmt)
+            elif val > 0:
+                fmt = f"{val:.1f}" if val % 1 != 0 else f"{int(val)}"
+                eu_sizes.add(fmt)
+        except ValueError:
+            eu_sizes.add(s_str)
+
+    if eu_sizes:
+        def size_sort_key(s):
+            try:
+                return (0, float(s))
+            except ValueError:
+                return (1, s)
+        return sorted(list(eu_sizes), key=size_sort_key)
+
+    if clothing_sizes:
+        return sorted(list(set(clothing_sizes)), key=lambda x: clothing_order.get(x, 99))
+
+    return []
+
+
+def extract_variant_title(raw_title: str) -> Optional[str]:
+    """Extract clean colorway or variant description from retailer offer title."""
+    if not raw_title:
+        return None
+    parts = re.split(r"\s+[-–—|]\s+", raw_title, maxsplit=1)
+    if len(parts) > 1:
+        v = re.sub(r"\(.*?\)", "", parts[1]).strip()
+        if len(v) >= 3:
+            return v.title()
+
+    m = re.search(r"\((.*?)\)", raw_title)
+    if m:
+        inside = m.group(1).strip()
+        if inside and len(inside) <= 35:
+            return inside.capitalize()
+
+    # Look for color keywords at end of title (e.g. "Glam Blu/Verde Uomo")
+    color_m = re.search(r"\b(Nero|Bianco|Blu|Rosso|Verde|Giallo|Rosa|Grigio|Viola|Arancione|Glam)[^,;]*", raw_title, re.IGNORECASE)
+    if color_m:
+        clean_color = re.sub(r"\b(Uomo|Donna|Unisex|Scarpe|Running)\b", "", color_m.group(0), flags=re.IGNORECASE).strip()
+        if len(clean_color) >= 3:
+            return clean_color.title()
+
+    return None
 
 # Verified real shipping policies for partner stores in Italy
 STORE_SHIPPING_RULES = {

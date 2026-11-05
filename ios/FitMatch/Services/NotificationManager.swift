@@ -13,6 +13,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     @Published var isAuthorized: Bool = false
     @Published var isChecking: Bool = false
     @Published var lastCheckDate: Date? = nil
+    @Published var deviceToken: String? = nil
 
     private let storageKey = "fitmatch_notifications_cache_v2"
     private let lastCheckKey = "fitmatch_last_notif_check"
@@ -20,6 +21,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     override init() {
         super.init()
         UNUserNotificationCenter.current().delegate = self
+        self.deviceToken = UserDefaults.standard.string(forKey: "fitmatch_apns_device_token")
         checkAuthorization()
         loadNotifications()
         if let ts = UserDefaults.standard.object(forKey: lastCheckKey) as? Date {
@@ -27,7 +29,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         }
     }
 
-    // MARK: - Push Authorization
+    // MARK: - Push Authorization & APNs
 
     func checkAuthorization() {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
@@ -37,12 +39,45 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         }
     }
 
+    func setupRemoteNotifications() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+            Task { @MainActor in
+                self.isAuthorized = granted
+                if granted {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
+        }
+    }
+
     func requestAuthorization(completion: ((Bool) -> Void)? = nil) {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
             Task { @MainActor in
                 self.isAuthorized = granted
+                if granted {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
                 completion?(granted)
             }
+        }
+    }
+
+    func registerDeviceToken(_ token: String) {
+        self.deviceToken = token
+        UserDefaults.standard.set(token, forKey: "fitmatch_apns_device_token")
+
+        #if targetEnvironment(simulator)
+        let env = "sandbox"
+        #else
+        #if DEBUG
+        let env = "sandbox"
+        #else
+        let env = "production"
+        #endif
+        #endif
+
+        Task {
+            await SupabaseManager.shared.registerDeviceTokenDirect(token: token, environment: env)
         }
     }
 
@@ -51,13 +86,14 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     private func loadNotifications() {
         if let data = UserDefaults.standard.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode([AppNotification].self, from: data) {
-            // Purge any legacy mock seed notifications or test notifications
+            // Purge any legacy mock seed notifications, store drops spam or test notifications
             let realOnly = decoded.filter {
                 !$0.id.hasPrefix("notif-nb-drop") &&
                 !$0.id.hasPrefix("notif-nike-drop") &&
                 !$0.id.hasPrefix("notif-depor-promo") &&
                 !$0.title.contains("Istantaneo") &&
-                !$0.title.contains("Weekend Decathlon")
+                !$0.title.contains("Weekend Decathlon") &&
+                $0.type != .storeDrop
             }
             self.notifications = realOnly
             self.updateUnreadCount()
@@ -113,6 +149,9 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
             }
             saveNotifications()
         }
+        Task {
+            await SupabaseManager.shared.markRemoteNotificationReadDirect(id: id)
+        }
     }
 
     func markAllAsRead() {
@@ -129,6 +168,9 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
             notifications.removeAll { $0.id == id }
         }
         saveNotifications()
+        Task {
+            await SupabaseManager.shared.deleteRemoteNotificationDirect(id: id)
+        }
     }
 
     func clearAll() {
@@ -235,7 +277,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
 
     // MARK: - Live Intelligent Notification Engine
 
-    /// Automatically inspects saved products for price drops and followed stores for new drops
+    /// Inspects saved products for price drops and syncs real-time remote push notifications from Supabase
     func checkIntelligentNotifications(force: Bool = false) async {
         guard !isChecking else { return }
 
@@ -251,7 +293,25 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
             UserDefaults.standard.set(lastCheckDate, forKey: lastCheckKey)
         }
 
-        // 1. Intelligent Check: Saved Products (Wishlist)
+        // 1. Sync real-time push notifications from Supabase cloud table (generated by server-side watcher)
+        let remote = await SupabaseManager.shared.fetchRemoteNotificationsDirect()
+        if !remote.isEmpty {
+            var existingIds = Set(self.notifications.map { $0.id })
+            var added = false
+            for r in remote {
+                if !existingIds.contains(r.id) {
+                    self.notifications.append(r)
+                    existingIds.insert(r.id)
+                    added = true
+                }
+            }
+            if added {
+                self.notifications.sort { $0.timestamp > $1.timestamp }
+                saveNotifications()
+            }
+        }
+
+        // 2. Intelligent Check: Real-time scan of user's saved wishlist items
         let savedItems = WishlistManager.shared.items
         for item in savedItems {
             // Priority 1: Direct Supabase store_offers lookup (fast, 100% reliable)
@@ -312,27 +372,6 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
                 // Silently skip item if network temporarily fails
             }
         }
-
-        // 2. Intelligent Check: Followed Stores New Drops
-        let followed = FollowedStoresManager.shared.followedStores
-        for store in followed.prefix(4) {
-            if let count = await SupabaseManager.shared.fetchStoreCatalogCountDirect(storeId: store.store_id) {
-                let cacheKey = "store_catalog_count_\(store.store_id)"
-                let previousCount = UserDefaults.standard.integer(forKey: cacheKey)
-
-                if previousCount > 0 && count > previousCount {
-                    let newItems = count - previousCount
-                    sendStoreDropNotification(
-                        storeId: store.store_id,
-                        storeName: store.store_name,
-                        itemsCount: newItems,
-                        category: "running & outdoor",
-                        imageUrl: store.store_logo
-                    )
-                }
-                UserDefaults.standard.set(count, forKey: cacheKey)
-            }
-        }
     }
 
     // MARK: - Simulation for Demos & Testing
@@ -358,26 +397,30 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
             )
         case .storeDrop:
             notif = AppNotification(
-                type: .storeDrop,
-                title: "✨ Nuovo Drop Mister Running",
-                subtitle: "18 nuovi modelli Asics & Saucony",
-                body: "Mister Running ha appena aggiunto nuovi arrivi per la mezza maratona e sconti fino al 40%.",
+                type: .priceDrop,
+                title: "🔥 Calo Prezzo Mister Running",
+                subtitle: "Asics Novablast 5",
+                body: "Il prezzo è sceso da 150,00 € a 119,90 € (-20%) su Mister Running. Disponibile nella tua taglia!",
                 timestamp: Date(),
                 isRead: false,
+                productCanonicalName: "Asics Novablast 5",
                 storeId: "misterrunning",
                 storeName: "Mister Running",
-                imageUrl: nil
+                imageUrl: "https://img.runningwarehouse.eu/watermark/rs.php?path=ANB5M4-1.jpg&nw=500",
+                oldPrice: 150.00,
+                newPrice: 119.90,
+                discountPct: 20.0
             )
         case .promo:
             notif = AppNotification(
                 type: .promo,
-                title: "🏷️ Promo Weekend Decathlon",
+                title: "🏷️ Promo Esclusiva Cisalfa Sport",
                 subtitle: "Spedizione gratuita su ordini superiori a 40 €",
-                body: "Approfitta delle promozioni esclusive per gli appassionati di corsa e fitness.",
+                body: "Approfitta delle offerte esclusive dedicate alla tua wishlist.",
                 timestamp: Date(),
                 isRead: false,
-                storeId: "decathlon",
-                storeName: "Decathlon"
+                storeId: "cisalfa",
+                storeName: "Cisalfa Sport"
             )
         }
 

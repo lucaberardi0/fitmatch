@@ -72,6 +72,7 @@
 		AF320DE48B1652EEC874F05D /* MoveToCollectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoveToCollectionSheet.swift; sourceTree = "<group>"; };
 		B773579B77DA7E4A76D51415 /* AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
 		C531A6331AEFEAB300AF8158 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		C531A6341AEFEAB300AF8159 /* FitMatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FitMatch.entitlements; sourceTree = "<group>"; };
 		C56B622FB4B904772C6FB15B /* UserPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserPreferences.swift; sourceTree = "<group>"; };
 		D3233445E9746D585ECFEF5B /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
 		D9E4DAE6823C5EDBCBAF1B23 /* DealsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DealsView.swift; sourceTree = "<group>"; };
@@ -167,6 +168,7 @@
 			children = (
 				AC3362497A90C3594B4018BB /* Assets.xcassets */,
 				014DB574F6923400DE4EC660 /* FitMatchApp.swift */,
+				C531A6341AEFEAB300AF8159 /* FitMatch.entitlements */,
 				C531A6331AEFEAB300AF8158 /* Info.plist */,
 				E7AF7C99DD86B8CFA026114D /* Components */,
 				C8722DC3A56C2DA3A6257136 /* Models */,
@@ -263,6 +265,15 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					F32633E8D303AB4C3C3EA25A = {
+						SystemCapabilities = {
+							com.apple.Push = {
+								enabled = 1;
+							};
+						};
+					};
+				};
 			};
 			buildConfigurationList = 0BB4BEE60EE6AD3B200AC47F /* Build configuration list for PBXProject "FitMatch" */;
 			developmentRegion = en;
@@ -341,6 +352,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = FitMatch/FitMatch.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DEVELOPMENT_TEAM = 6F8J3B65D7;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -361,6 +373,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = FitMatch/FitMatch.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DEVELOPMENT_TEAM = 6F8J3B65D7;
 				GENERATE_INFOPLIST_FILE = NO;

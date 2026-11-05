@@ -269,6 +269,15 @@ class SupabaseManager: ObservableObject {
             req.httpBody = try? JSONSerialization.data(withJSONObject: ["user_id": newUserId])
             _ = try? await session.data(for: req)
         }
+
+        // 5. Link Collections
+        if let colUrl = URL(string: "\(restURL)/collections?device_id=eq.\(devId)") {
+            var req = URLRequest(url: colUrl)
+            req.httpMethod = "PATCH"
+            for (k, v) in makeHeaders() { req.setValue(v, forHTTPHeaderField: k) }
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["user_id": newUserId])
+            _ = try? await session.data(for: req)
+        }
     }
 
     func ensureUserSession() async {
@@ -394,7 +403,14 @@ class SupabaseManager: ObservableObject {
     // MARK: - Collections API
 
     func fetchCollections() async throws -> [WishlistCollection] {
-        guard let url = URL(string: "\(restURL)/collections?select=*&order=created_at.asc") else { throw URLError(.badURL) }
+        var urlStr = "\(restURL)/collections?select=*&order=created_at.asc"
+        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+            urlStr += "&user_id=eq.\(uid)"
+        } else {
+            urlStr += "&device_id=eq.\(deviceId)"
+        }
+
+        guard let url = URL(string: urlStr) else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         for (k, v) in makeHeaders() {
             req.setValue(v, forHTTPHeaderField: k)
@@ -409,19 +425,43 @@ class SupabaseManager: ObservableObject {
             let name: String
         }
         let rows = try JSONDecoder().decode([SupaCollectionRow].self, from: data)
-        return rows.map { WishlistCollection(name: $0.name, item_count: 0) }
+
+        // Deduplicate rows by name (case-insensitive) and filter out reserved 'Tutti'
+        var uniqueCols: [WishlistCollection] = []
+        var seenNames = Set<String>()
+        for row in rows {
+            let clean = row.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty, clean.lowercased() != "tutti" else { continue }
+            if !seenNames.contains(clean.lowercased()) {
+                seenNames.insert(clean.lowercased())
+                uniqueCols.append(WishlistCollection(name: clean, item_count: 0))
+            }
+        }
+        return uniqueCols
     }
 
     func createCollection(name: String) async throws -> Bool {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty, cleanName.lowercased() != "tutti" else { return false }
+
+        // Check if collection already exists in remote database to prevent duplicate inserts
+        let existing = try? await fetchCollections()
+        if existing?.contains(where: { $0.name.caseInsensitiveCompare(cleanName) == .orderedSame }) == true {
+            return true
+        }
+
         guard let url = URL(string: "\(restURL)/collections") else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        for (k, v) in makeHeaders(upsert: true) {
+        for (k, v) in makeHeaders(upsert: false) {
             req.setValue(v, forHTTPHeaderField: k)
         }
 
-        var body: [String: Any] = ["name": name]
-        if let uid = currentUserId, !uid.isEmpty {
+        var body: [String: Any] = [
+            "name": cleanName,
+            "device_id": deviceId
+        ]
+        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
             body["user_id"] = uid
         }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -431,18 +471,39 @@ class SupabaseManager: ObservableObject {
     }
 
     func deleteCollection(name: String) async throws -> Bool {
-        guard let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(restURL)/collections?name=eq.\(encodedName)") else {
-            throw URLError(.badURL)
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { return false }
+
+        // 1. Delete collection row
+        let encodedName = cleanName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cleanName
+        var delUrlStr = "\(restURL)/collections?name=eq.\(encodedName)"
+        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+            delUrlStr += "&user_id=eq.\(uid)"
+        } else {
+            delUrlStr += "&device_id=eq.\(deviceId)"
         }
-        var req = URLRequest(url: url)
-        req.httpMethod = "DELETE"
-        for (k, v) in makeHeaders() {
-            req.setValue(v, forHTTPHeaderField: k)
+        if let url = URL(string: delUrlStr) {
+            var req = URLRequest(url: url)
+            req.httpMethod = "DELETE"
+            for (k, v) in makeHeaders() { req.setValue(v, forHTTPHeaderField: k) }
+            _ = try? await session.data(for: req)
         }
-        let (_, response) = try await session.data(for: req)
-        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        return [200, 204].contains(code)
+
+        // 2. Reassign wishlist items that were in this collection to 'Tutti'
+        var patchUrlStr = "\(restURL)/wishlists?collection_name=eq.\(encodedName)"
+        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+            patchUrlStr += "&user_id=eq.\(uid)"
+        } else {
+            patchUrlStr += "&device_id=eq.\(deviceId)"
+        }
+        if let patchUrl = URL(string: patchUrlStr) {
+            var req = URLRequest(url: patchUrl)
+            req.httpMethod = "PATCH"
+            for (k, v) in makeHeaders() { req.setValue(v, forHTTPHeaderField: k) }
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["collection_name": "Tutti"])
+            _ = try? await session.data(for: req)
+        }
+        return true
     }
 
     // MARK: - Followed Stores API
@@ -860,6 +921,7 @@ class SupabaseManager: ObservableObject {
             let discount_pct: Double?
             let product_url: String
             let image_url: String?
+            let available_sizes: [String]?
             let shipping_cost: Double?
             let free_shipping_threshold: Double?
             let courier: String?
@@ -868,7 +930,7 @@ class SupabaseManager: ObservableObject {
         var fetchedOffers: [OfferRow] = []
 
         // 1. First fetch top showcase offers partitioned per store from our view store_showcase_offers (guarantees Nike, Adidas, and all stores get equal showcase representation)
-        if let viewUrl = URL(string: "\(restURL)/store_showcase_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&order=rn.asc") {
+        if let viewUrl = URL(string: "\(restURL)/store_showcase_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier&order=rn.asc") {
             var req = URLRequest(url: viewUrl)
             for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
             if let (data, resp) = try? await session.data(for: req),
@@ -881,7 +943,7 @@ class SupabaseManager: ObservableObject {
 
         // Safety fallback to raw store_offers if view is ever unreachable
         if fetchedOffers.isEmpty {
-            if let rawUrl = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&limit=2500") {
+            if let rawUrl = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier&limit=2500") {
                 var req = URLRequest(url: rawUrl)
                 for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
                 if let (data, resp) = try? await session.data(for: req),
@@ -894,11 +956,13 @@ class SupabaseManager: ObservableObject {
 
         var storeMap: [String: (name: String, products: [StoreShowcaseProduct], discounts: [Double], totalCount: Int)] = [:]
         for r in fetchedOffers {
+            let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.store_name)
             let p = StoreShowcaseProduct(
                 id: r.id,
                 title: r.raw_title,
-                brand: r.store_name,
+                brand: extractedBrand,
                 image_url: r.image_url,
+                available_sizes: r.available_sizes,
                 current_price: r.current_price,
                 original_price: r.original_price,
                 discount_pct: r.discount_pct,
@@ -1007,7 +1071,7 @@ class SupabaseManager: ObservableObject {
 
     func fetchStoreOffersDirect(storeId: String, limit: Int = 12) async throws -> [StoreShowcaseProduct] {
         let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: "\(restURL)/store_offers?store_id=eq.\(cleanId)&order=discount_pct.desc.nullslast,current_price.desc&limit=\(limit)&select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier") else {
+        guard let url = URL(string: "\(restURL)/store_offers?store_id=eq.\(cleanId)&order=discount_pct.desc.nullslast,current_price.desc&limit=\(limit)&select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier") else {
             throw URLError(.badURL)
         }
         var req = URLRequest(url: url)
@@ -1027,17 +1091,20 @@ class SupabaseManager: ObservableObject {
             let discount_pct: Double?
             let product_url: String
             let image_url: String?
+            let available_sizes: [String]?
             let shipping_cost: Double?
             let free_shipping_threshold: Double?
             let courier: String?
         }
         let rows = try JSONDecoder().decode([OfferRow].self, from: data)
         return rows.map { r in
-            StoreShowcaseProduct(
+            let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.store_name)
+            return StoreShowcaseProduct(
                 id: r.id,
                 title: r.raw_title,
-                brand: r.store_name,
+                brand: extractedBrand,
                 image_url: r.image_url,
+                available_sizes: r.available_sizes,
                 current_price: r.current_price,
                 original_price: r.original_price,
                 discount_pct: r.discount_pct,
@@ -1140,6 +1207,7 @@ class SupabaseManager: ObservableObject {
             let discount_pct: Double?
             let product_url: String
             let image_url: String?
+            let available_sizes: [String]?
             let shipping_cost: Double?
             let free_shipping_threshold: Double?
             let courier: String?
@@ -1149,7 +1217,7 @@ class SupabaseManager: ObservableObject {
         var fetchedOffers: [OfferRow] = []
 
         if isAllCategories {
-            if let viewUrl = URL(string: "\(restURL)/store_showcase_offers?discount_pct=gt.0&order=rn.asc") {
+            if let viewUrl = URL(string: "\(restURL)/store_showcase_offers?discount_pct=gt.0&order=rn.asc&select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier") {
                 var req = URLRequest(url: viewUrl)
                 for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
                 if let (data, resp) = try? await session.data(for: req),
@@ -1162,7 +1230,7 @@ class SupabaseManager: ObservableObject {
         }
 
         if fetchedOffers.isEmpty {
-            guard let url = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,shipping_cost,free_shipping_threshold,courier&discount_pct=gt.0&order=discount_pct.desc.nullslast&limit=2500") else {
+            guard let url = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier&discount_pct=gt.0&order=discount_pct.desc.nullslast&limit=2500") else {
                 throw URLError(.badURL)
             }
             var req = URLRequest(url: url)
@@ -1212,11 +1280,13 @@ class SupabaseManager: ObservableObject {
 
         var storeMap: [String: (name: String, products: [StoreShowcaseProduct], discounts: [Double], maxDisc: Double)] = [:]
         for r in rows {
+            let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.store_name)
             let p = StoreShowcaseProduct(
                 id: r.id,
                 title: r.raw_title,
-                brand: r.store_name,
+                brand: extractedBrand,
                 image_url: r.image_url,
+                available_sizes: r.available_sizes,
                 current_price: r.current_price,
                 original_price: r.original_price,
                 discount_pct: r.discount_pct,
@@ -1295,5 +1365,152 @@ class SupabaseManager: ObservableObject {
             self.syncStatusMessage = "Offline o connessione in corso..."
             return false
         }
+    }
+
+    // MARK: - APNs Device Token & Push Notifications
+
+    struct RemoteDbNotification: Codable {
+        let id: String
+        let device_id: String?
+        let user_id: String?
+        let type: String
+        let title: String
+        let subtitle: String?
+        let body: String
+        let product_canonical_name: String?
+        let store_id: String?
+        let store_name: String?
+        let old_price: Double?
+        let new_price: Double?
+        let discount_pct: Double?
+        let action_url: String?
+        let image_url: String?
+        let is_read: Bool
+        let created_at: String?
+    }
+
+    func registerDeviceTokenDirect(token: String, environment: String = "production") async {
+        guard let url = URL(string: "\(restURL)/device_tokens?on_conflict=device_token") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        for (k, v) in makeHeaders(upsert: true, isPublic: true) {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+
+        var payload: [String: Any] = [
+            "device_token": token,
+            "device_id": self.deviceId,
+            "platform": "ios",
+            "environment": environment,
+            "is_active": true,
+            "notify_price_drop": true,
+            "notify_targeted_promo": true,
+            "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0",
+            "updated_at": ISO8601DateFormatter().string(from: Date())
+        ]
+        if let uid = currentUserId, !uid.isEmpty {
+            payload["user_id"] = uid
+        }
+
+        do {
+            req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            let (data, response) = try await session.data(for: req)
+            if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                print("✅ [Supabase] Device token registrato con successo in device_tokens")
+            } else {
+                let errText = String(data: data, encoding: .utf8) ?? "unknown"
+                print("⚠️ [Supabase] Errore salvataggio device_token: \(errText)")
+            }
+        } catch {
+            print("⚠️ [Supabase] Errore connessione device_tokens: \(error.localizedDescription)")
+        }
+
+        // Also notify local backend if reachable
+        if let backendUrl = URL(string: "http://localhost:8000/api/devices/register") {
+            var bReq = URLRequest(url: backendUrl)
+            bReq.httpMethod = "POST"
+            bReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            bReq.timeoutInterval = 3
+            bReq.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+            _ = try? await session.data(for: bReq)
+        }
+    }
+
+    func fetchRemoteNotificationsDirect() async -> [AppNotification] {
+        let devId = self.deviceId
+        var urlString = "\(restURL)/notifications?device_id=eq.\(devId)&order=created_at.desc&limit=50"
+        if let uid = currentUserId, !uid.isEmpty {
+            urlString = "\(restURL)/notifications?or=(device_id.eq.\(devId),user_id.eq.\(uid))&order=created_at.desc&limit=50"
+        }
+
+        guard let url = URL(string: urlString) else { return [] }
+        var req = URLRequest(url: url)
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+
+        do {
+            let (data, resp) = try await session.data(for: req)
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return [] }
+            let decoder = JSONDecoder()
+            let remoteRows = try decoder.decode([RemoteDbNotification].self, from: data)
+
+            return remoteRows.map { row in
+                let nType: NotificationType
+                switch row.type.lowercased() {
+                case "price_drop": nType = .priceDrop
+                case "promo": nType = .promo
+                default: nType = .priceDrop
+                }
+
+                let date = parseNotificationDate(row.created_at)
+
+                return AppNotification(
+                    id: row.id,
+                    type: nType,
+                    title: row.title,
+                    subtitle: row.subtitle,
+                    body: row.body,
+                    timestamp: date,
+                    isRead: row.is_read,
+                    productCanonicalName: row.product_canonical_name,
+                    storeId: row.store_id,
+                    storeName: row.store_name,
+                    imageUrl: row.image_url,
+                    oldPrice: row.old_price,
+                    newPrice: row.new_price,
+                    discountPct: row.discount_pct,
+                    actionUrl: row.action_url
+                )
+            }
+        } catch {
+            print("⚠️ [Supabase] Errore recupero notifiche remote: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    func markRemoteNotificationReadDirect(id: String) async {
+        guard let url = URL(string: "\(restURL)/notifications?id=eq.\(id)") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["is_read": true])
+        _ = try? await session.data(for: req)
+    }
+
+    func deleteRemoteNotificationDirect(id: String) async {
+        guard let url = URL(string: "\(restURL)/notifications?id=eq.\(id)") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+        _ = try? await session.data(for: req)
+    }
+
+    private func parseNotificationDate(_ dateString: String?) -> Date {
+        guard let dateString = dateString else { return Date() }
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = isoFormatter.date(from: dateString) { return d }
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        if let d = isoFormatter.date(from: dateString) { return d }
+        return Date()
     }
 }

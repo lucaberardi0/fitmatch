@@ -180,6 +180,20 @@ class SyncScheduler:
                 f"[SyncScheduler] Price refresh completed: {res.get('offers_checked')} offers checked, "
                 f"{res.get('price_drops')} drops detected."
             )
+
+            # Trigger server-side PriceDropWatcher to push APNs alerts to devices
+            try:
+                import asyncio
+                from fitmatch.price_drop_watcher import PriceDropWatcher
+                watcher = PriceDropWatcher()
+                loop = asyncio.new_event_loop()
+                watcher_stats = loop.run_until_complete(watcher.run_check())
+                loop.close()
+                self.last_refresh_stats["watcher"] = watcher_stats
+                logger.info(f"[SyncScheduler] PriceDropWatcher completed: {watcher_stats}")
+            except Exception as w_err:
+                logger.warning(f"[SyncScheduler] PriceDropWatcher warning: {w_err}")
+
             return self.last_refresh_stats
         except Exception as e:
             logger.error(f"[SyncScheduler] Error during price refresh: {e}")
