@@ -11,7 +11,7 @@ struct ProductCardView: View {
                     Color.shopSurface
 
                     if let imageUrl = product.image_url, let url = URL(string: imageUrl) {
-                        AsyncImage(url: url) { phase in
+                        ShopCachedAsyncImage(url: url) { phase in
                             switch phase {
                             case .success(let image):
                                 image
@@ -21,8 +21,7 @@ struct ProductCardView: View {
                             case .failure:
                                 imagePlaceholder
                             case .empty:
-                                ProgressView()
-                                    .tint(.shopPurple)
+                                ShopSkeletonBlock(cornerRadius: 14, height: 165)
                             @unknown default:
                                 imagePlaceholder
                             }

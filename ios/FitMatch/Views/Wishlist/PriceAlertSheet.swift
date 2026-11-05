@@ -32,11 +32,11 @@ struct PriceAlertSheet: View {
                     // Product Summary Card
                     HStack(spacing: 14) {
                         if let imageUrl = product.image_url ?? product.bestOffer?.image_url, let url = URL(string: imageUrl) {
-                            AsyncImage(url: url) { phase in
+                            ShopCachedAsyncImage(url: url, maxPixelSize: 200) { phase in
                                 if let img = phase.image {
                                     img.resizable().scaledToFit()
                                 } else {
-                                    Color(.systemGray5)
+                                    ShopSkeletonBlock(cornerRadius: 12)
                                 }
                             }
                             .frame(width: 64, height: 64)

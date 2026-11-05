@@ -7,6 +7,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil
     ) -> Bool {
+        // Boost global URLCache limits for smooth network streaming
+        let memLimit = 80 * 1024 * 1024
+        let diskLimit = 300 * 1024 * 1024
+        URLCache.shared = URLCache(memoryCapacity: memLimit, diskCapacity: diskLimit, diskPath: "fitmatch_network_cache")
+
         NotificationManager.shared.setupRemoteNotifications()
         return true
     }

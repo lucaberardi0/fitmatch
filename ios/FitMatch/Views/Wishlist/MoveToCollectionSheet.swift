@@ -178,15 +178,13 @@ struct MoveToCollectionSheet: View {
                     )
 
                 if let urlStr = item.image_url, let url = URL(string: urlStr) {
-                    AsyncImage(url: url) { phase in
+                    ShopCachedAsyncImage(url: url, maxPixelSize: 150) { phase in
                         if let img = phase.image {
                             img.resizable()
                                 .scaledToFit()
                                 .padding(4)
                         } else {
-                            Image(systemName: "shoe.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(Color(red: 180/255, green: 180/255, blue: 190/255))
+                            ShopSkeletonBlock(cornerRadius: 10)
                         }
                     }
                 } else {

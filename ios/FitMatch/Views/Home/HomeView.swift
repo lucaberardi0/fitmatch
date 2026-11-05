@@ -1,15 +1,19 @@
 import SwiftUI
 
-enum HomeSubTab: Int, CaseIterable {
+enum HomeSubTab: Int, CaseIterable, Identifiable {
     case perTe = 0
     case offerte = 1
     case seguiGia = 2
+    case salvati = 3
+
+    var id: Int { rawValue }
 
     var title: String {
         switch self {
         case .perTe: return "Per te"
         case .offerte: return "Saldi per le feste"
         case .seguiGia: return "Segui già"
+        case .salvati: return "Salvati"
         }
     }
 }
@@ -32,7 +36,7 @@ struct HomeView: View {
     @ObservedObject private var notifManager = NotificationManager.shared
 
     @State private var showcases: [StoreShowcase] = []
-    @State private var isLoading = false
+    @State private var isLoading = true
     @State private var searchText = ""
     @State private var showingAccountSheet = false
     @State private var showingNotificationsSheet = false
@@ -54,30 +58,43 @@ struct HomeView: View {
                         .padding(.top, 6)
                         .padding(.bottom, 10)
 
-                    // MARK: - 2. Sub-Navigation Pills: Per te | Saldi per le feste | Segui già | Salvati
-                    subNavigationPills
-                        .padding(.bottom, 12)
+                    if isLoading && showcases.isEmpty {
+                        // MARK: - Shopify Shop Skeleton Loading Screen
+                        ShopHomeSkeletonView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .transition(.opacity)
+                    } else {
+                        // MARK: - 2. Sub-Navigation Pills: Per te | Saldi per le feste | Segui già | Salvati
+                        subNavigationPills
+                            .padding(.bottom, 12)
 
-                    // MARK: - 3. Content Area based on Active Sub-Tab
-                    Group {
-                        switch activeSubTab {
-                        case .perTe:
-                            perTeContent
-                        case .offerte:
-                            DealsView(embedded: true, onSelectPerTe: {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
-                                    activeSubTab = .perTe
-                                }
-                            })
-                        case .seguiGia:
-                            FollowingView(onGoShopping: {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
-                                    activeSubTab = .perTe
-                                }
-                            })
+                        // MARK: - 3. Content Area based on Active Sub-Tab
+                        Group {
+                            switch activeSubTab {
+                            case .perTe:
+                                perTeContent
+                            case .offerte:
+                                DealsView(embedded: true, onSelectPerTe: {
+                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                        activeSubTab = .perTe
+                                    }
+                                })
+                            case .seguiGia:
+                                FollowingView(onGoShopping: {
+                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                        activeSubTab = .perTe
+                                    }
+                                })
+                            case .salvati:
+                                WishlistView(selectedTab: $selectedTab, embedded: true, onSelectPerTe: {
+                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                        activeSubTab = .perTe
+                                    }
+                                })
+                            }
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .background(Color(red: 245/255, green: 246/255, blue: 248/255).ignoresSafeArea())
 
@@ -234,41 +251,94 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Sub-Navigation Pills (Screenshot 1: Per te | Saldi per le feste | Segui già | Salvati)
+    // MARK: - Sub-Navigation Pills (Per te | Saldi per le feste | Segui già | Salvati)
 
     private var subNavigationPills: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(HomeSubTab.allCases, id: \.self) { tab in
-                    Button(action: {
-                        let gen = UIImpactFeedbackGenerator(style: .light)
-                        gen.impactOccurred()
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
-                            activeSubTab = tab
-                        }
-                    }) {
-                        Text(tab.title)
-                            .font(.system(size: 14, weight: activeSubTab == tab ? .bold : .medium, design: .rounded))
-                            .foregroundColor(activeSubTab == tab ? Color(red: 20/255, green: 20/255, blue: 25/255) : Color(red: 90/255, green: 90/255, blue: 100/255))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
+        ScrollViewReader { scrollProxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(HomeSubTab.allCases) { tab in
+                        let isSelected = activeSubTab == tab
+
+                        Button(action: {
+                            let gen = UIImpactFeedbackGenerator(style: .light)
+                            gen.impactOccurred()
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                                activeSubTab = tab
+                                scrollProxy.scrollTo(tab.id, anchor: .center)
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                // Subtle flame icon for deals
+                                if tab == .offerte {
+                                    Image(systemName: "flame.fill")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(Color(red: 245/255, green: 75/255, blue: 45/255))
+                                }
+
+                                Text(tab.title)
+                                    .font(.system(size: 13.5, weight: isSelected ? .bold : .semibold, design: .rounded))
+                                    .foregroundColor(isSelected ? Color(red: 18/255, green: 18/255, blue: 24/255) : Color(red: 95/255, green: 98/255, blue: 110/255))
+
+                                // Dynamic badge for Salvati
+                                if tab == .salvati && wishlist.items.count > 0 {
+                                    Text("\(wishlist.items.count)")
+                                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                        .foregroundColor(isSelected ? .white : Color(red: 95/255, green: 98/255, blue: 110/255))
+                                        .padding(.horizontal, 5.5)
+                                        .padding(.vertical, 1.5)
+                                        .background(
+                                            isSelected ?
+                                                Color.shopPurple :
+                                                Color.black.opacity(0.08)
+                                        )
+                                        .clipShape(Capsule())
+                                }
+
+                                // Dynamic badge for Segui già
+                                if tab == .seguiGia && followedManager.followedStores.count > 0 {
+                                    Text("\(followedManager.followedStores.count)")
+                                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                        .foregroundColor(isSelected ? .white : Color(red: 95/255, green: 98/255, blue: 110/255))
+                                        .padding(.horizontal, 5.5)
+                                        .padding(.vertical, 1.5)
+                                        .background(
+                                            isSelected ?
+                                                Color.shopDark :
+                                                Color.black.opacity(0.08)
+                                        )
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 8.5)
                             .background(
                                 Capsule()
-                                    .fill(activeSubTab == tab ? Color.white : Color.clear)
-                                    .shadow(color: activeSubTab == tab ? Color.black.opacity(0.04) : Color.clear, radius: 4, x: 0, y: 1)
+                                    .fill(isSelected ? Color.white : Color.white.opacity(0.68))
+                                    .shadow(
+                                        color: isSelected ? Color.black.opacity(0.06) : Color.black.opacity(0.015),
+                                        radius: isSelected ? 6 : 2,
+                                        x: 0,
+                                        y: isSelected ? 2 : 1
+                                    )
                             )
                             .overlay(
-                                activeSubTab == tab ?
-                                    Capsule()
-                                        .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
-                                    : nil
+                                Capsule()
+                                    .stroke(
+                                        isSelected ?
+                                            Color(red: 226/255, green: 228/255, blue: 236/255) :
+                                            Color(red: 234/255, green: 235/255, blue: 240/255),
+                                        lineWidth: 1
+                                    )
                             )
                             .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .id(tab.id)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, 16)
         }
     }
 
@@ -287,16 +357,19 @@ struct HomeView: View {
                 }
 
                 if isLoading && activeShowcases.isEmpty {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                            .tint(.shopDark)
-                        Text("Caricamento negozi e offerte dal database...")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.shopTextMuted)
+                    VStack(spacing: 16) {
+                        ShopSkeletonBlock(
+                            cornerRadius: 24,
+                            width: UIScreen.main.bounds.width - 32,
+                            height: 390
+                        )
+                        ShopSkeletonBlock(
+                            cornerRadius: 24,
+                            width: UIScreen.main.bounds.width - 32,
+                            height: 220
+                        )
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
+                    .padding(.horizontal, 16)
                 } else {
                     ForEach(Array(activeShowcases.enumerated()), id: \.element.id) { index, sc in
                         if sc.card_theme == "olive" || sc.card_theme == "colored" || (sc.accent_color != nil && sc.card_theme != "grid" && sc.card_theme != "white") || (sc.card_theme == nil && index % 4 == 0) {
@@ -401,16 +474,14 @@ struct HomeView: View {
                                     )
 
                                 if let imgUrl = prod.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                                    AsyncImage(url: url) { phase in
+                                    ShopCachedAsyncImage(url: url) { phase in
                                         if let img = phase.image {
                                             img
                                                 .resizable()
                                                 .scaledToFit()
                                                 .padding(6)
                                         } else {
-                                            Image(systemName: "photo")
-                                                .font(.system(size: 22))
-                                                .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                            ShopSkeletonBlock(cornerRadius: 12)
                                         }
                                     }
                                 } else {
@@ -508,16 +579,14 @@ struct HomeView: View {
                                     )
 
                                 if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                                    AsyncImage(url: url) { phase in
+                                    ShopCachedAsyncImage(url: url) { phase in
                                         if let img = phase.image {
                                             img
                                                 .resizable()
                                                 .scaledToFit()
                                                 .padding(6)
                                         } else {
-                                            Image(systemName: "heart.fill")
-                                                .font(.system(size: 20))
-                                                .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.4))
+                                            ShopSkeletonBlock(cornerRadius: 12)
                                         }
                                     }
                                 } else {
@@ -844,7 +913,7 @@ struct HomeView: View {
                 VStack {
                     Spacer()
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                        AsyncImage(url: url) { phase in
+                        ShopCachedAsyncImage(url: url) { phase in
                             if let img = phase.image {
                                 img
                                     .resizable()
@@ -852,10 +921,7 @@ struct HomeView: View {
                                     .frame(width: 120, height: 120)
                                     .clipped()
                             } else {
-                                Image(systemName: "photo")
-                                    .font(.system(size: 26))
-                                    .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
-                                    .frame(width: 120, height: 120)
+                                ShopSkeletonBlock(cornerRadius: 12, width: 120, height: 120)
                             }
                         }
                     } else {
@@ -939,7 +1005,7 @@ struct HomeView: View {
                 VStack {
                     Spacer()
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                        AsyncImage(url: url) { phase in
+                        ShopCachedAsyncImage(url: url) { phase in
                             if let img = phase.image {
                                 img
                                     .resizable()
@@ -947,9 +1013,7 @@ struct HomeView: View {
                                     .frame(maxWidth: .infinity, maxHeight: 118)
                                     .clipped()
                             } else {
-                                Image(systemName: "photo")
-                                    .font(.system(size: 26))
-                                    .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
+                                ShopSkeletonBlock(cornerRadius: 12)
                                     .frame(maxWidth: .infinity, maxHeight: 118)
                             }
                         }
@@ -1050,12 +1114,21 @@ struct HomeView: View {
 
     private func fetchShowcases() async {
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            withAnimation(.easeInOut(duration: 0.28)) {
+                isLoading = false
+            }
+        }
         do {
             let sc = try await api.getStoreShowcases()
             await MainActor.run {
-                self.showcases = sc
+                withAnimation(.easeInOut(duration: 0.28)) {
+                    self.showcases = sc
+                }
             }
+            // Proactively prefetch feed images into L1 memory cache off-thread
+            let prefetchUrls = sc.flatMap { $0.products.prefix(4) }.compactMap { URL(string: $0.image_url ?? "") }
+            ImageCacheManager.shared.prefetch(urls: prefetchUrls)
         } catch {
             print("HomeView fetchShowcases error: \(error)")
         }

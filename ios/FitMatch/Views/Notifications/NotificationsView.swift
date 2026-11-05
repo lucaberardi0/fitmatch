@@ -467,7 +467,7 @@ struct NotificationCard: View {
                 HStack(alignment: .top, spacing: 12) {
                     // Optional Thumbnail Image
                     if let imgUrl = notification.imageUrl, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                        AsyncImage(url: url) { phase in
+                        ShopCachedAsyncImage(url: url, maxPixelSize: 150) { phase in
                             switch phase {
                             case .success(let image):
                                 image
@@ -476,6 +476,8 @@ struct NotificationCard: View {
                                     .frame(width: 52, height: 52)
                                     .background(Color(red: 246/255, green: 247/255, blue: 250/255))
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
+                            case .empty:
+                                ShopSkeletonBlock(cornerRadius: 12, width: 52, height: 52)
                             default:
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(Color(red: 245/255, green: 245/255, blue: 248/255))

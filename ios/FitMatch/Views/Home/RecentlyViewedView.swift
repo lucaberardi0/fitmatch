@@ -150,7 +150,7 @@ struct RecentlyViewedView: View {
 
             // Center Product Image
             if let imgUrl = product.image_url ?? item.imageUrl, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                AsyncImage(url: url) { phase in
+                ShopCachedAsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
                         image
@@ -163,8 +163,8 @@ struct RecentlyViewedView: View {
                             .font(.system(size: 28))
                             .foregroundColor(Color(red: 200/255, green: 200/255, blue: 205/255))
                     case .empty:
-                        ProgressView()
-                            .scaleEffect(0.8)
+                        ShopSkeletonBlock(cornerRadius: 18)
+                            .padding(12)
                     @unknown default:
                         EmptyView()
                     }
@@ -268,7 +268,7 @@ struct RecentlyViewedView: View {
 
             // Center Logo or Stylized Name
             if let imgUrl = item.imageUrl, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                AsyncImage(url: url) { phase in
+                ShopCachedAsyncImage(url: url, maxPixelSize: 400) { phase in
                     if let img = phase.image {
                         img
                             .resizable()

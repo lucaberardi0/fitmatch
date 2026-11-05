@@ -10,7 +10,7 @@ struct FollowingView: View {
     @State private var showcases: [StoreShowcase] = []
     @State private var fallbackStoreProducts: [String: [StoreShowcaseProduct]] = [:]
     @State private var fallbackStoreCounts: [String: Int] = [:]
-    @State private var isLoading = false
+    @State private var isLoading = true
 
     struct PartnerStoreItem: Identifiable {
         let id: String
@@ -50,7 +50,10 @@ struct FollowingView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 22) {
-                if followedManager.followedStores.isEmpty {
+                if isLoading && showcases.isEmpty {
+                    ShopFollowingSkeletonView()
+                        .transition(.opacity)
+                } else if followedManager.followedStores.isEmpty {
                     // MARK: - Empty State
                     emptyFollowedBanner
                         .padding(.horizontal, 16)
@@ -82,12 +85,18 @@ struct FollowingView: View {
 
     private func refreshData() async {
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            withAnimation(.easeInOut(duration: 0.28)) {
+                isLoading = false
+            }
+        }
         await followedManager.fetchFollowedStores()
         do {
             let sc = try await api.getStoreShowcases()
             await MainActor.run {
-                self.showcases = sc
+                withAnimation(.easeInOut(duration: 0.28)) {
+                    self.showcases = sc
+                }
             }
         } catch {
             print("FollowingView refresh error: \(error)")
@@ -187,11 +196,8 @@ struct FollowingView: View {
                     // Horizontal Carousel of Product Cards (Matching Reference Screenshot)
                     if products.isEmpty && isLoading {
                         HStack(spacing: 14) {
-                            ForEach(0..<2, id: \.self) { _ in
-                                RoundedRectangle(cornerRadius: 18)
-                                    .fill(Color(red: 242/255, green: 242/255, blue: 246/255))
-                                    .frame(width: 165, height: 170)
-                                    .overlay(ProgressView().controlSize(.small))
+                            ForEach(0..<3, id: \.self) { _ in
+                                ShopSkeletonBlock(cornerRadius: 18, width: 165, height: 170)
                             }
                         }
                         .padding(.horizontal, 16)
@@ -349,7 +355,7 @@ struct FollowedHorizontalProductCard: View {
 
                     // Product Image centered with comfortable padding
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                        AsyncImage(url: url) { phase in
+                        ShopCachedAsyncImage(url: url, maxPixelSize: 400) { phase in
                             switch phase {
                             case .success(let image):
                                 image
@@ -363,10 +369,7 @@ struct FollowedHorizontalProductCard: View {
                                     .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
                                     .frame(width: 140, height: 140)
                             case .empty:
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(.shopDark)
-                                    .frame(width: 140, height: 140)
+                                ShopSkeletonBlock(cornerRadius: 16, width: 140, height: 140)
                             @unknown default:
                                 EmptyView()
                             }

@@ -70,7 +70,7 @@ struct StoreShowcaseCard: View {
                                         Color.shopSurface
 
                                         if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                                            AsyncImage(url: url) { phase in
+                                            ShopCachedAsyncImage(url: url) { phase in
                                                 if let img = phase.image {
                                                     img
                                                         .resizable()
@@ -81,9 +81,7 @@ struct StoreShowcaseCard: View {
                                                         .font(.system(size: 24))
                                                         .foregroundColor(.shopTextMuted.opacity(0.35))
                                                 } else {
-                                                    ProgressView()
-                                                        .controlSize(.mini)
-                                                        .tint(.shopPurple)
+                                                    ShopSkeletonBlock(cornerRadius: 12)
                                                 }
                                             }
                                         } else {

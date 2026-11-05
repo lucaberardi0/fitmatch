@@ -326,13 +326,15 @@ struct SearchView: View {
                         .frame(width: 104, height: 104)
 
                     if let img = act.imageUrl, let url = URL(string: img) {
-                        AsyncImage(url: url) { phase in
+                        ShopCachedAsyncImage(url: url, maxPixelSize: 300) { phase in
                             switch phase {
                             case .success(let image):
                                 image.resizable()
                                     .aspectRatio(contentMode: .fit)
                                     .frame(width: 104, height: 104)
                                     .cornerRadius(14)
+                            case .empty:
+                                ShopSkeletonBlock(cornerRadius: 14, width: 104, height: 104)
                             default:
                                 Image(systemName: "magnifyingglass")
                                     .font(.system(size: 24))
@@ -381,13 +383,15 @@ struct SearchView: View {
                         .frame(width: 118, height: 118)
 
                     if let img = prod.image_url, let url = URL(string: img) {
-                        AsyncImage(url: url) { phase in
+                        ShopCachedAsyncImage(url: url, maxPixelSize: 300) { phase in
                             switch phase {
                             case .success(let image):
                                 image.resizable()
                                     .aspectRatio(contentMode: .fit)
                                     .frame(width: 118, height: 118)
                                     .cornerRadius(14)
+                            case .empty:
+                                ShopSkeletonBlock(cornerRadius: 14, width: 118, height: 118)
                             default:
                                 Image(systemName: "photo")
                                     .foregroundColor(.gray.opacity(0.35))
@@ -592,15 +596,8 @@ struct SearchView: View {
     private var aiDeepDiveContentView: some View {
         Group {
             if isLoading {
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.2)
-                        .tint(.shopDark)
-                    Text("Analisi approfondita dell'IA sui prodotti scraped...")
-                        .font(.system(size: 13.5, weight: .medium))
-                        .foregroundColor(.shopTextMuted)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ShopSearchDeepDiveSkeletonView()
+                    .transition(.opacity)
             } else if let error = errorMessage {
                 aiErrorView(error)
             } else if curatedSections.isEmpty && searchResults.isEmpty && spotlight == nil {
@@ -1087,15 +1084,8 @@ struct SearchView: View {
     private var classicContentView: some View {
         Group {
             if isLoading {
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.2)
-                        .tint(.shopDark)
-                    Text("Ricerca tra 12 negozi partner in corso...")
-                        .font(.system(size: 13.5, weight: .medium))
-                        .foregroundColor(.shopTextMuted)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ShopSearchGridSkeletonView()
+                    .transition(.opacity)
             } else if let error = errorMessage {
                 VStack(spacing: 14) {
                     Image(systemName: "wifi.exclamationmark")
@@ -1335,13 +1325,15 @@ struct ShopThemedCarouselCard: View {
                         .frame(width: 152, height: 152)
 
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl) {
-                        AsyncImage(url: url) { phase in
+                        ShopCachedAsyncImage(url: url, maxPixelSize: 400) { phase in
                             switch phase {
                             case .success(let image):
                                 image.resizable()
                                     .aspectRatio(contentMode: .fit)
                                     .frame(width: 152, height: 152)
                                     .cornerRadius(16)
+                            case .empty:
+                                ShopSkeletonBlock(cornerRadius: 16, width: 152, height: 152)
                             default:
                                 Image(systemName: "photo")
                                     .foregroundColor(.gray.opacity(0.35))
@@ -1455,13 +1447,15 @@ struct ShopSpotlightCardView: View {
                             .frame(width: 128, height: 128)
 
                         if let imgUrl = spotlight.product.image_url, let url = URL(string: imgUrl) {
-                            AsyncImage(url: url) { phase in
+                            ShopCachedAsyncImage(url: url, maxPixelSize: 400) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image.resizable()
                                         .aspectRatio(contentMode: .fit)
                                         .frame(width: 128, height: 128)
                                         .cornerRadius(14)
+                                case .empty:
+                                    ShopSkeletonBlock(cornerRadius: 14, width: 128, height: 128)
                                 default:
                                     Image(systemName: "photo")
                                         .foregroundColor(.gray.opacity(0.35))
@@ -1592,13 +1586,15 @@ struct ShopOfficialProductCard: View {
                         .frame(width: 124, height: 124)
 
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl) {
-                        AsyncImage(url: url) { phase in
+                        ShopCachedAsyncImage(url: url, maxPixelSize: 350) { phase in
                             switch phase {
                             case .success(let image):
                                 image.resizable()
                                     .aspectRatio(contentMode: .fit)
                                     .frame(width: 124, height: 124)
                                     .cornerRadius(18)
+                            case .empty:
+                                ShopSkeletonBlock(cornerRadius: 18, width: 124, height: 124)
                             default:
                                 Image(systemName: "photo")
                                     .foregroundColor(.gray.opacity(0.35))

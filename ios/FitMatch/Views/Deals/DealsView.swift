@@ -46,16 +46,8 @@ struct DealsView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 20) {
                     if isCategorySwitching || (isLoading && showcases.isEmpty) {
-                        VStack(spacing: 14) {
-                            ProgressView()
-                                .scaleEffect(1.2)
-                                .tint(.shopDark)
-                            Text("Caricamento offerte \(categoryTitle(for: selectedCategory))...")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.shopTextMuted)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 60)
+                        ShopDealsSkeletonView()
+                            .transition(.opacity)
                     } else if showcases.isEmpty {
                         VStack(spacing: 12) {
                             Image(systemName: "tag.slash")
@@ -315,7 +307,7 @@ struct ShopDealProductCard: View {
 
                     // Product Image: Edge-to-edge fill with clipped corner radius
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                        AsyncImage(url: url) { phase in
+                        ShopCachedAsyncImage(url: url) { phase in
                             switch phase {
                             case .success(let image):
                                 image
@@ -330,10 +322,7 @@ struct ShopDealProductCard: View {
                                     .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
                                     .frame(width: 168, height: 185)
                             case .empty:
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(.shopDark)
-                                    .frame(width: 168, height: 185)
+                                ShopSkeletonBlock(cornerRadius: 18, width: 168, height: 185)
                             @unknown default:
                                 EmptyView()
                             }

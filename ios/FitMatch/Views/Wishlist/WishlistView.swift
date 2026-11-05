@@ -130,7 +130,10 @@ struct WishlistView: View {
     private var mainContent: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
-                if wishlist.items.isEmpty {
+                if wishlist.isSyncingDatabase && wishlist.items.isEmpty {
+                    ShopWishlistSkeletonView()
+                        .transition(.opacity)
+                } else if wishlist.items.isEmpty {
                     // Empty Saved State
                     emptySavedState
                         .padding(.top, 40)
@@ -653,7 +656,7 @@ struct ShopAllSavedCard: View {
 
                     if !thumbnails.isEmpty {
                         if thumbnails.count == 1, let url = URL(string: thumbnails[0]) {
-                            AsyncImage(url: url) { phase in
+                            ShopCachedAsyncImage(url: url, maxPixelSize: 300) { phase in
                                 if let img = phase.image {
                                     img.resizable()
                                         .scaledToFit()
@@ -671,7 +674,7 @@ struct ShopAllSavedCard: View {
                             HStack(spacing: 3) {
                                 ForEach(0..<min(thumbnails.count, 2), id: \.self) { idx in
                                     if let url = URL(string: thumbnails[idx]) {
-                                        AsyncImage(url: url) { phase in
+                                        ShopCachedAsyncImage(url: url, maxPixelSize: 200) { phase in
                                             if let img = phase.image {
                                                 img.resizable()
                                                     .scaledToFit()
@@ -766,7 +769,7 @@ struct ShopCollectionCard: View {
 
                     if !thumbnails.isEmpty {
                         if thumbnails.count == 1, let url = URL(string: thumbnails[0]) {
-                            AsyncImage(url: url) { phase in
+                            ShopCachedAsyncImage(url: url, maxPixelSize: 300) { phase in
                                 if let img = phase.image {
                                     img.resizable()
                                         .scaledToFit()
@@ -784,7 +787,7 @@ struct ShopCollectionCard: View {
                             HStack(spacing: 3) {
                                 ForEach(0..<min(thumbnails.count, 2), id: \.self) { idx in
                                     if let url = URL(string: thumbnails[idx]) {
-                                        AsyncImage(url: url) { phase in
+                                        ShopCachedAsyncImage(url: url, maxPixelSize: 200) { phase in
                                             if let img = phase.image {
                                                 img.resizable()
                                                     .scaledToFit()
@@ -976,7 +979,7 @@ struct ShopSavedProductCard: View {
                 Button(action: onTap) {
                     ZStack {
                         if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                            AsyncImage(url: url) { phase in
+                            ShopCachedAsyncImage(url: url) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image
@@ -990,9 +993,7 @@ struct ShopSavedProductCard: View {
                                         .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
                                         .frame(maxWidth: .infinity, maxHeight: 180)
                                 case .empty:
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .tint(.shopDark)
+                                    ShopSkeletonBlock(cornerRadius: 16)
                                         .frame(maxWidth: .infinity, maxHeight: 180)
                                 @unknown default:
                                     EmptyView()
@@ -1292,13 +1293,11 @@ struct AddToCollectionSheet: View {
                                             )
 
                                         if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
-                                            AsyncImage(url: url) { phase in
+                                            ShopCachedAsyncImage(url: url, maxPixelSize: 300) { phase in
                                                 if let img = phase.image {
                                                     img.resizable().scaledToFit().frame(width: 135, height: 135).clipped()
                                                 } else {
-                                                    Image(systemName: "shoe.fill")
-                                                        .font(.system(size: 28))
-                                                        .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                                                    ShopSkeletonBlock(cornerRadius: 14, width: 135, height: 135)
                                                 }
                                             }
                                         }

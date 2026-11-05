@@ -70,7 +70,7 @@ struct ProductDetailView: View {
                                     TabView(selection: $selectedImageIndex) {
                                         ForEach(Array(displayedImages.enumerated()), id: \.offset) { index, imgUrlString in
                                             if let url = URL(string: imgUrlString) {
-                                                AsyncImage(url: url) { phase in
+                                                ShopCachedAsyncImage(url: url, maxPixelSize: 1200) { phase in
                                                     if let image = phase.image {
                                                         image
                                                             .resizable()
@@ -79,9 +79,7 @@ struct ProductDetailView: View {
                                                             .frame(maxWidth: .infinity)
                                                             .padding(.vertical, 20)
                                                     } else {
-                                                        Rectangle()
-                                                            .fill(Color.shopSurface)
-                                                            .frame(height: 290)
+                                                        ShopSkeletonBlock(cornerRadius: 18, height: 290)
                                                             .frame(maxWidth: .infinity)
                                                     }
                                                 }
@@ -113,7 +111,7 @@ struct ProductDetailView: View {
                                     .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 1)
                                     .padding(.bottom, 12)
                                 } else if let firstImg = displayedImages.first ?? product.image_url, let url = URL(string: firstImg) {
-                                    AsyncImage(url: url) { phase in
+                                    ShopCachedAsyncImage(url: url, maxPixelSize: 1200) { phase in
                                         if let image = phase.image {
                                             image
                                                 .resizable()
@@ -122,9 +120,7 @@ struct ProductDetailView: View {
                                                 .frame(maxWidth: .infinity)
                                                 .padding(.vertical, 20)
                                         } else {
-                                            Rectangle()
-                                                .fill(Color.shopSurface)
-                                                .frame(height: 290)
+                                            ShopSkeletonBlock(cornerRadius: 18, height: 290)
                                                 .frame(maxWidth: .infinity)
                                         }
                                     }
@@ -226,11 +222,11 @@ struct ProductDetailView: View {
                                                     selectedImageIndex = idx
                                                 }
                                             }) {
-                                                AsyncImage(url: u) { phase in
+                                                ShopCachedAsyncImage(url: u, maxPixelSize: 200) { phase in
                                                     if let img = phase.image {
                                                         img.resizable().scaledToFit()
                                                     } else {
-                                                        Color.shopSurface
+                                                        ShopSkeletonBlock(cornerRadius: 8)
                                                     }
                                                 }
                                                 .frame(width: 54, height: 54)

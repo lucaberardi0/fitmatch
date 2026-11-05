@@ -71,16 +71,8 @@ struct StoreDetailView: View {
                         .padding(.bottom, 24)
 
                     if isLoading {
-                        VStack(spacing: 16) {
-                            ProgressView()
-                                .scaleEffect(1.2)
-                                .tint(Color(red: 24/255, green: 24/255, blue: 27/255))
-                            Text("Caricamento prodotti del negozio...")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.shopTextMuted)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 70)
+                        ShopStoreDetailSkeletonView()
+                            .transition(.opacity)
                     } else if let error = errorMessage {
                         errorStateView(error: error)
                     } else {
@@ -400,7 +392,7 @@ struct StoreDetailView: View {
                     .overlay(
                         Group {
                             if let urlStr = item.image_url, let url = URL(string: urlStr) {
-                                AsyncImage(url: url) { phase in
+                                ShopCachedAsyncImage(url: url) { phase in
                                     switch phase {
                                     case .success(let image):
                                         image
@@ -412,7 +404,7 @@ struct StoreDetailView: View {
                                             .font(.system(size: 36))
                                             .foregroundColor(.shopTextMuted.opacity(0.3))
                                     case .empty:
-                                        ProgressView().scaleEffect(0.8)
+                                        ShopSkeletonBlock(cornerRadius: 14)
                                     @unknown default:
                                         EmptyView()
                                     }
@@ -790,7 +782,7 @@ struct StoreInfoSheetView: View {
                     HStack(spacing: 10) {
                         ForEach(customerPhotos, id: \.self) { photoUrl in
                             if let url = URL(string: photoUrl) {
-                                AsyncImage(url: url) { phase in
+                                ShopCachedAsyncImage(url: url, maxPixelSize: 200) { phase in
                                     switch phase {
                                     case .success(let image):
                                         image
@@ -804,8 +796,7 @@ struct StoreInfoSheetView: View {
                                             .frame(width: 72, height: 72)
                                             .cornerRadius(12)
                                     case .empty:
-                                        ProgressView()
-                                            .frame(width: 72, height: 72)
+                                        ShopSkeletonBlock(cornerRadius: 12, width: 72, height: 72)
                                     @unknown default:
                                         EmptyView()
                                     }
