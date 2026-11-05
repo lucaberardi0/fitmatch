@@ -3,7 +3,10 @@ import time
 import logging
 from typing import Optional, Dict, Any, List
 import httpx
-import jwt
+try:
+    import jwt
+except ImportError:
+    jwt = None
 
 logger = logging.getLogger("fitmatch.push_service")
 
@@ -79,7 +82,7 @@ class APNsPushService:
 
     def _get_auth_token(self) -> Optional[str]:
         """Generates or reuses cached APNs provider bearer JWT (valid for 50 minutes)."""
-        if not self._private_key or not self.key_id or not self.team_id:
+        if jwt is None or not self._private_key or not self.key_id or not self.team_id:
             return None
 
         now = time.time()
