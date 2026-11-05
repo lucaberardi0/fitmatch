@@ -115,3 +115,28 @@ def test_padel_and_cycling_article_types(normalizer):
     assert normalizer.detect_article_type("Rullo Smart Tacx Flux 2") == "trainer"
     assert normalizer.detect_article_type("Wahoo Kickr V6 Smart Trainer") == "trainer"
 
+
+def test_iconic_model_brand_inference_and_cross_gender_clustering(normalizer):
+    """Ensure iconic models without explicit brand in title infer correct brand and cluster cross-store."""
+    # 1. Supernova Rise 3 without 'Adidas' in title
+    b1 = normalizer.extract_brand("Scarpe Supernova Rise 3 - Bianco")
+    assert b1 == "Adidas"
+
+    # 2. Cross-store clustering of Supernova Rise 3 between one store saying 'Uomo' and another saying nothing (Unisex)
+    o1 = Offer(store_id="store1", store_name="Cisalfa", title="Scarpe Corsa Uomo Adidas Supernova Rise 3", price=120.0, url="http://1")
+    o2 = Offer(store_id="store2", store_name="Mister Running", title="Supernova Rise 3 Scarpe Running", price=95.0, url="http://2")
+    groups = normalizer.group_offers([o1, o2])
+    assert len(groups) == 1
+    assert len(groups[0].offers) == 2
+    assert groups[0].best_price == 95.0
+    assert groups[0].cross_store_savings == 25.0
+
+    # 3. Super shoes (Adios Pro 4, Alphafly, etc.) cluster as unisex racing models
+    o3 = Offer(store_id="storeA", store_name="Decathlon", title="Scarpe running Adidas Adizero Adios Pro 4 donna", price=250.0, url="http://3")
+    o4 = Offer(store_id="storeB", store_name="Top4Running", title="Adidas Adizero Adios Pro 4 uomo", price=179.0, url="http://4")
+    groups_super = normalizer.group_offers([o3, o4])
+    assert len(groups_super) == 1
+    assert len(groups_super[0].offers) == 2
+    assert groups_super[0].cross_store_savings == 71.0
+
+

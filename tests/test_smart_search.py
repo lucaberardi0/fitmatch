@@ -37,3 +37,25 @@ def test_cycling_intent_categorization():
     assert intent.category == "cycling"
     assert intent.max_price == 600.0
 
+
+def test_marathon_smart_search_spec_comparisons():
+    intent = LocalHeuristicParser.parse("Scarpe da corsa per maratona")
+    assert intent.category == "running_shoes"
+    assert "racing" in intent.features
+    # Check domain narrative summary
+    assert "super scarpa da gara in carbonio" in intent.conversational_summary
+    # Check multi-brand candidate models expansion
+    assert any("adizero" in kw.lower() for kw in intent.target_keywords)
+    assert any("vaporfly" in kw.lower() for kw in intent.target_keywords)
+    # Check curated sections
+    section_titles = [s.title for s in intent.curated_sections]
+    assert "Super scarpe da gara" in section_titles
+    assert "Adidas Adizero per la maratona" in section_titles
+    # Check structured spec comparisons ("Come orientarsi" section)
+    assert len(intent.spec_comparisons) >= 2
+    adios_pro = next((sc for sc in intent.spec_comparisons if "Adios Pro" in sc.model_name), None)
+    assert adios_pro is not None
+    assert "Lightstrike Pro" in adios_pro.strengths
+    assert "Gara" in adios_pro.ideal_for
+
+

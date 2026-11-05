@@ -40,6 +40,13 @@ class SpotlightDef(BaseModel):
     highlights: List[str] = Field(default_factory=list)
 
 
+class SpecComparisonDef(BaseModel):
+    model_name: str
+    ideal_for: str
+    strengths: str
+    target_keyword: Optional[str] = None
+
+
 class SmartSearchIntent(BaseModel):
     raw_query: str
     search_mode: str = "deep_dive"  # "deep_dive" | "classic"
@@ -58,6 +65,7 @@ class SmartSearchIntent(BaseModel):
     chips: List[SmartSearchChip] = Field(default_factory=list)
     curated_sections: List[CuratedSectionDef] = Field(default_factory=list)
     spotlight: Optional[SpotlightDef] = None
+    spec_comparisons: List[SpecComparisonDef] = Field(default_factory=list)
     follow_up_suggestions: List[str] = Field(default_factory=list)
     source: str = "local_heuristic"
 
@@ -69,6 +77,7 @@ SPORTS_KNOWLEDGE = {
         "label": "Massimo Ammortizzamento & Protezione",
         "category": "running_shoes",
         "description": "Scarpe con massima protezione d'impatto per correre su asfalto, ideali per proteggere ginocchia, articolazioni e per pesi medi/elevati.",
+        "conversational_summary": "Per proteggere ginocchia e articolazioni su asfalto sceglierei modelli con **massimo ammortizzamento e protezione d'impatto**. Ecco le opzioni più confortevoli trovate a confronto:",
         "sections": [
             {
                 "id": "sec_max_cushion",
@@ -80,7 +89,27 @@ SPORTS_KNOWLEDGE = {
                 "id": "sec_daily_cushion",
                 "title": "Daily Trainer Confortevoli",
                 "subtitle": "Morbide e versatili per tutti gli allenamenti quotidiani e lunghe distanze.",
-                "keywords": ["glycerin", "clifton", "1080"]
+                "keywords": ["glycerin", "clifton", "1080", "triumph"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Asics Gel-Nimbus 26",
+                "ideal_for": "Massima protezione e ginocchia sensibili",
+                "strengths": "PureGEL e schiuma FF BLAST+ ECO",
+                "target_keyword": "nimbus"
+            },
+            {
+                "model_name": "Hoka Bondi 8",
+                "ideal_for": "Corse rigeneranti e impatti morbidi",
+                "strengths": "Maxi intersuola in schiuma EVA e tallone esteso",
+                "target_keyword": "bondi"
+            },
+            {
+                "model_name": "Brooks Glycerin 21",
+                "ideal_for": "Alti chilometraggi con calzata premium",
+                "strengths": "DNA LOFT v3 a infusione di azoto",
+                "target_keyword": "glycerin"
             }
         ],
         "spotlight": {
@@ -99,10 +128,11 @@ SPORTS_KNOWLEDGE = {
         ]
     },
     "daily_trainer": {
-        "models": ["nike pegasus", "brooks ghost", "asics cumulus", "saucony ride", "mizuno wave rider"],
+        "models": ["nike pegasus", "brooks ghost", "asics cumulus", "asics novablast", "saucony ride", "mizuno wave rider"],
         "label": "Daily Trainer Polivalente",
         "category": "running_shoes",
         "description": "Scarpe versatili e resistenti per tutti gli allenamenti quotidiani su asfalto a ritmo medio.",
+        "conversational_summary": "Per gli allenamenti quotidiani e chilometraggi versatili punterei su una **daily trainer solida e reattiva**. Ecco i modelli di riferimento con i migliori prezzi:",
         "sections": [
             {
                 "id": "sec_iconic_trainers",
@@ -114,7 +144,27 @@ SPORTS_KNOWLEDGE = {
                 "id": "sec_comfort_trainers",
                 "title": "Comfort & Flessibilità Quotidiana",
                 "subtitle": "Calzata morbida per corse facili, camminate e ritmi medi.",
-                "keywords": ["cumulus", "wave rider", "ride"]
+                "keywords": ["novablast", "cumulus", "wave rider", "ride"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Nike Pegasus 41",
+                "ideal_for": "Allenamenti quotidiani versatili",
+                "strengths": "Nuova schiuma ReactX e doppie unità Air Zoom",
+                "target_keyword": "pegasus"
+            },
+            {
+                "model_name": "Brooks Ghost 16",
+                "ideal_for": "Affidabilità, transizioni fluide e durata",
+                "strengths": "Intersuola DNA LOFT v3 e tomaia air mesh",
+                "target_keyword": "ghost"
+            },
+            {
+                "model_name": "Asics Novablast 4",
+                "ideal_for": "Ritmo allegro e corse divertenti",
+                "strengths": "Geometria a trampolino e FF BLAST+ ECO",
+                "target_keyword": "novablast"
             }
         ],
         "spotlight": {
@@ -133,37 +183,70 @@ SPORTS_KNOWLEDGE = {
         ]
     },
     "speed_race": {
-        "models": ["nike alphafly", "nike vaporfly", "nike zoom fly", "nike streakfly", "adidas adizero", "asics metaspeed", "asics magic speed", "saucony endorphin", "brooks hyperion", "hoka cielo"],
-        "label": "Velocità & Gara",
+        "models": ["adidas adizero", "nike vaporfly", "nike alphafly", "asics metaspeed", "saucony endorphin", "altra vanish carbon", "new balance fuelcell", "hoka cielo", "nike zoom fly", "brooks hyperion"],
+        "label": "Velocità & Maratona",
         "category": "running_shoes",
-        "description": "Modelli leggeri e reattivi con schiuma performante e/o piastra in carbonio per ritmo veloce e gare.",
+        "description": "Modelli leggeri e reattivi con schiuma performante e/o piastra in carbonio per ritmo veloce e maratona.",
+        "conversational_summary": "Per la maratona sceglierei tra una **super scarpa da gara in carbonio** e una **trainer più versatile per lunghi e preparazione**. Queste sono le opzioni più interessanti trovate disponibili per l’Italia:",
         "sections": [
             {
                 "id": "sec_carbon_race",
-                "title": "Super Scarpe con Piastra in Carbonio",
-                "subtitle": "Massimo ritorno energetico e propulsione per maratona e record personali.",
-                "keywords": ["alphafly", "vaporfly", "metaspeed", "adizero"]
+                "title": "Super scarpe da gara",
+                "subtitle": "Massima propulsione e ritorno di energia per il giorno della gara.",
+                "keywords": ["adizero", "adios", "vaporfly", "alphafly", "metaspeed", "vanish", "fuelcell", "cielo"]
             },
             {
-                "id": "sec_fast_tempo",
-                "title": "Scarpe Veloci & Allenamento a Ritmo",
-                "subtitle": "Reattività e leggerezza per ripetute, medi veloci e gare fino alla mezza.",
-                "keywords": ["zoom fly", "streakfly", "magic speed", "hyperion"]
+                "id": "sec_adizero_marathon",
+                "title": "Adidas Adizero per la maratona",
+                "subtitle": "Modelli da gara e allenamento veloce della linea Adizero.",
+                "keywords": ["adizero", "adios", "takumi", "boston"]
+            },
+            {
+                "id": "sec_long_preparation",
+                "title": "Per lunghi e preparazione",
+                "subtitle": "Più ammortizzazione e versatilità per accumulare chilometri.",
+                "keywords": ["nimbus", "endorphin", "superblast", "novablast", "clifton", "1080"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Adidas Adizero Adios Pro 4",
+                "ideal_for": "Gara e ritmi sostenuti",
+                "strengths": "Lightstrike Pro, Energyrods, rocker",
+                "target_keyword": "adizero"
+            },
+            {
+                "model_name": "Nike Vaporfly 4 / 3",
+                "ideal_for": "Runner leggeri ed elastici",
+                "strengths": "ZoomX e piastra Flyplate",
+                "target_keyword": "vaporfly"
+            },
+            {
+                "model_name": "Asics Metaspeed Sky Paris",
+                "ideal_for": "Runner ad ampia falcata",
+                "strengths": "Schiuma FF Turbo+ e piastra carbonio",
+                "target_keyword": "metaspeed"
+            },
+            {
+                "model_name": "Saucony Endorphin Pro 4",
+                "ideal_for": "Maratone e lunghi veloci costanti",
+                "strengths": "PWRRUN PB con piastra in fibra di carbonio",
+                "target_keyword": "endorphin"
             }
         ],
         "spotlight": {
-            "target_keyword": "alphafly",
-            "badge_text": "Scelta Record",
+            "target_keyword": "adizero",
+            "badge_text": "Scelta Pro Maratona",
             "highlights": [
-                "Piastra in fibra di carbonio a tutta lunghezza",
-                "Doppia capsula Zoom Air per spinta esplosiva",
-                "Miglior offerta multi-store tracciata"
+                "Energyrods per spinta esplosiva ad ogni falcata",
+                "Schiuma Lightstrike Pro ultra reattiva e leggera",
+                "Miglior prezzo confrontato tra più negozi partner"
             ]
         },
         "follow_ups": [
-            "Confronta Nike Alphafly e Vaporfly",
-            "Mostrami scarpe con piastra sotto 180 euro",
-            "Filtra per taglia 43"
+            "Confronta Adidas Adios Pro 4 e Nike Vaporfly 4",
+            "Trovami scarpe da maratona Adidas sotto 180 euro",
+            "Consigliami una scarpa per lunghi e maratona"
         ]
     },
     "trail_running": {
@@ -171,6 +254,7 @@ SPORTS_KNOWLEDGE = {
         "label": "Trail Running & Sterrato",
         "category": "running_shoes",
         "description": "Scarpe con tasselli e suola artigliata per sentieri, fango, sassi e montagna.",
+        "conversational_summary": "Per sentieri e montagna sceglierei tra una scarpa da **trail tecnico con suola aggressiva** e un modello polivalente **door-to-trail**. Ecco le opzioni più convenienti:",
         "sections": [
             {
                 "id": "sec_grip_trail",
@@ -183,6 +267,26 @@ SPORTS_KNOWLEDGE = {
                 "title": "Protezione Alpina & Stabilità",
                 "subtitle": "Tomaia rinforzata anti-roccia e stabilità per sentieri di montagna.",
                 "keywords": ["cascadia", "la sportiva", "xa pro"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Hoka Speedgoat 5 / 6",
+                "ideal_for": "Trail tecnici, fango e lunghe distanze",
+                "strengths": "Battistrada Vibram Megagrip e tasselli 5mm",
+                "target_keyword": "speedgoat"
+            },
+            {
+                "model_name": "Brooks Cascadia 17",
+                "ideal_for": "Sentieri montani sconnessi e rocce",
+                "strengths": "Trail Adapt System e piastra anti-roccia",
+                "target_keyword": "cascadia"
+            },
+            {
+                "model_name": "Salomon Pulsar Trail",
+                "ideal_for": "Ritmi veloci e sterrato scorrevole",
+                "strengths": "Energy Blade e battistrada All Terrain Contagrip",
+                "target_keyword": "salomon"
             }
         ],
         "spotlight": {
@@ -205,6 +309,7 @@ SPORTS_KNOWLEDGE = {
         "label": "GPS & Smartwatch",
         "category": "gps_watch",
         "description": "Dispositivi GPS, cardiofrequenzimetri e ciclocomputer per il monitoraggio della performance atletica.",
+        "conversational_summary": "Per monitorare passo, frequenza cardiaca e carico di allenamento ecco i **migliori smartwatch e cardiofrequenzimetri GPS**:",
         "sections": [
             {
                 "id": "sec_running_gps",
@@ -217,6 +322,26 @@ SPORTS_KNOWLEDGE = {
                 "title": "Outdoor, Triathlon & Mappe Topografiche",
                 "subtitle": "Costruzione ultra-robusta, ricarica solare e cartografia offline.",
                 "keywords": ["fenix", "instinct", "vantage", "edge"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Garmin Forerunner 165",
+                "ideal_for": "Runner e principianti evoluti",
+                "strengths": "Display AMOLED touch, piani Garmin Coach, 39g",
+                "target_keyword": "forerunner 165"
+            },
+            {
+                "model_name": "Garmin Forerunner 265",
+                "ideal_for": "Mezza maratona, maratona e triathlon",
+                "strengths": "GPS multi-banda, Training Readiness, musica",
+                "target_keyword": "forerunner 265"
+            },
+            {
+                "model_name": "Garmin Fenix 7 / Epix Pro",
+                "ideal_for": "Trail, ultramaratona e outdoor estremo",
+                "strengths": "Cassa in titanio, mappe offline, autonomia eccezionale",
+                "target_keyword": "fenix"
             }
         ],
         "spotlight": {
@@ -602,7 +727,7 @@ class LocalHeuristicParser:
                 if is_waterproof and category == "running_shoes":
                     target_keywords = [f"{m} gtx" for m in candidate_models[:3]] + candidate_models[:2]
                 else:
-                    target_keywords = candidate_models[:4]
+                    target_keywords = candidate_models[:8]
 
         # 7. Chips & Filter Representation
         chips = []
@@ -646,7 +771,7 @@ class LocalHeuristicParser:
             clean_subject = f"scarpe {detected_brand}"
 
         conversational_header = "Ho cercato prodotti"
-        conversational_summary = f"Ho trovato diverse **{clean_subject}**: dai modelli più versatili a quelli più performanti e ricercati, con prezzi e stili molto diversi."
+        conversational_summary = arch.get("conversational_summary") or f"Ho trovato diverse **{clean_subject}**: dai modelli più versatili a quelli più performanti e ricercati, con prezzi e stili molto diversi."
 
         # 10. Thematic Curated Sections & Spotlight
         curated_sections_raw = arch.get("sections", [])
@@ -658,6 +783,18 @@ class LocalHeuristicParser:
                 keywords=s.get("keywords", target_keywords[:2])
             )
             for s in curated_sections_raw
+        ]
+
+        # 11. Structured Comparative Spec Cards ("Come orientarsi" - Exact Shopify Shop style)
+        spec_comparisons_raw = arch.get("spec_comparisons", [])
+        spec_comparisons = [
+            SpecComparisonDef(
+                model_name=s["model_name"],
+                ideal_for=s["ideal_for"],
+                strengths=s["strengths"],
+                target_keyword=s.get("target_keyword")
+            )
+            for s in spec_comparisons_raw
         ]
 
         # Fashion / Custom query fallback sections if not standard sports archetype
@@ -692,6 +829,20 @@ class LocalHeuristicParser:
                     "Prezzo tra i più bassi nel nostro confronto"
                 ]
             )
+            spec_comparisons = [
+                SpecComparisonDef(
+                    model_name="Maison Margiela Replica",
+                    ideal_for="Stile quotidiano e silhouette senza tempo",
+                    strengths="Pelle d'agnello e suede con suola in gomma naturale",
+                    target_keyword="replica"
+                ),
+                SpecComparisonDef(
+                    model_name="Maison Margiela Tabi",
+                    ideal_for="Look iconico e avanguardia concettuale",
+                    strengths="Punta divisa a zoccolo giapponese in nappa morbida",
+                    target_keyword="tabi"
+                )
+            ]
             follow_ups = [
                 "Mostrami Maison Margiela nere taglia 42",
                 "Confronta Replica, Tabi e Future nere",
@@ -734,6 +885,7 @@ class LocalHeuristicParser:
             chips=chips,
             curated_sections=curated_sections,
             spotlight=spotlight_def,
+            spec_comparisons=spec_comparisons,
             follow_up_suggestions=follow_ups,
             source="local_heuristic"
         )
@@ -762,6 +914,11 @@ Il tuo obiettivo è analizzare la ricerca dell'utente e decidere:
      * subtitle: 1 riga descrittiva del perché questa categoria è speciale
      * keywords: array di 2 o 3 termini di ricerca per pescare i prodotti corretti
    - spotlight: Un prodotto di punta consigliato con badge ("15% di sconto" o "Miglior Scelta") e 3 bullet point descrittivi di valore.
+   - spec_comparisons: 2 o 3 modelli di punta con confronto tecnico strutturato per la sezione 'Come orientarsi' (stile Shop di Shopify), ciascuno con:
+     * model_name: nome commerciale esatto (es. "Adidas Adizero Adios Pro 4", "Nike Vaporfly 3")
+     * ideal_for: profilo di runner e contesto d'uso (es. "Gara e ritmi sostenuti", "Runner leggeri ed elastici")
+     * strengths: mescola dell'intersuola, presenza piastra, punti di forza tecnici (es. "Lightstrike Pro, Energyrods, rocker")
+     * target_keyword: parola chiave per associare il prodotto a catalogo (es. "adizero", "vaporfly")
    - follow_up_suggestions: 3 pulsanti pillola con domande di approfondimento coerenti (es. ["Mostrami Maison Margiela nere taglia 42", "Confronta Replica, Tabi e Future nere", "Mostrami solo opzioni sotto 700 euro"]).
    - chips: Filtri rapidi estratti (es. brand, prezzo, taglia, caratteristiche).
 
@@ -802,6 +959,14 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
       "Punto di forza 3"
     ]
   },
+  "spec_comparisons": [
+    {
+      "model_name": "Adidas Adizero Adios Pro 4",
+      "ideal_for": "Gara e ritmi sostenuti",
+      "strengths": "Lightstrike Pro, Energyrods, rocker",
+      "target_keyword": "adizero"
+    }
+  ],
   "follow_up_suggestions": [
     "Domanda di follow up 1",
     "Domanda di follow up 2",
@@ -939,6 +1104,18 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
                     if not isinstance(followups_list, list):
                         followups_list = []
 
+                    spec_list = parsed.get("spec_comparisons") or []
+                    spec_comparisons = [
+                        SpecComparisonDef(
+                            model_name=str(sc.get("model_name", "")),
+                            ideal_for=str(sc.get("ideal_for", "")),
+                            strengths=str(sc.get("strengths", "")),
+                            target_keyword=str(sc.get("target_keyword", "")) if sc.get("target_keyword") else None
+                        )
+                        for sc in spec_list
+                        if isinstance(sc, dict) and sc.get("model_name")
+                    ]
+
                     return SmartSearchIntent(
                         raw_query=user_query,
                         search_mode=search_mode,
@@ -957,6 +1134,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
                         chips=chips,
                         curated_sections=curated_sections,
                         spotlight=spotlight_obj,
+                        spec_comparisons=spec_comparisons,
                         follow_up_suggestions=followups_list,
                         source="openrouter"
                     )

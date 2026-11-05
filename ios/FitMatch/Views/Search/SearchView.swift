@@ -1,5 +1,11 @@
 import SwiftUI
 
+struct ComparisonPair: Identifiable {
+    var id: String { "\(modelA)_\(modelB)" }
+    let modelA: String
+    let modelB: String
+}
+
 struct SearchView: View {
     @StateObject private var api = APIService.shared
     @State private var searchText: String = ""
@@ -16,10 +22,15 @@ struct SearchView: View {
     @State private var conversationalHeader: String = "Ho cercato prodotti"
     @State private var conversationalSummary: String = ""
     @State private var curatedSections: [CuratedProductSection] = []
+    @State private var comparativeCards: [ComparativeSpecCard] = []
     @State private var spotlight: SpotlightRecommendation? = nil
     @State private var followUpSuggestions: [String] = []
     @State private var followUpInputText: String = ""
     @State private var userFeedback: Int? = nil // 1 for thumbs up, -1 for down
+
+    // Comparison Navigation State
+    @State private var comparisonModels: ComparisonPair? = nil
+    @State private var showComparisonSheet: Bool = false
 
     // Filters (Classic Search Mode)
     @State private var selectedFilterCountry: String? = nil // nil, "EU", "IT"
@@ -34,8 +45,9 @@ struct SearchView: View {
     @State private var showAiExplanation: Bool = false
     @State private var overrideMaxPrice: Double? = nil
 
-    // User Recent Activity
+    // User Recent Activity & Preferences
     @ObservedObject private var recentManager = RecentActivityManager.shared
+    @ObservedObject private var prefs = UserPreferencesManager.shared
     @State private var selectedRecentProduct: MatchedProduct? = nil
 
     enum SortMode: String, CaseIterable, Identifiable {
@@ -120,6 +132,11 @@ struct SearchView: View {
             }
             .navigationDestination(item: $selectedRecentProduct) { prod in
                 ProductDetailView(product: prod)
+            }
+            .sheet(isPresented: $showComparisonSheet) {
+                if let pair = comparisonModels {
+                    ModelCompareView(initialModelA: pair.modelA, initialModelB: pair.modelB)
+                }
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
@@ -453,11 +470,11 @@ struct SearchView: View {
                     .focused($isSearchFieldFocused)
                     .submitLabel(.search)
                     .onSubmit {
-                        executeSearch()
+                        handleSearchOrComparison(query: searchText)
                     }
 
                 Button(action: {
-                    executeSearch()
+                    handleSearchOrComparison(query: searchText)
                 }) {
                     Circle()
                         .fill(searchText.isEmpty ? Color(red: 235/255, green: 235/255, blue: 238/255) : Color.shopDark)
@@ -532,6 +549,7 @@ struct SearchView: View {
                         hasSearched = false
                         searchResults = []
                         curatedSections = []
+                        comparativeCards = []
                         spotlight = nil
                         followUpSuggestions = []
                         isSmartSearchActive = false
@@ -606,12 +624,40 @@ struct SearchView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
-                            // 1. Header: "Ho cercato prodotti" (Screenshot 1)
-                            Text(conversationalHeader)
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
-                                .padding(.horizontal, 18)
-                                .padding(.top, 8)
+                            // 1. Header: "Ho cercato prodotti >" (Screenshot 1)
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showAiExplanation.toggle()
+                                }
+                            }) {
+                                HStack(spacing: 4) {
+                                    Text(conversationalHeader)
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                                        .rotationEffect(.degrees(showAiExplanation ? 90 : 0))
+                                }
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .padding(.horizontal, 18)
+                            .padding(.top, 8)
+
+                            if showAiExplanation && !activeChips.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(activeChips) { chip in
+                                            ShopSearchChipView(chip: chip) {
+                                                removeChip(chip)
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal, 18)
+                                    .padding(.vertical, 2)
+                                }
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
 
                             // 2. Conversational Narrative Paragraph (Screenshot 1)
                             if !conversationalSummary.isEmpty {
@@ -679,7 +725,37 @@ struct SearchView: View {
                                 .padding(.top, 8)
                             }
 
-                            // 4. Spotlight / Best Deal Card (Screenshot 3)
+                            // 4. Comparative Spec Cards ("Come orientarsi" - Screenshot 3)
+                            if !comparativeCards.isEmpty {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Come orientarsi")
+                                        .font(.system(size: 18.5, weight: .bold))
+                                        .foregroundColor(.shopDark)
+                                        .padding(.horizontal, 18)
+
+                                    Text("La scelta dipende soprattutto da esperienza, ritmo e tipo di corsa")
+                                        .font(.system(size: 12.5, weight: .regular))
+                                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                                        .padding(.horizontal, 18)
+                                        .padding(.bottom, 4)
+
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(alignment: .top, spacing: 14) {
+                                            ForEach(comparativeCards) { card in
+                                                ShopComparativeCard(card: card) {
+                                                    selectedRecentProduct = card.product
+                                                }
+                                            }
+                                        }
+                                        .padding(.horizontal, 18)
+                                        .padding(.vertical, 4)
+                                    }
+                                }
+                                .padding(.top, 10)
+                                .id("comparative_section")
+                            }
+
+                            // 5. Spotlight / Best Deal Card (Screenshot 3)
                             if let spot = spotlight {
                                 VStack(alignment: .leading, spacing: 6) {
                                     ShopSpotlightCardView(spotlight: spot) {
@@ -696,8 +772,7 @@ struct SearchView: View {
                                 VStack(alignment: .leading, spacing: 10) {
                                     ForEach(followUpSuggestions, id: \.self) { suggestion in
                                         ShopFollowUpPillButton(title: suggestion) {
-                                            searchText = suggestion
-                                            executeSearch()
+                                            handleSearchOrComparison(query: suggestion)
                                         }
                                     }
                                 }
@@ -1035,6 +1110,24 @@ struct SearchView: View {
 
                     // "Taglia ▾" Dropdown Menu
                     Menu {
+                        let prefSize = prefs.preferences.preferredShoeSize
+                        if !prefSize.isEmpty {
+                            Button(action: {
+                                withAnimation {
+                                    selectedSize = prefSize
+                                    executeSearch()
+                                }
+                            }) {
+                                HStack {
+                                    Text("La tua taglia: EU \(prefSize)")
+                                    if selectedSize == prefSize {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            Divider()
+                        }
+
                         ForEach(availableSizes, id: \.self) { sz in
                             Button(action: {
                                 withAnimation {
@@ -1199,9 +1292,59 @@ struct SearchView: View {
     private func sendFollowUp() {
         let text = followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        searchText = text
         followUpInputText = ""
+        handleSearchOrComparison(query: text)
+    }
+
+    private func handleSearchOrComparison(query: String) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        if let (mA, mB) = parseComparisonQuery(trimmed) {
+            let impact = UIImpactFeedbackGenerator(style: .medium)
+            impact.impactOccurred()
+            comparisonModels = ComparisonPair(modelA: mA, modelB: mB)
+            showComparisonSheet = true
+            return
+        }
+
+        searchText = trimmed
         executeSearch()
+    }
+
+    private func parseComparisonQuery(_ text: String) -> (String, String)? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Pattern 1: "Confronta ModelA e ModelB" / "Compara ModelA con ModelB"
+        let pattern1 = #"(?i)^(?:confronta|compara)\s+(.+?)\s+(?:e|ed|con|contro|vs\.?)\s+(.+)$"#
+        if let regex1 = try? NSRegularExpression(pattern: pattern1),
+           let match = regex1.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+           match.numberOfRanges >= 3 {
+            if let r1 = Range(match.range(at: 1), in: trimmed),
+               let r2 = Range(match.range(at: 2), in: trimmed) {
+                let first = String(trimmed[r1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let second = String(trimmed[r2]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !first.isEmpty && !second.isEmpty {
+                    return (first, second)
+                }
+            }
+        }
+
+        // Pattern 2: "ModelA vs ModelB" / "ModelA vs. ModelB"
+        let pattern2 = #"(?i)^(.+?)\s+vs\.?\s+(.+)$"#
+        if let regex2 = try? NSRegularExpression(pattern: pattern2),
+           let match = regex2.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+           match.numberOfRanges >= 3 {
+            if let r1 = Range(match.range(at: 1), in: trimmed),
+               let r2 = Range(match.range(at: 2), in: trimmed) {
+                let first = String(trimmed[r1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let second = String(trimmed[r2]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !first.isEmpty && !second.isEmpty {
+                    return (first, second)
+                }
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Search Execution
@@ -1229,6 +1372,7 @@ struct SearchView: View {
                     self.activeChips = smartRes.chips ?? []
                     self.searchResults = smartRes.results
                     self.curatedSections = smartRes.curated_sections ?? []
+                    self.comparativeCards = smartRes.comparative_cards ?? []
                     self.spotlight = smartRes.spotlight
                     self.followUpSuggestions = smartRes.follow_up_suggestions ?? []
                     self.conversationalHeader = smartRes.conversational_header ?? "Ho cercato \(query)"
@@ -1293,6 +1437,34 @@ struct SearchView: View {
     }
 }
 
+// MARK: - Active Filter Chip View
+struct ShopSearchChipView: View {
+    let chip: SmartSearchChip
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(chip.label)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundColor(.shopDark)
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(red: 243/255, green: 243/255, blue: 245/255))
+        .cornerRadius(14)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        )
+    }
+}
+
 // MARK: - Horizontal Themed Carousel Card (Screenshots 1 & 2)
 struct ShopThemedCarouselCard: View {
     let product: MatchedProduct
@@ -1306,11 +1478,29 @@ struct ShopThemedCarouselCard: View {
         product.offers.max(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
     }
 
-    var discountBadge: String? {
-        if let best = bestOffer, let disc = best.discount_pct, disc > 5 {
-            return "\(disc)% di sconto"
+    var referenceOriginalPrice: Double? {
+        if let best = bestOffer, let orig = best.original_price, orig > best.calculatedTotalPrice + 1 {
+            return orig
         }
-        if let sav = product.cross_store_savings, sav > 10 {
+        if let max = maxOffer, let best = bestOffer, max.calculatedTotalPrice > best.calculatedTotalPrice + 2 {
+            return max.calculatedTotalPrice
+        }
+        return nil
+    }
+
+    var discountBadge: String? {
+        if let best = bestOffer {
+            if let disc = best.discount_pct, disc >= 5 {
+                return "\(disc)% di sconto"
+            }
+            if let orig = best.original_price, orig > best.calculatedTotalPrice + 1 {
+                let pct = Int(round((orig - best.calculatedTotalPrice) / orig * 100))
+                if pct >= 5 {
+                    return "\(pct)% di sconto"
+                }
+            }
+        }
+        if let sav = product.cross_store_savings, sav >= 10 {
             return "Risparmia \(Int(sav)) €"
         }
         return nil
@@ -1382,8 +1572,8 @@ struct ShopThemedCarouselCard: View {
                             .font(.system(size: 13.5, weight: .heavy))
                             .foregroundColor(.shopDark)
 
-                        if let max = maxOffer, max.calculatedTotalPrice > best.calculatedTotalPrice + 2 {
-                            Text(String(format: "€ %.2f", max.calculatedTotalPrice))
+                        if let orig = referenceOriginalPrice {
+                            Text(String(format: "€ %.2f", orig))
                                 .font(.system(size: 11.5))
                                 .strikethrough()
                                 .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
@@ -1392,6 +1582,187 @@ struct ShopThemedCarouselCard: View {
                 }
             }
             .frame(width: 152)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Comparative Spec Card ("Come orientarsi" - Screenshot 3)
+struct ShopComparativeCard: View {
+    let card: ComparativeSpecCard
+    let onTap: () -> Void
+
+    var bestOffer: Offer? {
+        card.product.offers.min(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+    }
+
+    var maxOffer: Offer? {
+        card.product.offers.max(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+    }
+
+    var referenceOriginalPrice: Double? {
+        if let best = bestOffer, let orig = best.original_price, orig > best.calculatedTotalPrice + 1 {
+            return orig
+        }
+        if let max = maxOffer, let best = bestOffer, max.calculatedTotalPrice > best.calculatedTotalPrice + 2 {
+            return max.calculatedTotalPrice
+        }
+        return nil
+    }
+
+    var discountBadge: String? {
+        if let best = bestOffer {
+            if let disc = best.discount_pct, disc >= 5 {
+                return "\(disc)% di sconto"
+            }
+            if let orig = best.original_price, orig > best.calculatedTotalPrice + 1 {
+                let pct = Int(round((orig - best.calculatedTotalPrice) / orig * 100))
+                if pct >= 5 {
+                    return "\(pct)% di sconto"
+                }
+            }
+        }
+        if let sav = card.product.cross_store_savings, sav >= 10 {
+            return "Risparmia \(Int(sav)) €"
+        }
+        return nil
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 10) {
+                // 1. Top Image with Discount Badge & Translucent Heart Button
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
+                        .frame(width: 200, height: 150)
+
+                    if let imgUrl = card.product.image_url, let url = URL(string: imgUrl) {
+                        ShopCachedAsyncImage(url: url, maxPixelSize: 400) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 200, height: 150)
+                                    .cornerRadius(16)
+                            case .empty:
+                                ShopSkeletonBlock(cornerRadius: 16, width: 200, height: 150)
+                            default:
+                                Image(systemName: "photo")
+                                    .foregroundColor(.gray.opacity(0.35))
+                                    .frame(width: 200, height: 150)
+                            }
+                        }
+                    }
+
+                    if let badge = discountBadge {
+                        Text(badge)
+                            .font(.system(size: 9.5, weight: .heavy))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(Color(red: 215/255, green: 40/255, blue: 40/255))
+                            .cornerRadius(6)
+                            .padding(8)
+                    }
+
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            ShopTranslucentHeartButton(product: card.product)
+                                .padding(8)
+                        }
+                    }
+                    .frame(width: 200, height: 150)
+                }
+                .frame(width: 200, height: 150)
+
+                // 2. Merchant & Title & Price (with Strikethrough & Multi-Store Count)
+                VStack(alignment: .leading, spacing: 3) {
+                    if let best = bestOffer {
+                        HStack(spacing: 4) {
+                            Text(best.store_name)
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                                .lineLimit(1)
+                            if card.product.offers.count > 1 {
+                                Text("• \(card.product.offers.count) negozi")
+                                    .font(.system(size: 10.5, weight: .bold))
+                                    .foregroundColor(.shopPurple)
+                            }
+                        }
+                    }
+
+                    Text(card.product.displayTitle)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.shopDark)
+                        .lineLimit(1)
+
+                    if let best = bestOffer {
+                        HStack(spacing: 6) {
+                            Text(String(format: "€ %.2f", best.calculatedTotalPrice))
+                                .font(.system(size: 13.5, weight: .heavy))
+                                .foregroundColor(.shopDark)
+
+                            if let orig = referenceOriginalPrice {
+                                Text(String(format: "€ %.2f", orig))
+                                    .font(.system(size: 11.5))
+                                    .strikethrough()
+                                    .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                            }
+                        }
+                    }
+                }
+                .frame(width: 200, alignment: .leading)
+
+                Divider()
+                    .padding(.vertical, 2)
+
+                // 3. Structured Technical Specs (Modello, Ideale Per, Punto Forte - Screenshot 3)
+                VStack(alignment: .leading, spacing: 7) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Modello")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                        Text(card.model_name)
+                            .font(.system(size: 12.5, weight: .bold))
+                            .foregroundColor(.shopDark)
+                            .lineLimit(1)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Ideale Per")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                        Text(card.ideal_for)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(.shopDark)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Punto Forte")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                        Text(card.strengths)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.shopDark)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(width: 200, alignment: .leading)
+            }
+            .padding(12)
+            .background(Color.white)
+            .cornerRadius(18)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 3)
         }
         .buttonStyle(PlainButtonStyle())
     }

@@ -15,6 +15,7 @@ from fitmatch.models import SearchResult
 from fitmatch.scrapers.registry import ScraperRegistry
 from fitmatch.push_service import APNsPushService
 from fitmatch.price_drop_watcher import PriceDropWatcher
+from fitmatch.matcher.normalizer import ProductNormalizer
 
 logger = logging.getLogger("fitmatch.api")
 
@@ -193,49 +194,66 @@ def search_smart(
     if not products:
         brand_names = {"nike", "adidas", "puma", "asics", "brooks", "saucony", "hoka", "mizuno", "on", "new balance", "salomon", "garmin"}
         candidate_kws = [k for k in (intent.target_keywords or []) if k.strip().lower() not in brand_names]
-        if candidate_kws:
-            live_kw = f"{intent.brand} {candidate_kws[0]}" if intent.brand and intent.brand.lower() not in candidate_kws[0].lower() else candidate_kws[0]
-        else:
-            live_kw = q
-        logger.info(f"[search_smart] 0 local products for '{q}'. Triggering live multi-store crawler for '{live_kw}'")
-        try:
-            live_res = service.search_and_compare(query=live_kw, size=eff_size, limit_per_store=8, use_cache=True)
-            if live_res.matched_products:
-                products = [
-                    {
-                        "id": mp.canonical_name,
-                        "canonical_name": mp.canonical_name,
-                        "brand": mp.brand or intent.brand,
-                        "category": eff_category or "running_shoes",
-                        "gender": intent.gender or "Unisex",
-                        "image_url": mp.image_url,
-                        "gallery_images": mp.gallery_images,
-                        "offer_count": len(mp.offers),
-                        "best_price": mp.best_price,
-                        "max_price": mp.highest_price,
-                        "offers": [o.model_dump() for o in mp.offers],
-                        "highest_price": mp.highest_price,
-                        "cross_store_savings": mp.cross_store_savings
-                    }
-                    for mp in live_res.matched_products
-                ]
-                # Index into database so future searches are cached
-                try:
-                    for mp in live_res.matched_products:
+        queries_to_crawl = candidate_kws[:3] if len(candidate_kws) >= 2 else ([candidate_kws[0]] if candidate_kws else [q])
+        logger.info(f"[search_smart] 0 local products for '{q}'. Triggering fan-out live multi-store crawler for {queries_to_crawl}")
+        
+        from concurrent.futures import ThreadPoolExecutor
+        def _crawl_kw(kw: str):
+            eff_kw = f"{intent.brand} {kw}" if intent.brand and intent.brand.lower() not in kw.lower() else kw
+            try:
+                return service.search_and_compare(query=eff_kw, size=eff_size, limit_per_store=6, use_cache=True)
+            except Exception as e:
+                logger.error(f"[search_smart] Live crawl federation error for '{eff_kw}': {e}")
+                return None
+
+        with ThreadPoolExecutor(max_workers=min(3, len(queries_to_crawl))) as executor:
+            crawl_results = list(executor.map(_crawl_kw, queries_to_crawl))
+
+        merged_prods = {}
+        for live_res in crawl_results:
+            if not live_res or not live_res.matched_products:
+                continue
+            for mp in live_res.matched_products:
+                if mp.canonical_name not in merged_prods:
+                    merged_prods[mp.canonical_name] = mp
+                    # Index into database so future searches are cached
+                    try:
                         for off in mp.offers:
-                            cluster_key = f"{mp.canonical_name.lower()} [{eff_category or 'running_shoes'}] [{intent.gender or 'Unisex'}]"
+                            cluster_key = ProductNormalizer.extract_cluster_key(off)
+                            brand = ProductNormalizer.extract_brand(off.title) or mp.brand or intent.brand
+                            clean_t, _ = ProductNormalizer.clean_title(off.title, brand=brand)
+                            cat = ProductNormalizer.detect_article_type(off.title)
+                            gend = ProductNormalizer.extract_gender(off.title, off.url)
                             db.upsert_product_and_offer(
                                 cluster_key=cluster_key,
-                                canonical_name=mp.canonical_name,
-                                brand=mp.brand or intent.brand,
-                                category=eff_category or "running_shoes",
-                                gender=intent.gender or "Unisex",
+                                canonical_name=clean_t or mp.canonical_name,
+                                brand=brand,
+                                category=cat,
+                                gender=gend,
                                 offer=off
                             )
-                except Exception as save_err:
-                    logger.warning(f"[search_smart] Failed to cache live offers: {save_err}")
-        except Exception as e:
-            logger.error(f"[search_smart] Live crawl federation error: {e}")
+                    except Exception as save_err:
+                        logger.warning(f"[search_smart] Failed to cache live offers: {save_err}")
+
+        if merged_prods:
+            products = [
+                {
+                    "id": mp.canonical_name,
+                    "canonical_name": mp.canonical_name,
+                    "brand": mp.brand or intent.brand,
+                    "category": eff_category or "running_shoes",
+                    "gender": intent.gender or "Unisex",
+                    "image_url": mp.image_url,
+                    "gallery_images": mp.gallery_images,
+                    "offer_count": len(mp.offers),
+                    "best_price": mp.best_price,
+                    "max_price": mp.highest_price,
+                    "offers": [o.model_dump() for o in mp.offers],
+                    "highest_price": mp.highest_price,
+                    "cross_store_savings": mp.cross_store_savings
+                }
+                for mp in merged_prods.values()
+            ]
 
     # Curate Thematic Carousels for AI Deep Dive
     curated_sections_out = []
@@ -254,6 +272,16 @@ def search_smart(
                     used_product_ids.add(p.get("id"))
                 if len(sec_prods) >= 8:
                     break
+
+            # Fallback: if section has 0 products with strict unused check, allow best keyword matches
+            if not sec_prods and sec_kws:
+                for p in products:
+                    name_lower = (p.get("canonical_name") or "").lower()
+                    brand_lower = (p.get("brand") or "").lower()
+                    if any(k in name_lower or k in brand_lower for k in sec_kws):
+                        sec_prods.append(p)
+                    if len(sec_prods) >= 4:
+                        break
 
             # Fallback if specific keywords yielded few items: pull unassigned products
             if len(sec_prods) < 2:
@@ -280,6 +308,34 @@ def search_smart(
             "subtitle": "I migliori prodotti trovati in base alla tua ricerca.",
             "products": products[:8]
         })
+
+    # Populate Comparative Spec Cards ("Come orientarsi" section matching Shopify Shop)
+    comparative_cards_out = []
+    if intent.spec_comparisons:
+        for spec in intent.spec_comparisons:
+            target_kw = (spec.target_keyword or spec.model_name).lower()
+            # 1. Match from already loaded products
+            matched_spec_prod = next(
+                (p for p in products if target_kw in (p.get("canonical_name") or "").lower() or any(w in (p.get("canonical_name") or "").lower() for w in target_kw.split() if len(w) > 3)),
+                None
+            )
+            # 2. If not found in current products, query DB specifically for this model
+            if not matched_spec_prod:
+                try:
+                    db_spec_prods = db.search_indexed(query=spec.target_keyword or spec.model_name, category=eff_category, limit=1)
+                    if db_spec_prods:
+                        matched_spec_prod = db_spec_prods[0]
+                except Exception:
+                    pass
+
+            if matched_spec_prod:
+                comparative_cards_out.append({
+                    "product": matched_spec_prod,
+                    "model_name": spec.model_name,
+                    "ideal_for": spec.ideal_for,
+                    "strengths": spec.strengths,
+                    "section_title": "Come orientarsi"
+                })
 
     # Populate Spotlight Deal / Best Pick Card
     spotlight_out = None
@@ -313,6 +369,7 @@ def search_smart(
         "conversational_header": intent.conversational_header,
         "conversational_summary": intent.conversational_summary,
         "curated_sections": curated_sections_out,
+        "comparative_cards": comparative_cards_out,
         "spotlight": spotlight_out,
         "follow_up_suggestions": intent.follow_up_suggestions,
         "chips": [c.model_dump() for c in intent.chips],
@@ -415,6 +472,16 @@ def trigger_scheduler_discovery(limit_per_store: int = Query(200, ge=10, le=1000
 def trigger_scheduler_refresh(limit: int = Query(50, ge=10, le=500)):
     """Trigger an immediate price & stock refresh for indexed products in background."""
     return scheduler.trigger_refresh_now(limit=limit)
+
+
+@app.post("/api/catalog/recluster")
+def trigger_catalog_recluster(background_tasks: BackgroundTasks):
+    """Trigger autonomous entity resolution and catalog re-clustering across all stores in background."""
+    background_tasks.add_task(scheduler.run_reclustering_task)
+    return {
+        "status": "started",
+        "message": "Re-clustering catalogo e unificazione multinegozio avviata in background."
+    }
 
 
 @app.get("/api/updater/status")

@@ -43,6 +43,50 @@ BRAND_ALIASES = {
     "kalenji": "Kalenji"
 }
 
+ICONIC_MODEL_BRANDS = {
+    # Adidas
+    "supernova": "Adidas", "adizero": "Adidas", "adios": "Adidas", "boston": "Adidas",
+    "takumi": "Adidas", "terrex": "Adidas", "ultraboost": "Adidas", "sl20": "Adidas",
+    # Nike
+    "pegasus": "Nike", "vomero": "Nike", "alphafly": "Nike", "vaporfly": "Nike",
+    "invincible": "Nike", "streakfly": "Nike", "infinity": "Nike", "wildhorse": "Nike",
+    "zegama": "Nike", "metcon": "Nike",
+    # Asics
+    "nimbus": "Asics", "cumulus": "Asics", "kayano": "Asics", "novablast": "Asics",
+    "superblast": "Asics", "metaspeed": "Asics", "magic speed": "Asics", "trabuco": "Asics",
+    "gt-2000": "Asics", "gt-1000": "Asics",
+    # Brooks
+    "ghost": "Brooks", "glycerin": "Brooks", "adrenaline": "Brooks", "hyperion": "Brooks",
+    "cascadia": "Brooks", "launch": "Brooks", "catamount": "Brooks", "caldera": "Brooks",
+    # Hoka
+    "clifton": "Hoka", "bondi": "Hoka", "speedgoat": "Hoka", "mach": "Hoka",
+    "arahi": "Hoka", "challenger": "Hoka", "cielo": "Hoka", "rocket x": "Hoka",
+    # Saucony
+    "endorphin": "Saucony", "triumph": "Saucony", "ride": "Saucony", "guide": "Saucony",
+    "kinvara": "Saucony", "peregrine": "Saucony", "tempus": "Saucony",
+    # Mizuno
+    "wave rider": "Mizuno", "wave inspire": "Mizuno", "wave rebellion": "Mizuno", "wave sky": "Mizuno",
+    # On
+    "cloudmonster": "On", "cloudsurfer": "On", "cloudrunner": "On", "cloudflow": "On",
+    "cloudboom": "On", "cloudstratus": "On",
+    # New Balance
+    "fuelcell": "New Balance", "fresh foam": "New Balance", "hierro": "New Balance",
+    "sc elite": "New Balance", "supercomp": "New Balance",
+    # Garmin
+    "forerunner": "Garmin", "fenix": "Garmin", "epix": "Garmin", "instinct": "Garmin",
+    "venu": "Garmin", "vivoactive": "Garmin", "edge": "Garmin",
+    # Polar
+    "vantage": "Polar", "grit x": "Polar", "pacer": "Polar", "ignite": "Polar",
+    # Salomon
+    "speedcross": "Salomon", "sense ride": "Salomon", "pulsar": "Salomon", "xa pro": "Salomon",
+    # Oakley
+    "sutro": "Oakley", "radar": "Oakley", "jawbreaker": "Oakley", "encoder": "Oakley",
+    # Bullpadel
+    "hack": "Bullpadel", "vertex": "Bullpadel", "flow": "Bullpadel", "indiga": "Bullpadel",
+    # Wahoo / Tacx
+    "kickr": "Wahoo", "elemnt": "Wahoo", "flux": "Tacx", "neo": "Tacx"
+}
+
 ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
     ("case", [
         r"\bcustodi[ae]\b", r"\bcases?\b", r"\bcovers?\b", r"\bhousse\b",
@@ -110,6 +154,7 @@ STOPWORDS = {
     "pistola", "massaggi", "stimolatore", "muscolare",
     "maglietta", "maglia", "pantaloni", "pantaloncini", "shorts", "tights", "giacca", "canotta",
     "custodia", "silicone", "housse", "cover", "pack", "bundle", "kit", "cinturino", "strap",
+    "performance", "sportswear", "originals", "athletics", "athletic", "road",
     "per", "di", "con", "e", "the", "in", "de", "ed", "da", "a", "la", "il", "le", "un", "una",
     "senza", "maniche", "nero", "grigio", "bianco", "rosso", "blu", "giallo", "fluor", "verde",
     "silver", "white", "black", "grey", "anthracite", "smoke", "core"
@@ -149,7 +194,24 @@ class ProductNormalizer:
         lower_title = title.lower()
         for b in sorted(KNOWN_BRANDS, key=len, reverse=True):
             if re.search(rf"\b{re.escape(b)}\b", lower_title):
+                if b == "scarpa":
+                    # Disambiguate Italian noun 'scarpa' (shoe) from Italian mountaineering brand SCARPA S.p.A.
+                    scarpa_models = {
+                        "ribelle", "mojito", "spin", "golden gate", "mescalito", "atom", "chimera",
+                        "drago", "phantom", "zen", "boostic", "instinct", "marmolada", "rapid", "rush",
+                        "kinesis", "maestrale", "alien"
+                    }
+                    is_real_scarpa = any(m in lower_title for m in scarpa_models) or any(
+                        w in lower_title for w in ("arrampicata", "alpinismo", "climbing", "scarpette", "scarponi")
+                    )
+                    if not is_real_scarpa:
+                        continue
                 return BRAND_ALIASES.get(b, b.title())
+
+        # Fallback to iconic model mapping if brand was omitted from title
+        for model_sub, brand_name in ICONIC_MODEL_BRANDS.items():
+            if re.search(rf"\b{re.escape(model_sub)}\b", lower_title):
+                return brand_name
 
         return existing_brand.capitalize() if existing_brand else None
 
@@ -166,10 +228,29 @@ class ProductNormalizer:
     @classmethod
     def clean_title(cls, title: str, brand: Optional[str] = None) -> Tuple[str, Optional[str]]:
         """Splits off colorway/descriptions and strips noise words while preserving model version."""
-        # Split on dash, pipe or slash that separates model from color description
-        parts = re.split(r"\s+[-–—|]\s+", title, maxsplit=1)
+        # Split on dash, pipe or slash that separates model from color description or category breadcrumb
+        parts = re.split(r"\s+[-–—|]\s+", title)
         base = parts[0]
-        colorway = parts[1].strip() if len(parts) > 1 else None
+        colorway = parts[-1].strip() if len(parts) > 1 else None
+
+        # Check if parts[0] is just a generic category breadcrumb (e.g. Decathlon: "ASICS Scarpe da Running – Novablast 5")
+        if len(parts) > 1:
+            generic_words = STOPWORDS.union({"running", "corsa", "trail", "asics", "nike", "adidas", "mizuno", "brooks", "hoka", "altra", "new", "balance", "saucony", "on"})
+            tokens_0 = set(re.findall(r"\b[a-zA-Z0-9]+\b", parts[0].lower()))
+            if tokens_0.issubset(generic_words):
+                best_part = None
+                for p in parts[1:]:
+                    p_toks = set(re.findall(r"\b[a-zA-Z0-9]+\b", p.lower()))
+                    non_stop = p_toks - STOPWORDS
+                    if non_stop:
+                        if re.search(r"\d", p) or any(k in p.lower() for k in ICONIC_MODEL_BRANDS):
+                            best_part = p
+                            break
+                        elif best_part is None:
+                            best_part = p
+                if best_part:
+                    base = best_part
+                    colorway = parts[0].strip()
 
         text = base.lower()
         text = re.sub(r"\(.*?\)", "", text)
@@ -233,12 +314,31 @@ class ProductNormalizer:
                     model_parts.append(nxt)
                     i += 1
                     break
-            elif len(model_parts) >= 3:
+            elif len(model_parts) >= 4:
                 break
             i += 1
 
         model_key = " ".join(model_parts).strip() if model_parts else "general"
-        return f"{brand.lower()} {model_key} [{art_type}] [{gender}]"
+
+        # Devices, electronics, eyewear, cycling trainers, rackets & gear are genderless
+        if art_type in ("gear", "eyewear", "racket", "trainer", "sensor", "mount", "case", "strap", "pack"):
+            return f"{brand.lower()} {model_key} [{art_type}]"
+
+        # Racing super-shoes (e.g. adios pro, alphafly, vaporfly, metaspeed, cielo, vanish, endorphin elite, sc elite)
+        # are inherently unisex models with identical specs across genders
+        is_racing_super_shoe = any(
+            rw in model_key.lower() for rw in ("adios pro", "alphafly", "vaporfly", "metaspeed", "cielo", "vanish", "endorphin elite", "sc elite")
+        )
+        if is_racing_super_shoe:
+            return f"{brand.lower()} {model_key} [{art_type}]"
+
+        # Standard adult shoes: bridge 'Unisex' and 'Uomo' into standard adult cluster
+        # (while preserving distinct 'Donna' and 'Junior' if women/kids specific)
+        cluster_gender = gender
+        if cluster_gender in ("Unisex", "Uomo"):
+            cluster_gender = "Adult"
+
+        return f"{brand.lower()} {model_key} [{art_type}] [{cluster_gender}]"
 
     @classmethod
     def partition_by_price_sanity(cls, cluster_offers: List[Offer]) -> List[List[Offer]]:

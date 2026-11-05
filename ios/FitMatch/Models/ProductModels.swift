@@ -728,6 +728,17 @@ struct SpotlightRecommendation: Codable, Hashable {
     let highlights: [String]
 }
 
+struct ComparativeSpecCard: Identifiable, Codable, Hashable {
+    var id: String {
+        "\(product.id)_\(model_name)"
+    }
+    let product: MatchedProduct
+    let model_name: String
+    let ideal_for: String
+    let strengths: String
+    let section_title: String?
+}
+
 struct SmartSearchIntent: Codable, Hashable {
     let raw_query: String
     let search_mode: String?
@@ -750,6 +761,7 @@ struct SmartSearchResponse: Codable {
     let conversational_header: String?
     let conversational_summary: String?
     let curated_sections: [CuratedProductSection]?
+    let comparative_cards: [ComparativeSpecCard]?
     let spotlight: SpotlightRecommendation?
     let follow_up_suggestions: [String]?
     let intent: SmartSearchIntent?

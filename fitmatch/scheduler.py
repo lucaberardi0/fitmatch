@@ -145,6 +145,13 @@ class SyncScheduler:
                 f"[SyncScheduler] Catalog discovery completed: {res.get('total_crawled')} items "
                 f"in {res.get('duration_seconds')}s."
             )
+
+            # Automated post-discovery reconciliation & entity re-clustering
+            try:
+                self.run_reclustering_task()
+            except Exception as rc_err:
+                logger.warning(f"[SyncScheduler] Post-discovery recluster warning: {rc_err}")
+
             return self.last_discovery_stats
         except Exception as e:
             logger.error(f"[SyncScheduler] Error during catalog discovery: {e}")
@@ -239,6 +246,18 @@ class SyncScheduler:
             "status": "started",
             "message": f"Avvio verifica prezzi in background per {limit} prodotti."
         }
+
+    def run_reclustering_task(self) -> Dict[str, Any]:
+        """Runs the ProductNormalizer entity resolution and re-clustering engine across all offers."""
+        logger.info("[SyncScheduler] Starting automated catalog re-clustering...")
+        try:
+            from scripts.recluster_database import analyze_and_recluster
+            analyze_and_recluster(execute=True)
+            logger.info("[SyncScheduler] Catalog re-clustering finished successfully.")
+            return {"status": "success", "message": "Catalog re-clustering completed successfully."}
+        except Exception as e:
+            logger.error(f"[SyncScheduler] Re-clustering error: {e}")
+            return {"status": "error", "error": str(e)}
 
     def get_status(self) -> Dict[str, Any]:
         """Return full telemetry and status of the automated sync engine."""
