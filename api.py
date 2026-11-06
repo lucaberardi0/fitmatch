@@ -176,14 +176,18 @@ def search_smart(
     size: Optional[str] = Query(None, description="Explicit size filter"),
     category: Optional[str] = Query(None, description="Category filter override"),
     store: Optional[str] = Query(None, description="Store filter (e.g. 'cisalfa', 'top4running')"),
+    context_query: Optional[str] = Query(None, description="Previous search query to maintain conversational context"),
     limit: int = Query(35, ge=1, le=100)
 ):
     """Shopify Shop-style intelligent search: interprets user intent, classifies query mode (AI deep dive vs classic),
     clusters results into curated thematic carousels, provides spotlight recommendation and follow-up prompts.
     """
+    eff_context = context_query.strip() if isinstance(context_query, str) and context_query.strip() else None
+    effective_q = f"{eff_context} >> {q.strip()}" if eff_context else q
+
     # 1. Tier-2 Response Cache Check (Fast-path < 5ms)
     cache_key = cache_manager.make_response_key(
-        query=q,
+        query=effective_q,
         mode=mode,
         max_price=max_price,
         size=size,
@@ -195,7 +199,7 @@ def search_smart(
     if cached_resp is not None:
         return cached_resp
 
-    intent = smart_engine.parse_query(q, force_mode=mode)
+    intent = smart_engine.parse_query(q, force_mode=mode, context_query=eff_context)
 
     # Use explicit query overrides if user modified/toggled active chips
     eff_max_price = max_price if max_price is not None else intent.max_price
@@ -234,11 +238,27 @@ def search_smart(
         with ThreadPoolExecutor(max_workers=min(3, len(queries_to_crawl))) as executor:
             crawl_results = list(executor.map(_crawl_kw, queries_to_crawl))
 
+        BIKE_HARDWARE = {"cuffie", "cuffia", "serie sterzo", "headset", "attacco manubrio", "supporto manubrio", "movimento centrale"}
+        is_bike_query = any(w in q.lower() for w in ["bici", "ciclismo", "sterzo", "cuffie", "headset", "bike"])
+
         merged_prods = {}
         for live_res in crawl_results:
             if not live_res or not live_res.matched_products:
                 continue
             for mp in live_res.matched_products:
+                mp_name = (mp.canonical_name or "").lower()
+                mp_brand = (mp.brand or "").lower()
+
+                # Brand strictness
+                if intent.brand:
+                    b_low = intent.brand.lower()
+                    if b_low not in mp_brand and b_low not in mp_name:
+                        continue
+
+                # Bike hardware exclusion
+                if not is_bike_query and any(bh in mp_name for bh in BIKE_HARDWARE):
+                    continue
+
                 if mp.canonical_name not in merged_prods:
                     merged_prods[mp.canonical_name] = mp
                     # Index into database so future searches are cached
@@ -308,15 +328,6 @@ def search_smart(
                     if len(sec_prods) >= 4:
                         break
 
-            # Fallback if specific keywords yielded few items: pull unassigned products
-            if len(sec_prods) < 2:
-                for p in products:
-                    if p.get("id") not in used_product_ids:
-                        sec_prods.append(p)
-                        used_product_ids.add(p.get("id"))
-                    if len(sec_prods) >= 3:
-                        break
-
             if sec_prods:
                 curated_sections_out.append({
                     "id": sec_def.id,
@@ -334,7 +345,7 @@ def search_smart(
             "products": products[:8]
         })
 
-    # Populate Comparative Spec Cards ("Come orientarsi" section matching Shopify Shop)
+    # Populate Comparative Spec Cards ("Confronto rapido" section matching Shopify Shop)
     comparative_cards_out = []
     if intent.spec_comparisons:
         for spec in intent.spec_comparisons:
@@ -359,34 +370,62 @@ def search_smart(
                     "model_name": spec.model_name,
                     "ideal_for": spec.ideal_for,
                     "strengths": spec.strengths,
-                    "section_title": "Come orientarsi"
+                    "section_title": "Confronto rapido"
                 })
 
-    # Populate Spotlight Deal / Best Pick Card
+    # If spec comparisons were empty or failed to match, synthesize dynamic comparative cards from top 2 models
+    if not comparative_cards_out and len(products) >= 2:
+        p1 = products[0]
+        p2 = products[1]
+        p1_name = p1.get("canonical_name", "").title()
+        p2_name = p2.get("canonical_name", "").title()
+        if p1_name.lower() != p2_name.lower():
+            comparative_cards_out = [
+                {
+                    "product": p1,
+                    "model_name": p1_name,
+                    "ideal_for": "Miglior prezzo e disponibilità",
+                    "strengths": f"Prezzo più basso a € {p1.get('best_price', 0):.2f}",
+                    "section_title": "Confronto rapido"
+                },
+                {
+                    "product": p2,
+                    "model_name": p2_name,
+                    "ideal_for": "Alternativa versatile",
+                    "strengths": f"Confrontato tra {len(p2.get('offers', []))} negozi",
+                    "section_title": "Confronto rapido"
+                }
+            ]
+
+    # Populate Spotlight Deal / Best Pick Card (Shopify Shop Best Pick)
     spotlight_out = None
-    if products and intent.spotlight:
-        target_kw = intent.spotlight.target_keyword.lower()
+    if products and intent.spotlight and intent.spotlight.target_keyword:
+        target_kw = intent.spotlight.target_keyword.lower().strip()
         matched_spotlight_prod = next(
             (p for p in products if target_kw in (p.get("canonical_name") or "").lower() or target_kw in (p.get("brand") or "").lower()),
-            products[0]
+            None
         )
-        spotlight_out = {
-            "product": matched_spotlight_prod,
-            "badge_text": intent.spotlight.badge_text,
-            "highlights": intent.spotlight.highlights
-        }
-    elif products:
-        # Default spotlight on top discounted product
-        best_p = max(products, key=lambda x: x.get("cross_store_savings", 0.0))
-        spotlight_out = {
-            "product": best_p,
-            "badge_text": "Miglior Scelta",
-            "highlights": [
-                f"Miglior prezzo confrontato tra {len(best_p.get('offers', []))} negozi",
-                "Risparmio garantito rispetto al prezzo di listino",
-                "Spedizione e recensioni verificate"
-            ]
-        }
+        if matched_spotlight_prod:
+            spotlight_out = {
+                "product": matched_spotlight_prod,
+                "badge_text": intent.spotlight.badge_text,
+                "highlights": intent.spotlight.highlights
+            }
+
+    # If no explicit spotlight or didn't match, pick the top relevance product
+    if not spotlight_out and products:
+        best_p = products[0]
+        # Only highlight if it genuinely matches the query
+        if best_p.get("relevance_score", 100) > 40 or not intent.target_keywords:
+            spotlight_out = {
+                "product": best_p,
+                "badge_text": "Miglior Scelta",
+                "highlights": [
+                    f"Miglior prezzo confrontato tra {len(best_p.get('offers', []))} negozi",
+                    "Risparmio garantito rispetto al prezzo di listino",
+                    "Spedizione e disponibilità verificate"
+                ]
+            }
 
     result_data = {
         "search_mode": intent.search_mode,

@@ -46,11 +46,15 @@ BRAND_ALIASES = {
 ICONIC_MODEL_BRANDS = {
     # Adidas
     "supernova": "Adidas", "adizero": "Adidas", "adios": "Adidas", "boston": "Adidas",
-    "takumi": "Adidas", "terrex": "Adidas", "ultraboost": "Adidas", "sl20": "Adidas",
+    "takumi": "Adidas", "terrex": "Adidas", "ultraboost": "Adidas", "sl20": "Adidas", "dropset": "Adidas",
     # Nike
     "pegasus": "Nike", "vomero": "Nike", "alphafly": "Nike", "vaporfly": "Nike",
     "invincible": "Nike", "streakfly": "Nike", "infinity": "Nike", "wildhorse": "Nike",
     "zegama": "Nike", "metcon": "Nike",
+    # Reebok
+    "nano": "Reebok", "nanoflex": "Reebok",
+    # Under Armour
+    "tribase": "Under Armour",
     # Asics
     "nimbus": "Asics", "cumulus": "Asics", "kayano": "Asics", "novablast": "Asics",
     "superblast": "Asics", "metaspeed": "Asics", "magic speed": "Asics", "trabuco": "Asics",
@@ -154,6 +158,7 @@ STOPWORDS = {
     "pistola", "massaggi", "stimolatore", "muscolare",
     "maglietta", "maglia", "pantaloni", "pantaloncini", "shorts", "tights", "giacca", "canotta",
     "custodia", "silicone", "housse", "cover", "pack", "bundle", "kit", "cinturino", "strap",
+    "allenamento", "palestra", "training", "workout", "fitness",
     "performance", "sportswear", "originals", "athletics", "athletic", "road",
     "per", "di", "con", "e", "the", "in", "de", "ed", "da", "a", "la", "il", "le", "un", "una",
     "senza", "maniche", "nero", "grigio", "bianco", "rosso", "blu", "giallo", "fluor", "verde",

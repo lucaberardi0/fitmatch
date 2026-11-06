@@ -210,6 +210,7 @@ class SupabaseClient:
         self.api_key = api_key
         self._stats_cache: Optional[Dict[str, Any]] = None
         self._stats_cache_ts: float = 0
+        self._embedding_cache: Dict[str, List[float]] = {}
         try:
             self.ctx = ssl.create_default_context(cafile=certifi.where())
         except Exception:
@@ -654,145 +655,242 @@ class SupabaseClient:
     def search_indexed(self, query: str = "", category: Optional[str] = None, limit: int = 25) -> List[Dict[str, Any]]:
         """Fast catalog query on Supabase Cloud PostgreSQL with store offers joined."""
         query_clean = query.strip()
-        params = ["select=*,store_offers(*)"]
+        params = ["select=*,store_offers!inner(*)"]
 
         if category and category.lower() not in ("all", "tutti"):
             params.append(f"category=eq.{urllib.parse.quote(category.lower())}")
 
-        if query_clean:
-            words = query_clean.split()
-            first_w = words[0]
-            params.append(f"or=(canonical_name.ilike.*{urllib.parse.quote(first_w)}*,brand.ilike.*{urllib.parse.quote(first_w)}*)")
+        STOPWORDS = {
+            "scarpe", "scarpa", "modello", "per", "la", "il", "lo", "i", "gli", "le",
+            "un", "una", "uno", "di", "a", "da", "in", "con", "su", "della", "dello",
+            "dei", "degli", "delle", "shoe", "shoes", "trova", "cerca", "cerco"
+        }
+        words = [w for w in re.findall(r"\b\w+\b", query_clean.lower()) if w not in STOPWORDS and len(w) > 1] if query_clean else []
 
-        params.append(f"limit={max(limit, 10)}")
+        if words:
+            if len(words) == 1:
+                params.append(f"or=(canonical_name.ilike.*{urllib.parse.quote(words[0])}*,brand.ilike.*{urllib.parse.quote(words[0])}*)")
+            else:
+                and_parts = [f"or(canonical_name.ilike.*{urllib.parse.quote(w)}*,brand.ilike.*{urllib.parse.quote(w)}*)" for w in words[:4]]
+                params.append(f"and=({','.join(and_parts)})")
+
+        params.append(f"limit={max(limit * 2, 25)}")
         endpoint = f"products?{'&'.join(params)}"
         resp = self._request(endpoint)
         raw_prods = resp.get("data") or []
 
+        # Fallback if strict multi-word query returned 0 products
+        if not raw_prods and len(words) > 1:
+            num_tokens = [w for w in words if w.isdigit()]
+            target_w = num_tokens[0] if num_tokens else sorted(words, key=len, reverse=True)[0]
+            params_fb = ["select=*,store_offers!inner(*)", f"or=(canonical_name.ilike.*{urllib.parse.quote(target_w)}*,brand.ilike.*{urllib.parse.quote(target_w)}*)"]
+            if category and category.lower() not in ("all", "tutti"):
+                params_fb.append(f"category=eq.{urllib.parse.quote(category.lower())}")
+            params_fb.append(f"limit={max(limit * 2, 25)}")
+            fb_resp = self._request(f"products?{'&'.join(params_fb)}")
+            raw_prods = fb_resp.get("data") or []
+
         results = []
         for p in raw_prods:
-            offers_raw = p.get("store_offers") or []
-            if not offers_raw:
-                continue
-
-            # Fallback product image if missing/invalid
-            p_img = clean_image_url(p.get("image_url"))
-            valid_offer_imgs = [clean_image_url(o.get("image_url")) for o in offers_raw if clean_image_url(o.get("image_url"))]
-            if not p_img and valid_offer_imgs:
-                p_img = valid_offer_imgs[0]
-
-            # Build comprehensive product gallery
-            raw_prod_gallery = p.get("gallery_images") or []
-            if isinstance(raw_prod_gallery, str):
-                try:
-                    raw_prod_gallery = json.loads(raw_prod_gallery)
-                except Exception:
-                    raw_prod_gallery = [raw_prod_gallery]
-            prod_gallery = []
-            if p_img:
-                prod_gallery.append(p_img)
-            for g_img in raw_prod_gallery:
-                c = clean_image_url(g_img)
-                if c and c not in prod_gallery:
-                    prod_gallery.append(c)
-
-            offers = []
-            for o in sorted(offers_raw, key=lambda x: x.get("current_price") or 99999):
-                sid = (o.get("store_id") or "").lower().strip()
-                rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
-                price = float(o.get("current_price", 0.0))
-                cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
-                is_free = (cost == 0.0)
-                off_img = clean_image_url(o.get("image_url")) or p_img
-
-                raw_off_gallery = o.get("gallery_images") or []
-                if isinstance(raw_off_gallery, str):
-                    try:
-                        raw_off_gallery = json.loads(raw_off_gallery)
-                    except Exception:
-                        raw_off_gallery = [raw_off_gallery]
-                off_gallery = []
-                if off_img:
-                    off_gallery.append(off_img)
-                for og in raw_off_gallery:
-                    c = clean_image_url(og)
-                    if c and c not in off_gallery:
-                        off_gallery.append(c)
-
-                # Add offer photos into product gallery as well
-                for u in off_gallery:
-                    if u not in prod_gallery:
-                        prod_gallery.append(u)
-
-                off_sizes = normalize_sizes(o.get("available_sizes"))
-                offers.append({
-                    "store_id": o.get("store_id"),
-                    "store_name": o.get("store_name"),
-                    "price": price,
-                    "current_price": price,
-                    "original_price": o.get("original_price"),
-                    "discount_pct": o.get("discount_pct"),
-                    "url": o.get("product_url"),
-                    "product_url": o.get("product_url"),
-                    "image_url": off_img,
-                    "gallery_images": off_gallery,
-                    "title": o.get("raw_title") or p.get("canonical_name"),
-                    "variant_name": extract_variant_title(o.get("raw_title")),
-                    "available_sizes": off_sizes,
-                    "brand": p.get("brand"),
-                    "in_stock": o.get("in_stock", True),
-                    "shipping_cost": cost,
-                    "total_price": round(price + cost, 2),
-                    "is_free_shipping": is_free,
-                    "shipping_label": "Spedizione Gratuita" if is_free else f"+{cost:.2f} € sped.",
-                    "free_shipping_threshold": rule["free_threshold"],
-                    "courier": rule["courier"]
-                })
-
-            prices = [o["price"] for o in offers]
-            min_p = min(prices)
-            max_p = max(prices)
-            savings = round(max_p - min_p, 2) if len(prices) > 1 else 0.0
-
-            # Clean duplicate brand prefix in canonical_name
-            p_brand = p.get("brand") or ""
-            c_name = p.get("canonical_name") or ""
-            if p_brand:
-                import re
-                c_name = re.sub(r"^(" + re.escape(p_brand) + r"\s+)+", f"{p_brand} ", c_name, flags=re.IGNORECASE).strip()
-
-            # Aggregate and sort all available sizes across all offers
-            prod_all_sizes = set()
-            for o in offers:
-                for sz in o.get("available_sizes", []):
-                    prod_all_sizes.add(sz)
-
-            def _size_sort_key(s):
-                try:
-                    return (0, float(s))
-                except ValueError:
-                    return (1, s)
-
-            sorted_sizes = sorted(list(prod_all_sizes), key=_size_sort_key)
-
-            results.append({
-                "id": p["id"],
-                "canonical_name": c_name,
-                "brand": p.get("brand"),
-                "category": p.get("category"),
-                "gender": p.get("gender", "Unisex"),
-                "image_url": p_img,
-                "gallery_images": prod_gallery,
-                "available_sizes": sorted_sizes,
-                "offer_count": len(offers),
-                "best_price": min_p,
-                "max_price": max_p,
-                "highest_price": max_p,
-                "cross_store_savings": savings,
-                "offers": offers
-            })
+            f = self._format_product_with_offers(p)
+            if f:
+                results.append(f)
 
         results.sort(key=lambda x: (x["cross_store_savings"], -x["best_price"]), reverse=True)
+        return results[:limit]
+
+    def _format_product_with_offers(self, p: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Normalize and format raw Supabase product row with its joined store offers."""
+        offers_raw = p.get("store_offers") or []
+        if not offers_raw:
+            return None
+
+        # Fallback product image if missing/invalid
+        p_img = clean_image_url(p.get("image_url"))
+        valid_offer_imgs = [clean_image_url(o.get("image_url")) for o in offers_raw if clean_image_url(o.get("image_url"))]
+        if not p_img and valid_offer_imgs:
+            p_img = valid_offer_imgs[0]
+
+        # Build comprehensive product gallery
+        raw_prod_gallery = p.get("gallery_images") or []
+        if isinstance(raw_prod_gallery, str):
+            try:
+                raw_prod_gallery = json.loads(raw_prod_gallery)
+            except Exception:
+                raw_prod_gallery = [raw_prod_gallery]
+        prod_gallery = []
+        if p_img:
+            prod_gallery.append(p_img)
+        for g_img in raw_prod_gallery:
+            c = clean_image_url(g_img)
+            if c and c not in prod_gallery:
+                prod_gallery.append(c)
+
+        offers = []
+        for o in sorted(offers_raw, key=lambda x: x.get("current_price") or 99999):
+            sid = (o.get("store_id") or "").lower().strip()
+            rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
+            price = float(o.get("current_price", 0.0))
+            cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+            is_free = (cost == 0.0)
+            off_img = clean_image_url(o.get("image_url")) or p_img
+
+            raw_off_gallery = o.get("gallery_images") or []
+            if isinstance(raw_off_gallery, str):
+                try:
+                    raw_off_gallery = json.loads(raw_off_gallery)
+                except Exception:
+                    raw_off_gallery = [raw_off_gallery]
+            off_gallery = []
+            if off_img:
+                off_gallery.append(off_img)
+            for og in raw_off_gallery:
+                c = clean_image_url(og)
+                if c and c not in off_gallery:
+                    off_gallery.append(c)
+
+            # Add offer photos into product gallery as well
+            for u in off_gallery:
+                if u not in prod_gallery:
+                    prod_gallery.append(u)
+
+            off_sizes = normalize_sizes(o.get("available_sizes"))
+            offers.append({
+                "store_id": o.get("store_id"),
+                "store_name": o.get("store_name"),
+                "price": price,
+                "current_price": price,
+                "original_price": o.get("original_price"),
+                "discount_pct": o.get("discount_pct"),
+                "url": o.get("product_url"),
+                "product_url": o.get("product_url"),
+                "image_url": off_img,
+                "gallery_images": off_gallery,
+                "title": o.get("raw_title") or p.get("canonical_name"),
+                "variant_name": extract_variant_title(o.get("raw_title")),
+                "available_sizes": off_sizes,
+                "brand": p.get("brand"),
+                "in_stock": o.get("in_stock", True),
+                "shipping_cost": cost,
+                "total_price": round(price + cost, 2),
+                "is_free_shipping": is_free,
+                "shipping_label": "Spedizione Gratuita" if is_free else f"+{cost:.2f} € sped.",
+                "free_shipping_threshold": rule["free_threshold"],
+                "courier": rule["courier"]
+            })
+
+        prices = [o["price"] for o in offers]
+        min_p = min(prices)
+        max_p = max(prices)
+        savings = round(max_p - min_p, 2) if len(prices) > 1 else 0.0
+
+        # Clean duplicate brand prefix in canonical_name
+        p_brand = p.get("brand") or ""
+        c_name = p.get("canonical_name") or ""
+        if p_brand:
+            c_name = re.sub(r"^(" + re.escape(p_brand) + r"\s+)+", f"{p_brand} ", c_name, flags=re.IGNORECASE).strip()
+
+        # Aggregate and sort all available sizes across all offers
+        prod_all_sizes = set()
+        for o in offers:
+            for sz in o.get("available_sizes", []):
+                prod_all_sizes.add(sz)
+
+        def _size_sort_key(s):
+            try:
+                return (0, float(s))
+            except ValueError:
+                return (1, s)
+
+        sorted_sizes = sorted(list(prod_all_sizes), key=_size_sort_key)
+
+        return {
+            "id": p["id"],
+            "canonical_name": c_name,
+            "brand": p.get("brand"),
+            "category": p.get("category"),
+            "gender": p.get("gender", "Unisex"),
+            "image_url": p_img,
+            "gallery_images": prod_gallery,
+            "available_sizes": sorted_sizes,
+            "offer_count": len(offers),
+            "best_price": min_p,
+            "max_price": max_p,
+            "highest_price": max_p,
+            "cross_store_savings": savings,
+            "offers": offers
+        }
+
+    def get_embedding(self, text: str) -> Optional[List[float]]:
+        """Generate 1536-dim embedding vector using text-embedding-3-small via OpenRouter."""
+        cleaned = text.strip()
+        if not cleaned:
+            return None
+        if cleaned in self._embedding_cache:
+            return self._embedding_cache[cleaned]
+
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            return None
+
+        try:
+            req = urllib.request.Request(
+                "https://openrouter.ai/api/v1/embeddings",
+                data=json.dumps({"model": "text-embedding-3-small", "input": cleaned}).encode("utf-8"),
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, context=self.ctx, timeout=6) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                items = data.get("data") or []
+                if items:
+                    emb = items[0]["embedding"]
+                    self._embedding_cache[cleaned] = emb
+                    return emb
+        except Exception as e:
+            logger.warning(f"[SupabaseClient] get_embedding failed: {e}")
+        return None
+
+    def search_semantic(
+        self,
+        query: str,
+        threshold: float = 0.35,
+        limit: int = 25
+    ) -> List[Dict[str, Any]]:
+        """Vector semantic similarity search using Supabase pgvector match_products_semantic RPC."""
+        emb = self.get_embedding(query)
+        if not emb:
+            return []
+
+        rpc_res = self._request("rpc/match_products_semantic", method="POST", data={
+            "query_embedding": emb,
+            "match_threshold": threshold,
+            "match_count": limit
+        })
+        raw_matches = rpc_res.get("data") or []
+        if not raw_matches:
+            return []
+
+        sim_map = {}
+        for m in raw_matches:
+            try:
+                sim_map[m["id"]] = float(m.get("similarity") or 0.0)
+            except (ValueError, TypeError):
+                sim_map[m["id"]] = 0.0
+
+        ids_encoded = ",".join([urllib.parse.quote(m["id"]) for m in raw_matches])
+        endpoint = f"products?id=in.({ids_encoded})&select=*,store_offers!inner(*)"
+        resp = self._request(endpoint)
+        prods = resp.get("data") or []
+
+        results = []
+        for p in prods:
+            f = self._format_product_with_offers(p)
+            if f:
+                f["semantic_similarity"] = float(sim_map.get(p["id"], 0.0))
+                results.append(f)
+
+        results.sort(key=lambda x: float(x.get("semantic_similarity") or 0.0), reverse=True)
         return results[:limit]
 
     def search_smart(
@@ -810,6 +908,20 @@ class SupabaseClient:
         """Shopify Shop-style intelligent query on Supabase Cloud PostgreSQL with multi-store offers."""
         raw_results = []
         seen_names = set()
+
+        eff_max_price: Optional[float] = None
+        if max_price is not None:
+            try:
+                eff_max_price = float(max_price)
+            except (ValueError, TypeError):
+                eff_max_price = None
+
+        eff_min_price: Optional[float] = None
+        if min_price is not None:
+            try:
+                eff_min_price = float(min_price)
+            except (ValueError, TypeError):
+                eff_min_price = None
 
         norm_size = size.strip().replace(",", ".") if size else None
         target_size_candidates = set()
@@ -836,12 +948,48 @@ class SupabaseClient:
                     seen_names.add(p_ident)
                     raw_results.append(p)
 
+        # Vector Semantic candidates via Supabase pgvector
+        if target_keywords:
+            sem_query = " ".join([k for k in target_keywords if k.strip()])
+            if sem_query:
+                sem_prods = self.search_semantic(query=sem_query, threshold=0.38, limit=limit)
+                for sp in sem_prods:
+                    p_ident = sp.get("canonical_name") or sp.get("id")
+                    if p_ident not in seen_names:
+                        seen_names.add(p_ident)
+                        raw_results.append(sp)
+                    else:
+                        for ex in raw_results:
+                            if (ex.get("canonical_name") or ex.get("id")) == p_ident:
+                                ex["semantic_similarity"] = max(ex.get("semantic_similarity", 0.0), sp.get("semantic_similarity", 0.0))
+
+        BIKE_HARDWARE = {
+            "cuffie", "cuffia", "serie sterzo", "headset", "attacco manubrio",
+            "supporto manubrio", "movimento centrale", "pignoni", "guarnitura",
+            "pastiglie", "disco freno", "forcella", "tubeless", "pedale", "pedali"
+        }
+        is_bike_query = any(
+            w in kw.lower()
+            for kw in keywords_to_query
+            for w in ["bici", "ciclismo", "sterzo", "cuffie", "headset", "bike"]
+        )
+
         filtered = []
         for p in raw_results:
             p_brand = (p.get("brand") or "").lower()
             p_name = (p.get("canonical_name") or "").lower()
-            if brand and p_brand and brand.lower() not in p_brand and brand.lower() not in p_name:
+
+            # Strict Brand Filter: if brand is requested, product MUST match brand in brand field or canonical name
+            if brand:
+                b_clean = brand.lower().strip()
+                matches_brand = (b_clean in p_brand) or (b_clean in p_name)
+                if not matches_brand:
+                    continue
+
+            # Bike Hardware Exclusion: exclude bike parts unless user explicitly searched for them
+            if not is_bike_query and any(bh in p_name for bh in BIKE_HARDWARE):
                 continue
+
             if gender and gender.lower() not in ("unisex", "uomo | donna", "uomo/donna", "tutti", "all"):
                 req_g = gender.lower()
                 prod_g = (p.get("gender") or "unisex").lower()
@@ -857,9 +1005,10 @@ class SupabaseClient:
             for o in p.get("offers", []):
                 if store_id and o.get("store_id") != store_id.lower().strip():
                     continue
-                if max_price is not None and o.get("price", 0) > max_price:
+                o_price = float(o.get("price") or 0.0)
+                if eff_max_price is not None and o_price > eff_max_price:
                     continue
-                if min_price is not None and o.get("price", 0) < min_price:
+                if eff_min_price is not None and o_price < eff_min_price:
                     continue
                 if target_size_candidates:
                     off_sizes = set(o.get("available_sizes") or [])
@@ -876,7 +1025,61 @@ class SupabaseClient:
                 p["cross_store_savings"] = round(p["max_price"] - p["best_price"], 2) if len(prices) > 1 else 0.0
                 filtered.append(p)
 
-        filtered.sort(key=lambda x: (x["cross_store_savings"], -x["best_price"]), reverse=True)
+        # Relevance scoring to ensure exact model matches top the results
+        def compute_relevance(prod: Dict[str, Any], query_kws: List[str]) -> float:
+            score = 0.0
+            pname = (prod.get("canonical_name") or "").lower()
+            pbrand = (prod.get("brand") or "").lower()
+            tokens = set(re.findall(r"\b\w+\b", pname))
+
+            for kw in query_kws:
+                kw_low = kw.lower().strip()
+                if not kw_low:
+                    continue
+                if kw_low in pname:
+                    score += 100.0
+                kw_tokens = re.findall(r"\b\w+\b", kw_low)
+                for t in kw_tokens:
+                    if t in tokens:
+                        score += 30.0
+                        if t.isdigit():
+                            score += 60.0
+                    elif t in pbrand:
+                        score += 20.0
+
+                q_digits = [t for t in kw_tokens if t.isdigit()]
+                p_digits = [t for t in tokens if t.isdigit()]
+                if q_digits and p_digits:
+                    if not set(q_digits).intersection(set(p_digits)):
+                        score -= 75.0  # Penalize mismatched generation/model numbers
+
+            ACCESSORY_KEYWORDS = {
+                "pellicola", "vetro temperato", "film hydrogel", "protezione schermo",
+                "custodia", "sportenzia", "cinturino"
+            }
+            if any(acc in pname for acc in ACCESSORY_KEYWORDS):
+                score -= 50.0
+
+            # Semantic similarity bonus
+            sem_sim = float(prod.get("semantic_similarity") or 0.0)
+            if sem_sim > 0.35:
+                score += sem_sim * 70.0
+
+            score += min(prod.get("cross_store_savings", 0.0) * 0.1, 15.0)
+            score += min(len(prod.get("offers", [])) * 2.0, 10.0)
+            return score
+
+        for p in filtered:
+            p["relevance_score"] = compute_relevance(p, keywords_to_query)
+
+        filtered.sort(
+            key=lambda x: (
+                float(x.get("relevance_score") or 0.0),
+                float(x.get("cross_store_savings") or 0.0),
+                -float(x.get("best_price") or 0.0)
+            ),
+            reverse=True
+        )
         return filtered[:limit]
 
     # MARK: - Store Showcases & Details

@@ -106,7 +106,8 @@ class APIService: ObservableObject {
         maxPrice: Double? = nil,
         size: String? = nil,
         category: String? = nil,
-        store: String? = nil
+        store: String? = nil,
+        contextQuery: String? = nil
     ) async throws -> SmartSearchResponse {
         var components = URLComponents(string: "\(baseURL)/api/search/smart")!
         var queryItems = [URLQueryItem(name: "q", value: query)]
@@ -124,6 +125,9 @@ class APIService: ObservableObject {
         }
         if let store = store, !store.isEmpty && store != "Tutti" {
             queryItems.append(URLQueryItem(name: "store", value: store))
+        }
+        if let contextQuery = contextQuery, !contextQuery.isEmpty {
+            queryItems.append(URLQueryItem(name: "context_query", value: contextQuery))
         }
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }

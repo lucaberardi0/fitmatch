@@ -427,6 +427,55 @@ SPORTS_KNOWLEDGE = {
             "Filtra gilet idratazione sotto 80 euro"
         ]
     },
+    "gym_training": {
+        "models": ["adidas dropset", "adizero dropset", "dropset 4", "dropset pro", "nike metcon", "reebok nano", "under armour tribase", "puma fuse"],
+        "label": "Palestra, Cross-Training & Hyrox",
+        "category": "fitness",
+        "description": "Scarpe stabili e piatte per sollevamento pesi, cross-training, circuiti funzionali e competizioni Hyrox.",
+        "conversational_summary": "Per allenamento funzionale, palestra e gare **Hyrox**, la stabilità a terra e il supporto laterale sono cruciali. Ecco i migliori modelli **Adidas Dropset** e training a confronto:",
+        "sections": [
+            {
+                "id": "sec_dropset_models",
+                "title": "Modelli Adidas Dropset",
+                "subtitle": "Piattaforma ribassata a doppia densità per massima stabilità sotto carico.",
+                "keywords": ["dropset", "adizero dropset"]
+            },
+            {
+                "id": "sec_training_alternatives",
+                "title": "Scarpe da Allenamento Ibrido",
+                "subtitle": "Ideali per alternare sollevamento pesi, sled push e tratti di corsa.",
+                "keywords": ["metcon", "nano", "tribase", "fuse"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Adidas Adizero Dropset Pro Trainer",
+                "ideal_for": "Allenamento ibrido e Hyrox",
+                "strengths": "Doppia densità, suola Traxion grip e gabbia di supporto",
+                "target_keyword": "dropset"
+            },
+            {
+                "model_name": "Adidas Dropset 4 Power",
+                "ideal_for": "Sollevamento pesi e forza in palestra",
+                "strengths": "Base ampia e drop ridotto per massimo radicamento",
+                "target_keyword": "dropset"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "dropset",
+            "badge_text": "Miglior Scelta Training",
+            "highlights": [
+                "Stabilità ottimale con intersuola a doppia densità",
+                "Grip superiore per slitte, affondi e stacchi da terra",
+                "Prezzo più basso confrontato tra i migliori negozi"
+            ]
+        },
+        "follow_ups": [
+            "Confrontale con le adidas Dropset 4",
+            "Quali sono migliori per Hyrox?",
+            "Cercale nella mia taglia"
+        ]
+    },
     "fitness": {
         "models": ["theragun", "therabody", "pistola massaggiante", "compex"],
         "label": "Fitness & Recupero",
@@ -685,6 +734,18 @@ class LocalHeuristicParser:
         elif re.search(r"\b(trail|sterrato|fango|montagna|sentier[oi]|bosco)\b", text):
             archetype_key = "trail_running"
             features.append("trail")
+        elif re.search(r"\b(dropset|metcon|nano|tribase|fuse|powerlifting|crossfit|hyrox|palestra|pesi|sollevamento|allenamento funzionale)\b", text):
+            archetype_key = "gym_training"
+            features.append("training")
+            if not detected_brand:
+                if "dropset" in text:
+                    detected_brand = "Adidas"
+                elif "metcon" in text:
+                    detected_brand = "Nike"
+                elif "nano" in text:
+                    detected_brand = "Reebok"
+                elif "tribase" in text:
+                    detected_brand = "Under Armour"
         elif re.search(r"\b(alphafly|vaporfly|streakfly|metaspeed|adizero|endorphin|veloc[ei]|reattiv[ae]|gara|maratona|mezza|ripetute|piastra|carbonio)\b", text):
             archetype_key = "speed_race"
             features.append("racing")
@@ -699,7 +760,7 @@ class LocalHeuristicParser:
 
         # 6. Generate Target Keywords
         exact_model_match = re.search(
-            r"\b(alphafly(?:\s*\d+)?|vaporfly(?:\s*\d+)?|zoom\s*fly(?:\s*\d+)?|vomero(?:\s*\d+)?|pegasus(?:\s*\w+)?|nimbus(?:\s*\d+)?|clifton(?:\s*\d+)?|bondi(?:\s*\d+)?|ghost(?:\s*\d+)?|streakfly(?:\s*\d+)?|invincible(?:\s*\d+)?|adizero(?:\s*\w+)?|speedgoat(?:\s*\d+)?|forerunner(?:\s*\d+)?|fenix(?:\s*\d+)?|novablast(?:\s*\d+)?|superblast(?:\s*\d+)?|endorphin(?:\s*\w+)?|deviate(?:\s*\w+)?|radar\s*ev|sutro|hack(?:\s*\d+)?|vertex(?:\s*\d+)?|at10|kickr|flux(?:\s*\w+)?|replica(?:\s*\w+)?|tabi)\b",
+            r"\b(adizero\s+dropset(?:\s*\w+)?|dropset(?:\s*\w+)?|metcon(?:\s*\d+)?|nano(?:\s*\w+)?|alphafly(?:\s*\d+)?|vaporfly(?:\s*\d+)?|zoom\s*fly(?:\s*\d+)?|vomero(?:\s*\d+)?|pegasus(?:\s*\w+)?|nimbus(?:\s*\d+)?|clifton(?:\s*\d+)?|bondi(?:\s*\d+)?|ghost(?:\s*\d+)?|streakfly(?:\s*\d+)?|invincible(?:\s*\d+)?|adizero(?:\s*\w+)?|speedgoat(?:\s*\d+)?|forerunner(?:\s*\d+)?|fenix(?:\s*\d+)?|novablast(?:\s*\d+)?|superblast(?:\s*\d+)?|endorphin(?:\s*\w+)?|deviate(?:\s*\w+)?|radar\s*ev|sutro|hack(?:\s*\d+)?|vertex(?:\s*\d+)?|at10|kickr|flux(?:\s*\w+)?|replica(?:\s*\w+)?|tabi)\b",
             text
         )
 
@@ -709,7 +770,11 @@ class LocalHeuristicParser:
 
         if exact_model_match:
             exact_val = exact_model_match.group(1).strip()
-            if detected_brand and detected_brand.lower() not in exact_val.lower():
+            if "dropset" in exact_val:
+                target_keywords = ["adidas dropset", "adizero dropset", exact_val]
+            elif "forerunner" in exact_val and "165" in text:
+                target_keywords = ["garmin forerunner 165", "forerunner 165"]
+            elif detected_brand and detected_brand.lower() not in exact_val.lower():
                 target_keywords = [f"{detected_brand.lower()} {exact_val}", exact_val]
             else:
                 target_keywords = [exact_val]
@@ -747,31 +812,30 @@ class LocalHeuristicParser:
             chips.append(SmartSearchChip(id="feature_racing", label="Gara & Reattività", param_key="feature", value="racing"))
         elif "trail" in features:
             chips.append(SmartSearchChip(id="feature_trail", label="Trail / Sterrato", param_key="feature", value="trail"))
+        elif "training" in features:
+            chips.append(SmartSearchChip(id="feature_training", label="Palestra & Hyrox", param_key="feature", value="training"))
 
-        # 8. Mode Decision: AI Deep Dive vs Classic Mode
+        # 8. Mode Decision: Default to AI Deep Dive like Shopify Shop
         if force_mode == "classic":
             search_mode = "classic"
             is_deep_dive = False
-        elif force_mode == "deep_dive":
+        else:
             search_mode = "deep_dive"
             is_deep_dive = True
-        else:
-            # Automatic heuristic: exact SKU searches (e.g. 'pegasus 41') go to classic directly,
-            # exploratory, multi-attribute or fashion/lifestyle queries go to deep_dive!
-            if is_exact_sku_only:
-                search_mode = "classic"
-                is_deep_dive = False
-            else:
-                search_mode = "deep_dive"
-                is_deep_dive = True
 
         # 9. Conversational Header & Summary (Exact Shopify Shop style)
-        clean_subject = detected_brand or arch["label"]
-        if detected_brand and "scarpe" in text:
-            clean_subject = f"scarpe {detected_brand}"
-
-        conversational_header = "Ho cercato prodotti"
-        conversational_summary = arch.get("conversational_summary") or f"Ho trovato diverse **{clean_subject}**: dai modelli più versatili a quelli più performanti e ricercati, con prezzi e stili molto diversi."
+        if exact_model_match:
+            exact_val = exact_model_match.group(1).strip()
+            brand_prefix = f"{detected_brand} " if detected_brand and detected_brand.lower() not in exact_val.lower() else ""
+            clean_subject = f"{brand_prefix}{exact_val.title()}"
+            conversational_header = f"Ho cercato {clean_subject}"
+            conversational_summary = f"Ecco i migliori prezzi e offerte per **{clean_subject}**, confrontati in tempo reale tra tutti i negozi partner ufficiali."
+        else:
+            clean_subject = detected_brand or arch["label"]
+            if detected_brand and "scarpe" in text:
+                clean_subject = f"scarpe {detected_brand}"
+            conversational_header = "Ho cercato prodotti"
+            conversational_summary = arch.get("conversational_summary") or f"Ho trovato diverse **{clean_subject}**: dai modelli più versatili a quelli più performanti e ricercati, con prezzi e stili molto diversi."
 
         # 10. Thematic Curated Sections & Spotlight
         curated_sections_raw = arch.get("sections", [])
@@ -898,34 +962,35 @@ class OpenRouterParser:
     """
 
     SYSTEM_PROMPT = """Sei l'assistente IA di ricerca intelligente per l'app e-commerce 'FitMatch' (ispirata alla ricerca dell'app Shop di Shopify).
-FitMatch è un comparatore di prezzi e cataloghi specializzato in scarpe (running, sneakers, lifestyle), abbigliamento sportivo e tecnologia (GPS, cardio, ciclismo).
+FitMatch è un comparatore di prezzi e cataloghi specializzato in scarpe (running, fitness, sneakers, lifestyle), abbigliamento sportivo e tecnologia (GPS, cardio, ciclismo).
 
-Il tuo obiettivo è analizzare la ricerca dell'utente e decidere:
-1. DECISIONE SULLA MODALITÀ DI RICERCA:
-   - "classic": se l'utente cerca un singolo modello o SKU esatto e privo di aggettivi/domande (es. "Pegasus 41", "Forerunner 165", "Vomero 18"). L'utente vuole vedere subito l'elenco dei risultati classici.
-   - "deep_dive": se la richiesta è esplorativa, colloquiale, multi-attributo, comprende stile/brand o un bisogno (es. "Maison margiela scarpe nere", "scarpe running ammortizzate per proteggere le ginocchia", "migliori scarpe per maratona", "outfit corsa invernale", "orologio gps triathlon sotto 300 euro"). In questo caso l'utente trae grande valore da una risposta in stile ChatGPT/Shop con sezioni tematiche e caroselli curati!
+Il tuo obiettivo è analizzare la ricerca dell'utente e restituire una risposta d'eccellenza in stile Shop di Shopify:
+1. MODALITÀ DI RICERCA:
+   - Imposta SEMPRE "search_mode": "deep_dive" e "is_deep_dive": true (anche per ricerche di singoli modelli come "Forerunner 165" o "Adizero Dropset"), così che l'utente riceva sempre il riassunto conversazionale, lo spotlight con la migliore offerta, il confronto rapido tra edizioni e i pulsanti di follow-up utili! Usa "classic" SOLO se l'utente richiede espressamente una lista piatta senza AI (es. "mostra solo lista").
 
-2. IN CASO DI "deep_dive":
-   - conversational_header: Breve intestazione di contesto (es. "Ho cercato prodotti" o "Ho cercato scarpe da running").
-   - conversational_summary: 1 o 2 frasi amichevoli ed eleganti in italiano che riassumono cosa hai trovato, mettendo in grassetto con **i punti chiave** (es. "Ho trovato diverse **scarpe nere Maison Margiela**: dalle Replica più versatili alle Tabi e ai modelli Future, con prezzi e stili molto diversi.").
-   - curated_sections: 2 o 3 categorie o temi tematici logici in cui dividere i prodotti (es. "Sneakers nere Replica", "Modelli più ricercati", "Tabi e scarpe eleganti nere"), ciascuno con:
-     * id: stringa univoca
-     * title: titolo accattivante
-     * subtitle: 1 riga descrittiva del perché questa categoria è speciale
-     * keywords: array di 2 o 3 termini di ricerca per pescare i prodotti corretti
-   - spotlight: Un prodotto di punta consigliato con badge ("15% di sconto" o "Miglior Scelta") e 3 bullet point descrittivi di valore.
-   - spec_comparisons: 2 o 3 modelli di punta con confronto tecnico strutturato per la sezione 'Come orientarsi' (stile Shop di Shopify), ciascuno con:
-     * model_name: nome commerciale esatto (es. "Adidas Adizero Adios Pro 4", "Nike Vaporfly 3")
-     * ideal_for: profilo di runner e contesto d'uso (es. "Gara e ritmi sostenuti", "Runner leggeri ed elastici")
-     * strengths: mescola dell'intersuola, presenza piastra, punti di forza tecnici (es. "Lightstrike Pro, Energyrods, rocker")
-     * target_keyword: parola chiave per associare il prodotto a catalogo (es. "adizero", "vaporfly")
-   - follow_up_suggestions: 3 pulsanti pillola con domande di approfondimento coerenti (es. ["Mostrami Maison Margiela nere taglia 42", "Confronta Replica, Tabi e Future nere", "Mostrami solo opzioni sotto 700 euro"]).
-   - chips: Filtri rapidi estratti (es. brand, prezzo, taglia, caratteristiche).
+2. CONOSCENZA DEL DOMINIO ATLETICO & REGOLE CRITICHE SULLE CATEGORIE:
+   - "Adidas Dropset" (Dropset Trainer, Dropset Pro, Dropset 3, Dropset 4) è una scarpa specifica per PALESTRA, PESISTICA, FUNCTIONAL TRAINING e HYROX (suola piatta a doppia densità, drop ridotto, supporto laterale per squat e slitte). NON descriverla MAI come scarpa da corsa o con ammortizzazione da running! Imposta 'category': 'fitness'.
+   - "Garmin Forerunner" (es. Forerunner 165, 265, 965) è uno SMARTWATCH GPS DA CORSA. "Garmin Edge" (es. Edge 840) è un CICLOCOMPUTER DA MANUBRIO BICI: non confonderli MAI! Imposta 'category': 'gps_watch'.
+   - Scarpe da corsa (running_shoes): Pegasus, Vomero, Nimbus, Clifton, Bondi, Ghost, Speedgoat, Novablast, Endorphin, Adizero Adios / Boston.
+   - Scarpe da training/palestra (fitness): Dropset, Metcon, Nano, Tribase, Fuse.
+
+3. STRUTTURA DELLE SEZIONI & SPEC COMPARISONS ("Confronto Rapido"):
+   - conversational_header: Intestazione pulita e specifica (es. "Ho cercato Garmin Forerunner 165" o "Ho cercato Adidas Adizero Dropset").
+   - conversational_summary: 1 o 2 frasi concise ed esperte in italiano, con **i concetti chiave in grassetto** (es. "Ho trovato le **Adidas Adizero Dropset**: scarpe a base piatta e supporto laterale rinforzato per **allenamento ibrido, pesi e gare Hyrox**.").
+   - curated_sections: 2 o 3 caroselli tematici coerenti (es. "Modelli Dropset Disponibili", "Alternative per Allenamento Ibrido"), con keyword pertinenti al modello cercato.
+   - spotlight: Il miglior prodotto/modello cercato con badge ("Miglior Scelta" o "Prezzo Top") e 3 bullet point tecnici accurati.
+   - spec_comparisons: 2 o 3 modelli a confronto per la card 'Confronto rapido' (come nello screenshot di Shop), con:
+     * model_name: nome commerciale (es. "Adidas Adizero Dropset Pro Trainer", "Adidas Dropset 4 Power")
+     * ideal_for: uso primario (es. "Allenamento ibrido e Hyrox", "Sollevamento pesi e forza")
+     * strengths: punto forte tecnico (es. "Doppia densità e stabilità sotto carico", "Base ribassata per massimo radicamento")
+     * target_keyword: termine mirato per agganciare il prodotto a database (es. "dropset", "forerunner 165")
+   - follow_up_suggestions: 3 pulsanti pillola con domande realistiche da appassionato (es. ["Confrontale con le adidas Dropset 4", "Quali sono migliori per Hyrox?", "Cercale nella mia taglia"]).
+   - chips: Filtri rapidi estratti (brand, prezzo, taglia).
 
 REGOLE CRITICHE SUI FILTRI:
-- NON INVENTARE FILTRI: se l'utente NON ha specificato esplicitamente un prezzo massimo o minimo (es. 'sotto 150 euro'), imposta SEMPRE 'max_price': null e 'min_price': null! Non dedurre prezzi medi di mercato.
-- GENERE: imposta 'gender' a 'Uomo' o 'Donna' SOLO se l'utente lo ha specificato esplicitamente nella query (es. 'scarpe uomo', 'donna'). Altrimenti imposta SEMPRE 'gender': null!
-- TARGET KEYWORDS: includi 2-4 parole chiave mirate sul MODELLO e sul PRODOTTO (es. ['Vomero Plus', 'Nike Vomero']). Se c'è un modello specifico, mettilo per primo!
+- NON INVENTARE FILTRI: se l'utente NON ha specificato esplicitamente un prezzo massimo o minimo (es. 'sotto 150 euro'), imposta SEMPRE 'max_price': null e 'min_price': null!
+- GENERE: imposta 'gender' a 'Uomo' o 'Donna' SOLO se esplicitamente dichiarato nella query. Altrimenti 'gender': null.
+- TARGET KEYWORDS: includi 2-4 parole chiave mirate sul MODELLO e sul PRODOTTO (es. ['Garmin Forerunner 165', 'Forerunner 165']). Metti il modello specifico per primo!
 - STRINGHE DI TESTO: 'conversational_header' deve essere una stringa breve (es. 'Ho cercato Nike Vomero Plus') e 'conversational_summary' una breve frase descrittiva; non impostarli MAI a null anche se search_mode è classic.
 
 Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
@@ -979,7 +1044,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
 """
 
     @classmethod
-    def parse(cls, user_query: str, api_key: str, model: str = OPENROUTER_MODEL, force_mode: Optional[str] = None) -> Optional[SmartSearchIntent]:
+    def parse(cls, user_query: str, api_key: str, model: str = OPENROUTER_MODEL, force_mode: Optional[str] = None, context_query: Optional[str] = None) -> Optional[SmartSearchIntent]:
         if not api_key:
             return None
 
@@ -1004,13 +1069,20 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
         if OPENROUTER_BACKUP_MODEL and OPENROUTER_BACKUP_MODEL != model:
             models_to_try.append(OPENROUTER_BACKUP_MODEL)
 
+        messages = [
+            {"role": "system", "content": cls.SYSTEM_PROMPT + mode_instruction}
+        ]
+        if context_query and context_query.strip():
+            messages.append({"role": "user", "content": f"Ricerca precedente nel catalogo: {context_query.strip()}"})
+            messages.append({"role": "assistant", "content": f"Ho compreso e mostrato i migliori modelli per {context_query.strip()}."})
+            messages.append({"role": "user", "content": f"Domanda di follow-up o approfondimento: {user_query.strip()}"})
+        else:
+            messages.append({"role": "user", "content": user_query.strip()})
+
         for current_model in models_to_try:
             payload = {
                 "model": current_model,
-                "messages": [
-                    {"role": "system", "content": cls.SYSTEM_PROMPT + mode_instruction},
-                    {"role": "user", "content": user_query}
-                ],
+                "messages": messages,
                 "temperature": 0.1,
                 "max_tokens": 800
             }
@@ -1153,9 +1225,10 @@ class SmartSearchEngine:
         self.model = model or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
         self.cache_manager = cache_manager or SearchCacheManager.get_instance()
 
-    def parse_query(self, user_query: str, force_mode: Optional[str] = None) -> SmartSearchIntent:
+    def parse_query(self, user_query: str, force_mode: Optional[str] = None, context_query: Optional[str] = None) -> SmartSearchIntent:
         # 1. Check Multi-Tier Cache (L1 Memory LRU / L2 Disk Persistence)
-        cached_data = self.cache_manager.get_intent(user_query, force_mode=force_mode)
+        cache_lookup_query = f"{context_query.strip()} >> {user_query.strip()}" if context_query and context_query.strip() else user_query
+        cached_data = self.cache_manager.get_intent(cache_lookup_query, force_mode=force_mode)
         if cached_data:
             try:
                 return SmartSearchIntent.model_validate(cached_data)
@@ -1164,13 +1237,13 @@ class SmartSearchEngine:
 
         intent = None
         if self.api_key:
-            intent = OpenRouterParser.parse(user_query=user_query, api_key=self.api_key, model=self.model, force_mode=force_mode)
+            intent = OpenRouterParser.parse(user_query=user_query, api_key=self.api_key, model=self.model, force_mode=force_mode, context_query=context_query)
 
         if not intent:
             intent = LocalHeuristicParser.parse(user_query=user_query, force_mode=force_mode)
 
         # 2. Store in Multi-Tier Cache with 7-day TTL
         if intent:
-            self.cache_manager.set_intent(user_query, force_mode=force_mode, intent_data=intent)
+            self.cache_manager.set_intent(cache_lookup_query, force_mode=force_mode, intent_data=intent)
 
         return intent

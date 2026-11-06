@@ -793,7 +793,8 @@ class Database:
                     limit=limit
                 )
             except Exception as e:
-                logger.error(f"[Database] Error search_smart from Supabase: {e}")
+                import traceback
+                logger.error(f"[Database] Error search_smart from Supabase: {e}\n{traceback.format_exc()}")
 
         from fitmatch.models import STORE_SHIPPING_RULES
 
@@ -833,13 +834,19 @@ class Database:
                 params.append(f"%{gender.lower()}%")
 
             # 5. Price bounds on the product's lowest offer
-            if max_price:
-                where_clauses.append("o.current_price <= ?")
-                params.append(float(max_price))
+            if max_price is not None:
+                try:
+                    where_clauses.append("o.current_price <= ?")
+                    params.append(float(max_price))
+                except (ValueError, TypeError):
+                    pass
 
-            if min_price:
-                where_clauses.append("o.current_price >= ?")
-                params.append(float(min_price))
+            if min_price is not None:
+                try:
+                    where_clauses.append("o.current_price >= ?")
+                    params.append(float(min_price))
+                except (ValueError, TypeError):
+                    pass
 
             # 6. Specific store
             if store_id and store_id.lower() not in ("all", "tutti"):

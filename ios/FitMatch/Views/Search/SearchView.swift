@@ -27,6 +27,7 @@ struct SearchView: View {
     @State private var followUpSuggestions: [String] = []
     @State private var followUpInputText: String = ""
     @State private var userFeedback: Int? = nil // 1 for thumbs up, -1 for down
+    @State private var lastContextQuery: String? = nil // Multi-turn conversational memory
 
     // Comparison Navigation State
     @State private var comparisonModels: ComparisonPair? = nil
@@ -725,15 +726,15 @@ struct SearchView: View {
                                 .padding(.top, 8)
                             }
 
-                            // 4. Comparative Spec Cards ("Come orientarsi" - Screenshot 3)
+                            // 4. Comparative Spec Cards ("Confronto rapido" - Screenshot 4 style)
                             if !comparativeCards.isEmpty {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text("Come orientarsi")
+                                    Text(comparativeCards.first?.section_title ?? "Confronto rapido")
                                         .font(.system(size: 18.5, weight: .bold))
                                         .foregroundColor(.shopDark)
                                         .padding(.horizontal, 18)
 
-                                    Text("La scelta dipende soprattutto da esperienza, ritmo e tipo di corsa")
+                                    Text("Scegli in base all'uso principale")
                                         .font(.system(size: 12.5, weight: .regular))
                                         .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
                                         .padding(.horizontal, 18)
@@ -767,12 +768,12 @@ struct SearchView: View {
                                 .id("spotlight_section")
                             }
 
-                            // 5. Follow-Up Suggestion Pills (Screenshot 3)
+                            // 5. Follow-Up Suggestion Pills (Screenshot 4 style)
                             if !followUpSuggestions.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
                                     ForEach(followUpSuggestions, id: \.self) { suggestion in
                                         ShopFollowUpPillButton(title: suggestion) {
-                                            handleSearchOrComparison(query: suggestion)
+                                            handleFollowUpTap(suggestion)
                                         }
                                     }
                                 }
@@ -1293,10 +1294,25 @@ struct SearchView: View {
         let text = followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         followUpInputText = ""
-        handleSearchOrComparison(query: text)
+        handleFollowUpTap(text)
     }
 
-    private func handleSearchOrComparison(query: String) {
+    private func handleFollowUpTap(_ suggestion: String) {
+        let trimmed = suggestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // Smart User Preference Auto-Fill: "Cercale nella mia taglia"
+        if trimmed.lowercased().contains("nella mia taglia") || trimmed.lowercased().contains("mia taglia") {
+            let prefSize = UserPreferencesManager.shared.preferences.preferredShoeSize
+            if !prefSize.isEmpty {
+                selectedSize = prefSize
+            }
+        }
+
+        handleSearchOrComparison(query: trimmed, isFollowUp: true)
+    }
+
+    private func handleSearchOrComparison(query: String, isFollowUp: Bool = false) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -1309,7 +1325,7 @@ struct SearchView: View {
         }
 
         searchText = trimmed
-        executeSearch()
+        executeSearch(isFollowUp: isFollowUp)
     }
 
     private func parseComparisonQuery(_ text: String) -> (String, String)? {
@@ -1348,7 +1364,7 @@ struct SearchView: View {
     }
 
     // MARK: - Search Execution
-    private func executeSearch() {
+    private func executeSearch(isFollowUp: Bool = false) {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
 
@@ -1358,13 +1374,16 @@ struct SearchView: View {
         errorMessage = nil
         conversationalHeader = "Ho cercato \(query)"
 
+        let activeContext = isFollowUp ? lastContextQuery : nil
+
         Task {
             do {
                 let smartRes = try await api.smartSearch(
                     query: query,
                     maxPrice: overrideMaxPrice,
                     size: selectedSize,
-                    store: selectedStore
+                    store: selectedStore,
+                    contextQuery: activeContext
                 )
                 await MainActor.run {
                     self.errorMessage = nil
@@ -1377,6 +1396,7 @@ struct SearchView: View {
                     self.followUpSuggestions = smartRes.follow_up_suggestions ?? []
                     self.conversationalHeader = smartRes.conversational_header ?? "Ho cercato \(query)"
                     self.conversationalSummary = smartRes.conversational_summary ?? (smartRes.intent?.explanation ?? "")
+                    self.lastContextQuery = query
                     if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
                         self.isDeepDiveMode = false
                     } else {
@@ -1732,7 +1752,7 @@ struct ShopComparativeCard: View {
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Ideale Per")
+                        Text("Uso")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
                         Text(card.ideal_for)
