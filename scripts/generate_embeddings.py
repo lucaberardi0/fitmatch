@@ -118,16 +118,21 @@ class EmbeddingGenerator:
 
         return []
 
-    def save_batch_embeddings(self, items: List[Dict[str, Any]]) -> bool:
-        """Call Supabase RPC update_product_embeddings in a single database transaction."""
+    def save_batch_embeddings(self, items: List[Dict[str, Any]], retries: int = 3) -> bool:
+        """Call Supabase RPC update_product_embeddings in a single database transaction with retries."""
         payload = {
             "items": [
                 {"id": item["id"], "embedding": str(item["embedding"])}
                 for item in items
             ]
         }
-        res = self.sb._request("rpc/update_product_embeddings", method="POST", data=payload)
-        return res.get("status") in (200, 204)
+        for attempt in range(retries):
+            res = self.sb._request("rpc/update_product_embeddings", method="POST", data=payload)
+            if res.get("status") in (200, 204):
+                return True
+            logger.warning(f"save_batch_embeddings failed (attempt {attempt + 1}/{retries}): {res.get('error')}")
+            time.sleep(1.5 * (attempt + 1))
+        return False
 
     def run(self, batch_size: int = 50, limit: Optional[int] = None, active_only: bool = True):
         logger.info(f"Starting vector embedding backfill (batch_size={batch_size}, active_only={active_only})...")
