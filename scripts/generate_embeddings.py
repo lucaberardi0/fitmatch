@@ -193,7 +193,7 @@ class EmbeddingGenerator:
 
 def main():
     parser = argparse.ArgumentParser(description="FitMatch Semantic Vector Backfill")
-    parser.add_argument("--batch-size", type=int, default=50, help="Products per embedding batch (default 50)")
+    parser.add_argument("--batch-size", type=int, default=25, help="Products per embedding batch (default 25)")
     parser.add_argument("--limit", type=int, default=None, help="Max products to embed in this run")
     parser.add_argument("--all", action="store_true", help="Embed all products including those without active offers")
     args = parser.parse_args()
