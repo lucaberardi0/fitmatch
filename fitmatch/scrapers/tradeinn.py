@@ -3,7 +3,7 @@ import uuid
 import logging
 from typing import List, Optional
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 logger = logging.getLogger("fitmatch.scraper.tradeinn")
 
@@ -148,6 +148,8 @@ class TradeinnScraper(BaseScraper):
                 else title
             )
 
+            sizes = self.fetch_sizes(clean_url) if len(offers) < 5 else []
+
             offers.append(
                 Offer(
                     store_id=self.store_id,
@@ -160,7 +162,7 @@ class TradeinnScraper(BaseScraper):
                     url=clean_url,
                     image_url=img_url,
                     gallery_images=gallery,
-                    available_sizes=[],
+                    available_sizes=sizes,
                     in_stock=in_stock
                 )
             )
@@ -169,3 +171,17 @@ class TradeinnScraper(BaseScraper):
                 break
 
         return offers
+
+    def fetch_sizes(self, product_url: str) -> List[str]:
+        """Extract available sizes from Tradeinn product detail page."""
+        try:
+            html = self._fetch_html(product_url)
+            if not html:
+                return []
+            matches = re.findall(r"\"size\"\s*:\s*\"([^\"]+)\"[^}]+?\"availability\"\s*:\s*\"https://schema\.org/InStock\"", html, re.DOTALL)
+            if not matches:
+                matches = re.findall(r"\"size\"\s*:\s*\"([^\"]+)\"", html)
+            return normalize_sizes(matches)
+        except Exception as e:
+            logger.debug(f"[Tradeinn] fetch_sizes error on {product_url}: {e}")
+            return []

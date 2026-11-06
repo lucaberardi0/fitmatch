@@ -3,7 +3,7 @@ import urllib.parse
 from typing import List, Optional
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 
 class RunningWarehouseScraper(BaseScraper):
@@ -102,6 +102,10 @@ class RunningWarehouseScraper(BaseScraper):
                         if angle_url not in gallery_urls:
                             gallery_urls.append(angle_url)
 
+                norm_sizes = normalize_sizes(sizes)
+                if not norm_sizes and len(offers) < 5:
+                    norm_sizes = self.fetch_sizes(product_url)
+
                 offers.append(
                     Offer(
                         store_id=self.store_id,
@@ -114,7 +118,7 @@ class RunningWarehouseScraper(BaseScraper):
                         url=product_url,
                         image_url=img_url,
                         gallery_images=gallery_urls,
-                        available_sizes=sizes,
+                        available_sizes=norm_sizes,
                         in_stock=True
                     )
                 )
@@ -125,20 +129,23 @@ class RunningWarehouseScraper(BaseScraper):
 
     def fetch_sizes(self, product_url: str) -> List[str]:
         """Fetch real-time in-stock sizes directly from the product detail page."""
-        html = self._fetch_html(product_url)
-        if not html:
+        try:
+            html = self._fetch_html(product_url)
+            if not html:
+                return []
+
+            soup = BeautifulSoup(html, "html.parser")
+            rows = soup.select("table.styled_subproduct_list tr.subproduct")
+            sizes: List[str] = []
+
+            for row in rows:
+                txt = row.text
+                # Extract US shoe sizes from subproduct table
+                m = re.search(r"US\s*([0-9]+(?:\.[0-9]+)?)", txt)
+                if m:
+                    val = re.sub(r"\.0$", "", m.group(1))
+                    sizes.append(val)
+
+            return normalize_sizes(sizes)
+        except Exception:
             return []
-
-        soup = BeautifulSoup(html, "html.parser")
-        rows = soup.select("table.styled_subproduct_list tr.subproduct")
-        sizes: List[str] = []
-
-        for row in rows:
-            txt = row.text
-            # Extract US shoe sizes from subproduct table
-            m = re.search(r"US\s*([0-9]+(?:\.[0-9]+)?)", txt)
-            if m:
-                val = re.sub(r"\.0$", "", m.group(1))
-                sizes.append(val)
-
-        return sizes

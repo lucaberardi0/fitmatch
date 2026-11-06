@@ -48,15 +48,42 @@ def normalize_sizes(raw_sizes: Any) -> List[str]:
     for item in raw_sizes:
         if not item:
             continue
-        s_str = str(item).strip().rstrip(".").replace(",", ".")
-        s_upper = s_str.upper()
+        s_str = str(item).strip()
 
+        # Check apparel
+        s_upper = s_str.upper()
         if s_upper in clothing_order:
             clothing_sizes.append(s_upper)
             continue
 
+        # Extract from dual formats like "6,5 US - 37,5" or "8 US - 41 EU"
+        dual_m = re.search(r"-\s*(\d+(?:[.,]\d+)?)\s*(?:EU)?$", s_str, re.IGNORECASE)
+        if dual_m:
+            s_str = dual_m.group(1)
+
+        # Extract from Decathlon format "46 (UK 11)" or "40.5 (UK 7)"
+        uk_m = re.search(r"^(\d+(?:[.,]\d+)?)\s*\([^\)]*\)", s_str)
+        if uk_m:
+            s_str = uk_m.group(1)
+
+        # Handle fractions & European conventions "EU 42 1/2", "42 1/2", "42.1/2", "42 2/3", "42 1/3"
+        s_str = re.sub(r"\bEU\b", "", s_str, flags=re.IGNORECASE).strip()
+        s_str = re.sub(r"(\d+)\.1/2", r"\1.5", s_str)
+        s_str = re.sub(r"(\d+)\s+1/2", r"\1.5", s_str)
+        s_str = re.sub(r"(\d+)\s+2/3", r"\1.5", s_str)
+        s_str = re.sub(r"(\d+)\s+1/3", r"\1.5", s_str)
+
+        # Handle explicit US prefix "US 9.5" or "US 10"
+        us_prefix_m = re.search(r"\bUS\s*(\d+(?:[.,]\d+)?)\b", s_str, re.IGNORECASE)
+        if us_prefix_m:
+            us_val = us_prefix_m.group(1).replace(",", ".")
+            if us_val in US_TO_EU_MEN:
+                eu_sizes.add(US_TO_EU_MEN[us_val])
+                continue
+
+        s_clean = s_str.replace(",", ".").rstrip(".").strip()
         try:
-            val = float(s_str)
+            val = float(s_clean)
             if 32.0 <= val <= 52.0:
                 fmt = f"{val:.1f}" if val % 1 != 0 else f"{int(val)}"
                 eu_sizes.add(fmt)
@@ -64,8 +91,8 @@ def normalize_sizes(raw_sizes: Any) -> List[str]:
                 s_key = f"{val:.1f}" if val % 1 != 0 else f"{int(val)}"
                 if s_key in US_TO_EU_MEN:
                     eu_sizes.add(US_TO_EU_MEN[s_key])
-                elif s_str in US_TO_EU_MEN:
-                    eu_sizes.add(US_TO_EU_MEN[s_str])
+                elif s_clean in US_TO_EU_MEN:
+                    eu_sizes.add(US_TO_EU_MEN[s_clean])
                 else:
                     approx_eu = round((val + 33.5) * 2) / 2
                     fmt = f"{approx_eu:.1f}" if approx_eu % 1 != 0 else f"{int(approx_eu)}"
@@ -74,7 +101,7 @@ def normalize_sizes(raw_sizes: Any) -> List[str]:
                 fmt = f"{val:.1f}" if val % 1 != 0 else f"{int(val)}"
                 eu_sizes.add(fmt)
         except ValueError:
-            eu_sizes.add(s_str)
+            eu_sizes.add(s_clean)
 
     if eu_sizes:
         def size_sort_key(s):

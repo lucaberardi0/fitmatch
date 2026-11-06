@@ -1,5 +1,6 @@
 import logging
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 from fitmatch.service import ComparisonService
@@ -16,6 +17,7 @@ from fitmatch.scrapers.registry import ScraperRegistry
 from fitmatch.push_service import APNsPushService
 from fitmatch.price_drop_watcher import PriceDropWatcher
 from fitmatch.matcher.normalizer import ProductNormalizer
+from fitmatch.admin_dashboard import get_admin_overview, render_admin_html
 
 logger = logging.getLogger("fitmatch.api")
 
@@ -56,8 +58,18 @@ def on_startup():
         logger.info(f"[Startup] Automated store sync completed: {synced} stores synced.")
     except Exception as e:
         logger.warning(f"[Startup] Store sync note: {e}")
-    # Start autonomous background scheduler (Price monitor every 2h, catalog discovery every 24h)
-    scheduler.start(refresh_interval_seconds=7200, discovery_interval_seconds=86400)
+
+    # Autonomous background scheduler (Configurable via env, default: price refresh every 2h, catalog discovery every 24h)
+    import os
+    refresh_h = float(os.getenv("FITMATCH_REFRESH_INTERVAL_HOURS", "2.0"))
+    discovery_h = float(os.getenv("FITMATCH_DISCOVERY_INTERVAL_HOURS", "24.0"))
+    enable_sched = os.getenv("FITMATCH_ENABLE_SCHEDULER", "true").lower() in ("true", "1", "yes")
+
+    if enable_sched:
+        scheduler.start(
+            refresh_interval_seconds=int(refresh_h * 3600),
+            discovery_interval_seconds=int(discovery_h * 3600)
+        )
 
 
 @app.on_event("shutdown")
@@ -68,6 +80,19 @@ def on_shutdown():
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "FitMatch Price Engine"}
+
+
+@app.get("/admin", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse)
+def get_admin_dashboard_ui():
+    """Serve the FitMatch interactive Control Center & Admin Dashboard SPA."""
+    return HTMLResponse(content=render_admin_html())
+
+
+@app.get("/api/admin/overview")
+def get_admin_overview_api():
+    """Retrieve full aggregated telemetry for the admin control center."""
+    return get_admin_overview(db=db, scheduler=scheduler)
 
 
 @app.get("/api/stores")
@@ -419,14 +444,48 @@ def trigger_crawl(
     limit_per_store: int = Query(100, ge=10, le=2000),
     store: Optional[str] = Query(None, description="Specific store ID to crawl (e.g. 'cisalfa', 'deporvillage') or all")
 ):
-    """Trigger background crawler to update local catalog from all or specific stores."""
+    """Trigger background crawler to update catalog from all or specific stores with session tracking."""
     cache_manager.invalidate_responses()
-    crawler = CategoryCrawler(db=db)
-    stores = [store] if store else None
-    background_tasks.add_task(crawler.run_full_sync, limit_per_store, stores)
+    session_id = db.create_sync_session(
+        session_type="manual_crawl",
+        trigger_source="manual_api",
+        metadata={"limit_per_store": limit_per_store, "store": store}
+    )
+
+    def _do_crawl():
+        try:
+            start_t = time.time()
+            crawler = CategoryCrawler(db=db)
+            if store:
+                c = crawler.crawl_store(store, max_items=limit_per_store, session_id=session_id)
+                dur = round(time.time() - start_t, 2)
+                db.update_sync_session(
+                    session_id=session_id,
+                    status="completed",
+                    duration_seconds=dur,
+                    total_items_processed=c,
+                    total_items_updated=c,
+                    store_stats={store: c}
+                )
+            else:
+                res = crawler.run_full_sync(limit_per_store=limit_per_store, session_id=session_id)
+                db.update_sync_session(
+                    session_id=session_id,
+                    status="completed",
+                    duration_seconds=res.get("duration_seconds", 0),
+                    total_items_processed=res.get("total_crawled", 0),
+                    total_items_updated=res.get("total_crawled", 0),
+                    store_stats=res.get("crawled_by_store", {})
+                )
+        except Exception as e:
+            logger.error(f"[ManualCrawl] Error in session {session_id}: {e}")
+            db.update_sync_session(session_id=session_id, status="failed", error_message=str(e))
+
+    background_tasks.add_task(_do_crawl)
     return {
         "status": "scheduled",
-        "message": f"Crawl job avviato in background per {store or 'tutti i 10 negozi'}",
+        "session_id": session_id,
+        "message": f"Crawl job avviato in background per {store or 'tutti i negozi'}",
         "target_per_store": limit_per_store
     }
 
@@ -437,6 +496,29 @@ def trigger_crawl(
 def get_scheduler_status():
     """Retrieve live status, cycles and schedule of the autonomous spider engine."""
     return scheduler.get_status()
+
+
+@app.get("/api/scheduler/sessions")
+def get_scheduler_sessions(
+    limit: int = Query(20, ge=1, le=100),
+    type: Optional[str] = Query(None, description="Filter by session type: discovery, price_refresh, size_enrichment, manual_crawl"),
+    status: Optional[str] = Query(None, description="Filter by status: running, completed, failed")
+):
+    """Retrieve history of persistent crawler and scheduler sync sessions from the database."""
+    sessions = db.get_sync_sessions(limit=limit, session_type=type, status=status)
+    return {
+        "total": len(sessions),
+        "sessions": sessions
+    }
+
+
+@app.get("/api/scheduler/sessions/{session_id}")
+def get_scheduler_session_detail(session_id: str):
+    """Retrieve full details of a specific sync session, including breakdown by store and crawl logs."""
+    session = db.get_sync_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' non trovata.")
+    return session
 
 
 @app.post("/api/scheduler/start")
@@ -464,14 +546,20 @@ def stop_scheduler():
 
 @app.post("/api/scheduler/run-discovery")
 def trigger_scheduler_discovery(limit_per_store: int = Query(200, ge=10, le=1000)):
-    """Trigger an immediate catalog discovery run across all stores in background."""
-    return scheduler.trigger_discovery_now(limit_per_store=limit_per_store)
+    """Trigger an immediate catalog discovery run across all stores in background with session tracking."""
+    return scheduler.trigger_discovery_now(limit_per_store=limit_per_store, trigger_source="manual_api")
 
 
 @app.post("/api/scheduler/run-refresh")
 def trigger_scheduler_refresh(limit: int = Query(50, ge=10, le=500)):
-    """Trigger an immediate price & stock refresh for indexed products in background."""
-    return scheduler.trigger_refresh_now(limit=limit)
+    """Trigger an immediate price & stock refresh for indexed products in background with session tracking."""
+    return scheduler.trigger_refresh_now(limit=limit, trigger_source="manual_api")
+
+
+@app.post("/api/scheduler/run-enrichment")
+def trigger_scheduler_enrichment(limit_per_store: int = Query(50, ge=5, le=500)):
+    """Trigger an immediate size enrichment run across stores in background with session tracking."""
+    return scheduler.trigger_enrichment_now(limit_per_store=limit_per_store, trigger_source="manual_api")
 
 
 @app.post("/api/catalog/recluster")

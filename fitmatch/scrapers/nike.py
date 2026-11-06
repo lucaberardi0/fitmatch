@@ -5,7 +5,7 @@ import urllib.parse
 from typing import List, Optional, Dict, Any
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 logger = logging.getLogger("fitmatch.scraper.nike")
 
@@ -104,6 +104,8 @@ class NikeScraper(BaseScraper):
                         if u and u not in gallery_urls:
                             gallery_urls.append(u)
 
+                    sizes = self.fetch_sizes(purl) if len(offers) < 5 else []
+
                     offer = Offer(
                         store_id=self.store_id,
                         store_name=self.store_name,
@@ -116,6 +118,7 @@ class NikeScraper(BaseScraper):
                         url=purl,
                         image_url=img_url,
                         gallery_images=gallery_urls,
+                        available_sizes=sizes,
                         in_stock=True
                     )
                     offers.append(offer)
@@ -151,7 +154,7 @@ class NikeScraper(BaseScraper):
                     if label:
                         active_sizes.append(str(label))
 
-            return active_sizes
+            return normalize_sizes(active_sizes)
         except Exception as e:
             logger.warning(f"[Nike] Error fetching sizes for {product_url}: {e}")
             return []

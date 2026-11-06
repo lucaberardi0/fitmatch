@@ -46,8 +46,10 @@ struct ProductDetailView: View {
         }
         if selectedSize != nil {
             return list.sorted {
-                if $0.hasSize != $1.hasSize {
-                    return $0.hasSize && !$1.hasSize
+                let s0 = $0.offer.sizeMatchStatus(selectedSize)
+                let s1 = $1.offer.sizeMatchStatus(selectedSize)
+                if s0 != s1 {
+                    return s0 > s1
                 }
                 return $0.offer.price < $1.offer.price
             }
@@ -471,8 +473,9 @@ struct ProductDetailView: View {
                                 let index = item.index
                                 let offer = item.offer
                                 let hasSize = item.hasSize
+                                let status = offer.sizeMatchStatus(selectedSize)
                                 let isSelected = (index == selectedOfferIndex)
-                                let isBest = (offer.price == (currentOffer?.price ?? product.best_price)) && hasSize
+                                let isBest = (offer.price == (currentOffer?.price ?? product.best_price)) && (status != .unavailable)
 
                                 Button(action: {
                                     selectedOfferIndex = index
@@ -507,7 +510,7 @@ struct ProductDetailView: View {
                                             // Price
                                             Text(offer.formattedPrice)
                                                 .font(.system(size: 17, weight: .black, design: .rounded))
-                                                .foregroundColor(hasSize ? .shopDark : .secondary)
+                                                .foregroundColor(status != .unavailable ? .shopDark : .secondary)
 
                                             // Radio checkmark
                                             ZStack {
@@ -534,7 +537,8 @@ struct ProductDetailView: View {
                                             }
 
                                             if let sz = selectedSize {
-                                                if hasSize {
+                                                switch status {
+                                                case .available:
                                                     HStack(spacing: 3) {
                                                         Image(systemName: "checkmark.circle.fill")
                                                             .font(.system(size: 9))
@@ -542,7 +546,15 @@ struct ProductDetailView: View {
                                                             .font(.system(size: 10.5, weight: .semibold))
                                                     }
                                                     .foregroundColor(.shopGreen)
-                                                } else {
+                                                case .unknown:
+                                                    HStack(spacing: 3) {
+                                                        Image(systemName: "questionmark.circle")
+                                                            .font(.system(size: 9))
+                                                        Text("Verifica tg. \(sz) su store")
+                                                            .font(.system(size: 10, weight: .medium))
+                                                    }
+                                                    .foregroundColor(.shopTextMuted)
+                                                case .unavailable:
                                                     Text("Non disp. in tg. \(sz)")
                                                         .font(.system(size: 10, weight: .medium))
                                                         .foregroundColor(Color.secondary.opacity(0.8))
@@ -550,6 +562,10 @@ struct ProductDetailView: View {
                                             } else if let sizes = offer.available_sizes, !sizes.isEmpty {
                                                 Text("Taglie: " + sizes.prefix(5).joined(separator: ", ") + (sizes.count > 5 ? "..." : ""))
                                                     .font(.system(size: 10.5))
+                                                    .foregroundColor(.shopTextMuted)
+                                            } else {
+                                                Text("Vedi taglie su store")
+                                                    .font(.system(size: 10, weight: .medium))
                                                     .foregroundColor(.shopTextMuted)
                                             }
 
@@ -572,7 +588,7 @@ struct ProductDetailView: View {
 
                                                 Text("• Tot. \(offer.formattedTotalPrice)")
                                                     .font(.system(size: 10.5, weight: .bold))
-                                                    .foregroundColor(hasSize ? .shopDark : .secondary)
+                                                    .foregroundColor(status != .unavailable ? .shopDark : .secondary)
                                             }
                                         }
                                     }

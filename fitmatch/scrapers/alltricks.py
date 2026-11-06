@@ -1,8 +1,9 @@
 import urllib.parse
 import logging
 from typing import List, Optional
+from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 logger = logging.getLogger("fitmatch.scraper.alltricks")
 
@@ -54,6 +55,7 @@ class AlltricksScraper(BaseScraper):
 
             img_url = d.get("image_url")
             pid = str(d.get("id") or item.get("variation_id") or "")
+            sizes = self.fetch_sizes(raw_url) if len(offers) < 5 else []
 
             offers.append(
                 Offer(
@@ -66,7 +68,7 @@ class AlltricksScraper(BaseScraper):
                     original_price=orig_price,
                     url=raw_url,
                     image_url=img_url,
-                    available_sizes=[],
+                    available_sizes=sizes,
                     in_stock=True
                 )
             )
@@ -75,3 +77,23 @@ class AlltricksScraper(BaseScraper):
                 break
 
         return offers
+
+    def fetch_sizes(self, product_url: str) -> List[str]:
+        """Fetch available in-stock sizes from Alltricks product detail page."""
+        try:
+            html = self._fetch_html(product_url)
+            if not html:
+                return []
+            soup = BeautifulSoup(html, "html.parser")
+            sel = soup.select_one("select[name=\"product_id\"]")
+            if not sel:
+                return []
+            sizes = []
+            for opt in sel.select("option"):
+                txt = opt.get_text(strip=True)
+                if txt and not any(w in txt.lower() for w in ["taglia", "select", "seleziona"]):
+                    sizes.append(txt)
+            return normalize_sizes(sizes)
+        except Exception as e:
+            logger.debug(f"[Alltricks] fetch_sizes error on {product_url}: {e}")
+            return []

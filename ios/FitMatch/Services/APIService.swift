@@ -402,4 +402,47 @@ class APIService: ObservableObject {
         let (_, response) = try await session.data(for: request)
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
+
+    // MARK: - Admin Control Center Actions
+
+    func triggerDiscovery(limitPerStore: Int = 200) async throws -> Bool {
+        guard let url = URL(string: "\(baseURL)/api/scheduler/run-discovery?limit_per_store=\(limitPerStore)") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    func triggerRefresh(limit: Int = 50) async throws -> Bool {
+        guard let url = URL(string: "\(baseURL)/api/scheduler/run-refresh?limit=\(limit)") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    func triggerSizeEnrichment(limitPerStore: Int = 50) async throws -> Bool {
+        guard let url = URL(string: "\(baseURL)/api/scheduler/run-enrichment?limit_per_store=\(limitPerStore)") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    func triggerRecluster() async throws -> Bool {
+        guard let url = URL(string: "\(baseURL)/api/catalog/recluster") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    func crawlStore(storeId: String, limit: Int = 100) async throws -> Bool {
+        let encoded = storeId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? storeId
+        guard let url = URL(string: "\(baseURL)/api/crawl?store=\(encoded)&limit_per_store=\(limit)") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
 }

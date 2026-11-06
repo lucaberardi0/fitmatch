@@ -124,38 +124,86 @@ class SyncScheduler:
 
         logger.info("[SyncScheduler] Worker loop terminated.")
 
-    def _run_discovery_task(self, limit_per_store: int = 300) -> Dict[str, Any]:
-        """Execute full multi-store catalog crawl and index new products."""
+    def _run_discovery_task(self, limit_per_store: int = 300, trigger_source: str = "scheduler") -> Dict[str, Any]:
+        """Execute full multi-store catalog crawl and index new products with persistent session tracking."""
         self.current_task = "discovery"
         logger.info("[SyncScheduler] Initiating automatic catalog discovery cycle...")
         start_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        start_time = time.time()
+
+        # 1. Create persistent sync session in database
+        session_id = self.db.create_sync_session(
+            session_type="discovery",
+            trigger_source=trigger_source,
+            metadata={"limit_per_store": limit_per_store}
+        )
+        logger.info(f"[SyncScheduler] Created discovery session {session_id}")
 
         try:
-            res = self.crawler.run_full_sync(limit_per_store=limit_per_store)
-            self.last_discovery_run = start_iso
-            self.last_discovery_stats = {
-                "timestamp": start_iso,
-                "status": "success",
-                "total_crawled": res.get("total_crawled", 0),
-                "duration_seconds": res.get("duration_seconds", 0),
-                "by_store": res.get("crawled_by_store", {})
-            }
-            self.total_cycles_completed += 1
-            logger.info(
-                f"[SyncScheduler] Catalog discovery completed: {res.get('total_crawled')} items "
-                f"in {res.get('duration_seconds')}s."
-            )
+            # 2. Run crawler with session_id link
+            res = self.crawler.run_full_sync(limit_per_store=limit_per_store, session_id=session_id)
+            total_crawled = res.get("total_crawled", 0)
+            duration_crawling = res.get("duration_seconds", 0)
+            by_store = res.get("crawled_by_store", {})
 
-            # Automated post-discovery reconciliation & entity re-clustering
+            # 3. Automated post-discovery reconciliation & entity re-clustering
+            recluster_res = None
             try:
-                self.run_reclustering_task()
+                recluster_res = self.run_reclustering_task()
             except Exception as rc_err:
                 logger.warning(f"[SyncScheduler] Post-discovery recluster warning: {rc_err}")
 
-            return self.last_discovery_stats
-        except Exception as e:
-            logger.error(f"[SyncScheduler] Error during catalog discovery: {e}")
+            # 4. Automated size enrichment for newly indexed products
+            enrichment_stats = None
+            try:
+                enrichment_stats = self.run_size_enrichment_task(limit_per_store=50, standalone=False)
+            except Exception as en_err:
+                logger.warning(f"[SyncScheduler] Post-discovery size enrichment warning: {en_err}")
+
+            total_duration = round(time.time() - start_time, 2)
+
+            # 5. Complete persistent session
+            self.db.update_sync_session(
+                session_id=session_id,
+                status="completed",
+                duration_seconds=total_duration,
+                total_items_processed=total_crawled,
+                total_items_updated=total_crawled,
+                store_stats=by_store,
+                metadata={
+                    "recluster": recluster_res,
+                    "enrichment": enrichment_stats,
+                    "limit_per_store": limit_per_store
+                }
+            )
+
+            self.last_discovery_run = start_iso
             self.last_discovery_stats = {
+                "session_id": session_id,
+                "timestamp": start_iso,
+                "status": "success",
+                "total_crawled": total_crawled,
+                "duration_seconds": total_duration,
+                "by_store": by_store
+            }
+            self.total_cycles_completed += 1
+            logger.info(
+                f"[SyncScheduler] Catalog discovery completed (Session {session_id}): {total_crawled} items "
+                f"in {total_duration}s."
+            )
+            return self.last_discovery_stats
+
+        except Exception as e:
+            elapsed = round(time.time() - start_time, 2)
+            logger.error(f"[SyncScheduler] Error during catalog discovery session {session_id}: {e}")
+            self.db.update_sync_session(
+                session_id=session_id,
+                status="failed",
+                duration_seconds=elapsed,
+                error_message=str(e)
+            )
+            self.last_discovery_stats = {
+                "session_id": session_id,
                 "timestamp": start_iso,
                 "status": "error",
                 "error": str(e)
@@ -164,31 +212,30 @@ class SyncScheduler:
         finally:
             self.current_task = "idle"
 
-    def _run_refresh_task(self, limit: int = 50) -> Dict[str, Any]:
-        """Execute continuous price and stock refresh for indexed products."""
+    def _run_refresh_task(self, limit: int = 50, trigger_source: str = "scheduler") -> Dict[str, Any]:
+        """Execute continuous price and stock refresh for indexed products with persistent session tracking."""
         self.current_task = "refresh"
         logger.info(f"[SyncScheduler] Initiating price refresh cycle for {limit} products...")
         start_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        start_time = time.time()
+
+        # 1. Create persistent sync session in database
+        session_id = self.db.create_sync_session(
+            session_type="price_refresh",
+            trigger_source=trigger_source,
+            metadata={"limit": limit}
+        )
+        logger.info(f"[SyncScheduler] Created price_refresh session {session_id}")
 
         try:
             res = self.updater.run_update_sync(limit=limit)
-            self.last_refresh_run = start_iso
-            self.last_refresh_stats = {
-                "timestamp": start_iso,
-                "status": res.get("status", "success"),
-                "offers_checked": res.get("offers_checked", 0),
-                "prices_updated": res.get("prices_updated", 0),
-                "price_drops": res.get("price_drops", 0),
-                "total_savings": res.get("total_savings", 0.0),
-                "duration_seconds": res.get("duration_seconds", 0.0)
-            }
-            self.total_cycles_completed += 1
-            logger.info(
-                f"[SyncScheduler] Price refresh completed: {res.get('offers_checked')} offers checked, "
-                f"{res.get('price_drops')} drops detected."
-            )
+            offers_checked = res.get("offers_checked", 0)
+            prices_updated = res.get("prices_updated", 0)
+            price_drops = res.get("price_drops", 0)
+            total_savings = res.get("total_savings", 0.0)
 
             # Trigger server-side PriceDropWatcher to push APNs alerts to devices
+            watcher_stats = None
             try:
                 import asyncio
                 from fitmatch.price_drop_watcher import PriceDropWatcher
@@ -196,15 +243,54 @@ class SyncScheduler:
                 loop = asyncio.new_event_loop()
                 watcher_stats = loop.run_until_complete(watcher.run_check())
                 loop.close()
-                self.last_refresh_stats["watcher"] = watcher_stats
                 logger.info(f"[SyncScheduler] PriceDropWatcher completed: {watcher_stats}")
             except Exception as w_err:
                 logger.warning(f"[SyncScheduler] PriceDropWatcher warning: {w_err}")
 
-            return self.last_refresh_stats
-        except Exception as e:
-            logger.error(f"[SyncScheduler] Error during price refresh: {e}")
+            total_duration = round(time.time() - start_time, 2)
+
+            # Complete persistent session
+            self.db.update_sync_session(
+                session_id=session_id,
+                status="completed" if res.get("status") == "success" else "failed",
+                duration_seconds=total_duration,
+                total_items_processed=offers_checked,
+                total_items_updated=prices_updated,
+                total_price_drops=price_drops,
+                store_stats={"total_savings": total_savings},
+                metadata={"watcher": watcher_stats, "limit": limit}
+            )
+
+            self.last_refresh_run = start_iso
             self.last_refresh_stats = {
+                "session_id": session_id,
+                "timestamp": start_iso,
+                "status": res.get("status", "success"),
+                "offers_checked": offers_checked,
+                "prices_updated": prices_updated,
+                "price_drops": price_drops,
+                "total_savings": total_savings,
+                "duration_seconds": total_duration,
+                "watcher": watcher_stats
+            }
+            self.total_cycles_completed += 1
+            logger.info(
+                f"[SyncScheduler] Price refresh completed (Session {session_id}): {offers_checked} offers checked, "
+                f"{price_drops} drops detected."
+            )
+            return self.last_refresh_stats
+
+        except Exception as e:
+            elapsed = round(time.time() - start_time, 2)
+            logger.error(f"[SyncScheduler] Error during price refresh session {session_id}: {e}")
+            self.db.update_sync_session(
+                session_id=session_id,
+                status="failed",
+                duration_seconds=elapsed,
+                error_message=str(e)
+            )
+            self.last_refresh_stats = {
+                "session_id": session_id,
                 "timestamp": start_iso,
                 "status": "error",
                 "error": str(e)
@@ -213,15 +299,65 @@ class SyncScheduler:
         finally:
             self.current_task = "idle"
 
-    def trigger_discovery_now(self, limit_per_store: int = 200) -> Dict[str, Any]:
-        """Trigger an immediate catalog discovery run in background or synchronously."""
+    def run_size_enrichment_task(
+        self,
+        limit_per_store: int = 50,
+        standalone: bool = True,
+        trigger_source: str = "scheduler"
+    ) -> Dict[str, Any]:
+        """Runs size enrichment on store offers missing sizes."""
+        session_id = None
+        if standalone:
+            session_id = self.db.create_sync_session(
+                session_type="size_enrichment",
+                trigger_source=trigger_source,
+                metadata={"limit_per_store": limit_per_store}
+            )
+            logger.info(f"[SyncScheduler] Created size_enrichment session {session_id}")
+
+        start_time = time.time()
+        try:
+            from scripts.enrich_database_sizes import run_enrichment_batch
+            counts = run_enrichment_batch(limit_per_store=limit_per_store, max_workers=5)
+            total_enriched = sum(counts.values())
+            elapsed = round(time.time() - start_time, 2)
+
+            if standalone and session_id:
+                self.db.update_sync_session(
+                    session_id=session_id,
+                    status="completed",
+                    duration_seconds=elapsed,
+                    total_items_processed=total_enriched,
+                    total_items_updated=total_enriched,
+                    store_stats=counts
+                )
+
+            return {
+                "status": "success",
+                "total_enriched": total_enriched,
+                "by_store": counts,
+                "duration_seconds": elapsed
+            }
+        except Exception as e:
+            elapsed = round(time.time() - start_time, 2)
+            logger.error(f"[SyncScheduler] Size enrichment task error: {e}")
+            if standalone and session_id:
+                self.db.update_sync_session(
+                    session_id=session_id,
+                    status="failed",
+                    duration_seconds=elapsed,
+                    error_message=str(e)
+                )
+            return {"status": "error", "error": str(e)}
+
+    def trigger_discovery_now(self, limit_per_store: int = 200, trigger_source: str = "manual_api") -> Dict[str, Any]:
+        """Trigger an immediate catalog discovery run in background."""
         if self.current_task != "idle":
             return {"status": "busy", "message": f"Task already running: {self.current_task}"}
 
-        self.current_task = "discovery"
         thread = threading.Thread(
             target=self._run_discovery_task,
-            args=(limit_per_store,),
+            args=(limit_per_store, trigger_source),
             daemon=True
         )
         thread.start()
@@ -230,21 +366,36 @@ class SyncScheduler:
             "message": f"Avvio scraping e scoperta catalogo in background (target: {limit_per_store} per negozio)."
         }
 
-    def trigger_refresh_now(self, limit: int = 50) -> Dict[str, Any]:
+    def trigger_refresh_now(self, limit: int = 50, trigger_source: str = "manual_api") -> Dict[str, Any]:
         """Trigger an immediate price refresh run in background."""
         if self.current_task != "idle":
             return {"status": "busy", "message": f"Task already running: {self.current_task}"}
 
-        self.current_task = "refresh"
         thread = threading.Thread(
             target=self._run_refresh_task,
-            args=(limit,),
+            args=(limit, trigger_source),
             daemon=True
         )
         thread.start()
         return {
             "status": "started",
             "message": f"Avvio verifica prezzi in background per {limit} prodotti."
+        }
+
+    def trigger_enrichment_now(self, limit_per_store: int = 50, trigger_source: str = "manual_api") -> Dict[str, Any]:
+        """Trigger an immediate size enrichment run in background."""
+        if self.current_task != "idle":
+            return {"status": "busy", "message": f"Task already running: {self.current_task}"}
+
+        thread = threading.Thread(
+            target=self.run_size_enrichment_task,
+            args=(limit_per_store, True, trigger_source),
+            daemon=True
+        )
+        thread.start()
+        return {
+            "status": "started",
+            "message": f"Avvio arricchimento taglie in background (target: {limit_per_store} per negozio)."
         }
 
     def run_reclustering_task(self) -> Dict[str, Any]:
@@ -260,7 +411,45 @@ class SyncScheduler:
             return {"status": "error", "error": str(e)}
 
     def get_status(self) -> Dict[str, Any]:
-        """Return full telemetry and status of the automated sync engine."""
+        """Return full telemetry and status of the automated sync engine with persistent DB history."""
+        # Fallback to database for last runs if freshly booted
+        discovery_last_run = self.last_discovery_run
+        discovery_stats = self.last_discovery_stats
+        if not discovery_last_run:
+            latest_disc = self.db.get_latest_sync_session("discovery")
+            if latest_disc:
+                discovery_last_run = latest_disc.get("completed_at") or latest_disc.get("started_at")
+                discovery_stats = {
+                    "session_id": latest_disc.get("id"),
+                    "timestamp": discovery_last_run,
+                    "status": latest_disc.get("status"),
+                    "total_crawled": latest_disc.get("total_items_processed", 0),
+                    "duration_seconds": float(latest_disc.get("duration_seconds", 0)),
+                    "by_store": latest_disc.get("store_stats", {})
+                }
+
+        refresh_last_run = self.last_refresh_run
+        refresh_stats = self.last_refresh_stats
+        if not refresh_last_run:
+            latest_ref = self.db.get_latest_sync_session("price_refresh")
+            if latest_ref:
+                refresh_last_run = latest_ref.get("completed_at") or latest_ref.get("started_at")
+                refresh_stats = {
+                    "session_id": latest_ref.get("id"),
+                    "timestamp": refresh_last_run,
+                    "status": latest_ref.get("status"),
+                    "offers_checked": latest_ref.get("total_items_processed", 0),
+                    "prices_updated": latest_ref.get("total_items_updated", 0),
+                    "price_drops": latest_ref.get("total_price_drops", 0),
+                    "duration_seconds": float(latest_ref.get("duration_seconds", 0))
+                }
+
+        recent_sessions = []
+        try:
+            recent_sessions = self.db.get_sync_sessions(limit=5)
+        except Exception as e:
+            logger.warning(f"[SyncScheduler] Could not load recent sessions: {e}")
+
         return {
             "is_running": self.is_running,
             "current_task": self.current_task,
@@ -268,15 +457,16 @@ class SyncScheduler:
             "discovery": {
                 "interval_seconds": self.discovery_interval,
                 "interval_hours": round(self.discovery_interval / 3600, 1),
-                "last_run": self.last_discovery_run,
+                "last_run": discovery_last_run,
                 "next_run": self.next_discovery_run,
-                "last_stats": self.last_discovery_stats
+                "last_stats": discovery_stats
             },
             "refresh": {
                 "interval_seconds": self.refresh_interval,
                 "interval_hours": round(self.refresh_interval / 3600, 1),
-                "last_run": self.last_refresh_run,
+                "last_run": refresh_last_run,
                 "next_run": self.next_refresh_run,
-                "last_stats": self.last_refresh_stats
-            }
+                "last_stats": refresh_stats
+            },
+            "recent_sessions": recent_sessions
         }

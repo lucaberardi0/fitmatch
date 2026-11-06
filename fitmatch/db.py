@@ -85,7 +85,24 @@ class Database:
                     category TEXT NOT NULL,
                     items_found INTEGER NOT NULL,
                     duration_seconds REAL NOT NULL,
+                    session_id TEXT,
                     crawled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS sync_sessions (
+                    id TEXT PRIMARY KEY,
+                    session_type TEXT NOT NULL,
+                    trigger_source TEXT DEFAULT 'scheduler',
+                    status TEXT NOT NULL DEFAULT 'running',
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    duration_seconds REAL DEFAULT 0,
+                    total_items_processed INTEGER DEFAULT 0,
+                    total_items_updated INTEGER DEFAULT 0,
+                    total_price_drops INTEGER DEFAULT 0,
+                    store_stats TEXT DEFAULT '{}',
+                    error_message TEXT,
+                    metadata TEXT DEFAULT '{}'
                 );
 
                 CREATE TABLE IF NOT EXISTS collections (
@@ -190,6 +207,11 @@ class Database:
                     conn.execute(f"ALTER TABLE {tbl} ADD COLUMN gallery_images TEXT DEFAULT '[]'")
                 except Exception:
                     pass
+
+            try:
+                conn.execute("ALTER TABLE crawl_logs ADD COLUMN session_id TEXT")
+            except Exception:
+                pass
 
     def upsert_product_and_offer(
         self,
@@ -425,19 +447,201 @@ class Database:
         store_id: str,
         category: str,
         items_found: int,
-        duration_seconds: float
+        duration_seconds: float,
+        session_id: Optional[str] = None
     ):
         """Record log of crawler job in database."""
         if self.use_supabase and self.supabase:
-            self.supabase.record_crawl_log(store_id, category, items_found, duration_seconds)
+            self.supabase.record_crawl_log(store_id, category, items_found, duration_seconds, session_id=session_id)
             return
 
         with self.get_connection() as conn:
             conn.execute("""
-                INSERT INTO crawl_logs (store_id, category, items_found, duration_seconds)
-                VALUES (?, ?, ?, ?)
-            """, (store_id, category, items_found, round(duration_seconds, 2)))
+                INSERT INTO crawl_logs (store_id, category, items_found, duration_seconds, session_id)
+                VALUES (?, ?, ?, ?, ?)
+            """, (store_id, category, items_found, round(duration_seconds, 2), session_id))
             conn.commit()
+
+    # MARK: - Sync Sessions (Database / Supabase)
+
+    def create_sync_session(
+        self,
+        session_type: str,
+        trigger_source: str = "scheduler",
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Create a new sync session record with status 'running'."""
+        if self.use_supabase and self.supabase:
+            sid = self.supabase.create_sync_session(session_type, trigger_source=trigger_source, metadata=metadata)
+            if sid:
+                return sid
+
+        session_id = str(uuid.uuid4())
+        meta_json = json.dumps(metadata or {})
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO sync_sessions (id, session_type, trigger_source, status, metadata)
+                VALUES (?, ?, ?, 'running', ?)
+            """, (session_id, session_type, trigger_source, meta_json))
+            conn.commit()
+        return session_id
+
+    def update_sync_session(
+        self,
+        session_id: str,
+        status: str,
+        duration_seconds: float = 0.0,
+        total_items_processed: int = 0,
+        total_items_updated: int = 0,
+        total_price_drops: int = 0,
+        store_stats: Optional[Dict[str, Any]] = None,
+        error_message: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Update a sync session record with outcome and metrics."""
+        if self.use_supabase and self.supabase:
+            return self.supabase.update_sync_session(
+                session_id=session_id,
+                status=status,
+                duration_seconds=duration_seconds,
+                total_items_processed=total_items_processed,
+                total_items_updated=total_items_updated,
+                total_price_drops=total_price_drops,
+                store_stats=store_stats,
+                error_message=error_message,
+                metadata=metadata
+            )
+
+        store_stats_json = json.dumps(store_stats or {})
+        meta_json = json.dumps(metadata) if metadata is not None else None
+        with self.get_connection() as conn:
+            if meta_json is not None:
+                conn.execute("""
+                    UPDATE sync_sessions
+                    SET status = ?, completed_at = CURRENT_TIMESTAMP, duration_seconds = ?,
+                        total_items_processed = ?, total_items_updated = ?, total_price_drops = ?,
+                        store_stats = ?, error_message = ?, metadata = ?
+                    WHERE id = ?
+                """, (status, round(duration_seconds, 2), total_items_processed, total_items_updated, total_price_drops, store_stats_json, error_message, meta_json, session_id))
+            else:
+                conn.execute("""
+                    UPDATE sync_sessions
+                    SET status = ?, completed_at = CURRENT_TIMESTAMP, duration_seconds = ?,
+                        total_items_processed = ?, total_items_updated = ?, total_price_drops = ?,
+                        store_stats = ?, error_message = ?
+                    WHERE id = ?
+                """, (status, round(duration_seconds, 2), total_items_processed, total_items_updated, total_price_drops, store_stats_json, error_message, session_id))
+            conn.commit()
+        return True
+
+    def get_sync_sessions(
+        self,
+        limit: int = 20,
+        session_type: Optional[str] = None,
+        status: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve recent sync sessions."""
+        if self.use_supabase and self.supabase:
+            return self.supabase.get_sync_sessions(limit=limit, session_type=session_type, status=status)
+
+        query = "SELECT * FROM sync_sessions WHERE 1=1"
+        params: List[Any] = []
+        if session_type:
+            query += " AND session_type = ?"
+            params.append(session_type)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        query += " ORDER BY started_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self.get_connection() as conn:
+            cur = conn.execute(query, tuple(params))
+            rows = [dict(r) for r in cur.fetchall()]
+            for r in rows:
+                if isinstance(r.get("store_stats"), str):
+                    try:
+                        r["store_stats"] = json.loads(r["store_stats"])
+                    except Exception:
+                        pass
+                if isinstance(r.get("metadata"), str):
+                    try:
+                        r["metadata"] = json.loads(r["metadata"])
+                    except Exception:
+                        pass
+            return rows
+
+    def get_sync_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a specific session with attached crawl logs."""
+        if self.use_supabase and self.supabase:
+            return self.supabase.get_sync_session(session_id)
+
+        with self.get_connection() as conn:
+            cur = conn.execute("SELECT * FROM sync_sessions WHERE id = ?", (session_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            session = dict(row)
+            if isinstance(session.get("store_stats"), str):
+                try:
+                    session["store_stats"] = json.loads(session["store_stats"])
+                except Exception:
+                    pass
+            if isinstance(session.get("metadata"), str):
+                try:
+                    session["metadata"] = json.loads(session["metadata"])
+                except Exception:
+                    pass
+
+            cur_logs = conn.execute("SELECT * FROM crawl_logs WHERE session_id = ? ORDER BY crawled_at ASC", (session_id,))
+            session["crawl_logs"] = [dict(lr) for lr in cur_logs.fetchall()]
+            return session
+
+    def get_latest_sync_session(self, session_type: str) -> Optional[Dict[str, Any]]:
+        """Retrieve the most recent completed session of a specific type."""
+        if self.use_supabase and self.supabase:
+            return self.supabase.get_latest_sync_session(session_type)
+
+        with self.get_connection() as conn:
+            cur = conn.execute("""
+                SELECT * FROM sync_sessions
+                WHERE session_type = ? AND status = 'completed'
+                ORDER BY started_at DESC LIMIT 1
+            """, (session_type,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            session = dict(row)
+            if isinstance(session.get("store_stats"), str):
+                try:
+                    session["store_stats"] = json.loads(session["store_stats"])
+                except Exception:
+                    pass
+            return session
+
+    def get_store_health_metrics(self) -> List[Dict[str, Any]]:
+        """Retrieve aggregate store coverage and sizes health."""
+        if self.use_supabase and self.supabase:
+            return self.supabase.get_store_health_metrics()
+
+        with self.get_connection() as conn:
+            cur = conn.execute("""
+                SELECT store_id,
+                       COUNT(*) as total_offers,
+                       SUM(CASE WHEN available_sizes IS NOT NULL AND available_sizes != '[]' AND available_sizes != '' THEN 1 ELSE 0 END) as with_sizes,
+                       ROUND(AVG(current_price), 2) as avg_price,
+                       ROUND(AVG(discount_pct), 1) as avg_discount,
+                       MAX(last_checked_at) as last_checked_at
+                FROM store_offers
+                GROUP BY store_id
+                ORDER BY total_offers DESC
+            """)
+            rows = [dict(r) for r in cur.fetchall()]
+            for r in rows:
+                tot = r.get("total_offers") or 0
+                ws = r.get("with_sizes") or 0
+                r["size_coverage_pct"] = round((ws / tot) * 100, 1) if tot > 0 else 0.0
+            return rows
 
     def get_stats(self) -> Dict[str, Any]:
         """Return catalog overview statistics."""

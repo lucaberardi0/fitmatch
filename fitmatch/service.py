@@ -68,9 +68,9 @@ class ComparisonService:
         scrape_res = self.registry.search_all(query, limit_per_store=limit_per_store)
         offers: List[Offer] = scrape_res["offers"]
 
-        # 2. If a specific size was requested, enrich with sizes and filter
+        # 2. Enrich in-stock sizes for offers that don't have them yet
+        self._enrich_sizes_for_offers(offers)
         if size:
-            self._enrich_sizes_for_offers(offers)
             # Filter strictly by size
             offers = [o for o in offers if o.matches_size(size)]
 

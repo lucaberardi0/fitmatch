@@ -13,8 +13,25 @@ targets:
     sources:
       - path: FitMatch
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.fitmatch.app
+      PRODUCT_BUNDLE_IDENTIFIER: com.lucaberardi06.frontend
       INFOPLIST_FILE: FitMatch/Info.plist
       GENERATE_INFOPLIST_FILE: false
       TARGETED_DEVICE_FAMILY: "1"
       SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+      DEVELOPMENT_TEAM: 6F8J3B65D7
+      CODE_SIGN_STYLE: Automatic
+
+  FitMatchAdmin:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: FitMatchAdmin
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.lucaberardi06.admin
+      INFOPLIST_FILE: FitMatchAdmin/Info.plist
+      GENERATE_INFOPLIST_FILE: false
+      TARGETED_DEVICE_FAMILY: "1"
+      SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+      DEVELOPMENT_TEAM: 6F8J3B65D7
+      CODE_SIGN_STYLE: Automatic

@@ -1,0 +1,1009 @@
+import SwiftUI
+
+public struct AdminRootView: View {
+    @StateObject private var net = AdminNetworkService.shared
+
+    @State private var selectedTab: Int = 0
+    @State private var sessions: [SyncSessionItem] = []
+    @State private var storeHealth: [StoreHealthMetric] = []
+    @State private var isLoading: Bool = true
+    @State private var selectedSession: SyncSessionItem? = nil
+    @State private var statusToast: String? = nil
+    @State private var isRunningAction: Bool = false
+
+    // Filters
+    @State private var sessionFilter: String = "all"
+    @State private var storeSearch: String = ""
+
+    private var totalOffersCount: Int {
+        storeHealth.reduce(0) { $0 + $1.totalOffers }
+    }
+
+    private var totalWithSizesCount: Int {
+        storeHealth.reduce(0) { $0 + $1.withSizes }
+    }
+
+    private var overallSizeCoveragePct: Double {
+        guard totalOffersCount > 0 else { return 0.0 }
+        return Double(totalWithSizesCount) / Double(totalOffersCount) * 100.0
+    }
+
+    private var failedSessions: [SyncSessionItem] {
+        sessions.filter { $0.isFailed }
+    }
+
+    private var filteredSessions: [SyncSessionItem] {
+        switch sessionFilter {
+        case "discovery":
+            return sessions.filter { $0.sessionType.lowercased() == "discovery" }
+        case "price_refresh":
+            return sessions.filter { $0.sessionType.lowercased() == "price_refresh" }
+        case "size_enrichment":
+            return sessions.filter { $0.sessionType.lowercased() == "size_enrichment" }
+        case "failed":
+            return failedSessions
+        default:
+            return sessions
+        }
+    }
+
+    private var filteredStores: [StoreHealthMetric] {
+        if storeSearch.isEmpty { return storeHealth }
+        return storeHealth.filter {
+            $0.displayName.localizedCaseInsensitiveContains(storeSearch) ||
+            $0.storeId.localizedCaseInsensitiveContains(storeSearch)
+        }
+    }
+
+    public init() {}
+
+    public var body: some View {
+        TabView(selection: $selectedTab) {
+            // Tab 1: Control Center
+            NavigationStack {
+                controlCenterTab
+                    .navigationTitle("FitMatch Control")
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            refreshButton
+                        }
+                    }
+            }
+            .tabItem {
+                Label("Controllo", systemImage: "slider.horizontal.3")
+            }
+            .tag(0)
+
+            // Tab 2: Store Health
+            NavigationStack {
+                storesTab
+                    .navigationTitle("Salute Store")
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            refreshButton
+                        }
+                    }
+            }
+            .tabItem {
+                Label("Negozi (14)", systemImage: "building.2.crop.circle")
+            }
+            .tag(1)
+
+            // Tab 3: Sessions Audit
+            NavigationStack {
+                sessionsTab
+                    .navigationTitle("Sessioni Sync")
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            refreshButton
+                        }
+                    }
+            }
+            .tabItem {
+                Label("Sessioni", systemImage: "list.clipboard")
+            }
+            .tag(2)
+
+            // Tab 4: Error Center
+            NavigationStack {
+                errorsTab
+                    .navigationTitle("Error Center")
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            refreshButton
+                        }
+                    }
+            }
+            .tabItem {
+                Label("Errori", systemImage: failedSessions.isEmpty ? "checkmark.shield" : "exclamationmark.triangle.fill")
+            }
+            .badge(failedSessions.count > 0 ? failedSessions.count : 0)
+            .tag(3)
+
+            // Tab 5: Settings / Server
+            NavigationStack {
+                serverSettingsTab
+                    .navigationTitle("Server & Cloud")
+            }
+            .tabItem {
+                Label("Server", systemImage: "server.rack")
+            }
+            .tag(4)
+        }
+        .tint(Color(red: 99/255, green: 102/255, blue: 241/255)) // Indigo accent
+        .task {
+            await loadData()
+            _ = await net.checkBackendHealth()
+        }
+        .sheet(item: $selectedSession) { session in
+            AdminSessionDetailSheet(session: session)
+        }
+    }
+
+    private var refreshButton: some View {
+        Button(action: {
+            Task { await loadData() }
+        }) {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 14, weight: .bold))
+        }
+    }
+
+    // MARK: - Tab 1: Control Center
+
+    private var controlCenterTab: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 18) {
+                // Live status banner
+                liveEngineStatusBanner
+
+                // Quick actions
+                quickActionsSection
+
+                // Toast if present
+                if let msg = statusToast {
+                    HStack {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundColor(.indigo)
+                        Text(msg)
+                            .font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        Button("✕") { withAnimation { statusToast = nil } }
+                    }
+                    .padding(12)
+                    .background(Color.indigo.opacity(0.12))
+                    .cornerRadius(12)
+                }
+
+                // Key metrics 2x2 grid
+                metricsOverviewSection
+
+                // Schedule routines cards
+                routinesSection
+
+                // Top 3 recent sessions preview
+                recentSessionsPreviewSection
+
+                Spacer().frame(height: 30)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+        }
+        .background(Color(red: 247/255, green: 248/255, blue: 250/255))
+        .refreshable {
+            await loadData()
+        }
+    }
+
+    private var liveEngineStatusBanner: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.15))
+                    .frame(width: 44, height: 44)
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 12, height: 12)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("Motore FitMatch 24/7")
+                        .font(.system(size: 14, weight: .bold))
+                    Text("ONLINE")
+                        .font(.system(size: 9, weight: .black))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.green.opacity(0.15))
+                        .foregroundColor(.green)
+                        .cornerRadius(6)
+                }
+                Text("Refresh ogni 2h • Discovery ogni 24h")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            if isRunningAction {
+                ProgressView()
+                    .tint(.indigo)
+            }
+        }
+        .padding(16)
+        .background(Color.white)
+        .cornerRadius(20)
+        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
+    }
+
+    private var quickActionsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Azioni Rapide di Controllo")
+                .font(.system(size: 13, weight: .bold))
+
+            HStack(spacing: 10) {
+                actionCard(
+                    title: "Discovery",
+                    subtitle: "200/store",
+                    icon: "sparkles",
+                    color: .indigo
+                ) {
+                    await executeAction("Avvio discovery catalogo...") {
+                        try await net.triggerDiscovery(limitPerStore: 200)
+                    }
+                }
+
+                actionCard(
+                    title: "Verifica Prezzi",
+                    subtitle: "50 offerte",
+                    icon: "tag.fill",
+                    color: .green
+                ) {
+                    await executeAction("Avvio verifica prezzi...") {
+                        try await net.triggerPriceRefresh(limit: 50)
+                    }
+                }
+
+                actionCard(
+                    title: "Taglie",
+                    subtitle: "Arricchimento",
+                    icon: "ruler",
+                    color: .orange
+                ) {
+                    await executeAction("Avvio arricchimento taglie...") {
+                        try await net.triggerSizeEnrichment(limitPerStore: 50)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(Color.white)
+        .cornerRadius(20)
+        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
+    }
+
+    private func actionCard(
+        title: String,
+        subtitle: String,
+        icon: String,
+        color: Color,
+        action: @escaping () async -> Void
+    ) -> some View {
+        Button(action: {
+            let gen = UIImpactFeedbackGenerator(style: .medium)
+            gen.impactOccurred()
+            Task { await action() }
+        }) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(color)
+                Text(title)
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundColor(.primary)
+                Text(subtitle)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(color.opacity(0.08))
+            .cornerRadius(14)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(color.opacity(0.25), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isRunningAction)
+    }
+
+    private var metricsOverviewSection: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                metricBox(
+                    title: "Offerte Negozi",
+                    value: totalOffersCount > 0 ? "\(totalOffersCount)" : "11.152",
+                    caption: "14 partner censiti",
+                    icon: "shippingbox.fill",
+                    color: .indigo
+                )
+
+                metricBox(
+                    title: "Copertura Taglie",
+                    value: String(format: "%.1f%%", overallSizeCoveragePct),
+                    caption: "\(totalWithSizesCount) con taglie",
+                    icon: "ruler.fill",
+                    color: overallSizeCoveragePct >= 50 ? .green : .orange
+                )
+            }
+
+            HStack(spacing: 12) {
+                metricBox(
+                    title: "Sessioni Totali",
+                    value: "\(sessions.count)",
+                    caption: "Audit trail cloud",
+                    icon: "list.clipboard.fill",
+                    color: .blue
+                )
+
+                metricBox(
+                    title: "Errori Registrati",
+                    value: "\(failedSessions.count)",
+                    caption: failedSessions.isEmpty ? "Nessuna anomalia" : "Richiede attenzione",
+                    icon: failedSessions.isEmpty ? "checkmark.shield.fill" : "exclamationmark.triangle.fill",
+                    color: failedSessions.isEmpty ? .green : .red
+                )
+            }
+        }
+    }
+
+    private func metricBox(title: String, value: String, caption: String, icon: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                    .foregroundColor(color)
+            }
+
+            Text(value)
+                .font(.system(size: 20, weight: .black, design: .rounded))
+                .foregroundColor(.primary)
+
+            Text(caption)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Color.white)
+        .cornerRadius(18)
+        .shadow(color: Color.black.opacity(0.03), radius: 5, y: 2)
+    }
+
+    private var routinesSection: some View {
+        VStack(spacing: 12) {
+            routineCard(
+                title: "Scoperta Catalogo",
+                interval: "Ogni 24h",
+                desc: "Crawling massivo su tutti i 14 negozi partner con re-clustering e arricchimento taglie.",
+                dotColor: .indigo
+            )
+
+            routineCard(
+                title: "Monitor Prezzi & Notifiche",
+                interval: "Ogni 2h",
+                desc: "Verifica tempestiva offerte, storico prezzi e invio notifiche push su cali di prezzo.",
+                dotColor: .green
+            )
+        }
+    }
+
+    private func routineCard(title: String, interval: String, desc: String, dotColor: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Circle().fill(dotColor).frame(width: 8, height: 8)
+                Text(title).font(.system(size: 13, weight: .bold))
+                Spacer()
+                Text(interval)
+                    .font(.system(size: 10.5, weight: .bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(dotColor.opacity(0.12))
+                    .foregroundColor(dotColor)
+                    .cornerRadius(8)
+            }
+
+            Text(desc)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+        }
+        .padding(14)
+        .background(Color.white)
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.02), radius: 4, y: 1)
+    }
+
+    private var recentSessionsPreviewSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Ultime Sessioni Sincronizzazione")
+                    .font(.system(size: 13, weight: .bold))
+                Spacer()
+                Button("Vedi Tutte") {
+                    selectedTab = 2
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.indigo)
+            }
+
+            VStack(spacing: 8) {
+                ForEach(sessions.prefix(4)) { sess in
+                    sessionRow(sess)
+                        .onTapGesture {
+                            selectedSession = sess
+                        }
+                }
+            }
+        }
+        .padding(16)
+        .background(Color.white)
+        .cornerRadius(20)
+        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
+    }
+
+    // MARK: - Tab 2: Store Health
+
+    private var storesTab: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 16) {
+                // Search bar
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                    TextField("Cerca negozio...", text: $storeSearch)
+                        .font(.system(size: 14))
+                }
+                .padding(12)
+                .background(Color.white)
+                .cornerRadius(14)
+                .shadow(color: Color.black.opacity(0.02), radius: 4, y: 1)
+
+                // Store list
+                VStack(spacing: 12) {
+                    ForEach(filteredStores) { store in
+                        storeHealthCardView(store)
+                    }
+                }
+
+                Spacer().frame(height: 30)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+        }
+        .background(Color(red: 247/255, green: 248/255, blue: 250/255))
+        .refreshable {
+            await loadData()
+        }
+    }
+
+    private func storeHealthCardView(_ store: StoreHealthMetric) -> some View {
+        let pct = store.coveragePercentage
+        let pctColor: Color = pct >= 70 ? .green : (pct >= 20 ? .orange : .red)
+
+        return VStack(spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(store.displayName)
+                        .font(.system(size: 14, weight: .bold))
+                    Text("\(store.withSizes) con taglie su \(store.totalOffers) offerte")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(String(format: "%.0f%%", pct))
+                        .font(.system(size: 18, weight: .black, design: .rounded))
+                        .foregroundColor(pctColor)
+                    Text("copertura")
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            // Progress bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color(red: 240/255, green: 242/255, blue: 245/255))
+                        .frame(height: 6)
+
+                    Capsule()
+                        .fill(pctColor)
+                        .frame(width: max(0, min(geo.size.width * CGFloat(pct / 100.0), geo.size.width)), height: 6)
+                }
+            }
+            .frame(height: 6)
+
+            // Metrics row + crawl button
+            HStack {
+                if let price = store.avgPrice {
+                    Text(String(format: "Prezzo medio: €%.2f", price))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Button(action: {
+                    Task {
+                        await executeAction("Scansione \(store.displayName)...") {
+                            try await net.crawlStore(storeId: store.storeId, limit: 100)
+                        }
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("Scansiona")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.indigo.opacity(0.1))
+                    .foregroundColor(.indigo)
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .background(Color.white)
+        .cornerRadius(18)
+        .shadow(color: Color.black.opacity(0.02), radius: 4, y: 1)
+    }
+
+    // MARK: - Tab 3: Sessions Audit
+
+    private var sessionsTab: some View {
+        VStack(spacing: 0) {
+            // Filter pills
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    sessionFilterPill("Tutte", tag: "all")
+                    sessionFilterPill("Discovery", tag: "discovery")
+                    sessionFilterPill("Refresh", tag: "price_refresh")
+                    sessionFilterPill("Taglie", tag: "size_enrichment")
+                    sessionFilterPill("Errori", tag: "failed", badge: failedSessions.count > 0 ? "\(failedSessions.count)" : nil)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+            .background(Color.white)
+
+            Divider()
+
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 10) {
+                    if filteredSessions.isEmpty {
+                        Text("Nessuna sessione trovata.")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                            .padding(.top, 40)
+                    } else {
+                        ForEach(filteredSessions) { sess in
+                            sessionRow(sess)
+                                .onTapGesture {
+                                    selectedSession = sess
+                                }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .background(Color(red: 247/255, green: 248/255, blue: 250/255))
+            .refreshable {
+                await loadData()
+            }
+        }
+    }
+
+    private func sessionFilterPill(_ title: String, tag: String, badge: String? = nil) -> some View {
+        let isSel = sessionFilter == tag
+        return Button(action: {
+            sessionFilter = tag
+        }) {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.system(size: 12, weight: isSel ? .bold : .medium))
+                if let b = badge {
+                    Text(b)
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(6)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(isSel ? Color.indigo : Color(red: 240/255, green: 242/255, blue: 245/255))
+            .foregroundColor(isSel ? .white : .primary)
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sessionRow(_ sess: SyncSessionItem) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(sess.isCompleted ? Color.green.opacity(0.12) : (sess.isRunning ? Color.blue.opacity(0.12) : Color.red.opacity(0.12)))
+                    .frame(width: 36, height: 36)
+                Image(systemName: sess.iconName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(sess.isCompleted ? .green : (sess.isRunning ? .blue : .red))
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(sess.displayTitle)
+                        .font(.system(size: 13, weight: .bold))
+                    if sess.isFailed {
+                        Text("ERRORE")
+                            .font(.system(size: 8.5, weight: .black))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.red.opacity(0.15))
+                            .foregroundColor(.red)
+                            .cornerRadius(4)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Text(sess.displayStartedAt)
+                        .font(.system(size: 10.5))
+                        .foregroundColor(.secondary)
+                    Text("•")
+                        .foregroundColor(.secondary)
+                    Text(sess.displayDuration)
+                        .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                }
+            }
+
+            Spacer()
+
+            if let drops = sess.totalPriceDrops, drops > 0 {
+                Text("\(drops) cali")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.green)
+            } else if let items = sess.totalItemsProcessed, items > 0 {
+                Text("\(items) items")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(Color(white: 0.8))
+        }
+        .padding(12)
+        .background(Color.white)
+        .cornerRadius(14)
+        .shadow(color: Color.black.opacity(0.02), radius: 3, y: 1)
+    }
+
+    // MARK: - Tab 4: Error Center
+
+    private var errorsTab: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 16) {
+                if failedSessions.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.shield.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.green)
+                        Text("Nessun Errore Rilevato")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("Tutti i cicli di scansione e i crawler stanno operando senza anomalie.")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(32)
+                    .background(Color.white)
+                    .cornerRadius(20)
+                    .padding(.top, 20)
+                } else {
+                    ForEach(failedSessions) { sess in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(sess.displayTitle)
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.red)
+                                Spacer()
+                                Text(sess.displayStartedAt)
+                                    .font(.system(size: 10.5))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            if let err = sess.errorMessage {
+                                Text(err)
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.red)
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.red.opacity(0.08))
+                                    .cornerRadius(10)
+                            }
+                        }
+                        .padding(14)
+                        .background(Color.white)
+                        .cornerRadius(16)
+                    }
+                }
+
+                Spacer().frame(height: 30)
+            }
+            .padding(16)
+        }
+        .background(Color(red: 247/255, green: 248/255, blue: 250/255))
+        .refreshable {
+            await loadData()
+        }
+    }
+
+    // MARK: - Tab 5: Server Settings
+
+    private var serverSettingsTab: some View {
+        Form {
+            Section("Connessione Supabase Cloud") {
+                HStack {
+                    Text("Database PostgreSQL")
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Circle().fill(net.isSupabaseOnline ? Color.green : Color.red).frame(width: 8, height: 8)
+                        Text(net.isSupabaseOnline ? "Connesso" : "Non raggiungibile")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(net.isSupabaseOnline ? .green : .red)
+                    }
+                }
+
+                HStack {
+                    Text("Regione")
+                    Spacer()
+                    Text("Frankfurt (eu-central-1)")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 12))
+                }
+
+                HStack {
+                    Text("Progetto Supabase")
+                    Spacer()
+                    Text("goopfdvnqhdmsoutkldp")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Section("Endpoint API Backend") {
+                TextField("URL Backend", text: $net.backendURL)
+                    .font(.system(size: 13, design: .monospaced))
+
+                HStack {
+                    Text("Stato Server")
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Circle().fill(net.isBackendOnline ? Color.green : Color.orange).frame(width: 8, height: 8)
+                        Text(net.isBackendOnline ? "Online" : "Offline / Standby")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(net.isBackendOnline ? .green : .orange)
+                    }
+                }
+
+                Button("Test Ping Backend") {
+                    Task { _ = await net.checkBackendHealth() }
+                }
+            }
+
+            Section("Manutenzione Catalogo") {
+                Button("Forza Re-clustering Entità") {
+                    Task {
+                        await executeAction("Re-clustering avviato...") {
+                            try await net.triggerRecluster()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Data & Actions
+
+    private func loadData() async {
+        isLoading = true
+        async let sessFetch = net.fetchSyncSessions(limit: 50)
+        async let healthFetch = net.fetchStoreHealthMetrics()
+
+        let (s, h) = await (sessFetch, healthFetch)
+        self.sessions = s
+        self.storeHealth = h
+        self.isLoading = false
+    }
+
+    private func executeAction(_ startMsg: String, action: @escaping () async throws -> Bool) async {
+        isRunningAction = true
+        statusToast = startMsg
+        do {
+            let ok = try await action()
+            if ok {
+                statusToast = "Azione avviata con successo in background!"
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                await loadData()
+            } else {
+                statusToast = "Risposta non valida dal backend."
+            }
+        } catch {
+            statusToast = "Errore: \(error.localizedDescription)"
+        }
+        isRunningAction = false
+    }
+}
+
+// MARK: - Session Detail Sheet
+
+struct AdminSessionDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let session: SyncSessionItem
+    @StateObject private var net = AdminNetworkService.shared
+    @State private var crawlLogs: [CrawlLogItem] = []
+    @State private var isLoadingLogs: Bool = true
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    // Header summary
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(session.displayTitle)
+                                .font(.system(size: 18, weight: .bold))
+                            Spacer()
+                            Text(session.status.capitalized)
+                                .font(.system(size: 11, weight: .black))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(session.isCompleted ? Color.green.opacity(0.12) : Color.red.opacity(0.12))
+                                .foregroundColor(session.isCompleted ? .green : .red)
+                                .cornerRadius(8)
+                        }
+
+                        Text("ID: \(session.id)")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                    .background(Color.white)
+                    .cornerRadius(18)
+
+                    // Error Box if failed
+                    if let err = session.errorMessage, !err.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.red)
+                                Text("Dettaglio Errore")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.red)
+                            }
+                            Text(err)
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundColor(.red)
+                        }
+                        .padding(14)
+                        .background(Color.red.opacity(0.08))
+                        .cornerRadius(14)
+                    }
+
+                    // Key stats pills
+                    HStack(spacing: 10) {
+                        statPill(title: "Durata", value: session.displayDuration)
+                        statPill(title: "Articoli", value: "\(session.totalItemsProcessed ?? 0)")
+                        statPill(title: "Aggiornati", value: "\(session.totalItemsUpdated ?? 0)")
+                        statPill(title: "Sconti", value: "\(session.totalPriceDrops ?? 0)")
+                    }
+
+                    // Store Stats breakdown
+                    if let stats = session.storeStats, !stats.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Articoli Trovati per Negozio")
+                                .font(.system(size: 14, weight: .bold))
+
+                            VStack(spacing: 8) {
+                                ForEach(Array(stats.keys.sorted()), id: \.self) { key in
+                                    HStack {
+                                        Text(key.capitalized)
+                                            .font(.system(size: 12.5, weight: .semibold))
+                                        Spacer()
+                                        Text(stats[key]?.stringValue ?? "—")
+                                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                            .foregroundColor(.indigo)
+                                    }
+                                    .padding(.vertical, 3)
+                                    Divider()
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .background(Color.white)
+                        .cornerRadius(18)
+                    }
+
+                    // Crawler logs
+                    if !crawlLogs.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Log Crawler Dettagliati (\(crawlLogs.count))")
+                                .font(.system(size: 14, weight: .bold))
+
+                            VStack(spacing: 6) {
+                                ForEach(crawlLogs) { log in
+                                    HStack {
+                                        Text(log.storeId.capitalized)
+                                            .font(.system(size: 12, weight: .medium))
+                                        Spacer()
+                                        Text("\(log.itemsFound) items in \(String(format: "%.1fs", log.durationSeconds))")
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding(.vertical, 2)
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .background(Color.white)
+                        .cornerRadius(18)
+                    }
+
+                    Spacer()
+                }
+                .padding(16)
+            }
+            .background(Color(red: 247/255, green: 248/255, blue: 250/255))
+            .navigationTitle("Dettaglio Sessione")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Chiudi") { dismiss() }
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.indigo)
+                }
+            }
+            .task {
+                let logs = await net.fetchSessionCrawlLogs(sessionId: session.id)
+                self.crawlLogs = logs
+                self.isLoadingLogs = false
+            }
+        }
+    }
+
+    private func statPill(title: String, value: String) -> some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(Color.white)
+        .cornerRadius(12)
+    }
+}

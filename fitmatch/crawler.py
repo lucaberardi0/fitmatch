@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 from bs4 import BeautifulSoup
 from fitmatch.db import Database
 from fitmatch.matcher.normalizer import ProductNormalizer
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 from fitmatch.scrapers.cisalfa import CisalfaScraper
 from fitmatch.scrapers.maxisport import MaxiSportScraper
 from fitmatch.scrapers.misterrunning import MisterRunningScraper
@@ -32,6 +32,7 @@ class CategoryCrawler:
     def __init__(self, db: Optional[Database] = None):
         self.db = db or Database()
         self.normalizer = ProductNormalizer()
+        self.current_session_id: Optional[str] = None
         self.cisalfa = CisalfaScraper()
         self.maxisport = MaxiSportScraper()
         self.misterrunning = MisterRunningScraper()
@@ -202,6 +203,7 @@ class CategoryCrawler:
 
                         pid_el = tile.select_one("[data-itemid]")
                         pid = pid_el["data-itemid"] if pid_el and pid_el.get("data-itemid") else None
+                        sizes = self.cisalfa.fetch_sizes(product_url)
 
                         offer = Offer(
                             store_id=self.cisalfa.store_id,
@@ -213,6 +215,7 @@ class CategoryCrawler:
                             original_price=orig_price,
                             url=product_url,
                             image_url=img_url,
+                            available_sizes=sizes,
                             in_stock=True
                         )
 
@@ -252,7 +255,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("cisalfa", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("cisalfa", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Cisalfa] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -323,6 +326,7 @@ class CategoryCrawler:
 
                         pid_el = item.select_one("[data-product-id]")
                         pid = pid_el["data-product-id"] if pid_el and pid_el.get("data-product-id") else None
+                        sizes = self.maxisport.fetch_sizes(product_url)
 
                         offer = Offer(
                             store_id=self.maxisport.store_id,
@@ -334,6 +338,7 @@ class CategoryCrawler:
                             original_price=orig_price,
                             url=product_url,
                             image_url=img_url,
+                            available_sizes=sizes,
                             in_stock=True
                         )
 
@@ -372,7 +377,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("maxisport", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("maxisport", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Maxi Sport] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -423,7 +428,7 @@ class CategoryCrawler:
                         pid = str(p.get("id")) if p.get("id") else None
 
                         raw_sizes = p.get("sizes", [])
-                        sizes = [str(s).strip() for s in raw_sizes if s]
+                        sizes = normalize_sizes(raw_sizes)
 
                         offer = Offer(
                             store_id=self.misterrunning.store_id,
@@ -471,7 +476,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("misterrunning", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("misterrunning", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Mister Running] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -548,6 +553,7 @@ class CategoryCrawler:
                         pid = None
                         if link_el.has_attr("data-gtmid"):
                             pid = str(link_el["data-gtmid"])
+                        sizes = self.nencini.fetch_sizes(product_url)
 
                         offer = Offer(
                             store_id=self.nencini.store_id,
@@ -559,6 +565,7 @@ class CategoryCrawler:
                             original_price=orig_price,
                             url=product_url,
                             image_url=img_url,
+                            available_sizes=sizes,
                             in_stock=True
                         )
 
@@ -597,7 +604,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("nencini", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("nencini", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Nencini Sport] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -648,6 +655,8 @@ class CategoryCrawler:
                     img_url = attrs.get("image_link")
                     product_url = urllib.parse.urljoin(self.top4running.base_url, raw_url)
                     pid = str(h.get("id") or attrs.get("id") or "")
+                    raw_sizes = attrs.get("sizes_eu") or []
+                    sizes = normalize_sizes(raw_sizes)
 
                     offer = Offer(
                         store_id=self.top4running.store_id,
@@ -659,6 +668,7 @@ class CategoryCrawler:
                         original_price=orig_price,
                         url=product_url,
                         image_url=img_url,
+                        available_sizes=sizes,
                         in_stock=True
                     )
 
@@ -696,7 +706,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("top4running", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("top4running", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Top4Running] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -779,6 +789,8 @@ class CategoryCrawler:
                             if u not in gallery_urls:
                                 gallery_urls.append(u)
 
+                    sizes = self.runningwarehouse.fetch_sizes(product_url)
+
                     offer = Offer(
                         store_id=self.runningwarehouse.store_id,
                         store_name=self.runningwarehouse.store_name,
@@ -790,6 +802,7 @@ class CategoryCrawler:
                         url=product_url,
                         image_url=img_url,
                         gallery_images=gallery_urls,
+                        available_sizes=sizes,
                         in_stock=True
                     )
 
@@ -822,7 +835,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("runningwarehouse", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("runningwarehouse", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Running Warehouse] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -919,6 +932,7 @@ class CategoryCrawler:
                                 sizes.append(str(s["name"]).strip())
                             elif isinstance(s, str):
                                 sizes.append(s.strip())
+                    sizes = normalize_sizes(sizes)
 
                     pid = str(h.get("objectID") or h.get("id") or "")
 
@@ -967,7 +981,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("deporvillage", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("deporvillage", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Deporvillage] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -1018,6 +1032,7 @@ class CategoryCrawler:
 
                     img_url = d.get("image_url")
                     pid = str(d.get("id") or item.get("variation_id") or "")
+                    sizes = self.alltricks.fetch_sizes(raw_url)
 
                     offer = Offer(
                         store_id=self.alltricks.store_id,
@@ -1029,6 +1044,7 @@ class CategoryCrawler:
                         original_price=orig_price,
                         url=raw_url,
                         image_url=img_url,
+                        available_sizes=sizes,
                         in_stock=True
                     )
 
@@ -1062,7 +1078,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("alltricks", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("alltricks", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Alltricks] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -1091,6 +1107,23 @@ class CategoryCrawler:
                 continue
 
             soup = BeautifulSoup(html, "html.parser")
+
+            url_to_sizes = {}
+            import re, json
+            for sc in soup.find_all("script"):
+                if sc.string and "availableSizes" in sc.string:
+                    matches = re.finditer(r"\\\"url\\\":\\\"(/p/[^\\\"]+)\\\".*?\\\"availableSizes\\\":(\[.*?\])", sc.string)
+                    for m in matches:
+                        u = m.group(1).split("?")[0]
+                        raw_s = m.group(2).replace("\\\"", "\"")
+                        try:
+                            parsed = json.loads(raw_s)
+                            norm = normalize_sizes(parsed)
+                            if norm:
+                                url_to_sizes[u] = norm
+                        except Exception:
+                            pass
+
             articles = soup.find_all("article")
             for art in articles:
                 try:
@@ -1108,7 +1141,10 @@ class CategoryCrawler:
                     link_el = art.find("a", href=lambda h: h and "/p/" in h)
                     if not link_el or not link_el.get("href"):
                         continue
-                    product_url = urllib.parse.urljoin(self.decathlon.base_url, link_el["href"])
+                    raw_href = link_el["href"]
+                    product_url = urllib.parse.urljoin(self.decathlon.base_url, raw_href)
+                    clean_rel = raw_href.split("?")[0]
+                    sizes = url_to_sizes.get(clean_rel) or url_to_sizes.get(raw_href) or []
 
                     # Prices
                     price_blocks = art.select(".vp-price-amount, [class*='price-amount']")
@@ -1125,7 +1161,6 @@ class CategoryCrawler:
                                 price = val
 
                     if not price:
-                        import re
                         text_match = re.search(r"Prezzo attuale\s*([\d\.,]+)", art.get_text())
                         if text_match:
                             price = self.decathlon.parse_price(text_match.group(1))
@@ -1153,6 +1188,7 @@ class CategoryCrawler:
                         original_price=orig_price,
                         url=product_url,
                         image_url=img_url,
+                        available_sizes=sizes,
                         in_stock=True
                     )
 
@@ -1286,7 +1322,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("decathlon", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("decathlon", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Decathlon] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -1322,6 +1358,8 @@ class CategoryCrawler:
                     if offer.url in seen_urls:
                         continue
                     seen_urls.add(offer.url)
+                    if not offer.available_sizes:
+                        offer.available_sizes = self.nike.fetch_sizes(offer.url)
 
                     cluster_key = self.normalizer.extract_cluster_key(offer)
                     canonical_base, _ = self.normalizer.clean_title(offer.title)
@@ -1349,7 +1387,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("nike", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("nike", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Nike] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -1470,7 +1508,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("adidas", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("adidas", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Adidas] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -1517,7 +1555,7 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("tradeinn", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("tradeinn", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[Tradeinn] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
@@ -1564,11 +1602,11 @@ class CategoryCrawler:
 
         self._flush_batch(batch)
         duration = time.time() - start_time
-        self.db.record_crawl_log("df_sportspecialist", "catalog", total_indexed, duration)
+        self.db.record_crawl_log("df_sportspecialist", "catalog", total_indexed, duration, session_id=self.current_session_id)
         logger.info(f"[DF Sport Specialist] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
-    def crawl_store(self, store_id: str, max_items: int = 500) -> int:
+    def crawl_store(self, store_id: str, max_items: int = 500, session_id: Optional[str] = None) -> int:
         """Crawl a specific store by its ID."""
         crawlers = {
             "cisalfa": self.crawl_cisalfa,
@@ -1589,12 +1627,22 @@ class CategoryCrawler:
         crawler_fn = crawlers.get(store_id.lower())
         if not crawler_fn:
             raise ValueError(f"Unknown store_id '{store_id}'. Supported: {list(crawlers.keys())}")
-        return crawler_fn(max_items=max_items)
+        self.current_session_id = session_id
+        try:
+            return crawler_fn(max_items=max_items)
+        finally:
+            self.current_session_id = None
 
-    def run_full_sync(self, limit_per_store: int = 500, stores: Optional[List[str]] = None) -> Dict[str, Any]:
+    def run_full_sync(
+        self,
+        limit_per_store: int = 500,
+        stores: Optional[List[str]] = None,
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Run crawling across selected or all partner stores and populate the database."""
         start_time = time.time()
         counts: Dict[str, int] = {}
+        self.current_session_id = session_id
 
         all_stores = [
             ("cisalfa", self.crawl_cisalfa),
@@ -1617,12 +1665,15 @@ class CategoryCrawler:
             allowed = {s.lower() for s in stores}
             target_stores = [item for item in all_stores if item[0] in allowed]
 
-        for store_id, crawl_func in target_stores:
-            try:
-                counts[store_id] = crawl_func(max_items=limit_per_store)
-            except Exception as e:
-                logger.error(f"Error during crawl for store '{store_id}': {e}")
-                counts[store_id] = 0
+        try:
+            for store_id, crawl_func in target_stores:
+                try:
+                    counts[store_id] = crawl_func(max_items=limit_per_store)
+                except Exception as e:
+                    logger.error(f"Error during crawl for store '{store_id}': {e}")
+                    counts[store_id] = 0
+        finally:
+            self.current_session_id = None
 
         elapsed = round(time.time() - start_time, 2)
         stats = self.db.get_stats()

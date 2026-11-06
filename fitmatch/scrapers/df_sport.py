@@ -3,7 +3,7 @@ import urllib.parse
 import logging
 from typing import List, Optional
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 logger = logging.getLogger("fitmatch.scraper.df_sport")
 
@@ -85,6 +85,7 @@ class DFSportScraper(BaseScraper):
 
             p_id = str(p.get("id") or "")
             in_stock = bool(p.get("available", True))
+            sizes = self.fetch_sizes(clean_url)
 
             offers.append(
                 Offer(
@@ -98,7 +99,7 @@ class DFSportScraper(BaseScraper):
                     url=clean_url,
                     image_url=img_url,
                     gallery_images=[img_url] if img_url else [],
-                    available_sizes=[],
+                    available_sizes=sizes,
                     in_stock=in_stock
                 )
             )
@@ -126,7 +127,7 @@ class DFSportScraper(BaseScraper):
                 v_title = v.get("title")
                 if v_title and v_title.lower() != "default title" and v_title not in sizes:
                     sizes.append(v_title)
-            return sizes
+            return normalize_sizes(sizes)
         except Exception as e:
             logger.debug(f"[DFSport] fetch_sizes error on {product_url}: {e}")
             return []

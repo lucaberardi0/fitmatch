@@ -126,6 +126,14 @@ def main():
     sched_parser.add_argument("--status", action="store_true", help="Mostra lo stato e i tempi delle prossime esecuzioni")
     sched_parser.add_argument("--discovery", action="store_true", help="Esegui subito un ciclo di scoperta catalogo")
     sched_parser.add_argument("--refresh", action="store_true", help="Esegui subito un ciclo di aggiornamento prezzi")
+    sched_parser.add_argument("--enrich", action="store_true", help="Esegui subito un ciclo di arricchimento taglie")
+
+    # Sessions command (History & audit trail)
+    sess_parser = subparsers.add_parser("sessions", help="Mostra lo storico persistente delle sessioni di sync e scraping salvate nel database")
+    sess_parser.add_argument("--limit", type=int, default=15, help="Numero max di sessioni da mostrare (default: 15)")
+    sess_parser.add_argument("--type", type=str, default=None, help="Filtra per tipo: discovery, price_refresh, size_enrichment, manual_crawl")
+    sess_parser.add_argument("--status", type=str, default=None, help="Filtra per stato: completed, running, failed")
+    sess_parser.add_argument("--id", type=str, default=None, help="Dettaglio completo di una singola sessione per ID")
 
     args = parser.parse_args()
 
@@ -309,6 +317,10 @@ def main():
             print(f"{CYAN}Avvio immediato aggiornamento prezzi...{RESET}")
             res = sched.trigger_refresh_now(limit=50)
             print(f"{BOLD}{GREEN}{res.get('message')}{RESET}")
+        elif args.enrich:
+            print(f"{CYAN}Avvio immediato arricchimento taglie...{RESET}")
+            res = sched.trigger_enrichment_now(limit_per_store=50)
+            print(f"{BOLD}{GREEN}{res.get('message')}{RESET}")
         else:
             st = sched.get_status()
             print(f"{BOLD}STATO SCHEDULER AUTONOMO:{RESET}")
@@ -323,6 +335,77 @@ def main():
             print(f"  - Intervallo:         Ogni {st['refresh']['interval_hours']} ore")
             print(f"  - Ultima esecuzione:  {st['refresh']['last_run'] or 'Mai'}")
             print(f"  - Prossima:           {st['refresh']['next_run'] or 'Non programmata'}\n")
+
+            recent = st.get("recent_sessions", [])
+            if recent:
+                print(f"{BOLD}ULTIME SESSIONI SALVATE NEL DATABASE:{RESET}")
+                for s in recent[:3]:
+                    s_id = str(s.get("id"))[:8]
+                    s_type = s.get("session_type", "n/a")
+                    s_status = s.get("status", "n/a")
+                    s_dur = f"{float(s.get('duration_seconds') or 0):.1f}s"
+                    s_items = s.get("total_items_processed", 0)
+                    print(f"  • [{s_id}] {s_type:<14} | Stato: {s_status:<9} | Durata: {s_dur:<6} | Articoli: {s_items}")
+                print()
+
+    elif args.command == "sessions":
+        print_banner()
+        if args.id:
+            session = db.get_sync_session(args.id)
+            if not session:
+                print(f"{RED}Sessione '{args.id}' non trovata nel database.{RESET}")
+                return
+            print(f"{BOLD}DETTAGLIO SESSIONE DI SINCRONIZZAZIONE:{RESET}")
+            print(f"• ID Sessione:       {BOLD}{session.get('id')}{RESET}")
+            print(f"• Tipo:              {CYAN}{session.get('session_type')}{RESET}")
+            print(f"• Trigger:           {session.get('trigger_source')}")
+            print(f"• Stato:             {GREEN if session.get('status') == 'completed' else RED}{session.get('status')}{RESET}")
+            print(f"• Iniziata:          {session.get('started_at')}")
+            print(f"• Completata:        {session.get('completed_at') or 'In corso'}")
+            print(f"• Durata:            {session.get('duration_seconds')} secondi")
+            print(f"• Articoli trovati:  {BOLD}{session.get('total_items_processed', 0)}{RESET}")
+            print(f"• Prezzi aggiornati: {session.get('total_items_updated', 0)}")
+            print(f"• Cali di prezzo:    {BOLD}{GREEN}{session.get('total_price_drops', 0)}{RESET}")
+
+            if session.get("error_message"):
+                print(f"• Errore riscontrato: {RED}{session.get('error_message')}{RESET}")
+
+            stats = session.get("store_stats") or {}
+            if stats:
+                print(f"\n{BOLD}Ripartizione per store:{RESET}")
+                for k, v in stats.items():
+                    print(f"  - {k:<20}: {v}")
+
+            logs = session.get("crawl_logs") or []
+            if logs:
+                print(f"\n{BOLD}Log dettagliati crawler store:{RESET}")
+                for l in logs:
+                    print(f"  • {l.get('store_id'):<18}: {l.get('items_found')} articoli in {l.get('duration_seconds')}s")
+            print()
+        else:
+            sessions = db.get_sync_sessions(limit=args.limit, session_type=args.type, status=args.status)
+            if not sessions:
+                print(f"{YELLOW}Nessuna sessione trovata nel database.{RESET}")
+                return
+
+            print(f"{BOLD}STORICO SESSIONI DI SINCRONIZZAZIONE ({len(sessions)} registrate):{RESET}\n")
+            header = f"{'ID':<10} {'TIPO':<16} {'STATO':<11} {'AVVIATA':<20} {'DURATA':<8} {'ARTICOLI':<10} {'SCONTI'}"
+            print(f"{BOLD}{header}{RESET}")
+            print("─" * 90)
+
+            for s in sessions:
+                s_id = str(s.get("id"))[:8]
+                s_type = s.get("session_type", "n/a")
+                st_color = GREEN if s.get("status") == "completed" else (YELLOW if s.get("status") == "running" else RED)
+                s_status = f"{st_color}{s.get('status', 'n/a'):<11}{RESET}"
+                started = str(s.get("started_at") or "")[:19]
+                dur = f"{float(s.get('duration_seconds') or 0):.1f}s"
+                items = str(s.get("total_items_processed", 0))
+                drops = str(s.get("total_price_drops", 0))
+                print(f"{s_id:<10} {s_type:<16} {s_status} {started:<20} {dur:<8} {items:<10} {drops}")
+
+            print("\n" + "─" * 90)
+            print(f"{DIM}Per vedere i dettagli di una sessione: python3 cli.py sessions --id <UUID>{RESET}\n")
 
 
 if __name__ == "__main__":

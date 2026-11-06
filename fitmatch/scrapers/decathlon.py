@@ -2,9 +2,10 @@ import re
 import urllib.parse
 import logging
 from typing import List, Optional
+import json
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 from fitmatch.matcher.normalizer import ProductNormalizer
 
 logger = logging.getLogger("fitmatch.scraper.decathlon")
@@ -39,6 +40,22 @@ class DecathlonScraper(BaseScraper):
         if not articles:
             return []
 
+        # Parse pre-rendered sizes from Next.js RSC state
+        url_to_sizes = {}
+        for sc in soup.find_all("script"):
+            if sc.string and "availableSizes" in sc.string:
+                matches = re.finditer(r"\\\"url\\\":\\\"(/p/[^\\\"]+)\\\".*?\\\"availableSizes\\\":(\[.*?\])", sc.string)
+                for m in matches:
+                    u = m.group(1).split("?")[0]
+                    raw_s = m.group(2).replace("\\\"", "\"")
+                    try:
+                        parsed = json.loads(raw_s)
+                        norm = normalize_sizes(parsed)
+                        if norm:
+                            url_to_sizes[u] = norm
+                    except Exception:
+                        pass
+
         offers: List[Offer] = []
 
         for art in articles:
@@ -62,7 +79,9 @@ class DecathlonScraper(BaseScraper):
             link_el = art.find("a", href=lambda h: h and "/p/" in h)
             if not link_el or not link_el.get("href"):
                 continue
-            product_url = urllib.parse.urljoin(self.base_url, link_el["href"])
+            raw_href = link_el["href"]
+            product_url = urllib.parse.urljoin(self.base_url, raw_href)
+            clean_rel = raw_href.split("?")[0]
 
             # 3. Prices & Discounts
             price_blocks = art.select(".vp-price-amount, [class*=\"price-amount\"]")
@@ -100,6 +119,8 @@ class DecathlonScraper(BaseScraper):
                 if len(parts) >= 2:
                     pid = parts[-1].split("?")[0]
 
+            sizes = url_to_sizes.get(clean_rel) or url_to_sizes.get(raw_href) or []
+
             offers.append(
                 Offer(
                     store_id=self.store_id,
@@ -111,7 +132,7 @@ class DecathlonScraper(BaseScraper):
                     original_price=orig_price,
                     url=product_url,
                     image_url=img_url,
-                    available_sizes=[],
+                    available_sizes=sizes,
                     in_stock=True
                 )
             )
@@ -120,3 +141,21 @@ class DecathlonScraper(BaseScraper):
                 break
 
         return offers
+
+    def fetch_sizes(self, product_url: str) -> List[str]:
+        """Fetch available in-stock sizes for Decathlon product."""
+        try:
+            html = self._fetch_html(product_url)
+            if not html:
+                return []
+            soup = BeautifulSoup(html, "html.parser")
+            for sc in soup.find_all("script"):
+                if sc.string and "availableSizes" in sc.string:
+                    m = re.search(r"\\\"availableSizes\\\":(\[.*?\])", sc.string)
+                    if m:
+                        raw = m.group(1).replace("\\\"", "\"")
+                        return normalize_sizes(json.loads(raw))
+            return []
+        except Exception as e:
+            logger.debug(f"[Decathlon] fetch_sizes error on {product_url}: {e}")
+            return []

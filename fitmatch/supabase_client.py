@@ -215,20 +215,33 @@ class SupabaseClient:
         except Exception:
             self.ctx = ssl.create_default_context()
 
-    def _get_headers(self, upsert: bool = False) -> Dict[str, str]:
+    def _get_headers(self, upsert: bool = False, return_representation: bool = False) -> Dict[str, str]:
         headers = {
             "apikey": self.api_key,
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
+        prefer_parts = []
         if upsert:
-            headers["Prefer"] = "resolution=merge-duplicates"
+            prefer_parts.append("resolution=merge-duplicates")
+        if return_representation:
+            prefer_parts.append("return=representation")
+        if prefer_parts:
+            headers["Prefer"] = ",".join(prefer_parts)
         return headers
 
-    def _request(self, endpoint: str, method: str = "GET", data: Optional[Any] = None, upsert: bool = False, count_exact: bool = False) -> Any:
+    def _request(
+        self,
+        endpoint: str,
+        method: str = "GET",
+        data: Optional[Any] = None,
+        upsert: bool = False,
+        count_exact: bool = False,
+        return_representation: bool = False
+    ) -> Any:
         url = f"{self.base_url}/{endpoint}" if not endpoint.startswith("http") else endpoint
-        headers = self._get_headers(upsert=upsert)
+        headers = self._get_headers(upsert=upsert, return_representation=return_representation)
         if count_exact:
             headers["Prefer"] = "count=exact"
 
@@ -417,8 +430,131 @@ class SupabaseClient:
         self.upsert_offers(list(offer_map.values()))
         return len(offer_map)
 
-    def record_crawl_log(self, store_id: str, category: str, items_found: int, duration_seconds: float) -> None:
-        logger.info(f"[CrawlLog] Store: {store_id}, Cat: {category}, Found: {items_found}, Time: {duration_seconds}s")
+    def record_crawl_log(
+        self,
+        store_id: str,
+        category: str,
+        items_found: int,
+        duration_seconds: float,
+        session_id: Optional[str] = None
+    ) -> None:
+        """Record crawler job log in Supabase crawl_logs table."""
+        logger.info(f"[CrawlLog] Store: {store_id}, Cat: {category}, Found: {items_found}, Time: {duration_seconds}s, Session: {session_id}")
+        data: Dict[str, Any] = {
+            "store_id": store_id,
+            "category": category,
+            "items_found": items_found,
+            "duration_seconds": round(duration_seconds, 2)
+        }
+        if session_id:
+            data["session_id"] = session_id
+        try:
+            self._request("crawl_logs", method="POST", data=data)
+        except Exception as e:
+            logger.warning(f"[CrawlLog] Note saving crawl log: {e}")
+
+    # MARK: - Sync Sessions Tracking
+
+    def create_sync_session(
+        self,
+        session_type: str,
+        trigger_source: str = "scheduler",
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Optional[str]:
+        """Create a new sync session record in Supabase with status 'running'."""
+        payload = {
+            "session_type": session_type,
+            "trigger_source": trigger_source,
+            "status": "running",
+            "metadata": metadata or {}
+        }
+        res = self._request("sync_sessions", method="POST", data=payload, return_representation=True)
+        if res.get("status") in (200, 201) and res.get("data"):
+            rows = res["data"]
+            if isinstance(rows, list) and len(rows) > 0:
+                return rows[0].get("id")
+            elif isinstance(rows, dict):
+                return rows.get("id")
+        logger.warning(f"[Supabase] Failed to create sync session: {res.get('error')}")
+        return None
+
+    def update_sync_session(
+        self,
+        session_id: str,
+        status: str,
+        duration_seconds: float = 0.0,
+        total_items_processed: int = 0,
+        total_items_updated: int = 0,
+        total_price_drops: int = 0,
+        store_stats: Optional[Dict[str, Any]] = None,
+        error_message: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Update a sync session record with final status and metrics."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        payload: Dict[str, Any] = {
+            "status": status,
+            "completed_at": now_iso,
+            "duration_seconds": round(duration_seconds, 2),
+            "total_items_processed": total_items_processed,
+            "total_items_updated": total_items_updated,
+            "total_price_drops": total_price_drops,
+        }
+        if store_stats is not None:
+            payload["store_stats"] = store_stats
+        if error_message is not None:
+            payload["error_message"] = error_message
+        if metadata is not None:
+            payload["metadata"] = metadata
+
+        res = self._request(
+            f"sync_sessions?id=eq.{session_id}",
+            method="PATCH",
+            data=payload
+        )
+        return res.get("status") in (200, 204)
+
+    def get_sync_sessions(
+        self,
+        limit: int = 20,
+        session_type: Optional[str] = None,
+        status: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve recent sync sessions from Supabase."""
+        params = ["select=*", "order=started_at.desc", f"limit={limit}"]
+        if session_type:
+            params.append(f"session_type=eq.{session_type}")
+        if status:
+            params.append(f"status=eq.{status}")
+
+        endpoint = f"sync_sessions?{'&'.join(params)}"
+        res = self._request(endpoint, method="GET")
+        return res.get("data") or []
+
+    def get_sync_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve single session with its detailed crawl logs."""
+        res = self._request(f"sync_sessions?id=eq.{session_id}&select=*", method="GET")
+        data = res.get("data")
+        if data and isinstance(data, list) and len(data) > 0:
+            session = data[0]
+            logs_res = self._request(f"crawl_logs?session_id=eq.{session_id}&select=*&order=crawled_at.asc", method="GET")
+            session["crawl_logs"] = logs_res.get("data") or []
+            return session
+        return None
+
+    def get_latest_sync_session(self, session_type: str) -> Optional[Dict[str, Any]]:
+        """Retrieve most recent completed session of a specific type."""
+        endpoint = f"sync_sessions?session_type=eq.{session_type}&status=eq.completed&order=started_at.desc&limit=1&select=*"
+        res = self._request(endpoint, method="GET")
+        data = res.get("data")
+        if data and isinstance(data, list) and len(data) > 0:
+            return data[0]
+        return None
+
+    def get_store_health_metrics(self) -> List[Dict[str, Any]]:
+        """Retrieve store health, active offers and size coverage from store_health_metrics view."""
+        res = self._request("store_health_metrics?select=*&order=total_offers.desc")
+        return res.get("data") or []
 
     # MARK: - Stats & Overview
 

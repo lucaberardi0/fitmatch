@@ -2,7 +2,7 @@ import urllib.parse
 from typing import List, Optional
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 
 class CisalfaScraper(BaseScraper):
@@ -78,6 +78,7 @@ class CisalfaScraper(BaseScraper):
                 # Product ID
                 pid_el = tile.select_one("[data-itemid]")
                 product_id = pid_el["data-itemid"] if pid_el and pid_el.get("data-itemid") else None
+                sizes = self.fetch_sizes(product_url) if len(offers) < 5 else []
 
                 offers.append(
                     Offer(
@@ -90,6 +91,7 @@ class CisalfaScraper(BaseScraper):
                         original_price=orig_price,
                         url=product_url,
                         image_url=img_url,
+                        available_sizes=sizes,
                         in_stock=True
                     )
                 )
@@ -109,4 +111,4 @@ class CisalfaScraper(BaseScraper):
             val = el.get("data-display-value")
             if val:
                 sizes.append(val.strip().replace(",", "."))
-        return sizes
+        return normalize_sizes(sizes)

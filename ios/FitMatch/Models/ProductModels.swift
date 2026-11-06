@@ -52,6 +52,16 @@ struct ProductBrandHelper {
     }
 }
 
+enum SizeMatchStatus: Int, Comparable {
+    case available = 2
+    case unknown = 1
+    case unavailable = 0
+
+    static func < (lhs: SizeMatchStatus, rhs: SizeMatchStatus) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
 struct Offer: Identifiable, Codable, Hashable {
     var id: String { "\(store_id)_\(url)" }
     let store_id: String
@@ -140,12 +150,37 @@ struct Offer: Identifiable, Codable, Hashable {
         ProductBrandHelper.extractBrand(from: title, fallback: brand)
     }
 
+    var hasKnownSizes: Bool {
+        !(available_sizes ?? []).isEmpty
+    }
+
+    func normalizedSizes() -> [String] {
+        guard let sizes = available_sizes, !sizes.isEmpty else { return [] }
+        return sizes.map { s in
+            var clean = s.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+            clean = clean.replacingOccurrences(of: "EU ", with: "")
+            clean = clean.replacingOccurrences(of: " EU", with: "")
+            clean = clean.replacingOccurrences(of: ".1/2", with: ".5")
+            clean = clean.replacingOccurrences(of: " 1/2", with: ".5")
+            clean = clean.replacingOccurrences(of: " 2/3", with: ".5")
+            clean = clean.replacingOccurrences(of: " 1/3", with: ".5")
+            if let dashIdx = clean.range(of: "- ")?.upperBound {
+                clean = String(clean[dashIdx...]).trimmingCharacters(in: .whitespaces)
+            }
+            if let parenIdx = clean.firstIndex(of: "(") {
+                clean = String(clean[..<parenIdx]).trimmingCharacters(in: .whitespaces)
+            }
+            return clean.trimmingCharacters(in: .whitespaces)
+        }
+    }
+
     func hasSize(_ targetSize: String?) -> Bool {
         guard let target = targetSize, !target.isEmpty else { return true }
         guard let sizes = available_sizes, !sizes.isEmpty else { return false }
         let normTarget = target.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+        let normSizes = normalizedSizes()
 
-        if sizes.contains(normTarget) { return true }
+        if normSizes.contains(normTarget) { return true }
 
         let euToUs: [String: String] = [
             "36": "4.5", "37": "5", "37.5": "5.5", "38": "6", "38.5": "6",
@@ -155,10 +190,16 @@ struct Offer: Identifiable, Codable, Hashable {
         ]
         let usToEu = Dictionary(euToUs.map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
 
-        if let us = euToUs[normTarget], sizes.contains(us) { return true }
-        if let eu = usToEu[normTarget], sizes.contains(eu) { return true }
+        if let us = euToUs[normTarget], normSizes.contains(us) { return true }
+        if let eu = usToEu[normTarget], normSizes.contains(eu) { return true }
 
         return false
+    }
+
+    func sizeMatchStatus(_ targetSize: String?) -> SizeMatchStatus {
+        guard let target = targetSize, !target.isEmpty else { return .available }
+        guard hasKnownSizes else { return .unknown }
+        return hasSize(target) ? .available : .unavailable
     }
 
     var calculatedShippingCost: Double {

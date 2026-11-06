@@ -2,7 +2,7 @@ import urllib.parse
 from typing import List, Optional
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 
 class MaxiSportScraper(BaseScraper):
@@ -74,6 +74,8 @@ class MaxiSportScraper(BaseScraper):
                     if slug_parts:
                         brand = slug_parts[0].capitalize()
 
+                sizes = self.fetch_sizes(product_url) if len(offers) < 5 else []
+
                 offers.append(
                     Offer(
                         store_id=self.store_id,
@@ -85,6 +87,7 @@ class MaxiSportScraper(BaseScraper):
                         original_price=orig_price,
                         url=product_url,
                         image_url=img_url,
+                        available_sizes=sizes,
                         in_stock=True
                     )
                 )
@@ -109,11 +112,12 @@ class MaxiSportScraper(BaseScraper):
                         for attr_id, attr_data in cfg.get("attributes", {}).items():
                             label = attr_data.get("label", "").lower()
                             if "taglia" in label or "size" in label:
-                                return [
+                                raw_sizes = [
                                     opt["label"].strip().replace(",", ".")
                                     for opt in attr_data.get("options", [])
                                     if len(opt.get("products", [])) > 0
                                 ]
+                                return normalize_sizes(raw_sizes)
                     except Exception:
                         pass
         return []
