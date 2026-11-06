@@ -92,18 +92,27 @@ struct RecentActivityItem: Identifiable, Codable, Hashable {
         let calendar = Calendar.current
         let now = Date()
 
-        if calendar.isDateInToday(timestamp) {
-            return "oggi"
-        } else if calendar.isDateInYesterday(timestamp) {
+        let elapsedSeconds = now.timeIntervalSince(timestamp)
+        if elapsedSeconds < 60 {
+            return "adesso"
+        } else if elapsedSeconds < 3600 {
+            let minutes = max(1, Int(elapsedSeconds / 60))
+            return "\(minutes) min fa"
+        } else if elapsedSeconds < 86400 {
+            let hours = max(1, Int(elapsedSeconds / 3600))
+            return hours == 1 ? "1 ora fa" : "\(hours) ore fa"
+        }
+
+        if calendar.isDateInYesterday(timestamp) {
             return "ieri"
         }
 
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "it_IT")
         if calendar.component(.year, from: timestamp) == calendar.component(.year, from: now) {
-            formatter.dateFormat = "d MMM"
+            formatter.dateFormat = "MMM d"
         } else {
-            formatter.dateFormat = "d MMM yyyy"
+            formatter.dateFormat = "MMM d yyyy"
         }
         return formatter.string(from: timestamp).lowercased()
     }
@@ -143,6 +152,34 @@ class RecentActivityManager: ObservableObject {
         } catch {
             print("RecentActivityManager sync note: \(error)")
         }
+    }
+
+    // MARK: - Filtered Views for Search Redesign
+
+    var recentlyViewedProducts: [MatchedProduct] {
+        var seen = Set<String>()
+        var unique: [MatchedProduct] = []
+        for p in activities.compactMap({ $0.productData }) {
+            let key = p.canonical_name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !seen.contains(key) {
+                seen.insert(key)
+                unique.append(p)
+            }
+        }
+        return unique
+    }
+
+    var continueShoppingItems: [RecentActivityItem] {
+        var seen = Set<String>()
+        var unique: [RecentActivityItem] = []
+        for act in activities {
+            let key = act.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !seen.contains(key) {
+                seen.insert(key)
+                unique.append(act)
+            }
+        }
+        return unique
     }
 
     // MARK: - Actions

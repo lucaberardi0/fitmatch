@@ -27,6 +27,7 @@
 		89610749C23B484CFD62E591 /* ModelCompareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD5E9BAC0BA0C24E6B2BF70 /* ModelCompareView.swift */; };
 		8A4B267DE9FF63AC04D61AC2 /* AdminModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 355CCB5F540C4E9A310CA064 /* AdminModels.swift */; };
 		8B3F892B3619718DF5DD8B42 /* AdminNetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1FA5406E288DBFDE73656 /* AdminNetworkService.swift */; };
+		9CD25F00B649DC6BDA85D616 /* KeyboardObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97FB2EF309E49AEE4BD27686 /* KeyboardObserver.swift */; };
 		9FA6E1EB09B4E068B2447D88 /* FitMatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 014DB574F6923400DE4EC660 /* FitMatchApp.swift */; };
 		A0494EF94BA0570E8AB85CDE /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1D8179F12F0ADDCE9D80BF /* NotificationManager.swift */; };
 		B989DA72112CF11A041FC02F /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 395FFCA471A337B896E62006 /* HomeView.swift */; };
@@ -81,6 +82,7 @@
 		7CEC7A3E09C541258C7BB35F /* FitMatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FitMatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		96802C6BE10AFF3B926DD290 /* WishlistManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WishlistManager.swift; sourceTree = "<group>"; };
 		9742386325EDFBBDC344E123 /* WishlistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WishlistView.swift; sourceTree = "<group>"; };
+		97FB2EF309E49AEE4BD27686 /* KeyboardObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardObserver.swift; sourceTree = "<group>"; };
 		AC3362497A90C3594B4018BB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AE97964EC21F194E375A1D8A /* ProductDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductDetailView.swift; sourceTree = "<group>"; };
 		AF320DE48B1652EEC874F05D /* MoveToCollectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoveToCollectionSheet.swift; sourceTree = "<group>"; };
@@ -245,6 +247,7 @@
 			isa = PBXGroup;
 			children = (
 				20254DFCB0EF57AEB2F80CB7 /* Badges.swift */,
+				97FB2EF309E49AEE4BD27686 /* KeyboardObserver.swift */,
 				5E3D8BA011DB7E69DF068BC7 /* SkeletonLoading.swift */,
 				081867455313440F0DFE628F /* Theme.swift */,
 			);
@@ -417,6 +420,7 @@
 				B989DA72112CF11A041FC02F /* HomeView.swift in Sources */,
 				2F1F77052D4E87E34CF2B919 /* ImageCacheManager.swift in Sources */,
 				026EFA5DD82D3E12EC450595 /* IntelligentPromoGenerator.swift in Sources */,
+				9CD25F00B649DC6BDA85D616 /* KeyboardObserver.swift in Sources */,
 				36FB1E76CA79F8495D334DD9 /* MainTabView.swift in Sources */,
 				89610749C23B484CFD62E591 /* ModelCompareView.swift in Sources */,
 				11E376073C2473A0CC95E633 /* MoveToCollectionSheet.swift in Sources */,

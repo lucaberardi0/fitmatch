@@ -119,6 +119,46 @@ public class AdminNetworkService: ObservableObject {
         }
     }
 
+    public func fetchSearchFeedbacks(limit: Int = 100) async -> [SearchFeedbackItem] {
+        guard let url = URL(string: "\(supabaseBaseURL)/search_feedback?select=*&order=created_at.desc&limit=\(limit)") else { return [] }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        for (k, v) in makeSupabaseHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+
+        do {
+            let (data, resp) = try await session.data(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+            let items = try JSONDecoder().decode([SearchFeedbackItem].self, from: data)
+            self.isSupabaseOnline = true
+            return items
+        } catch {
+            print("[AdminNetwork] Error fetching search feedback: \(error)")
+            return []
+        }
+    }
+
+    public func deleteSearchFeedback(id: String) async -> Bool {
+        guard let url = URL(string: "\(supabaseBaseURL)/search_feedback?id=eq.\(id)") else { return false }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        for (k, v) in makeSupabaseHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+
+        do {
+            let (_, resp) = try await session.data(for: req)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            return status >= 200 && status < 300
+        } catch {
+            print("[AdminNetwork] Error deleting search feedback: \(error)")
+            return false
+        }
+    }
+
     // MARK: - FastAPI Backend Triggers
 
     public func checkBackendHealth() async -> Bool {

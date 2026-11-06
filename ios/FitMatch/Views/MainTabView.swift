@@ -40,7 +40,7 @@ struct MainTabView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Main Tab Screen
+            // Main Tab Screen (3 Tabs: Home, Cerca, Salvati)
             Group {
                 switch selectedTab {
                 case 0:
@@ -55,7 +55,7 @@ struct MainTabView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Floating Island Dock (Hidden when entering Detail pages to prevent overlapping purchase buttons)
+            // Floating Island Dock (Hidden when entering Detail pages or when typing in search)
             if !tabVisibility.isHidden {
                 ShopFloatingIslandDock(selectedTab: $selectedTab)
                     .padding(.bottom, 16)
@@ -66,63 +66,111 @@ struct MainTabView: View {
     }
 }
 
-// MARK: - Floating Island Dock Component (Home, Search, Saved)
+// MARK: - Floating Island Dock Component (Premium 3-Tab Floating Glass Pill)
 
 struct ShopFloatingIslandDock: View {
     @Binding var selectedTab: Int
     @ObservedObject private var wishlist = WishlistManager.shared
 
     var body: some View {
-        HStack(spacing: 50) {
+        HStack(spacing: 34) {
             // 1. Home
             dockButton(
                 index: 0,
-                icon: "house.fill",
-                size: 21
+                content: AnyView(
+                    Image(systemName: "house.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                )
             )
 
-            // 2. Search
+            // 2. Search & Assistant (Speech bubble with sparkle)
             dockButton(
                 index: 1,
-                icon: "magnifyingglass",
-                size: 21
+                content: AnyView(
+                    ZStack {
+                        Image(systemName: "bubble.left.fill")
+                            .font(.system(size: 21, weight: .bold))
+
+                        Image(systemName: "sparkle")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(selectedTab == 1 ? .white : Color(red: 245/255, green: 245/255, blue: 248/255))
+                            .offset(x: -1, y: -1)
+                    }
+                )
             )
 
-            // 3. Saved (Heart Icon)
+            // 3. Salvati (Heart with Wishlist Notification Dot)
             dockButton(
                 index: 2,
-                icon: selectedTab == 2 ? "heart.fill" : "heart",
-                size: 21
+                content: AnyView(
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: selectedTab == 2 ? "heart.fill" : "heart")
+                            .font(.system(size: 21, weight: selectedTab == 2 ? .bold : .medium))
+
+                        if wishlist.items.count > 0 {
+                            Circle()
+                                .fill(Color.shopPurple)
+                                .frame(width: 7, height: 7)
+                                .offset(x: 3, y: -2)
+                        }
+                    }
+                )
             )
         }
-        .padding(.horizontal, 34)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 28)
+        .frame(height: 58)
         .background(
             Capsule()
-                .fill(Color.white)
+                .fill(.ultraThinMaterial)
                 .overlay(
                     Capsule()
-                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                        .fill(Color.white.opacity(0.86))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.95),
+                                    Color.white.opacity(0.35),
+                                    Color.black.opacity(0.06)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
                 )
         )
-        .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 5)
+        .shadow(color: Color.black.opacity(0.09), radius: 18, x: 0, y: 7)
+        .shadow(color: Color.black.opacity(0.03), radius: 5, x: 0, y: 2)
     }
 
-    private func dockButton(index: Int, icon: String, size: CGFloat) -> some View {
+    private func dockButton(index: Int, content: AnyView) -> some View {
         Button(action: {
             let gen = UIImpactFeedbackGenerator(style: .light)
             gen.impactOccurred()
-            withAnimation(.spring(response: 0.26, dampingFraction: 0.72)) {
+            if selectedTab == index && index == 1 {
+                NotificationCenter.default.post(name: NSNotification.Name("FitMatchFocusSearch"), object: nil)
+            }
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
                 selectedTab = index
             }
         }) {
             ZStack {
-                Image(systemName: icon)
-                    .font(.system(size: size, weight: .semibold))
-                    .foregroundColor(selectedTab == index ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(red: 175/255, green: 175/255, blue: 185/255))
-                    .scaleEffect(selectedTab == index ? 1.08 : 1.0)
+                if selectedTab == index {
+                    Circle()
+                        .fill(Color.black.opacity(0.04))
+                        .frame(width: 44, height: 44)
+                        .transition(.scale.combined(with: .opacity))
+                }
+
+                content
+                    .foregroundColor(selectedTab == index ? Color(red: 20/255, green: 20/255, blue: 24/255) : Color(red: 140/255, green: 140/255, blue: 150/255))
+                    .scaleEffect(selectedTab == index ? 1.06 : 1.0)
             }
-            .frame(width: 32, height: 32)
+            .frame(width: 48, height: 48)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

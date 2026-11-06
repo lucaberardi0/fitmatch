@@ -166,3 +166,75 @@ public enum AnyCodableValue: Codable, Equatable {
         }
     }
 }
+
+// MARK: - Search Feedback Models
+
+public struct ProductEvaluationItem: Codable, Equatable, Identifiable {
+    public var id: String { productId ?? UUID().uuidString }
+    public let productId: String?
+    public let productName: String?
+    public let thumb: String?
+
+    enum CodingKeys: String, CodingKey {
+        case productId = "product_id"
+        case productName = "product_name"
+        case thumb
+    }
+
+    public var isThumbUp: Bool {
+        thumb?.lowercased() == "up"
+    }
+}
+
+public struct SearchFeedbackItem: Identifiable, Codable, Equatable {
+    public let id: String
+    public let deviceId: String?
+    public let userId: String?
+    public let query: String
+    public let feedbackType: String
+    public let comment: String?
+    public let productEvaluations: [ProductEvaluationItem]?
+    public let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case deviceId = "device_id"
+        case userId = "user_id"
+        case query
+        case feedbackType = "feedback_type"
+        case comment
+        case productEvaluations = "product_evaluations"
+        case createdAt = "created_at"
+    }
+
+    public var isPositive: Bool {
+        feedbackType.lowercased() == "positive"
+    }
+
+    public var hasComment: Bool {
+        guard let comment = comment else { return false }
+        return !comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public var displayCreatedAt: String {
+        guard let created = createdAt else { return "—" }
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var parsedDate = isoFormatter.date(from: created)
+        if parsedDate == nil {
+            let standardIso = ISO8601DateFormatter()
+            standardIso.formatOptions = [.withInternetDateTime]
+            parsedDate = standardIso.date(from: created)
+        }
+        if let date = parsedDate {
+            let outFormatter = DateFormatter()
+            outFormatter.locale = Locale(identifier: "it_IT")
+            outFormatter.dateFormat = "d MMM, HH:mm"
+            return outFormatter.string(from: date)
+        }
+        if created.count >= 16 {
+            return created.prefix(16).replacingOccurrences(of: "T", with: " ")
+        }
+        return created
+    }
+}

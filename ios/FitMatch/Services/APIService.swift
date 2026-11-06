@@ -449,4 +449,34 @@ class APIService: ObservableObject {
         let (_, response) = try await session.data(for: request)
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
+
+    func submitSearchFeedback(
+        query: String,
+        feedbackType: String,
+        comment: String? = nil,
+        productEvaluations: [[String: Any]]? = nil
+    ) async {
+        // 1. Send to Supabase directly
+        _ = try? await SupabaseManager.shared.submitSearchFeedback(
+            query: query,
+            feedbackType: feedbackType,
+            comment: comment,
+            productEvaluations: productEvaluations
+        )
+
+        // 2. Also send to FastAPI backend endpoint if available
+        guard let url = URL(string: "\(baseURL)/api/search/feedback") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var payload: [String: Any] = [
+            "query": query,
+            "feedback_type": feedbackType,
+            "device_id": SupabaseManager.shared.deviceId
+        ]
+        if let c = comment { payload["comment"] = c }
+        if let evals = productEvaluations { payload["product_evaluations"] = evals }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        _ = try? await session.data(for: request)
+    }
 }

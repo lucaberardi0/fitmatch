@@ -36,6 +36,7 @@ class FollowedStoresManager: ObservableObject {
     init() {
         loadFromCache()
         loadHiddenStoresFromCache()
+        purgeLegacyAutoSeededStoresIfNeeded()
         setupPromoPosts()
         Task {
             await fetchFollowedStores()
@@ -60,28 +61,29 @@ class FollowedStoresManager: ObservableObject {
 
     private func loadFromCache() {
         if let data = UserDefaults.standard.data(forKey: storageKey),
-           let decoded = try? JSONDecoder().decode([FollowedStoreItem].self, from: data),
-           !decoded.isEmpty {
+           let decoded = try? JSONDecoder().decode([FollowedStoreItem].self, from: data) {
             self.followedStores = decoded
-            // Ensure Nike is included for first-class experience if not present
-            if !self.followedStores.contains(where: { $0.store_id == "nike" }) {
-                self.followedStores.insert(FollowedStoreItem(store_id: "nike", store_name: "Nike", store_logo: nil, created_at: nil), at: 0)
-                saveToCache()
-            }
         } else {
-            // Initial starter: follow real partner stores from database
-            self.followedStores = [
-                FollowedStoreItem(store_id: "nike", store_name: "Nike", store_logo: nil, created_at: nil),
-                FollowedStoreItem(store_id: "cisalfa", store_name: "Cisalfa Sport", store_logo: nil, created_at: nil),
-                FollowedStoreItem(store_id: "misterrunning", store_name: "Mister Running", store_logo: nil, created_at: nil),
-                FollowedStoreItem(store_id: "maxisport", store_name: "Maxi Sport", store_logo: nil, created_at: nil)
-            ]
-            saveToCache()
-            Task {
-                _ = try? await SupabaseManager.shared.followStore(storeId: "nike", storeName: "Nike")
-                _ = try? await SupabaseManager.shared.followStore(storeId: "cisalfa", storeName: "Cisalfa Sport")
-                _ = try? await SupabaseManager.shared.followStore(storeId: "misterrunning", storeName: "Mister Running")
-                _ = try? await SupabaseManager.shared.followStore(storeId: "maxisport", storeName: "Maxi Sport")
+            self.followedStores = []
+        }
+    }
+
+    private func purgeLegacyAutoSeededStoresIfNeeded() {
+        let purgeKey = "fitmatch_purged_autoseeded_stores_v4"
+        if !UserDefaults.standard.bool(forKey: purgeKey) {
+            UserDefaults.standard.set(true, forKey: purgeKey)
+            let legacySet: Set<String> = ["nike", "cisalfa", "misterrunning", "maxisport"]
+            let onlyLegacy = !self.followedStores.isEmpty && self.followedStores.allSatisfy { legacySet.contains($0.store_id.lowercased()) }
+            if onlyLegacy {
+                let toRemove = self.followedStores
+                self.followedStores = []
+                saveToCache()
+                Task {
+                    for s in toRemove {
+                        _ = try? await SupabaseManager.shared.unfollowStore(storeId: s.store_id)
+                        _ = try? await APIService.shared.unfollowStore(storeId: s.store_id)
+                    }
+                }
             }
         }
     }
@@ -213,11 +215,22 @@ class FollowedStoresManager: ObservableObject {
         // 1. Try Supabase direct PostgREST
         do {
             let supaList = try await SupabaseManager.shared.fetchFollowedStores()
-            if !supaList.isEmpty {
-                self.followedStores = supaList
+            let legacySet: Set<String> = ["nike", "cisalfa", "misterrunning", "maxisport"]
+            let isOnlyLegacyRemote = !supaList.isEmpty && supaList.allSatisfy { legacySet.contains($0.store_id.lowercased()) }
+
+            // If remote only has the old starter legacy stores and user cleared them locally, keep them cleared
+            if isOnlyLegacyRemote && self.followedStores.isEmpty {
+                for id in legacySet {
+                    _ = try? await SupabaseManager.shared.unfollowStore(storeId: id)
+                }
+                self.followedStores = []
                 saveToCache()
                 return
             }
+
+            self.followedStores = supaList
+            saveToCache()
+            return
         } catch {
             print("Supabase fetchFollowedStores: \(error)")
         }
@@ -225,10 +238,8 @@ class FollowedStoresManager: ObservableObject {
         // 2. Try Backend API
         do {
             let apiList = try await APIService.shared.getFollowedStores()
-            if !apiList.isEmpty {
-                self.followedStores = apiList
-                saveToCache()
-            }
+            self.followedStores = apiList
+            saveToCache()
         } catch {
             print("APIService fetchFollowedStores: \(error)")
         }

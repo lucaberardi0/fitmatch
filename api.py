@@ -1,4 +1,5 @@
 import logging
+import time
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -496,6 +497,18 @@ def search_live(
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/search/feedback")
+def submit_search_feedback(payload: dict):
+    """Save user feedback on search results."""
+    try:
+        # Save directly to Supabase search_feedback table if client is present
+        if hasattr(db, "supabase") and db.supabase and hasattr(db.supabase, "client") and db.supabase.client:
+            db.supabase.client.table("search_feedback").insert(payload).execute()
+    except Exception as e:
+        logger.warning(f"Error persisting search feedback: {e}")
+    return {"status": "ok", "message": "Feedback salvato con successo"}
 
 
 @app.post("/api/crawl")

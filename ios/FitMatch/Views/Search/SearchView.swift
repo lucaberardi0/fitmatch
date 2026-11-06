@@ -8,8 +8,13 @@ struct ComparisonPair: Identifiable {
 
 struct SearchView: View {
     @StateObject private var api = APIService.shared
+    @StateObject private var keyboardObserver = KeyboardObserver.shared
+    @ObservedObject private var tabVisibility = TabBarVisibilityManager.shared
     @State private var searchText: String = ""
     @FocusState private var isSearchFieldFocused: Bool
+    @FocusState private var isFollowUpFieldFocused: Bool
+    @State private var hasAutoFocused: Bool = false
+    @State private var showVisualSearch: Bool = false
 
     @State private var searchResults: [MatchedProduct] = []
     @State private var topSavingsItems: [MatchedProduct] = []
@@ -27,6 +32,8 @@ struct SearchView: View {
     @State private var followUpSuggestions: [String] = []
     @State private var followUpInputText: String = ""
     @State private var userFeedback: Int? = nil // 1 for thumbs up, -1 for down
+    @State private var feedbackConfig: SearchFeedbackSheetConfig? = nil
+    @State private var feedbackSubmittedToast: Bool = false
     @State private var lastContextQuery: String? = nil // Multi-turn conversational memory
 
     // Comparison Navigation State
@@ -66,6 +73,9 @@ struct SearchView: View {
         _searchText = State(initialValue: initialSearchQuery ?? "")
         if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
             _isDeepDiveMode = State(initialValue: false)
+        }
+        if ProcessInfo.processInfo.arguments.contains("-testSearchClosed") {
+            _hasAutoFocused = State(initialValue: true)
         }
     }
 
@@ -130,6 +140,27 @@ struct SearchView: View {
                     // Search Typing / History View
                     searchTypingHistoryView
                 }
+
+                if feedbackSubmittedToast {
+                    VStack {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Grazie per il tuo feedback!")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(Color.shopDark.opacity(0.92))
+                        .cornerRadius(22)
+                        .shadow(color: Color.black.opacity(0.16), radius: 8, y: 3)
+                        .padding(.top, 16)
+                        Spacer()
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(100)
+                }
             }
             .navigationDestination(item: $selectedRecentProduct) { prod in
                 ProductDetailView(product: prod)
@@ -139,9 +170,65 @@ struct SearchView: View {
                     ModelCompareView(initialModelA: pair.modelA, initialModelB: pair.modelB)
                 }
             }
+            .sheet(isPresented: $showVisualSearch) {
+                ShopVisualSearchSheet { recognizedQuery in
+                    searchText = recognizedQuery
+                    isSearchFieldFocused = false
+                    handleSearchOrComparison(query: recognizedQuery)
+                }
+            }
+            .sheet(item: $feedbackConfig) { config in
+                ShopSearchFeedbackSheet(
+                    query: config.query,
+                    products: config.products,
+                    initialFeedbackType: config.feedbackType,
+                    onSubmitted: {
+                        withAnimation {
+                            feedbackSubmittedToast = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                            withAnimation { feedbackSubmittedToast = false }
+                        }
+                    }
+                )
+                .presentationDetents([.fraction(0.64), .large])
+                .presentationDragIndicator(.visible)
+            }
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarHidden(true)
+            .onAppear {
+                if !hasAutoFocused && !hasSearched {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                        isSearchFieldFocused = true
+                        hasAutoFocused = true
+                    }
+                }
+            }
+            .onChange(of: isSearchFieldFocused) { focused in
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    if focused || isFollowUpFieldFocused {
+                        tabVisibility.hide()
+                    } else {
+                        tabVisibility.show()
+                    }
+                }
+            }
+            .onChange(of: isFollowUpFieldFocused) { focused in
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    if focused || isSearchFieldFocused {
+                        tabVisibility.hide()
+                    } else {
+                        tabVisibility.show()
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FitMatchFocusSearch"))) { _ in
+                isSearchFieldFocused = true
+            }
+            .onDisappear {
+                tabVisibility.reset()
+            }
             .task {
                 loadInitialTopSavings()
                 if !searchText.isEmpty && !hasSearched {
@@ -154,173 +241,188 @@ struct SearchView: View {
     // MARK: - Search Typing & History View
     private var searchTypingHistoryView: some View {
         ZStack(alignment: .bottom) {
-            VStack(spacing: 0) {
-                // Header pinned at top: "Continua ad acquistare ›"
-                HStack(spacing: 6) {
-                    Text("Continua ad acquistare")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(Color(red: 100/255, green: 100/255, blue: 110/255))
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                    Spacer()
-
-                    if !recentManager.activities.isEmpty {
-                        Button(action: {
-                            withAnimation {
-                                recentManager.clearAll()
-                            }
-                        }) {
-                            Text("Cancella")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
-                        }
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 26) {
+                    // Section 1: "Visti di recente >" (Screenshot 1 & 2 top)
+                    if !recentManager.recentlyViewedProducts.isEmpty {
+                        recentlyViewedSection
                     }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-                .background(Color.white)
 
-                // AI Quick Access Strip
-                HStack(spacing: 10) {
-                    NavigationLink(destination: AIAdvisorView()) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.shopPurple)
-                            Text("Chiedi al Personal Shopper IA")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundColor(.shopPurple)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.shopPurple.opacity(0.6))
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(Color.shopPurpleLight)
-                        .cornerRadius(12)
+                    // Section 2: "Continua ad acquistare >" (Screenshot 1 & 2 list)
+                    if !recentManager.continueShoppingItems.isEmpty {
+                        continueShoppingSection
+                    } else if recentManager.recentlyViewedProducts.isEmpty {
+                        emptyHistoryPlaceholder
                     }
+
+                    Spacer(minLength: 160)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
+                .padding(.top, 10)
+            }
+            .scrollDismissesKeyboard(.interactively)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
-                        // Section 1: Recent Activity Carousel
-                        if !recentManager.activities.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 12) {
-                                        ForEach(recentManager.activities) { act in
-                                            recentActivityCard(act)
-                                        }
-                                    }
-                                    .padding(.horizontal, 20)
-                                }
-                            }
-                        }
-
-                        // Section 2: Quick Search Prompts
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Suggerimenti di Ricerca")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                                .padding(.horizontal, 20)
-
-                            VStack(spacing: 8) {
-                                smartPromptRow(
-                                    icon: "sparkles",
-                                    title: "Scarpe running ammortizzate per ginocchia pesanti",
-                                    query: "scarpe running ammortizzate per ginocchia pesanti sotto 150 euro"
-                                )
-                                smartPromptRow(
-                                    icon: "bolt.fill",
-                                    title: "Super scarpe veloci con piastra in carbonio",
-                                    query: "scarpe running con piastra in carbonio gara"
-                                )
-                                smartPromptRow(
-                                    icon: "figure.run",
-                                    title: "Migliori scarpe per iniziare a correre",
-                                    query: "scarpe comode per iniziare a correre asfalto"
-                                )
-                                smartPromptRow(
-                                    icon: "applewatch",
-                                    title: "Smartwatch GPS Garmin Forerunner",
-                                    query: "garmin forerunner 165 orologio corsa"
-                                )
-                            }
-                            .padding(.horizontal, 20)
-                        }
-
-                        // Section 3: Trending Deals in Italy
-                        if !topSavingsItems.isEmpty {
-                            VStack(alignment: .leading, spacing: 12) {
-                                HStack {
-                                    Text("Offerte Più Convenienti di Oggi")
-                                        .font(.system(size: 15, weight: .bold))
-                                        .foregroundColor(.shopDark)
-                                    Spacer()
-                                    Text("Multinegozio")
-                                        .font(.system(size: 11.5, weight: .bold))
-                                        .foregroundColor(.shopPurple)
-                                }
-                                .padding(.horizontal, 20)
-
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 12) {
-                                        ForEach(topSavingsItems.prefix(8)) { prod in
-                                            trendingDealCard(prod)
-                                        }
-                                    }
-                                    .padding(.horizontal, 20)
-                                }
-                            }
-                        }
-
-                        Spacer(minLength: 140)
-                    }
-                    .padding(.top, 4)
-                }
+            // Autocomplete live suggestions overlay when typing
+            if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasSearched {
+                liveSearchSuggestionsCard
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, floatingBarBottomPadding + 62)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             // Floating Bottom Search Pill Bar
             floatingSearchInputBar
-                .padding(.bottom, 78)
+                .padding(.bottom, floatingBarBottomPadding)
+        }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+    }
+
+    private var emptyHistoryPlaceholder: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sparkle.magnifyingglass")
+                .font(.system(size: 38))
+                .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
+                .padding(.top, 40)
+            Text("Cosa vorresti cercare?")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(.shopDark)
+            Text("Digita un prodotto, una marca o una categoria per confrontare i prezzi dei migliori negozi di sport.")
+                .font(.system(size: 13.5))
+                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    private var floatingBarBottomPadding: CGFloat {
+        if keyboardObserver.isKeyboardVisible || keyboardObserver.effectiveKeyboardOffset > 0 {
+            return keyboardObserver.effectiveKeyboardOffset + 8
+        } else {
+            return 98
         }
     }
 
-    private func smartPromptRow(icon: String, title: String, query: String) -> some View {
-        Button(action: {
-            searchText = query
-            executeSearch()
-        }) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.shopPurple)
-                    .frame(width: 24, height: 24)
-                    .background(Color.shopPurpleLight)
-                    .clipShape(Circle())
+    private var curatedProductsForFeedback: [MatchedProduct] {
+        var prods: [MatchedProduct] = []
+        for sec in curatedSections {
+            for p in sec.products {
+                if !prods.contains(where: { $0.id == p.id }) {
+                    prods.append(p)
+                }
+            }
+        }
+        for res in searchResults {
+            if !prods.contains(where: { $0.id == res.id }) {
+                prods.append(res)
+            }
+        }
+        if prods.isEmpty {
+            prods = Array(recentManager.recentlyViewedProducts.prefix(6))
+        }
+        return Array(prods.prefix(8))
+    }
 
-                Text(title)
-                    .font(.system(size: 13.5, weight: .medium))
+    // MARK: - Section 1: Visti di recente >
+    private var recentlyViewedSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 5) {
+                Text("Visti di recente")
+                    .font(.system(size: 19, weight: .bold))
                     .foregroundColor(.shopDark)
-                    .lineLimit(1)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
 
                 Spacer()
-
-                Image(systemName: "arrow.up.left")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Color(red: 180/255, green: 180/255, blue: 190/255))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .background(Color(red: 248/255, green: 248/255, blue: 250/255))
-            .cornerRadius(12)
+            .padding(.horizontal, 20)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(recentManager.recentlyViewedProducts) { prod in
+                        RecentlyViewedCard(product: prod) {
+                            selectedRecentProduct = prod
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    // MARK: - Section 2: Continua ad acquistare >
+    private var continueShoppingSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 5) {
+                Text("Continua ad acquistare")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(.shopDark)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+
+            VStack(spacing: 12) {
+                ForEach(recentManager.continueShoppingItems) { item in
+                    continueShoppingRow(item)
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private func continueShoppingRow(_ item: RecentActivityItem) -> some View {
+        Button(action: {
+            handleRecentItemTap(item)
+        }) {
+            HStack(spacing: 14) {
+                ShopProductThumbnail(
+                    imageUrl: item.imageUrl,
+                    systemIcon: item.systemIcon,
+                    cornerRadius: 15,
+                    size: CGSize(width: 52, height: 52)
+                )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.shopDark)
+                        .lineLimit(1)
+
+                    Text(item.formattedDate)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                }
+
+                Spacer()
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            Button(role: .destructive, action: {
+                withAnimation {
+                    recentManager.removeActivity(item)
+                }
+            }) {
+                Label("Rimuovi dalla cronologia", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                withAnimation {
+                    recentManager.removeActivity(item)
+                }
+            } label: {
+                Label("Elimina", systemImage: "trash")
+            }
+        }
     }
 
     private func handleRecentItemTap(_ item: RecentActivityItem) {
@@ -333,132 +435,101 @@ struct SearchView: View {
         }
     }
 
-    private func recentActivityCard(_ act: RecentActivityItem) -> some View {
-        Button(action: {
-            handleRecentItemTap(act)
-        }) {
-            VStack(alignment: .leading, spacing: 6) {
-                ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
-                        .frame(width: 104, height: 104)
-
-                    if let img = act.imageUrl, let url = URL(string: img) {
-                        ShopCachedAsyncImage(url: url, maxPixelSize: 300) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image.resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 104, height: 104)
-                                    .cornerRadius(14)
-                            case .empty:
-                                ShopSkeletonBlock(cornerRadius: 14, width: 104, height: 104)
-                            default:
+    // MARK: - Autocomplete Live Suggestions Overlay
+    private var liveSearchSuggestionsCard: some View {
+        let suggestions = filteredSuggestions(for: searchText)
+        return Group {
+            if !suggestions.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(suggestions.prefix(4).enumerated()), id: \.offset) { idx, suggestion in
+                        Button(action: {
+                            searchText = suggestion
+                            isSearchFieldFocused = false
+                            handleSearchOrComparison(query: suggestion)
+                        }) {
+                            HStack(spacing: 12) {
                                 Image(systemName: "magnifyingglass")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(.gray.opacity(0.35))
-                                    .frame(width: 104, height: 104)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+
+                                Text(suggestion)
+                                    .font(.system(size: 14.5, weight: .medium))
+                                    .foregroundColor(.shopDark)
+                                    .lineLimit(1)
+
+                                Spacer()
+
+                                Button(action: {
+                                    searchText = suggestion
+                                }) {
+                                    Image(systemName: "arrow.up.left")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
+                                        .frame(width: 28, height: 28)
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 11)
                         }
-                    } else if let sys = act.systemIcon {
-                        Image(systemName: sys)
-                            .font(.system(size: 24))
-                            .foregroundColor(.gray.opacity(0.4))
-                            .frame(width: 104, height: 104)
-                    } else {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 24))
-                            .foregroundColor(.gray.opacity(0.4))
-                            .frame(width: 104, height: 104)
+                        .buttonStyle(PlainButtonStyle())
+
+                        if idx < min(3, suggestions.count - 1) {
+                            Divider()
+                                .padding(.leading, 42)
+                        }
                     }
                 }
-
-                Text(act.title)
-                    .font(.system(size: 11.5, weight: .bold))
-                    .foregroundColor(.shopDark)
-                    .lineLimit(1)
-                    .frame(width: 104, alignment: .leading)
-
-                if let prod = act.productData, let best = prod.best_price {
-                    Text(String(format: "%.2f €", best).replacingOccurrences(of: ".", with: ","))
-                        .font(.system(size: 12, weight: .heavy))
-                        .foregroundColor(.shopDark)
-                }
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color.white)
+                        .shadow(color: Color.black.opacity(0.12), radius: 14, y: 4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                        )
+                )
             }
-            .frame(width: 104)
         }
-        .buttonStyle(PlainButtonStyle())
     }
 
-    private func trendingDealCard(_ prod: MatchedProduct) -> some View {
-        Button(action: {
-            selectedRecentProduct = prod
-        }) {
-            VStack(alignment: .leading, spacing: 6) {
-                ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
-                        .frame(width: 118, height: 118)
+    private func filteredSuggestions(for query: String) -> [String] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return [] }
 
-                    if let img = prod.image_url, let url = URL(string: img) {
-                        ShopCachedAsyncImage(url: url, maxPixelSize: 300) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image.resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 118, height: 118)
-                                    .cornerRadius(14)
-                            case .empty:
-                                ShopSkeletonBlock(cornerRadius: 14, width: 118, height: 118)
-                            default:
-                                Image(systemName: "photo")
-                                    .foregroundColor(.gray.opacity(0.35))
-                                    .frame(width: 118, height: 118)
-                            }
-                        }
-                    }
+        let allPool: [String] = [
+            "Adidas Adizero Dropset Pro",
+            "Scarpe da gara per la maratona",
+            "Adidas da corsa per maratona",
+            "Scelte di scarpa per mezza maratona",
+            "Scelte Nike per running e training",
+            "Esplorare le opzioni Nike",
+            "Nike running e sneaker lifestyle",
+            "Nike Air Force 1 '07",
+            "Nike Pegasus 41",
+            "Nike Vaporfly 3",
+            "Adidas Ultraboost Light",
+            "Adidas Samba OG",
+            "New Balance 9060",
+            "Asics Novablast 4",
+            "Hoka Clifton 9",
+            "Garmin Forerunner 265",
+            "Camicia a quadri Stüssy",
+            "Scarpe running ammortizzate",
+            "Scarpe running con piastra in carbonio"
+        ]
 
-                    if let sav = prod.cross_store_savings, sav > 1.0 {
-                        Text("Risparmia \(Int(sav)) €")
-                            .font(.system(size: 9, weight: .heavy))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2.5)
-                            .background(Color(red: 0/255, green: 170/255, blue: 100/255))
-                            .cornerRadius(5)
-                            .padding(6)
-                    }
-                }
-
-                Text(prod.displayTitle)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(.shopDark)
-                    .lineLimit(1)
-                    .frame(width: 118, alignment: .leading)
-
-                if let price = prod.best_price {
-                    HStack(spacing: 4) {
-                        Text(String(format: "%.2f €", price).replacingOccurrences(of: ".", with: ","))
-                            .font(.system(size: 12.5, weight: .heavy))
-                            .foregroundColor(.shopDark)
-                        if let max = prod.highest_price, max > price {
-                            Text(String(format: "%.0f€", max))
-                                .font(.system(size: 10))
-                                .strikethrough()
-                                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                        }
-                    }
-                }
-            }
-            .frame(width: 118)
-        }
-        .buttonStyle(PlainButtonStyle())
+        return allPool.filter { $0.lowercased().contains(q) }
     }
 
+    // MARK: - Floating Bottom Search Bar
     private var floatingSearchInputBar: some View {
         HStack(spacing: 10) {
+            // Main Pill
             HStack(spacing: 10) {
-                Button(action: {}) {
+                Button(action: {
+                    showVisualSearch = true
+                }) {
                     Image(systemName: "camera")
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
@@ -474,16 +545,27 @@ struct SearchView: View {
                         handleSearchOrComparison(query: searchText)
                     }
 
+                if !searchText.isEmpty {
+                    Button(action: {
+                        searchText = ""
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
                 Button(action: {
                     handleSearchOrComparison(query: searchText)
                 }) {
                     Circle()
-                        .fill(searchText.isEmpty ? Color(red: 235/255, green: 235/255, blue: 238/255) : Color.shopDark)
+                        .fill(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color(red: 235/255, green: 235/255, blue: 238/255) : Color.shopDark)
                         .frame(width: 32, height: 32)
                         .overlay(
                             Image(systemName: "arrow.right")
                                 .font(.system(size: 13, weight: .bold))
-                                .foregroundColor(searchText.isEmpty ? Color(red: 140/255, green: 140/255, blue: 150/255) : .white)
+                                .foregroundColor(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color(red: 140/255, green: 140/255, blue: 150/255) : .white)
                         )
                 }
                 .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -497,24 +579,36 @@ struct SearchView: View {
                     .stroke(Color.black.opacity(0.12), lineWidth: 1)
             )
             .shadow(color: Color.black.opacity(0.08), radius: 10, y: 3)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if !isSearchFieldFocused {
+                    isSearchFieldFocused = true
+                }
+            }
 
-            Button(action: {
-                isSearchFieldFocused = false
-                searchText = ""
-            }) {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 48, height: 48)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24)
-                            .stroke(Color.black.opacity(0.12), lineWidth: 1)
-                    )
-                    .overlay(
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.shopDark)
-                    )
-                    .shadow(color: Color.black.opacity(0.08), radius: 10, y: 3)
+            // Dismiss Button (Image 1: circular button with 'X' right next to capsule when typing/focused)
+            if isSearchFieldFocused || keyboardObserver.isKeyboardVisible {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                        isSearchFieldFocused = false
+                    }
+                }) {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 48, height: 48)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24)
+                                .stroke(Color.black.opacity(0.12), lineWidth: 1)
+                        )
+                        .overlay(
+                            Image(systemName: "xmark")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.shopDark)
+                        )
+                        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 3)
+                }
+                .transition(.scale.combined(with: .opacity))
             }
         }
         .padding(.horizontal, 16)
@@ -538,6 +632,7 @@ struct SearchView: View {
             // Bottom Sticky Follow-up Input Bar (Screenshots 1, 2, 3, 4)
             stickyFollowUpInputBar
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     // MARK: - AI Deep Dive: Pinned Header (Screenshot 1)
@@ -782,48 +877,56 @@ struct SearchView: View {
                                 .id("followups_section")
                             }
 
-                            // 6. AI Disclaimer & Thumbs Feedback (Screenshot 3)
-                            VStack(alignment: .leading, spacing: 8) {
+                            // 6. AI Disclaimer & Thumbs Feedback (Matches Screenshot 1)
+                            VStack(alignment: .leading, spacing: 10) {
                                 Text("L'IA può commettere errori, ricontrolla le risposte.")
-                                    .font(.system(size: 12))
+                                    .font(.system(size: 13, weight: .regular))
                                     .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
                                     .padding(.horizontal, 18)
                                     .padding(.top, 6)
 
-                                HStack(spacing: 12) {
-                                    Text("Cosa ne pensi?")
-                                        .font(.system(size: 12.5, weight: .medium))
-                                        .foregroundColor(Color(red: 100/255, green: 100/255, blue: 110/255))
-
+                                HStack(spacing: 0) {
                                     Button(action: {
                                         let impact = UIImpactFeedbackGenerator(style: .light)
                                         impact.impactOccurred()
                                         withAnimation { userFeedback = 1 }
+                                        feedbackConfig = SearchFeedbackSheetConfig(
+                                            query: searchText.isEmpty ? "Ricerca" : searchText,
+                                            feedbackType: "positive",
+                                            products: curatedProductsForFeedback
+                                        )
                                     }) {
                                         Image(systemName: userFeedback == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                            .font(.system(size: 13))
-                                            .foregroundColor(userFeedback == 1 ? .shopPurple : Color(red: 100/255, green: 100/255, blue: 110/255))
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(userFeedback == 1 ? Color(red: 22/255, green: 163/255, blue: 74/255) : Color(red: 110/255, green: 110/255, blue: 120/255))
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 8)
                                     }
+                                    .buttonStyle(PlainButtonStyle())
 
-                                    Text("|")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(Color(red: 210/255, green: 210/255, blue: 220/255))
+                                    Divider()
+                                        .frame(height: 16)
+                                        .background(Color.black.opacity(0.12))
 
                                     Button(action: {
                                         let impact = UIImpactFeedbackGenerator(style: .light)
                                         impact.impactOccurred()
                                         withAnimation { userFeedback = -1 }
+                                        feedbackConfig = SearchFeedbackSheetConfig(
+                                            query: searchText.isEmpty ? "Ricerca" : searchText,
+                                            feedbackType: "negative",
+                                            products: curatedProductsForFeedback
+                                        )
                                     }) {
                                         Image(systemName: userFeedback == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                                            .font(.system(size: 13))
-                                            .foregroundColor(userFeedback == -1 ? .shopPurple : Color(red: 100/255, green: 100/255, blue: 110/255))
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(userFeedback == -1 ? Color(red: 220/255, green: 38/255, blue: 38/255) : Color(red: 110/255, green: 110/255, blue: 120/255))
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 8)
                                     }
-
-                                    Spacer()
+                                    .buttonStyle(PlainButtonStyle())
                                 }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(Color(red: 245/255, green: 245/255, blue: 247/255))
+                                .background(Color(red: 242/255, green: 243/255, blue: 246/255))
                                 .cornerRadius(12)
                                 .padding(.horizontal, 18)
                             }
@@ -1241,14 +1344,20 @@ struct SearchView: View {
     // MARK: - Sticky Bottom Follow-Up Bar (Screenshots 1, 2, 3, 4)
     private var stickyFollowUpInputBar: some View {
         HStack(spacing: 10) {
-            Image(systemName: "camera")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                .padding(.leading, 2)
+            Button(action: {
+                showVisualSearch = true
+            }) {
+                Image(systemName: "camera")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                    .padding(.leading, 2)
+            }
+            .buttonStyle(PlainButtonStyle())
 
             TextField("Fai una domanda di follow-up", text: $followUpInputText)
                 .font(.system(size: 14.5, weight: .medium))
                 .foregroundColor(.shopDark)
+                .focused($isFollowUpFieldFocused)
                 .onSubmit {
                     sendFollowUp()
                 }
@@ -1287,7 +1396,7 @@ struct SearchView: View {
         )
         .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
         .padding(.horizontal, 16)
-        .padding(.bottom, 78) // Floating above bottom bar!
+        .padding(.bottom, floatingBarBottomPadding)
     }
 
     private func sendFollowUp() {
@@ -2110,5 +2219,654 @@ struct ShopTranslucentHeartButton: View {
                 )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Squircle Thumbnail for Continue Shopping Rows (Screenshots 1 & 2)
+struct ShopProductThumbnail: View {
+    let imageUrl: String?
+    let systemIcon: String?
+    var cornerRadius: CGFloat = 15
+    var size: CGSize = CGSize(width: 52, height: 52)
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color(red: 247/255, green: 247/255, blue: 249/255))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                )
+
+            if let img = imageUrl, !img.isEmpty {
+                if let local = UIImage(named: img) {
+                    Image(uiImage: local)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .padding(5)
+                } else if let url = URL(string: img) {
+                    ShopCachedAsyncImage(url: url, maxPixelSize: 200) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .padding(5)
+                        case .empty:
+                            ShopSkeletonBlock(cornerRadius: cornerRadius, width: size.width, height: size.height)
+                        default:
+                            Image(systemName: "photo")
+                                .font(.system(size: 20))
+                                .foregroundColor(.gray.opacity(0.35))
+                        }
+                    }
+                }
+            } else if let sys = systemIcon {
+                Image(systemName: sys)
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+            } else {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+            }
+        }
+        .frame(width: size.width, height: size.height)
+    }
+}
+
+// MARK: - Recently Viewed Product Card (Screenshots 1 & 2 Top Carousel)
+struct RecentlyViewedCard: View {
+    let product: MatchedProduct
+    @ObservedObject private var wishlist = WishlistManager.shared
+    let onTap: () -> Void
+
+    var isFavorite: Bool {
+        wishlist.isFavorite(product.canonical_name)
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            ZStack(alignment: .topLeading) {
+                // Card background
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color(red: 243/255, green: 244/255, blue: 246/255))
+                    .frame(width: 136, height: 140)
+
+                // Product image centered
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        if let img = product.image_url, let local = UIImage(named: img) {
+                            Image(uiImage: local)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 104, height: 94)
+                        } else if let img = product.image_url, let url = URL(string: img) {
+                            ShopCachedAsyncImage(url: url, maxPixelSize: 320) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image.resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(width: 104, height: 94)
+                                case .empty:
+                                    ShopSkeletonBlock(cornerRadius: 12, width: 88, height: 80)
+                                default:
+                                    Image(systemName: "photo")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(.gray.opacity(0.35))
+                                        .frame(width: 104, height: 94)
+                                }
+                            }
+                        }
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .frame(width: 136, height: 140)
+
+                // Top-Left Price Badge Pill (Screenshots: "80,00 €" / "160,00 € 230,00 €")
+                if let best = product.best_price {
+                    HStack(spacing: 4) {
+                        Text(formatEuro(best))
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.white)
+
+                        if let orig = product.highest_price, orig > best {
+                            Text(formatEuro(orig))
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.72))
+                                .strikethrough(true, color: .white.opacity(0.72))
+                        }
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.black.opacity(0.26))
+                    )
+                    .padding(.top, 10)
+                    .padding(.leading, 10)
+                }
+
+                // Bottom-Right Heart Button (Purple filled when active, translucent dark when inactive)
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            let impact = UIImpactFeedbackGenerator(style: .medium)
+                            impact.impactOccurred()
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.6)) {
+                                wishlist.toggleFavorite(product: product)
+                            }
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(isFavorite ? Color(red: 95/255, green: 45/255, blue: 237/255) : Color.black.opacity(0.26))
+                                    .frame(width: 32, height: 32)
+
+                                Image(systemName: isFavorite ? "heart.fill" : "heart")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(.trailing, 10)
+                        .padding(.bottom, 10)
+                    }
+                }
+                .frame(width: 136, height: 140)
+            }
+            .frame(width: 136, height: 140)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func formatEuro(_ price: Double) -> String {
+        return String(format: "%.2f €", price).replacingOccurrences(of: ".", with: ",")
+    }
+}
+
+// MARK: - Visual Search Modal with AI Scanner Viewfinder
+struct ShopVisualSearchSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onSelectModel: (String) -> Void
+
+    @State private var isScanning: Bool = false
+    @State private var scanOffset: CGFloat = -100
+    @State private var recognizedModel: String? = nil
+
+    private let sampleModels = [
+        ("Nike Air Force 1 '07", "prod_nike1"),
+        ("Adidas Adizero Dropset Pro", "prod_samba"),
+        ("New Balance 9060", "prod_nike2"),
+        ("Puma Velocity Nitro", "prod_puma")
+    ]
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                // Header
+                VStack(spacing: 6) {
+                    Text("Ricerca Visiva con IA")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.shopDark)
+                    Text("Inquadra una scarpa o capo per trovare le migliori offerte multinegozio")
+                        .font(.system(size: 14))
+                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                }
+                .padding(.top, 20)
+
+                // Viewfinder Frame
+                ZStack {
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(Color(red: 245/255, green: 245/255, blue: 248/255))
+                        .frame(height: 250)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24)
+                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                        )
+
+                    if let model = recognizedModel, let sample = sampleModels.first(where: { $0.0 == model }) {
+                        if let img = UIImage(named: sample.1) {
+                            Image(uiImage: img)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 180, height: 140)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    } else {
+                        VStack(spacing: 12) {
+                            Image(systemName: "camera.viewfinder")
+                                .font(.system(size: 60, weight: .ultraLight))
+                                .foregroundColor(.shopPurple.opacity(0.8))
+
+                            Text("Posiziona la scarpa o prodotto al centro")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                        }
+                    }
+
+                    if isScanning {
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.clear, Color.shopPurple.opacity(0.8), .clear],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(height: 3)
+                            .offset(y: scanOffset)
+                            .shadow(color: .shopPurple, radius: 8)
+                    }
+                }
+                .padding(.horizontal, 24)
+
+                if let model = recognizedModel {
+                    VStack(spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(Color(red: 0/255, green: 170/255, blue: 100/255))
+                            Text("Modello Identificato")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(Color(red: 0/255, green: 170/255, blue: 100/255))
+                        }
+
+                        Text(model)
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(.shopDark)
+
+                        Button(action: {
+                            dismiss()
+                            onSelectModel(model)
+                        }) {
+                            Text("Cerca offerte per questo modello")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(Color.shopPurple)
+                                .cornerRadius(14)
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 4)
+                    }
+                    .transition(.opacity)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Oppure prova con questi modelli popolari:")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                            .padding(.horizontal, 24)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(sampleModels, id: \.0) { item in
+                                    Button(action: {
+                                        startScan(for: item.0)
+                                    }) {
+                                        HStack(spacing: 8) {
+                                            if let img = UIImage(named: item.1) {
+                                                Image(uiImage: img)
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: .fit)
+                                                    .frame(width: 24, height: 24)
+                                            }
+                                            Text(item.0)
+                                                .font(.system(size: 12.5, weight: .medium))
+                                                .foregroundColor(.shopDark)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(Color(red: 244/255, green: 244/255, blue: 247/255))
+                                        .cornerRadius(10)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 24)
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Chiudi") {
+                        dismiss()
+                    }
+                    .foregroundColor(.shopDark)
+                }
+            }
+        }
+    }
+
+    private func startScan(for model: String) {
+        isScanning = true
+        recognizedModel = nil
+        scanOffset = -90
+
+        withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
+            scanOffset = 90
+        }
+
+        let gen = UIImpactFeedbackGenerator(style: .medium)
+        gen.impactOccurred()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+            withAnimation(.spring()) {
+                self.isScanning = false
+                self.recognizedModel = model
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
+    }
+}
+
+// MARK: - Search Feedback Bottom Sheet (Matches Reference Images 1 & 2)
+
+struct SearchFeedbackSheetConfig: Identifiable {
+    let id = UUID()
+    let query: String
+    let feedbackType: String // "positive" or "negative"
+    let products: [MatchedProduct]
+}
+
+struct ShopSearchFeedbackSheet: View {
+    let query: String
+    let products: [MatchedProduct]
+    let initialFeedbackType: String
+    let onSubmitted: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var currentFeedbackType: String
+    @State private var commentText: String = ""
+    @State private var productRatings: [String: String] = [:] // productId -> "up" | "down"
+    @State private var isSubmitting: Bool = false
+
+    init(query: String, products: [MatchedProduct], initialFeedbackType: String, onSubmitted: @escaping () -> Void) {
+        self.query = query
+        self.products = products
+        self.initialFeedbackType = initialFeedbackType
+        self.onSubmitted = onSubmitted
+        self._currentFeedbackType = State(initialValue: initialFeedbackType)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                // Header Titles (Screenshot 2)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Condividi feedback")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.shopDark)
+
+                    Text("Questi prodotti erano adatti a te?")
+                        .font(.system(size: 15.5, weight: .semibold))
+                        .foregroundColor(.shopDark)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+
+                // Overall Feedback Type Indicator & Toggle
+                HStack(spacing: 8) {
+                    Button(action: {
+                        let impact = UIImpactFeedbackGenerator(style: .light)
+                        impact.impactOccurred()
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                            currentFeedbackType = "positive"
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "hand.thumbsup.fill")
+                                .font(.system(size: 13, weight: .bold))
+                            Text("Risultati Positivi")
+                                .font(.system(size: 13, weight: .bold))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(currentFeedbackType == "positive" ? Color.green.opacity(0.15) : Color(red: 242/255, green: 243/255, blue: 246/255))
+                        .foregroundColor(currentFeedbackType == "positive" ? Color.green : Color(red: 120/255, green: 120/255, blue: 130/255))
+                        .cornerRadius(18)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(currentFeedbackType == "positive" ? Color.green.opacity(0.4) : Color.clear, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    Button(action: {
+                        let impact = UIImpactFeedbackGenerator(style: .light)
+                        impact.impactOccurred()
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                            currentFeedbackType = "negative"
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "hand.thumbsdown.fill")
+                                .font(.system(size: 13, weight: .bold))
+                            Text("Da Migliorare")
+                                .font(.system(size: 13, weight: .bold))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(currentFeedbackType == "negative" ? Color.red.opacity(0.15) : Color(red: 242/255, green: 243/255, blue: 246/255))
+                        .foregroundColor(currentFeedbackType == "negative" ? Color.red : Color(red: 120/255, green: 120/255, blue: 130/255))
+                        .cornerRadius(18)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(currentFeedbackType == "negative" ? Color.red.opacity(0.4) : Color.clear, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+
+                // Horizontal Product Carousel (Screenshot 2)
+                if !products.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(products) { prod in
+                                FeedbackProductCard(
+                                    product: prod,
+                                    rating: productRatings[prod.id],
+                                    onRate: { rating in
+                                        let impact = UIImpactFeedbackGenerator(style: .light)
+                                        impact.impactOccurred()
+                                        if productRatings[prod.id] == rating {
+                                            productRatings.removeValue(forKey: prod.id)
+                                        } else {
+                                            productRatings[prod.id] = rating
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                }
+
+                // Comment Text Field (Screenshot 2: "Dicci come stiamo andando")
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color(red: 220/255, green: 220/255, blue: 226/255), lineWidth: 1)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
+
+                    if commentText.isEmpty {
+                        Text("Dicci come stiamo andando")
+                            .font(.system(size: 15))
+                            .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                    }
+
+                    TextEditor(text: $commentText)
+                        .font(.system(size: 15))
+                        .foregroundColor(.shopDark)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .scrollContentBackground(.hidden)
+                }
+                .frame(height: 94)
+                .padding(.horizontal, 20)
+
+                // Invia Button (Screenshot 2: Full-width black button)
+                Button(action: {
+                    submit()
+                }) {
+                    HStack {
+                        if isSubmitting {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        } else {
+                            Text("Invia")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color.shopDark)
+                    .cornerRadius(26)
+                }
+                .disabled(isSubmitting)
+                .padding(.horizontal, 20)
+                .padding(.top, 4)
+
+                Spacer(minLength: 12)
+            }
+            .background(Color.white)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+        }
+    }
+
+    private func submit() {
+        guard !isSubmitting else { return }
+        isSubmitting = true
+        let impact = UINotificationFeedbackGenerator()
+        impact.notificationOccurred(.success)
+
+        let evaluations: [[String: Any]] = productRatings.map { prodId, thumb in
+            let prod = products.first(where: { $0.id == prodId })
+            return [
+                "product_id": prodId,
+                "product_name": prod?.canonical_name ?? prodId,
+                "thumb": thumb
+            ]
+        }
+
+        Task {
+            await APIService.shared.submitSearchFeedback(
+                query: query,
+                feedbackType: currentFeedbackType,
+                comment: commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : commentText,
+                productEvaluations: evaluations.isEmpty ? nil : evaluations
+            )
+            await MainActor.run {
+                isSubmitting = false
+                dismiss()
+                onSubmitted()
+            }
+        }
+    }
+}
+
+// MARK: - Feedback Product Card (Screenshot 2 item)
+
+struct FeedbackProductCard: View {
+    let product: MatchedProduct
+    let rating: String? // "up" or "down" or nil
+    let onRate: (String) -> Void
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            // Background squircle
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(red: 246/255, green: 247/255, blue: 249/255))
+                .frame(width: 124, height: 128)
+
+            // Centered Product Image
+            VStack {
+                Spacer()
+                if let img = product.image_url, let local = UIImage(named: img) {
+                    Image(uiImage: local)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 96, height: 74)
+                } else if let img = product.image_url, let url = URL(string: img) {
+                    ShopCachedAsyncImage(url: url, maxPixelSize: 320) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 96, height: 74)
+                        case .empty:
+                            ShopSkeletonBlock(cornerRadius: 8, width: 80, height: 60)
+                        default:
+                            Image(systemName: "photo")
+                                .font(.system(size: 20))
+                                .foregroundColor(.gray.opacity(0.35))
+                                .frame(width: 96, height: 74)
+                        }
+                    }
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 20))
+                        .foregroundColor(.gray.opacity(0.35))
+                        .frame(width: 96, height: 74)
+                }
+                Spacer()
+            }
+            .frame(width: 124, height: 128)
+
+            // Bottom Two Circular Thumbs Buttons (Screenshot 2)
+            HStack(spacing: 12) {
+                // Thumbs Down Button
+                Button(action: {
+                    onRate("down")
+                }) {
+                    Circle()
+                        .fill(rating == "down" ? Color.shopDark : Color.black.opacity(0.38))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: rating == "down" ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.white)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Thumbs Up Button
+                Button(action: {
+                    onRate("up")
+                }) {
+                    Circle()
+                        .fill(rating == "up" ? Color(red: 22/255, green: 163/255, blue: 74/255) : Color.black.opacity(0.38))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: rating == "up" ? "hand.thumbsup.fill" : "hand.thumbsup")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.white)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.bottom, 10)
+        }
+        .frame(width: 124, height: 128)
     }
 }

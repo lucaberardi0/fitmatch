@@ -658,6 +658,42 @@ class SupabaseManager: ObservableObject {
         return [200, 201].contains(code)
     }
 
+    // MARK: - Search Feedback (AI Search Result Quality)
+
+    func submitSearchFeedback(
+        query: String,
+        feedbackType: String,
+        comment: String? = nil,
+        productEvaluations: [[String: Any]]? = nil
+    ) async throws -> Bool {
+        guard let url = URL(string: "\(restURL)/search_feedback") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        for (k, v) in makeHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        var body: [String: Any] = [
+            "query": query,
+            "feedback_type": feedbackType,
+            "device_id": deviceId
+        ]
+        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+            body["user_id"] = uid
+        }
+        if let c = comment, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["comment"] = c
+        }
+        if let evals = productEvaluations, !evals.isEmpty {
+            body["product_evaluations"] = evals
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, response) = try await session.data(for: req)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return [200, 201].contains(code)
+    }
+
     // MARK: - Store Reviews (Real User Ratings & Reviews)
 
     func fetchStoreReviews(storeId: String, limit: Int = 50) async -> [StoreCustomerReview] {

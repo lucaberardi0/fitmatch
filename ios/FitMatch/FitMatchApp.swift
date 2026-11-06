@@ -102,6 +102,8 @@ struct FitMatchApp: App {
                 NotificationsView()
             } else if ProcessInfo.processInfo.arguments.contains("-testWishlist") {
                 MainTabView(initialTab: 2)
+            } else if ProcessInfo.processInfo.arguments.contains("-testVisualSearch") {
+                ShopVisualSearchSheet(onSelectModel: { _ in })
             } else if ProcessInfo.processInfo.arguments.contains("-testSearch") {
                 MainTabView(initialTab: 1)
             } else if ProcessInfo.processInfo.arguments.contains("-testAiSearchDeepDive") {
