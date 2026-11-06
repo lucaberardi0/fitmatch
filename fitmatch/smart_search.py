@@ -829,7 +829,7 @@ class LocalHeuristicParser:
             brand_prefix = f"{detected_brand} " if detected_brand and detected_brand.lower() not in exact_val.lower() else ""
             clean_subject = f"{brand_prefix}{exact_val.title()}"
             conversational_header = f"Ho cercato {clean_subject}"
-            conversational_summary = f"Ecco i migliori prezzi e offerte per **{clean_subject}**, confrontati in tempo reale tra tutti i negozi partner ufficiali."
+            conversational_summary = arch.get("conversational_summary") or f"Ecco i migliori prezzi e offerte per **{clean_subject}**, confrontati in tempo reale tra tutti i negozi partner ufficiali."
         else:
             clean_subject = detected_brand or arch["label"]
             if detected_brand and "scarpe" in text:
