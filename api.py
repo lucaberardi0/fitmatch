@@ -71,6 +71,18 @@ def on_startup():
             discovery_interval_seconds=int(discovery_h * 3600)
         )
 
+    # Autonomous background vector embedding backfill (ensures 100% vector coverage for catalog)
+    import threading
+    def _startup_embedding_worker():
+        try:
+            from scripts.generate_embeddings import EmbeddingGenerator
+            generator = EmbeddingGenerator()
+            generator.run(batch_size=50, active_only=True)
+        except Exception as emb_e:
+            logger.warning(f"[Startup] Background embedding backfill note: {emb_e}")
+
+    threading.Thread(target=_startup_embedding_worker, daemon=True, name="Startup-Embedding-Worker").start()
+
 
 @app.on_event("shutdown")
 def on_shutdown():
@@ -93,6 +105,15 @@ def get_admin_dashboard_ui():
 def get_admin_overview_api():
     """Retrieve full aggregated telemetry for the admin control center."""
     return get_admin_overview(db=db, scheduler=scheduler)
+
+
+@app.post("/api/admin/embeddings/sync")
+def trigger_embedding_sync(background_tasks: BackgroundTasks):
+    """Trigger autonomous background vector embedding generation for any unindexed products."""
+    def _run():
+        scheduler.run_embedding_task(batch_size=50, limit=None, standalone=True, trigger_source="manual_admin_api")
+    background_tasks.add_task(_run)
+    return {"status": "accepted", "message": "Vector embedding sync running in background"}
 
 
 @app.get("/api/stores")

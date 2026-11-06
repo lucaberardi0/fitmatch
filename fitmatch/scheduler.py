@@ -160,6 +160,13 @@ class SyncScheduler:
             except Exception as en_err:
                 logger.warning(f"[SyncScheduler] Post-discovery size enrichment warning: {en_err}")
 
+            # 5. Automated vector embedding for newly discovered products
+            embedding_stats = None
+            try:
+                embedding_stats = self.run_embedding_task(batch_size=50, limit=None, standalone=False)
+            except Exception as emb_err:
+                logger.warning(f"[SyncScheduler] Post-discovery vector embedding warning: {emb_err}")
+
             total_duration = round(time.time() - start_time, 2)
 
             # 5. Complete persistent session
@@ -341,6 +348,48 @@ class SyncScheduler:
         except Exception as e:
             elapsed = round(time.time() - start_time, 2)
             logger.error(f"[SyncScheduler] Size enrichment task error: {e}")
+            if standalone and session_id:
+                self.db.update_sync_session(
+                    session_id=session_id,
+                    status="failed",
+                    duration_seconds=elapsed,
+                    error_message=str(e)
+                )
+            return {"status": "error", "error": str(e)}
+
+    def run_embedding_task(
+        self,
+        batch_size: int = 50,
+        limit: Optional[int] = None,
+        standalone: bool = True,
+        trigger_source: str = "scheduler"
+    ) -> Dict[str, Any]:
+        """Automatically generates vector embeddings for products with active offers missing embeddings."""
+        session_id = None
+        if standalone:
+            session_id = self.db.create_sync_session(
+                session_type="embedding_sync",
+                trigger_source=trigger_source,
+                metadata={"batch_size": batch_size, "limit": limit}
+            )
+            logger.info(f"[SyncScheduler] Created embedding_sync session {session_id}")
+
+        start_time = time.time()
+        try:
+            from scripts.generate_embeddings import EmbeddingGenerator
+            generator = EmbeddingGenerator()
+            generator.run(batch_size=batch_size, limit=limit, active_only=True)
+            elapsed = round(time.time() - start_time, 2)
+            if standalone and session_id:
+                self.db.update_sync_session(
+                    session_id=session_id,
+                    status="completed",
+                    duration_seconds=elapsed
+                )
+            return {"status": "success", "duration_seconds": elapsed}
+        except Exception as e:
+            elapsed = round(time.time() - start_time, 2)
+            logger.error(f"[SyncScheduler] Embedding task error: {e}")
             if standalone and session_id:
                 self.db.update_sync_session(
                     session_id=session_id,
