@@ -758,8 +758,14 @@ struct ProductDetailView: View {
                         }
                         .buttonStyle(.plain)
 
-                        // Primary Action Button (Opens Store's Real Product Page)
-                        Link(destination: url) {
+                        // Primary Action Button (Opens Store's Real Product Page via Monetized Gateway)
+                        let outboundUrl = APIService.shared.outboundRedirectURL(
+                            targetUrl: offer.url,
+                            storeId: offer.store_id,
+                            offerId: offer.id,
+                            source: "product_detail"
+                        )
+                        Link(destination: outboundUrl) {
                             HStack(spacing: 8) {
                                 Text("Acquista su \(offer.store_name) • \(offer.formattedPrice)")
                                     .font(.system(size: 15.5, weight: .bold, design: .rounded))

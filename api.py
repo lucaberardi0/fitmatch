@@ -1,7 +1,10 @@
 import logging
 import time
-from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
-from fastapi.responses import HTMLResponse
+from dotenv import load_dotenv
+load_dotenv()
+
+from fastapi import FastAPI, Query, HTTPException, BackgroundTasks, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 from fitmatch.service import ComparisonService
@@ -19,6 +22,7 @@ from fitmatch.push_service import APNsPushService
 from fitmatch.price_drop_watcher import PriceDropWatcher
 from fitmatch.matcher.normalizer import ProductNormalizer
 from fitmatch.admin_dashboard import get_admin_overview, render_admin_html
+from fitmatch.affiliate import affiliate_manager
 
 logger = logging.getLogger("fitmatch.api")
 
@@ -977,6 +981,66 @@ async def send_test_push(payload: dict):
         custom_data={"type": "test"}
     )
     return {"status": "ok", "push_result": res}
+
+
+# MARK: - Affiliate Outbound Gateway & Click Analytics
+
+@app.get("/api/outbound/redirect")
+async def outbound_redirect(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    url: Optional[str] = Query(None, description="Direct target merchant product URL"),
+    store_id: Optional[str] = Query(None, description="Store ID, e.g. nike, decathlon, cisalfa"),
+    offer_id: Optional[str] = Query(None, description="Offer ID for tracking"),
+    source: Optional[str] = Query("app", description="Source interface: product_detail, ai_advisor, wishlist"),
+    device_id: Optional[str] = Query(None, description="Client device identifier"),
+):
+    """
+    Gateway redirect endpoint for outbound merchant links.
+    Wraps the destination URL with Sovrn //Commerce affiliate parameters,
+    records the click event asynchronously, and returns an HTTP 302 redirect.
+    """
+    target = (url or "").strip()
+
+    if not target:
+        raise HTTPException(status_code=400, detail="Parametro 'url' obbligatorio.")
+
+    # Generate tracking CUID
+    cuid = affiliate_manager.generate_cuid(store_id=store_id, offer_id=offer_id, device_id=device_id)
+
+    # Build monetized Sovrn Commerce URL (or fallback to target if no key)
+    monetized = affiliate_manager.build_monetized_url(
+        target_url=target,
+        store_id=store_id,
+        offer_id=offer_id,
+        device_id=device_id,
+        cuid=cuid,
+    )
+
+    user_agent = request.headers.get("user-agent")
+
+    # Record click event asynchronously
+    background_tasks.add_task(
+        db.record_affiliate_click,
+        target_url=target,
+        store_id=store_id,
+        offer_id=offer_id,
+        monetized_url=monetized,
+        cuid=cuid,
+        source=source,
+        device_id=device_id,
+        user_agent=user_agent,
+    )
+
+    return RedirectResponse(url=monetized, status_code=302)
+
+
+@app.get("/api/admin/affiliate/stats")
+def get_affiliate_stats_endpoint(limit: int = Query(50, ge=1, le=500)):
+    """Retrieve outbound affiliate click telemetry and store breakdowns."""
+    stats = db.get_affiliate_click_stats(limit=limit)
+    stats["sovrn_active"] = bool(affiliate_manager.sovrn_api_key)
+    return stats
 
 
 if __name__ == "__main__":

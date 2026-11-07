@@ -495,4 +495,31 @@ class APIService: ObservableObject {
         request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         _ = try? await session.data(for: request)
     }
+
+    // MARK: - Outbound Affiliate Monetization
+
+    func outboundRedirectURL(
+        targetUrl: String,
+        storeId: String? = nil,
+        offerId: String? = nil,
+        source: String = "app"
+    ) -> URL {
+        let clean = targetUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: "\(baseURL)/api/outbound/redirect") else {
+            return URL(string: clean) ?? URL(string: "https://fitmatch.it")!
+        }
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "url", value: clean),
+            URLQueryItem(name: "source", value: source),
+            URLQueryItem(name: "device_id", value: SupabaseManager.shared.deviceId)
+        ]
+        if let s = storeId, !s.isEmpty {
+            queryItems.append(URLQueryItem(name: "store_id", value: s))
+        }
+        if let o = offerId, !o.isEmpty {
+            queryItems.append(URLQueryItem(name: "offer_id", value: o))
+        }
+        components.queryItems = queryItems
+        return components.url ?? (URL(string: clean) ?? URL(string: "https://fitmatch.it")!)
+    }
 }

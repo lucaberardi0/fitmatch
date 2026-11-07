@@ -476,29 +476,32 @@ struct ModelCompareView: View {
                 .tracking(0.6)
 
             ForEach(offers, id: \.url) { off in
-                if let u = URL(string: off.url) {
-                    Link(destination: u) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(off.store_name)
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(.shopDark)
-                                Text(off.is_free_shipping ? "Spedizione gratis" : "Totale \(String(format: "€%.2f", off.total_price))")
-                                    .font(.system(size: 10.5))
-                                    .foregroundColor(off.is_free_shipping ? .shopGreen : .secondary)
-                            }
-                            Spacer()
-                            Text(off.formattedPrice)
-                                .font(.system(size: 15, weight: .black, design: .rounded))
+                let outboundUrl = APIService.shared.outboundRedirectURL(
+                    targetUrl: off.url,
+                    storeId: off.store_name,
+                    source: "model_compare"
+                )
+                Link(destination: outboundUrl) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(off.store_name)
+                                .font(.system(size: 13, weight: .bold))
                                 .foregroundColor(.shopDark)
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.shopPurple)
+                            Text(off.is_free_shipping ? "Spedizione gratis" : "Totale \(String(format: "€%.2f", off.total_price))")
+                                .font(.system(size: 10.5))
+                                .foregroundColor(off.is_free_shipping ? .shopGreen : .secondary)
                         }
-                        .padding(12)
-                        .background(Color(red: 248/255, green: 248/255, blue: 251/255))
-                        .cornerRadius(12)
+                        Spacer()
+                        Text(off.formattedPrice)
+                            .font(.system(size: 15, weight: .black, design: .rounded))
+                            .foregroundColor(.shopDark)
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.shopPurple)
                     }
+                    .padding(12)
+                    .background(Color(red: 248/255, green: 248/255, blue: 251/255))
+                    .cornerRadius(12)
                 }
             }
         }

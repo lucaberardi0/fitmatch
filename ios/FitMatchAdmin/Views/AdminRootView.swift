@@ -7,6 +7,7 @@ public struct AdminRootView: View {
     @State private var sessions: [SyncSessionItem] = []
     @State private var storeHealth: [StoreHealthMetric] = []
     @State private var feedbacks: [SearchFeedbackItem] = []
+    @State private var affiliateStats: [String: Any]? = nil
     @State private var isLoading: Bool = true
     @State private var selectedSession: SyncSessionItem? = nil
     @State private var statusToast: String? = nil
@@ -192,7 +193,12 @@ public struct AdminRootView: View {
             _ = await net.checkBackendHealth()
         }
         .sheet(item: $selectedSession) { session in
-            AdminSessionDetailSheet(session: session)
+            AdminSessionDetailSheet(session: session) {
+                withAnimation {
+                    sessions.removeAll { $0.id == session.id }
+                }
+                statusToast = "Sessione eliminata."
+            }
         }
     }
 
@@ -233,6 +239,9 @@ public struct AdminRootView: View {
 
                 // Key metrics 2x2 grid
                 metricsOverviewSection
+
+                // Sovrn Affiliate Outbound Monetization Card
+                affiliateMonetizationCard
 
                 // Search feedback overview card (tappable to jump to Feedback tab)
                 feedbackSummaryCardInControl
@@ -419,6 +428,67 @@ public struct AdminRootView: View {
                 }
             }
         }
+    }
+
+    private var affiliateMonetizationCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                HStack(spacing: 7) {
+                    Image(systemName: "dollarsign.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundColor(.green)
+                    Text("MONETIZZAZIONE SOVRN")
+                        .font(.system(size: 11.5, weight: .black))
+                        .foregroundColor(.secondary)
+                        .tracking(0.6)
+                }
+
+                Spacer()
+
+                let isActive = (affiliateStats?["sovrn_active"] as? Bool) ?? true
+                Text(isActive ? "ATTIVA" : "IN PAUSA")
+                    .font(.system(size: 10, weight: .black))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(isActive ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
+                    .foregroundColor(isActive ? .green : .orange)
+                    .clipShape(Capsule())
+            }
+
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 2) {
+                    let total = affiliateStats?["total_clicks"] as? Int ?? 0
+                    Text("\(total)")
+                        .font(.system(size: 22, weight: .black, design: .rounded))
+                        .foregroundColor(.primary)
+                    Text("Click Registrati")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+
+                Divider().frame(height: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    let byStore = affiliateStats?["by_store"] as? [String: Any] ?? [:]
+                    Text("\(byStore.keys.count)")
+                        .font(.system(size: 22, weight: .black, design: .rounded))
+                        .foregroundColor(.primary)
+                    Text("Negozi Coinvolti")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "link.badge.plus")
+                    .font(.system(size: 24))
+                    .foregroundColor(.green.opacity(0.8))
+            }
+        }
+        .padding(16)
+        .background(Color.white)
+        .cornerRadius(18)
+        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
     }
 
     private func metricBox(title: String, value: String, caption: String, icon: String, color: Color) -> some View {
@@ -1367,11 +1437,13 @@ public struct AdminRootView: View {
         async let sessFetch = net.fetchSyncSessions(limit: 50)
         async let healthFetch = net.fetchStoreHealthMetrics()
         async let feedbackFetch = net.fetchSearchFeedbacks(limit: 100)
+        async let affFetch = net.fetchAffiliateStats()
 
-        let (s, h, fb) = await (sessFetch, healthFetch, feedbackFetch)
+        let (s, h, fb, aff) = await (sessFetch, healthFetch, feedbackFetch, affFetch)
         self.sessions = s
         self.storeHealth = h
         self.feedbacks = fb
+        self.affiliateStats = aff
         self.isLoading = false
     }
 
@@ -1399,6 +1471,7 @@ public struct AdminRootView: View {
 struct AdminSessionDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let session: SyncSessionItem
+    var onDelete: (() -> Void)? = nil
     @StateObject private var net = AdminNetworkService.shared
     @State private var crawlLogs: [CrawlLogItem] = []
     @State private var isLoadingLogs: Bool = true
@@ -1471,11 +1544,12 @@ struct AdminSessionDetailSheet: View {
 
                             VStack(spacing: 8) {
                                 ForEach(Array(stats.keys.sorted()), id: \.self) { key in
+                                    let valStr = stats[key]?.stringValue ?? "—"
                                     HStack {
                                         Text(key.capitalized)
                                             .font(.system(size: 12.5, weight: .semibold))
                                         Spacer()
-                                        Text(stats[key]?.stringValue ?? "—")
+                                        Text(valStr)
                                             .font(.system(size: 12, weight: .bold, design: .monospaced))
                                             .foregroundColor(.indigo)
                                     }
@@ -1497,11 +1571,12 @@ struct AdminSessionDetailSheet: View {
 
                             VStack(spacing: 6) {
                                 ForEach(crawlLogs) { log in
+                                    let durStr = String(format: "%.1fs", log.durationSeconds)
                                     HStack {
                                         Text(log.storeId.capitalized)
                                             .font(.system(size: 12, weight: .medium))
                                         Spacer()
-                                        Text("\(log.itemsFound) items in \(String(format: "%.1fs", log.durationSeconds))")
+                                        Text("\(log.itemsFound) items in \(durStr)")
                                             .font(.system(size: 11, design: .monospaced))
                                             .foregroundColor(.secondary)
                                     }
@@ -1527,10 +1602,7 @@ struct AdminSessionDetailSheet: View {
                         Task {
                             let ok = await net.deleteSyncSession(id: session.id)
                             if ok {
-                                withAnimation {
-                                    sessions.removeAll { $0.id == session.id }
-                                }
-                                statusToast = "Sessione eliminata."
+                                onDelete?()
                                 dismiss()
                             }
                         }

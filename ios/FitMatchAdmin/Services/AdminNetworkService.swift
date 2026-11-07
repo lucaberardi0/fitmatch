@@ -270,4 +270,23 @@ public class AdminNetworkService: ObservableObject {
         let (_, resp) = try await session.data(for: req)
         return (resp as? HTTPURLResponse)?.statusCode == 200
     }
+
+    // MARK: - Affiliate Monetization Analytics
+
+    public func fetchAffiliateStats() async -> [String: Any]? {
+        guard let url = URL(string: "\(backendURL)/api/admin/affiliate/stats") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 10
+        do {
+            let (data, resp) = try await session.data(for: req)
+            if let http = resp as? HTTPURLResponse, http.statusCode == 200,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                return json
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
 }

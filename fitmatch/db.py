@@ -194,6 +194,22 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE IF NOT EXISTS affiliate_clicks (
+                    id TEXT PRIMARY KEY,
+                    store_id TEXT,
+                    offer_id TEXT,
+                    target_url TEXT NOT NULL,
+                    monetized_url TEXT,
+                    cuid TEXT,
+                    source TEXT,
+                    device_id TEXT,
+                    user_agent TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_store ON affiliate_clicks(store_id);
+                CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_created ON affiliate_clicks(created_at);
+
                 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand);
                 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
                 CREATE INDEX IF NOT EXISTS idx_offers_product_id ON store_offers(product_id);
@@ -2038,4 +2054,82 @@ class Database:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (rev_id, s_id, payload["author_name"], payload["rating"], payload["review_text"], payload["device_id"]))
         return payload
+
+    # MARK: - Affiliate Clicks
+
+    def record_affiliate_click(
+        self,
+        target_url: str,
+        store_id: Optional[str] = None,
+        offer_id: Optional[str] = None,
+        monetized_url: Optional[str] = None,
+        cuid: Optional[str] = None,
+        source: Optional[str] = None,
+        device_id: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> bool:
+        """Record outbound affiliate click in Supabase and/or SQLite."""
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.record_affiliate_click(
+                    target_url=target_url,
+                    store_id=store_id,
+                    offer_id=offer_id,
+                    monetized_url=monetized_url,
+                    cuid=cuid,
+                    source=source,
+                    device_id=device_id,
+                    user_agent=user_agent,
+                )
+            except Exception as e:
+                logger.warning(f"[AffiliateClick] Supabase record error: {e}")
+
+        try:
+            with self.get_connection() as conn:
+                click_id = str(uuid.uuid4())
+                conn.execute("""
+                    INSERT INTO affiliate_clicks (id, store_id, offer_id, target_url, monetized_url, cuid, source, device_id, user_agent)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (click_id, store_id, offer_id, target_url, monetized_url, cuid, source, device_id, user_agent))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"[AffiliateClick] SQLite record error: {e}")
+            return False
+
+    def get_affiliate_click_stats(self, limit: int = 100) -> Dict[str, Any]:
+        """Get affiliate click statistics from Supabase or SQLite."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_affiliate_click_stats(limit=limit)
+            except Exception as e:
+                logger.warning(f"[AffiliateStats] Supabase error: {e}")
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM affiliate_clicks")
+            total = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COALESCE(store_id, 'unknown'), COUNT(*)
+                FROM affiliate_clicks
+                GROUP BY store_id
+                ORDER BY COUNT(*) DESC
+            """)
+            by_store = {row[0]: row[1] for row in cursor.fetchall()}
+
+            cursor.execute("""
+                SELECT id, store_id, offer_id, target_url, cuid, source, device_id, created_at
+                FROM affiliate_clicks
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (min(limit, 25),))
+            recent = [dict(row) for row in cursor.fetchall()]
+
+            return {
+                "total_clicks": total,
+                "by_store": by_store,
+                "recent_clicks": recent,
+            }
+
 

@@ -1792,3 +1792,47 @@ class SupabaseClient:
         res = self._request(url, method="DELETE")
         return res.get("status") in (200, 204)
 
+    # MARK: - Affiliate Click Tracking
+
+    def record_affiliate_click(
+        self,
+        target_url: str,
+        store_id: Optional[str] = None,
+        offer_id: Optional[str] = None,
+        monetized_url: Optional[str] = None,
+        cuid: Optional[str] = None,
+        source: Optional[str] = None,
+        device_id: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> bool:
+        """Record an outbound affiliate click event in Supabase."""
+        payload: Dict[str, Any] = {
+            "target_url": target_url,
+            "store_id": store_id.lower().strip() if store_id else None,
+            "offer_id": offer_id,
+            "monetized_url": monetized_url,
+            "cuid": cuid,
+            "source": source or "app",
+            "device_id": device_id,
+            "user_agent": user_agent,
+        }
+        res = self._request("affiliate_clicks", method="POST", data=payload)
+        return res.get("status") in (200, 201)
+
+    def get_affiliate_click_stats(self, limit: int = 100) -> Dict[str, Any]:
+        """Fetch affiliate click analytics from Supabase."""
+        res = self._request(f"affiliate_clicks?order=created_at.desc&limit={limit}", method="GET")
+        clicks = res.get("data") if res.get("status") == 200 and isinstance(res.get("data"), list) else []
+
+        by_store: Dict[str, int] = {}
+        for c in clicks:
+            sid = c.get("store_id") or "unknown"
+            by_store[sid] = by_store.get(sid, 0) + 1
+
+        return {
+            "total_clicks": len(clicks),
+            "by_store": by_store,
+            "recent_clicks": clicks[:25],
+        }
+
+

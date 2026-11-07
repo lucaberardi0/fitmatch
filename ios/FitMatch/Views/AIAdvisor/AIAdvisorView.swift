@@ -205,8 +205,13 @@ struct AIAdvisorView: View {
                                             .foregroundColor(.shopPurple)
                                     }
 
-                                    if let link = rec.link, let url = URL(string: link) {
-                                        Link(destination: url) {
+                                    if let link = rec.link, !link.isEmpty {
+                                        let outboundUrl = APIService.shared.outboundRedirectURL(
+                                            targetUrl: link,
+                                            storeId: rec.best_store,
+                                            source: "ai_advisor"
+                                        )
+                                        Link(destination: outboundUrl) {
                                             HStack {
                                                 Text("Acquista su \(rec.best_store ?? "Store")")
                                                     .font(.system(size: 13, weight: .bold))
