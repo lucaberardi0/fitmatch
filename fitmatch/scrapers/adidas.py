@@ -2,7 +2,7 @@ import logging
 import urllib.parse
 from typing import List, Optional, Dict, Any
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 logger = logging.getLogger("fitmatch.scraper.adidas")
 
@@ -72,7 +72,7 @@ class AdidasScraper(BaseScraper):
 
                 pid = str(p.get("productId") or p.get("modelId") or "")
                 raw_sizes = p.get("availableSizes", [])
-                sizes = [str(s).strip() for s in raw_sizes if s]
+                sizes = normalize_sizes(raw_sizes)
                 in_stock = p.get("orderable", True)
 
                 offers.append(

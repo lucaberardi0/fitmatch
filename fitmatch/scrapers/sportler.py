@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 from fitmatch.matcher.normalizer import ProductNormalizer
 
 logger = logging.getLogger("fitmatch.scraper.sportler")
@@ -171,6 +171,6 @@ class SportlerScraper(BaseScraper):
             original_price=orig_price,
             url=url,
             image_url=image_url,
-            available_sizes=sizes,
+            available_sizes=normalize_sizes(sizes),
             in_stock=True
         )

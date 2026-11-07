@@ -1,7 +1,7 @@
 import urllib.parse
 from typing import List, Optional
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 
 class Top4RunningScraper(BaseScraper):
@@ -37,12 +37,9 @@ class Top4RunningScraper(BaseScraper):
         for h in hits:
             # Skip query suggestions and facets
             if h.get("type") != "item":
-                attrs = h.get("attributes", {})
-                if not attrs or not attrs.get("price_amount"):
-                    continue
-            else:
-                attrs = h.get("attributes", {})
+                continue
 
+            attrs = h.get("attributes", {})
             title = attrs.get("title")
             price = self.parse_price(attrs.get("price_amount"))
             raw_url = h.get("url")
@@ -68,8 +65,8 @@ class Top4RunningScraper(BaseScraper):
             product_url = urllib.parse.urljoin(self.base_url, raw_url)
             pid = str(attrs.get("id") or attrs.get("producer_id") or h.get("identity_hash") or "")
 
-            raw_sizes = attrs.get("sizes_eu") or []
-            sizes = [str(s).strip().replace(",", ".") for s in raw_sizes if s]
+            raw_sizes = attrs.get("sizes_eu") or attrs.get("sizes_default") or attrs.get("Size") or []
+            sizes = normalize_sizes(raw_sizes)
 
             offers.append(
                 Offer(

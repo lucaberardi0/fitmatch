@@ -1,16 +1,35 @@
 import SwiftUI
+import Charts
 
 struct ProductDetailView: View {
     let product: MatchedProduct
+    private let userPreferredSize: String?
+
     @State private var selectedOfferIndex: Int = 0
     @State private var selectedSize: String? = nil
     @State private var showingAlertSheet: Bool = false
     @State private var showingMoveToCollection: Bool = false
     @State private var selectedImageIndex: Int = 0
+    @State private var priceHistory: PriceHistoryResponse? = nil
+    @State private var isLoadingPriceHistory: Bool = false
 
     init(product: MatchedProduct, initialSize: String? = nil) {
         self.product = product
-        self._selectedSize = State(initialValue: initialSize)
+        let prefs = UserPreferencesManager.shared.preferences
+        let prefSize = product.isComparable ? prefs.preferredShoeSize : prefs.preferredApparelSize
+        let normPref = prefSize.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+        self.userPreferredSize = normPref.isEmpty ? nil : normPref
+
+        if let explicit = initialSize, !explicit.isEmpty {
+            self._selectedSize = State(initialValue: explicit)
+        } else if !normPref.isEmpty && product.allAvailableSizes.contains(where: {
+            $0.replacingOccurrences(of: ",", with: ".") == normPref
+        }) {
+            // Auto-select user's preferred size!
+            self._selectedSize = State(initialValue: normPref)
+        } else {
+            self._selectedSize = State(initialValue: nil)
+        }
     }
 
     @ObservedObject private var wishlist = WishlistManager.shared
@@ -344,28 +363,61 @@ struct ProductDetailView: View {
                             }
                             .padding(.horizontal, 16)
 
+                            // Preferred size hint or auto-selected badge
+                            if let pref = userPreferredSize {
+                                if selectedSize == pref {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.shopPurple)
+                                        Text("Selezionata in automatico la tua taglia (\(pref))")
+                                            .font(.system(size: 11.5, weight: .bold))
+                                            .foregroundColor(.shopPurple)
+                                    }
+                                    .padding(.horizontal, 16)
+                                } else if !allSizes.isEmpty && !allSizes.contains(where: { $0.replacingOccurrences(of: ",", with: ".") == pref }) {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "exclamationmark.circle.fill")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.orange)
+                                        Text("La tua taglia (\(pref)) non risulta a stock nei 14 negozi partner")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.shopTextMuted)
+                                    }
+                                    .padding(.horizontal, 16)
+                                }
+                            }
+
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
                                     ForEach(allSizes, id: \.self) { sz in
                                         let isSel = (selectedSize == sz)
+                                        let isUserPref = (userPreferredSize == sz)
                                         Button(action: {
                                             withAnimation(.spring(response: 0.25, dampingFraction: 0.72)) {
                                                 selectedSize = (selectedSize == sz) ? nil : sz
                                             }
                                         }) {
-                                            Text(sz)
-                                                .font(.system(size: 13, weight: isSel ? .bold : .semibold, design: .rounded))
-                                                .foregroundColor(isSel ? .white : .shopDark)
-                                                .frame(minWidth: 44)
-                                                .frame(height: 38)
-                                                .padding(.horizontal, 10)
-                                                .background(isSel ? Color.shopDark : Color.white)
-                                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                        .stroke(isSel ? Color.shopDark : Color.shopBorder, lineWidth: 1)
-                                                )
-                                                .shadow(color: isSel ? Color.black.opacity(0.12) : Color.clear, radius: 4, x: 0, y: 2)
+                                            HStack(spacing: 3) {
+                                                if isUserPref && !isSel {
+                                                    Circle()
+                                                        .fill(Color.shopPurple)
+                                                        .frame(width: 5, height: 5)
+                                                }
+                                                Text(sz)
+                                                    .font(.system(size: 13, weight: isSel ? .bold : .semibold, design: .rounded))
+                                                    .foregroundColor(isSel ? .white : .shopDark)
+                                            }
+                                            .frame(minWidth: 44)
+                                            .frame(height: 38)
+                                            .padding(.horizontal, 10)
+                                            .background(isSel ? Color.shopDark : Color.white)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                    .stroke(isSel ? Color.shopDark : (isUserPref ? Color.shopPurple.opacity(0.6) : Color.shopBorder), lineWidth: isUserPref && !isSel ? 1.5 : 1)
+                                            )
+                                            .shadow(color: isSel ? Color.black.opacity(0.12) : Color.clear, radius: 4, x: 0, y: 2)
                                         }
                                         .buttonStyle(.plain)
                                     }
@@ -394,7 +446,7 @@ struct ProductDetailView: View {
                                     .foregroundColor(.shopPurple)
                                     .tracking(0.5)
 
-                                Text("Risparmi fino a \(String(format: "€%.2f", savings)) scegliendo l'offerta migliore tra i 10 negozi partner.")
+                                Text("Risparmi fino a \(String(format: "€%.2f", savings)) scegliendo l'offerta migliore tra i 14 negozi partner.")
                                     .font(.system(size: 12.5, weight: .medium))
                                     .foregroundColor(.shopDark)
                                     .lineLimit(2)
@@ -448,7 +500,22 @@ struct ProductDetailView: View {
                         .buttonStyle(.plain)
                     }
 
-                    // 6. Comparison Cards: All Partner Store Offers
+                    // 6. Price History & Market Intelligence Chart
+                    if let history = priceHistory {
+                        PriceHistorySectionView(history: history)
+                    } else if isLoadingPriceHistory {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .tint(.shopPurple)
+                            Text("Caricamento storico prezzi...")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.shopTextMuted)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                    }
+
+                    // 7. Comparison Cards: All Partner Store Offers
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Text("OFFERTE NEGOZI PARTNER (\(product.offers.count))")
@@ -621,7 +688,7 @@ struct ProductDetailView: View {
                                 Image(systemName: "shield.checkmark.fill")
                                     .foregroundColor(.shopGreen)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("10 Store Ufficiali")
+                                    Text("14 Store Ufficiali")
                                         .font(.system(size: 12, weight: .bold))
                                     Text("Rivenditori verificati")
                                         .font(.system(size: 10))
@@ -746,5 +813,225 @@ struct ProductDetailView: View {
         .onDisappear {
             TabBarVisibilityManager.shared.show()
         }
+        .task {
+            await loadPriceHistory()
+        }
+    }
+
+    private func loadPriceHistory() async {
+        guard priceHistory == nil else { return }
+        isLoadingPriceHistory = true
+        do {
+            let res = try await APIService.shared.fetchPriceHistory(
+                canonicalName: product.canonical_name,
+                productId: product.id_val
+            )
+            await MainActor.run {
+                self.priceHistory = res
+                self.isLoadingPriceHistory = false
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoadingPriceHistory = false
+            }
+        }
+    }
+}
+
+// MARK: - Price History & Market Intelligence Chart
+
+struct PriceHistorySectionView: View {
+    let history: PriceHistoryResponse
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header Row
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Text("STORICO PREZZI & MERCATO")
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundColor(.shopTextMuted)
+                            .tracking(0.8)
+
+                        if history.is_all_time_low {
+                            HStack(spacing: 3) {
+                                Text("🔥 MINIMO STORICO")
+                                    .font(.system(size: 9.5, weight: .heavy))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2.5)
+                            .background(Color.shopPurple)
+                            .clipShape(Capsule())
+                        }
+                    }
+
+                    Text("Rilevamento cross-store tra i 14 partner")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.shopTextMuted)
+                }
+
+                Spacer()
+
+                if let dropPct = history.price_drop_percentage, dropPct > 3 {
+                    Text("-\(String(format: "%.0f", dropPct))% vs media")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.shopGreen)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.shopGreenLight)
+                        .clipShape(Capsule())
+                }
+            }
+
+            // Stat capsules: Minimo, Media, Massimo
+            HStack(spacing: 8) {
+                PriceStatPill(
+                    title: "Minimo",
+                    value: history.formattedLowestPrice,
+                    accent: .shopGreen,
+                    icon: "arrow.down.right"
+                )
+                PriceStatPill(
+                    title: "Media",
+                    value: history.formattedAveragePrice,
+                    accent: .shopDark,
+                    icon: "chart.bar.fill"
+                )
+                PriceStatPill(
+                    title: "Massimo",
+                    value: history.formattedHighestPrice,
+                    accent: .secondary,
+                    icon: "arrow.up.right"
+                )
+            }
+
+            // Interactive Swift Chart
+            if history.history_points.count >= 2 {
+                VStack(alignment: .leading, spacing: 6) {
+                    Chart {
+                        ForEach(history.history_points) { point in
+                            AreaMark(
+                                x: .value("Data", point.parsedDate),
+                                y: .value("Prezzo", point.price)
+                            )
+                            .interpolationMethod(.monotone)
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [
+                                        Color.shopPurple.opacity(0.20),
+                                        Color.shopPurple.opacity(0.01)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+
+                            LineMark(
+                                x: .value("Data", point.parsedDate),
+                                y: .value("Prezzo", point.price)
+                            )
+                            .interpolationMethod(.monotone)
+                            .lineStyle(StrokeStyle(lineWidth: 2.2))
+                            .foregroundStyle(Color.shopPurple)
+
+                            PointMark(
+                                x: .value("Data", point.parsedDate),
+                                y: .value("Prezzo", point.price)
+                            )
+                            .foregroundStyle(Color.shopPurple)
+                            .symbolSize(CGSize(width: 4.5, height: 4.5))
+                        }
+
+                        // Rule mark for Average Price
+                        RuleMark(y: .value("Media", history.average_price))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                            .foregroundStyle(Color.secondary.opacity(0.40))
+                            .annotation(position: .top, alignment: .trailing) {
+                                Text("Media \(history.formattedAveragePrice)")
+                                    .font(.system(size: 9.5, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                    .padding(.trailing, 4)
+                            }
+                    }
+                    .chartYScale(domain: (max(0, history.lowest_price * 0.85))...(history.highest_price * 1.08))
+                    .chartXAxis {
+                        AxisMarks(values: .automatic(desiredCount: 4)) { value in
+                            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 2]))
+                                .foregroundStyle(Color.black.opacity(0.05))
+                            AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+                                .font(.system(size: 9))
+                                .foregroundStyle(Color.shopTextMuted)
+                        }
+                    }
+                    .chartYAxis {
+                        AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
+                            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                                .foregroundStyle(Color.black.opacity(0.04))
+                            AxisValueLabel {
+                                if let dbl = value.as(Double.self) {
+                                    Text("€\(Int(dbl))")
+                                        .font(.system(size: 9, weight: .medium))
+                                        .foregroundStyle(Color.shopTextMuted)
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: 150)
+                    .padding(.top, 4)
+                }
+            }
+
+            // Summary advice
+            HStack(spacing: 6) {
+                Image(systemName: history.is_all_time_low ? "sparkles" : "info.circle")
+                    .font(.system(size: 11))
+                    .foregroundColor(history.is_all_time_low ? .shopPurple : .shopTextMuted)
+                Text(history.is_all_time_low ?
+                     "Questo prodotto è attualmente al minimo storico mai registrato su FitMatch." :
+                     (history.formattedSavingsVsAverage != nil ? "Prezzo attuale \(history.formattedSavingsVsAverage!)." : "Prezzo monitorato e verificato.")
+                )
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.shopTextMuted)
+            }
+        }
+        .padding(14)
+        .background(Color.white)
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.shopBorder, lineWidth: 1)
+        )
+        .padding(.horizontal, 16)
+    }
+}
+
+struct PriceStatPill: View {
+    let title: String
+    let value: String
+    let accent: Color
+    let icon: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 3) {
+                Text(title.uppercased())
+                    .font(.system(size: 9.5, weight: .heavy))
+                    .foregroundColor(.shopTextMuted)
+                Spacer()
+                Image(systemName: icon)
+                    .font(.system(size: 9))
+                    .foregroundColor(accent)
+            }
+            Text(value)
+                .font(.system(size: 13.5, weight: .black, design: .rounded))
+                .foregroundColor(accent == .shopGreen ? .shopGreen : .shopDark)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.shopSurface)
+        .cornerRadius(10)
     }
 }

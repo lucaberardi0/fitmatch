@@ -1,6 +1,7 @@
 import re
 import uuid
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from fitmatch.scrapers.base import BaseScraper
 from fitmatch.models import Offer, normalize_sizes
@@ -86,6 +87,7 @@ class TradeinnScraper(BaseScraper):
             return []
 
         offers: List[Offer] = []
+        candidates = []
         for item in results:
             product = item.get("product") or {}
             title = product.get("title")
@@ -148,27 +150,44 @@ class TradeinnScraper(BaseScraper):
                 else title
             )
 
-            sizes = self.fetch_sizes(clean_url) if len(offers) < 5 else []
+            candidate = {
+                "p_id": p_id,
+                "full_title": full_title,
+                "brand": brand,
+                "price": price,
+                "clean_url": clean_url,
+                "img_url": img_url,
+                "gallery": gallery,
+                "in_stock": in_stock,
+            }
+            candidates.append(candidate)
+            if len(candidates) >= limit:
+                break
 
+        if not candidates:
+            return []
+
+        # Concurrently fetch available sizes for all candidates
+        with ThreadPoolExecutor(max_workers=min(len(candidates), 8)) as executor:
+            sizes_list = list(executor.map(lambda c: self.fetch_sizes(c["clean_url"]), candidates))
+
+        for c, sizes in zip(candidates, sizes_list):
             offers.append(
                 Offer(
                     store_id=self.store_id,
                     store_name=self.store_name,
-                    product_id=p_id,
-                    title=full_title,
-                    brand=brand,
-                    price=price,
+                    product_id=c["p_id"],
+                    title=c["full_title"],
+                    brand=c["brand"],
+                    price=c["price"],
                     original_price=None,
-                    url=clean_url,
-                    image_url=img_url,
-                    gallery_images=gallery,
+                    url=c["clean_url"],
+                    image_url=c["img_url"],
+                    gallery_images=c["gallery"],
                     available_sizes=sizes,
-                    in_stock=in_stock
+                    in_stock=c["in_stock"]
                 )
             )
-
-            if len(offers) >= limit:
-                break
 
         return offers
 

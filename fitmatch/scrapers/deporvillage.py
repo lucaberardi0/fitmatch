@@ -1,7 +1,7 @@
 import logging
 from typing import List, Optional
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 logger = logging.getLogger("fitmatch.scraper.deporvillage")
 
@@ -91,7 +91,7 @@ class DeporvillageScraper(BaseScraper):
 
             # Extract available sizes in stock
             raw_sizes = h.get("sizes") or []
-            sizes = [str(s).strip().replace(",", ".") for s in raw_sizes if s]
+            sizes = normalize_sizes(raw_sizes)
 
             pid = str(h.get("objectID") or h.get("id") or "")
 

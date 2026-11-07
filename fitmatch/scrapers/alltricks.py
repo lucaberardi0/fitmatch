@@ -1,6 +1,7 @@
 import urllib.parse
 import logging
-from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional, Dict, Any
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
 from fitmatch.models import Offer, normalize_sizes
@@ -26,7 +27,7 @@ class AlltricksScraper(BaseScraper):
             return []
 
         results = data.get("response", {}).get("results", [])
-        offers: List[Offer] = []
+        candidates: List[Dict[str, Any]] = []
 
         for item in results:
             title = item.get("value")
@@ -55,26 +56,49 @@ class AlltricksScraper(BaseScraper):
 
             img_url = d.get("image_url")
             pid = str(d.get("id") or item.get("variation_id") or "")
-            sizes = self.fetch_sizes(raw_url) if len(offers) < 5 else []
 
+            candidates.append({
+                "pid": pid,
+                "title": full_title,
+                "brand": brand,
+                "price": price,
+                "orig_price": orig_price,
+                "url": raw_url,
+                "img_url": img_url
+            })
+
+            if len(candidates) >= limit:
+                break
+
+        if not candidates:
+            return []
+
+        def _get_sizes(cand: Dict[str, Any]) -> List[str]:
+            try:
+                return self.fetch_sizes(cand["url"])
+            except Exception:
+                return []
+
+        with ThreadPoolExecutor(max_workers=min(len(candidates), 6)) as ex:
+            sizes_results = list(ex.map(_get_sizes, candidates))
+
+        offers: List[Offer] = []
+        for cand, sizes in zip(candidates, sizes_results):
             offers.append(
                 Offer(
                     store_id=self.store_id,
                     store_name=self.store_name,
-                    product_id=pid if pid else None,
-                    title=full_title,
-                    brand=brand,
-                    price=price,
-                    original_price=orig_price,
-                    url=raw_url,
-                    image_url=img_url,
+                    product_id=cand["pid"] if cand["pid"] else None,
+                    title=cand["title"],
+                    brand=cand["brand"],
+                    price=cand["price"],
+                    original_price=cand["orig_price"],
+                    url=cand["url"],
+                    image_url=cand["img_url"],
                     available_sizes=sizes,
                     in_stock=True
                 )
             )
-
-            if len(offers) >= limit:
-                break
 
         return offers
 

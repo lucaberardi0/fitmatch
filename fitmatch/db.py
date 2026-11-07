@@ -3,7 +3,7 @@ import os
 import uuid
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 from fitmatch.models import Offer, MatchedProductGroup, clean_image_url
 from fitmatch.supabase_client import SupabaseClient, SUPABASE_URL, SUPABASE_KEY
@@ -21,7 +21,9 @@ class Database:
         self.use_supabase = use_supabase and bool(SUPABASE_URL and SUPABASE_KEY)
         self.supabase = SupabaseClient() if self.use_supabase else None
         self.db_path = db_path or DB_PATH
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        dirname = os.path.dirname(self.db_path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         self.init_schema()
 
     def get_connection(self) -> sqlite3.Connection:
@@ -349,6 +351,127 @@ class Database:
             conn.execute("INSERT INTO price_history (offer_id, price) VALUES (?, ?)", (offer_id, price))
             conn.commit()
             return True
+
+    def get_price_history(
+        self,
+        product_id: Optional[str] = None,
+        canonical_name: Optional[str] = None,
+        days: int = 90
+    ) -> Dict[str, Any]:
+        """Retrieve aggregated price history and trend metrics."""
+        if self.use_supabase and self.supabase:
+            try:
+                res = self.supabase.get_price_history(product_id=product_id, canonical_name=canonical_name, days=days)
+                if res and res.get("history_points"):
+                    return res
+            except Exception as e:
+                logger.error(f"[Database] Error get_price_history from Supabase: {e}")
+
+        # Local SQLite fallback
+        now = datetime.now(timezone.utc)
+        start_date = now - timedelta(days=days)
+        start_str = start_date.strftime("%Y-%m-%d %H:%M:%S")
+
+        with self.get_connection() as conn:
+            p_row = None
+            if product_id:
+                p_row = conn.execute("SELECT id, canonical_name FROM products WHERE id = ?", (product_id,)).fetchone()
+            if not p_row and canonical_name:
+                p_row = conn.execute("SELECT id, canonical_name FROM products WHERE canonical_name LIKE ? OR id LIKE ? LIMIT 1", (f"%{canonical_name}%", f"%{canonical_name}%")).fetchone()
+
+            eff_id = p_row["id"] if p_row else (product_id or canonical_name or "")
+            eff_canon = p_row["canonical_name"] if p_row else (canonical_name or eff_id)
+
+            offers_rows = conn.execute(
+                "SELECT id, store_id, store_name, current_price, original_price FROM store_offers WHERE product_id = ?",
+                (eff_id,)
+            ).fetchall()
+            offers = [dict(r) for r in offers_rows]
+
+            raw_points: List[Dict[str, Any]] = []
+            offer_store_map = {o["id"]: o["store_name"] for o in offers}
+            offer_current_map = {o["id"]: float(o["current_price"]) for o in offers if o.get("current_price") is not None}
+            offer_orig_map = {o["id"]: float(o["original_price"]) for o in offers if o.get("original_price") is not None}
+
+            if offers:
+                oids = [o["id"] for o in offers]
+                placeholders = ",".join(["?"] * len(oids))
+                hist_rows = conn.execute(f"""
+                    SELECT offer_id, price, recorded_at
+                    FROM price_history
+                    WHERE offer_id IN ({placeholders}) AND recorded_at >= ?
+                    ORDER BY recorded_at ASC
+                """, (*oids, start_str)).fetchall()
+
+                for hr in hist_rows:
+                    oid = hr["offer_id"]
+                    raw_points.append({
+                        "date": str(hr["recorded_at"]),
+                        "price": float(hr["price"]),
+                        "store_name": offer_store_map.get(oid, "Store"),
+                        "offer_id": oid
+                    })
+
+            now_str = now.isoformat()
+            for oid, cur_p in offer_current_map.items():
+                raw_points.append({
+                    "date": now_str,
+                    "price": cur_p,
+                    "store_name": offer_store_map.get(oid, "Store"),
+                    "offer_id": oid
+                })
+
+            if len(raw_points) == len(offer_current_map) and offer_current_map:
+                max_orig = max(offer_orig_map.values()) if offer_orig_map else None
+                min_cur = min(offer_current_map.values())
+                if max_orig and max_orig > min_cur:
+                    past_30d = (now - timedelta(days=30)).isoformat()
+                    raw_points.insert(0, {
+                        "date": past_30d,
+                        "price": round(max_orig, 2),
+                        "store_name": "Listino Ufficiale",
+                        "offer_id": None
+                    })
+
+            raw_points.sort(key=lambda x: str(x["date"]))
+
+            filtered_points: List[Dict[str, Any]] = []
+            seen_keys = set()
+            for pt in raw_points:
+                d_short = str(pt["date"])[:10]
+                key = (d_short, pt["store_name"], round(pt["price"], 2))
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    filtered_points.append(pt)
+
+            all_prices = [p["price"] for p in filtered_points if p.get("price") and p["price"] > 0]
+            if not all_prices and offer_current_map:
+                all_prices = list(offer_current_map.values())
+
+            current_price = min(offer_current_map.values()) if offer_current_map else (all_prices[-1] if all_prices else 0.0)
+            lowest_price = min(all_prices) if all_prices else current_price
+            highest_price = max(all_prices) if all_prices else current_price
+            average_price = round(sum(all_prices) / len(all_prices), 2) if all_prices else current_price
+
+            is_all_time_low = bool(current_price > 0 and current_price <= (lowest_price + 0.50))
+            price_drop_pct = round(((average_price - current_price) / average_price) * 100, 1) if average_price > current_price else 0.0
+            price_drop_amount = round(average_price - current_price, 2) if average_price > current_price else 0.0
+
+            return {
+                "canonical_name": eff_canon,
+                "product_id": eff_id,
+                "current_price": round(current_price, 2),
+                "lowest_price": round(lowest_price, 2),
+                "highest_price": round(highest_price, 2),
+                "average_price": round(average_price, 2),
+                "is_all_time_low": is_all_time_low,
+                "price_drop_percentage": price_drop_pct,
+                "price_drop_amount": price_drop_amount,
+                "history_points": filtered_points,
+                "total_data_points": len(filtered_points),
+                "first_recorded_date": filtered_points[0]["date"] if filtered_points else None,
+                "last_recorded_date": filtered_points[-1]["date"] if filtered_points else None
+            }
 
     def touch_product_updated(self, product_id: str) -> bool:
         """Advance product timestamp to ensure fair round-robin scheduling."""

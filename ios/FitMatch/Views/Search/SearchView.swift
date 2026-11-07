@@ -2163,6 +2163,22 @@ struct ShopOfficialProductCard: View {
 
                     Spacer(minLength: 4)
 
+                    let targetSize = product.isComparable ? UserPreferencesManager.shared.preferences.preferredShoeSize : UserPreferencesManager.shared.preferences.preferredApparelSize
+                    let hasPref = !targetSize.isEmpty && product.allAvailableSizes.contains(where: {
+                        $0.replacingOccurrences(of: ",", with: ".") == targetSize.replacingOccurrences(of: ",", with: ".")
+                    })
+
+                    if hasPref {
+                        HStack(spacing: 3) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 8))
+                                .foregroundColor(.shopPurple)
+                            Text("Tg. \(targetSize) disp.")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .foregroundColor(.shopPurple)
+                        }
+                    }
+
                     if let best = bestOffer {
                         HStack(spacing: 6) {
                             ShopStoreLogo(storeName: best.store_name, showVerified: false, showLabel: false, size: 18)

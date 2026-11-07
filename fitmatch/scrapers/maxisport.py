@@ -1,5 +1,6 @@
 import urllib.parse
-from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional, Dict, Any
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
 from fitmatch.models import Offer, normalize_sizes
@@ -19,9 +20,9 @@ class MaxiSportScraper(BaseScraper):
 
         soup = BeautifulSoup(html, "html.parser")
         items = soup.select(".item.product.product-item")
-        offers: List[Offer] = []
+        candidates: List[Dict[str, Any]] = []
 
-        for item in items[:limit]:
+        for item in items:
             try:
                 # Title and Link
                 link_el = item.select_one("a.product-item-link")
@@ -74,25 +75,50 @@ class MaxiSportScraper(BaseScraper):
                     if slug_parts:
                         brand = slug_parts[0].capitalize()
 
-                sizes = self.fetch_sizes(product_url) if len(offers) < 5 else []
+                candidates.append({
+                    "product_id": product_id,
+                    "title": title,
+                    "brand": brand,
+                    "price": price,
+                    "orig_price": orig_price,
+                    "product_url": product_url,
+                    "img_url": img_url
+                })
 
-                offers.append(
-                    Offer(
-                        store_id=self.store_id,
-                        store_name=self.store_name,
-                        product_id=product_id,
-                        title=title,
-                        brand=brand,
-                        price=price,
-                        original_price=orig_price,
-                        url=product_url,
-                        image_url=img_url,
-                        available_sizes=sizes,
-                        in_stock=True
-                    )
-                )
+                if len(candidates) >= limit:
+                    break
             except Exception:
                 continue
+
+        if not candidates:
+            return []
+
+        def _get_sizes(cand: Dict[str, Any]) -> List[str]:
+            try:
+                return self.fetch_sizes(cand["product_url"])
+            except Exception:
+                return []
+
+        with ThreadPoolExecutor(max_workers=min(len(candidates), 6)) as ex:
+            sizes_results = list(ex.map(_get_sizes, candidates))
+
+        offers: List[Offer] = []
+        for cand, sizes in zip(candidates, sizes_results):
+            offers.append(
+                Offer(
+                    store_id=self.store_id,
+                    store_name=self.store_name,
+                    product_id=cand["product_id"],
+                    title=cand["title"],
+                    brand=cand["brand"],
+                    price=cand["price"],
+                    original_price=cand["orig_price"],
+                    url=cand["product_url"],
+                    image_url=cand["img_url"],
+                    available_sizes=sizes,
+                    in_stock=True
+                )
+            )
 
         return offers
 

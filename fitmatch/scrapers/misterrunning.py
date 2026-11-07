@@ -1,7 +1,7 @@
 import json
 from typing import List
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 
 class MisterRunningScraper(BaseScraper):
@@ -38,7 +38,7 @@ class MisterRunningScraper(BaseScraper):
                 image = p.get("image")
                 pid = str(p.get("id")) if p.get("id") else None
                 raw_sizes = p.get("sizes", [])
-                sizes = [str(s).strip() for s in raw_sizes if s]
+                sizes = normalize_sizes(raw_sizes)
 
                 offers.append(
                     Offer(

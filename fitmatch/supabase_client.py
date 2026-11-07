@@ -7,7 +7,7 @@ import time
 import uuid
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 import certifi
 
@@ -366,6 +366,135 @@ class SupabaseClient:
             "price": float(price)
         }])
         return res.get("status") in (200, 201)
+
+    def get_price_history(
+        self,
+        product_id: Optional[str] = None,
+        canonical_name: Optional[str] = None,
+        days: int = 90
+    ) -> Dict[str, Any]:
+        """Fetch historical price points and statistics for a product across its offers in Supabase."""
+        now = datetime.now(timezone.utc)
+        start_date = now - timedelta(days=days)
+        start_iso = start_date.isoformat()
+
+        # 1. Resolve product
+        p_row = None
+        if product_id:
+            q_id = urllib.parse.quote(product_id.strip())
+            p_res = self._request(f"products?id=eq.{q_id}&select=id,canonical_name,brand&limit=1")
+            if p_res.get("data"):
+                p_row = p_res["data"][0]
+
+        if not p_row and canonical_name:
+            c_clean = canonical_name.strip()
+            q_c = urllib.parse.quote(f"*{c_clean}*")
+            p_res = self._request(f"products?canonical_name=ilike.{q_c}&select=id,canonical_name,brand&limit=1")
+            if p_res.get("data"):
+                p_row = p_res["data"][0]
+            else:
+                p_res = self._request(f"products?id=ilike.{q_c}&select=id,canonical_name,brand&limit=1")
+                if p_res.get("data"):
+                    p_row = p_res["data"][0]
+
+        eff_product_id = p_row["id"] if p_row else (product_id or canonical_name or "")
+        eff_canon = p_row["canonical_name"] if p_row else (canonical_name or eff_product_id)
+
+        # 2. Fetch offers for this product
+        offers = []
+        if eff_product_id:
+            q_pid = urllib.parse.quote(eff_product_id)
+            off_res = self._request(f"store_offers?product_id=eq.{q_pid}&select=id,store_id,store_name,current_price,original_price,discount_pct,last_checked_at")
+            offers = off_res.get("data") or []
+
+        if not offers and canonical_name:
+            q_title = urllib.parse.quote(f"*{canonical_name.strip()}*")
+            off_res = self._request(f"store_offers?raw_title=ilike.{q_title}&select=id,store_id,store_name,current_price,original_price,discount_pct,last_checked_at&limit=15")
+            offers = off_res.get("data") or []
+
+        offer_store_map = {o["id"]: o.get("store_name", "Store") for o in offers}
+        offer_current_map = {o["id"]: float(o["current_price"]) for o in offers if o.get("current_price") is not None}
+        offer_orig_map = {o["id"]: float(o["original_price"]) for o in offers if o.get("original_price") is not None}
+
+        raw_points: List[Dict[str, Any]] = []
+        if offers:
+            offer_ids = [o["id"] for o in offers][:30]
+            in_clause = ",".join([urllib.parse.quote(f'"{oid}"') for oid in offer_ids])
+            q_start = urllib.parse.quote(start_iso)
+            hist_res = self._request(
+                f"price_history?offer_id=in.({in_clause})&recorded_at=gte.{q_start}&order=recorded_at.asc&limit=500"
+            )
+            data = hist_res.get("data") or []
+            for item in data:
+                oid = item.get("offer_id")
+                raw_points.append({
+                    "date": item.get("recorded_at", ""),
+                    "price": float(item.get("price", 0.0)),
+                    "store_name": offer_store_map.get(oid, "Store"),
+                    "offer_id": oid
+                })
+
+        now_str = now.isoformat()
+        for oid, cur_p in offer_current_map.items():
+            raw_points.append({
+                "date": now_str,
+                "price": cur_p,
+                "store_name": offer_store_map.get(oid, "Store"),
+                "offer_id": oid
+            })
+
+        # Baseline point if minimal history
+        if len(raw_points) == len(offer_current_map) and offer_current_map:
+            max_orig = max(offer_orig_map.values()) if offer_orig_map else None
+            min_cur = min(offer_current_map.values())
+            if max_orig and max_orig > min_cur:
+                past_30d = (now - timedelta(days=30)).isoformat()
+                raw_points.insert(0, {
+                    "date": past_30d,
+                    "price": round(max_orig, 2),
+                    "store_name": "Listino Ufficiale",
+                    "offer_id": None
+                })
+
+        raw_points.sort(key=lambda x: x["date"])
+
+        filtered_points: List[Dict[str, Any]] = []
+        seen_keys = set()
+        for pt in raw_points:
+            d_short = pt["date"][:10] if len(pt["date"]) >= 10 else pt["date"]
+            key = (d_short, pt["store_name"], round(pt["price"], 2))
+            if key not in seen_keys:
+                seen_keys.add(key)
+                filtered_points.append(pt)
+
+        all_prices = [p["price"] for p in filtered_points if p.get("price") and p["price"] > 0]
+        if not all_prices and offer_current_map:
+            all_prices = list(offer_current_map.values())
+
+        current_price = min(offer_current_map.values()) if offer_current_map else (all_prices[-1] if all_prices else 0.0)
+        lowest_price = min(all_prices) if all_prices else current_price
+        highest_price = max(all_prices) if all_prices else current_price
+        average_price = round(sum(all_prices) / len(all_prices), 2) if all_prices else current_price
+
+        is_all_time_low = bool(current_price > 0 and current_price <= (lowest_price + 0.50))
+        price_drop_pct = round(((average_price - current_price) / average_price) * 100, 1) if average_price > current_price else 0.0
+        price_drop_amount = round(average_price - current_price, 2) if average_price > current_price else 0.0
+
+        return {
+            "canonical_name": eff_canon,
+            "product_id": eff_product_id,
+            "current_price": round(current_price, 2),
+            "lowest_price": round(lowest_price, 2),
+            "highest_price": round(highest_price, 2),
+            "average_price": round(average_price, 2),
+            "is_all_time_low": is_all_time_low,
+            "price_drop_percentage": price_drop_pct,
+            "price_drop_amount": price_drop_amount,
+            "history_points": filtered_points,
+            "total_data_points": len(filtered_points),
+            "first_recorded_date": filtered_points[0]["date"] if filtered_points else None,
+            "last_recorded_date": filtered_points[-1]["date"] if filtered_points else None
+        }
 
     def touch_product_updated(self, product_id: str) -> bool:
         """Update updated_at timestamp of a product in Supabase to maintain fair rotation."""

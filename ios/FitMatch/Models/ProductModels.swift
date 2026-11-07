@@ -438,6 +438,75 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
     }
 }
 
+// MARK: - Price History & Market Trends
+
+struct PriceHistoryPoint: Identifiable, Codable, Hashable {
+    var id: String { "\(date)_\(store_name)_\(price)" }
+    let date: String
+    let price: Double
+    let store_name: String
+    let offer_id: String?
+
+    var formattedPrice: String {
+        String(format: "€%.2f", price)
+    }
+
+    var parsedDate: Date {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = isoFormatter.date(from: date) { return d }
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        if let d = isoFormatter.date(from: date) { return d }
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        return df.date(from: date) ?? Date()
+    }
+
+    var shortDateLabel: String {
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "it_IT")
+        df.dateFormat = "d MMM"
+        return df.string(from: parsedDate)
+    }
+}
+
+struct PriceHistoryResponse: Codable {
+    let canonical_name: String
+    let product_id: String?
+    let current_price: Double
+    let lowest_price: Double
+    let highest_price: Double
+    let average_price: Double
+    let is_all_time_low: Bool
+    let price_drop_percentage: Double?
+    let price_drop_amount: Double?
+    let history_points: [PriceHistoryPoint]
+    let total_data_points: Int
+    let first_recorded_date: String?
+    let last_recorded_date: String?
+
+    var formattedCurrentPrice: String {
+        String(format: "€%.2f", current_price)
+    }
+
+    var formattedLowestPrice: String {
+        String(format: "€%.2f", lowest_price)
+    }
+
+    var formattedHighestPrice: String {
+        String(format: "€%.2f", highest_price)
+    }
+
+    var formattedAveragePrice: String {
+        String(format: "€%.2f", average_price)
+    }
+
+    var formattedSavingsVsAverage: String? {
+        guard let diff = price_drop_amount, diff > 1.0 else { return nil }
+        return String(format: "€%.2f sotto la media", diff)
+    }
+}
+
 struct SearchResponse: Codable {
     let query: String
     let execution_time_seconds: Double

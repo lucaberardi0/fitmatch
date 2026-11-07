@@ -1,8 +1,9 @@
 import urllib.parse
-from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional, Dict, Any
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes
 
 
 class NenciniSportScraper(BaseScraper):
@@ -28,9 +29,9 @@ class NenciniSportScraper(BaseScraper):
 
         soup = BeautifulSoup(html, "html.parser")
         cards = soup.select(".product-card")
-        offers: List[Offer] = []
+        candidates: List[Dict[str, Any]] = []
 
-        for card in cards[:limit]:
+        for card in cards:
             try:
                 link_el = card.select_one("a.card-img-link") or card.select_one(".product-title a")
                 if not link_el or not link_el.get("href"):
@@ -81,22 +82,50 @@ class NenciniSportScraper(BaseScraper):
                 # Product ID
                 pid = card.get("data-clerk-product-id") or link_el.get("data-gtmid")
 
-                offers.append(
-                    Offer(
-                        store_id=self.store_id,
-                        store_name=self.store_name,
-                        product_id=str(pid) if pid else None,
-                        title=title,
-                        brand=brand,
-                        price=price,
-                        original_price=orig_price,
-                        url=product_url,
-                        image_url=img_url,
-                        in_stock=True
-                    )
-                )
+                candidates.append({
+                    "pid": str(pid) if pid else None,
+                    "title": title,
+                    "brand": brand,
+                    "price": price,
+                    "orig_price": orig_price,
+                    "product_url": product_url,
+                    "img_url": img_url
+                })
+
+                if len(candidates) >= limit:
+                    break
             except Exception:
                 continue
+
+        if not candidates:
+            return []
+
+        def _get_sizes(cand: Dict[str, Any]) -> List[str]:
+            try:
+                return self.fetch_sizes(cand["product_url"])
+            except Exception:
+                return []
+
+        with ThreadPoolExecutor(max_workers=min(len(candidates), 6)) as ex:
+            sizes_results = list(ex.map(_get_sizes, candidates))
+
+        offers: List[Offer] = []
+        for cand, sizes in zip(candidates, sizes_results):
+            offers.append(
+                Offer(
+                    store_id=self.store_id,
+                    store_name=self.store_name,
+                    product_id=cand["pid"],
+                    title=cand["title"],
+                    brand=cand["brand"],
+                    price=cand["price"],
+                    original_price=cand["orig_price"],
+                    url=cand["product_url"],
+                    image_url=cand["img_url"],
+                    available_sizes=sizes,
+                    in_stock=True
+                )
+            )
 
         return offers
 
@@ -112,4 +141,4 @@ class NenciniSportScraper(BaseScraper):
             for el in soup.select(".gescat_detail_info_size .desc_size")
             if el.get_text(strip=True)
         ]
-        return sorted(list(set(sizes)))
+        return normalize_sizes(sizes)

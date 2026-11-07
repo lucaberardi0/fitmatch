@@ -173,6 +173,21 @@ def search_local_catalog(
     }
 
 
+@app.get("/api/products/price-history")
+def get_product_price_history(
+    canonical_name: Optional[str] = Query(None, description="Canonical product name"),
+    name: Optional[str] = Query(None, description="Alias for canonical_name"),
+    product_id: Optional[str] = Query(None, description="Product cluster ID"),
+    days: int = Query(90, ge=7, le=365, description="Historical lookback window in days")
+):
+    """Retrieve historical price data points, min/max metrics, and all-time low status for a product."""
+    target_name = canonical_name or name
+    if not target_name and not product_id:
+        raise HTTPException(status_code=400, detail="Either canonical_name or product_id must be provided")
+
+    return db.get_price_history(product_id=product_id, canonical_name=target_name, days=days)
+
+
 @app.get("/api/ai/advise")
 def ai_advise(
     prompt: str = Query(..., min_length=4, description="Natural language shopper needs (e.g. 'peso 85kg corro su asfalto sotto i 140 euro')")

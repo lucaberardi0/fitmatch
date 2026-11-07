@@ -100,8 +100,23 @@ struct ProductCardView: View {
                     }
                 }
 
-                // Available Sizes
-                if let best = product.bestOffer, let sizes = best.available_sizes, !sizes.isEmpty {
+                // Available Sizes & Preferred Size Detection
+                let targetSize = product.isComparable ? UserPreferencesManager.shared.preferences.preferredShoeSize : UserPreferencesManager.shared.preferences.preferredApparelSize
+                let hasPref = !targetSize.isEmpty && product.allAvailableSizes.contains(where: {
+                    $0.replacingOccurrences(of: ",", with: ".") == targetSize.replacingOccurrences(of: ",", with: ".")
+                })
+
+                if hasPref {
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 8.5))
+                            .foregroundColor(.shopPurple)
+                        Text("Tg. \(targetSize) disponibile")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(.shopPurple)
+                    }
+                    .padding(.top, 2)
+                } else if let best = product.bestOffer, let sizes = best.available_sizes, !sizes.isEmpty {
                     Text("Taglie: " + sizes.prefix(4).joined(separator: ", ") + (sizes.count > 4 ? ".." : ""))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.shopTextMuted)

@@ -1,5 +1,6 @@
 import re
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
@@ -29,8 +30,9 @@ class RunningWarehouseScraper(BaseScraper):
         soup = BeautifulSoup(html, "html.parser")
         cells = soup.select(".cattable-wrap-cell")
         offers: List[Offer] = []
+        candidates = []
 
-        for cell in cells[:limit]:
+        for cell in cells:
             try:
                 title = cell.get("data-gtm_impression_name")
                 link_el = cell.select_one("a.cattable-wrap-cell-imgwrap-inner, a")
@@ -102,28 +104,50 @@ class RunningWarehouseScraper(BaseScraper):
                         if angle_url not in gallery_urls:
                             gallery_urls.append(angle_url)
 
-                norm_sizes = normalize_sizes(sizes)
-                if not norm_sizes and len(offers) < 5:
-                    norm_sizes = self.fetch_sizes(product_url)
-
-                offers.append(
-                    Offer(
-                        store_id=self.store_id,
-                        store_name=self.store_name,
-                        product_id=pid,
-                        title=title,
-                        brand=brand,
-                        price=price,
-                        original_price=orig_price,
-                        url=product_url,
-                        image_url=img_url,
-                        gallery_images=gallery_urls,
-                        available_sizes=norm_sizes,
-                        in_stock=True
-                    )
-                )
+                candidates.append({
+                    "pid": pid,
+                    "title": title,
+                    "brand": brand,
+                    "price": price,
+                    "orig_price": orig_price,
+                    "url": product_url,
+                    "img_url": img_url,
+                    "gallery_urls": gallery_urls,
+                    "sizes": normalize_sizes(sizes)
+                })
+                if len(candidates) >= limit:
+                    break
             except Exception:
                 continue
+
+        if not candidates:
+            return []
+
+        # Find candidates missing sizes and fetch them concurrently
+        missing_indices = [i for i, c in enumerate(candidates) if not c["sizes"]]
+        if missing_indices:
+            with ThreadPoolExecutor(max_workers=min(len(missing_indices), 8)) as executor:
+                fetched_sizes = list(executor.map(lambda idx: self.fetch_sizes(candidates[idx]["url"]), missing_indices))
+            for idx, s in zip(missing_indices, fetched_sizes):
+                candidates[idx]["sizes"] = s
+
+        for c in candidates:
+            offers.append(
+                Offer(
+                    store_id=self.store_id,
+                    store_name=self.store_name,
+                    product_id=c["pid"],
+                    title=c["title"],
+                    brand=c["brand"],
+                    price=c["price"],
+                    original_price=c["orig_price"],
+                    url=c["url"],
+                    image_url=c["img_url"],
+                    gallery_images=c["gallery_urls"],
+                    available_sizes=c["sizes"],
+                    in_stock=True
+                )
+            )
 
         return offers
 

@@ -2,6 +2,7 @@ import re
 import json
 import logging
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
@@ -62,6 +63,7 @@ class NikeScraper(BaseScraper):
             groupings = wall.get("productGroupings") or []
 
             offers: List[Offer] = []
+            candidates = []
             seen_codes = set()
 
             for group in groupings:
@@ -104,27 +106,47 @@ class NikeScraper(BaseScraper):
                         if u and u not in gallery_urls:
                             gallery_urls.append(u)
 
-                    sizes = self.fetch_sizes(purl) if len(offers) < 5 else []
+                    candidates.append({
+                        "code": str(code),
+                        "title": full_title,
+                        "price": float(curr_price),
+                        "orig_price": float(init_price) if init_price and init_price > curr_price else None,
+                        "disc_pct": float(disc_pct) if disc_pct and disc_pct > 0 else None,
+                        "url": purl,
+                        "image_url": img_url,
+                        "gallery_images": gallery_urls
+                    })
 
-                    offer = Offer(
+                    if len(candidates) >= limit:
+                        break
+                if len(candidates) >= limit:
+                    break
+
+            if not candidates:
+                return []
+
+            # Concurrently fetch sizes for all candidate items
+            with ThreadPoolExecutor(max_workers=min(len(candidates), 8)) as executor:
+                sizes_list = list(executor.map(lambda c: self.fetch_sizes(c["url"]), candidates))
+
+            for c, sizes in zip(candidates, sizes_list):
+                offers.append(
+                    Offer(
                         store_id=self.store_id,
                         store_name=self.store_name,
-                        product_id=str(code),
-                        title=full_title,
+                        product_id=c["code"],
+                        title=c["title"],
                         brand="Nike",
-                        price=float(curr_price),
-                        original_price=float(init_price) if init_price and init_price > curr_price else None,
-                        discount_pct=float(disc_pct) if disc_pct and disc_pct > 0 else None,
-                        url=purl,
-                        image_url=img_url,
-                        gallery_images=gallery_urls,
+                        price=c["price"],
+                        original_price=c["orig_price"],
+                        discount_pct=c["disc_pct"],
+                        url=c["url"],
+                        image_url=c["image_url"],
+                        gallery_images=c["gallery_images"],
                         available_sizes=sizes,
                         in_stock=True
                     )
-                    offers.append(offer)
-
-                    if len(offers) >= limit:
-                        return offers
+                )
 
             return offers
         except Exception as e:

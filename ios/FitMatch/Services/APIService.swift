@@ -100,6 +100,22 @@ class APIService: ObservableObject {
         return decoded.matched_products
     }
 
+    func fetchPriceHistory(canonicalName: String, productId: String? = nil, days: Int = 90) async throws -> PriceHistoryResponse {
+        var components = URLComponents(string: "\(baseURL)/api/products/price-history")!
+        var queryItems = [
+            URLQueryItem(name: "canonical_name", value: canonicalName),
+            URLQueryItem(name: "days", value: "\(days)")
+        ]
+        if let pid = productId, !pid.isEmpty {
+            queryItems.append(URLQueryItem(name: "product_id", value: pid))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        let data = try await fetchDataWithRetry(url: url)
+        return try JSONDecoder().decode(PriceHistoryResponse.self, from: data)
+    }
+
     func smartSearch(
         query: String,
         mode: String? = nil,
