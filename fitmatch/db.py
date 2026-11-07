@@ -451,14 +451,20 @@ class Database:
 
             raw_points.sort(key=lambda x: str(x["date"]))
 
-            filtered_points: List[Dict[str, Any]] = []
-            seen_keys = set()
+            # Group by calendar date (YYYY-MM-DD), picking the minimum market price per day to guarantee clean time-series
+            daily_points_map: Dict[str, Dict[str, Any]] = {}
             for pt in raw_points:
                 d_short = str(pt["date"])[:10]
-                key = (d_short, pt["store_name"], round(pt["price"], 2))
-                if key not in seen_keys:
-                    seen_keys.add(key)
-                    filtered_points.append(pt)
+                p_val = round(float(pt["price"]), 2)
+                if d_short not in daily_points_map or p_val < daily_points_map[d_short]["price"]:
+                    daily_points_map[d_short] = {
+                        "date": pt["date"],
+                        "price": p_val,
+                        "store_name": pt["store_name"],
+                        "offer_id": pt.get("offer_id")
+                    }
+
+            filtered_points = sorted(daily_points_map.values(), key=lambda x: str(x["date"]))
 
             all_prices = [p["price"] for p in filtered_points if p.get("price") and p["price"] > 0]
             if not all_prices and offer_current_map:

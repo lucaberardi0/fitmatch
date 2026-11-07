@@ -58,6 +58,15 @@ struct RecentlyViewedView: View {
         }
         .background(Color.white.ignoresSafeArea())
         .navigationBarHidden(true)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
+        .onAppear {
+            TabBarVisibilityManager.shared.hide(for: "recently_viewed")
+        }
+        .onDisappear {
+            TabBarVisibilityManager.shared.show(for: "recently_viewed")
+        }
         .navigationDestination(item: $selectedProduct) { prod in
             ProductDetailView(product: prod)
         }

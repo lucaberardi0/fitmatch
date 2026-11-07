@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ModelCompareView: View {
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var api = APIService.shared
     @State private var modelA: String
     @State private var modelB: String
@@ -94,6 +95,15 @@ struct ModelCompareView: View {
             .background(Color(red: 247/255, green: 247/255, blue: 250/255).ignoresSafeArea())
             .navigationTitle("Confronto Modelli IA")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { dismiss() }) {
+                        Text("Chiudi")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.shopPurple)
+                    }
+                }
+            }
         }
     }
 

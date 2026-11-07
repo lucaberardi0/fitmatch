@@ -133,11 +133,13 @@ class RecentActivityManager: ObservableObject {
 
     init() {
         loadActivities()
-        // Purge legacy test activities from previous shared simulator/tester session
-        if !UserDefaults.standard.bool(forKey: "fitmatch_recent_purged_v3") {
-            self.activities.removeAll()
+        // Purge legacy test activities and conversational follow-ups from previous sessions
+        if !UserDefaults.standard.bool(forKey: "fitmatch_recent_purged_v5") {
+            self.activities = self.activities.filter {
+                $0.type != .search || RecentActivityManager.isValidShoppingQuery($0.title)
+            }
             saveActivities()
-            UserDefaults.standard.set(true, forKey: "fitmatch_recent_purged_v3")
+            UserDefaults.standard.set(true, forKey: "fitmatch_recent_purged_v5")
         }
         Task {
             await syncFromDatabase()
@@ -147,11 +149,94 @@ class RecentActivityManager: ObservableObject {
     func syncFromDatabase() async {
         do {
             let supaItems = try await SupabaseManager.shared.fetchRecentActivities()
-            self.activities = supaItems
+            // Sanitize synced activities so conversational/follow-up queries never leak into state
+            self.activities = supaItems.filter {
+                $0.type != .search || RecentActivityManager.isValidShoppingQuery($0.title)
+            }
             saveActivities()
         } catch {
             print("RecentActivityManager sync note: \(error)")
         }
+    }
+
+    // MARK: - Validation for Shopping Intents
+
+    /// Determines whether a search string represents a genuine product or shopping category,
+    /// explicitly excluding conversational follow-up questions, chat prompts, attribute filters,
+    /// and off-topic queries from ever appearing in "Continua ad acquistare".
+    static func isValidShoppingQuery(_ query: String) -> Bool {
+        let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.count >= 2 else { return false }
+        guard clean.count <= 60 else { return false }
+
+        // Reject if it contains a question mark (conversational question / follow-up prompt)
+        if clean.contains("?") || clean.contains("¿") {
+            return false
+        }
+
+        let lower = clean.lowercased()
+
+        // 1. Conversational interrogative / follow-up prefixes
+        let conversationalPrefixes = [
+            "e per ", "e se ", "e con ", "e invece ", "ma ", "oppure ",
+            "quali ", "quale ", "cosa ", "come ", "perché ", "perchè ", "quanto ", "quanti ", "quante ",
+            "chi ", "dove ", "quando ",
+            "ci sono ", "c'è ", "c’è ", "ce ne sono ",
+            "mostrami ", "fammi vedere ", "trovami ", "consigliami ", "consiglia ",
+            "dimmi ", "parlami di ", "aiutami a ", "spiegami ",
+            "confronta ", "compara ", "differenza tra ",
+            "vorrei ", "voglio ", "cerco un ", "cerco una ", "sto cercando ",
+            "what ", "which ", "how ", "why ", "where ", "can you ", "show me ", "tell me ", "compare ", "recommend "
+        ]
+        for prefix in conversationalPrefixes {
+            if lower.hasPrefix(prefix) {
+                return false
+            }
+        }
+
+        // 2. Isolated refinements / filters (not shopping products by themselves)
+        let isolatedRefinements = [
+            "prezzo più basso", "prezzo piu basso", "più economico", "piu economico",
+            "meno caro", "in sconto", "in offerta", "in saldo", "scontati", "scontate",
+            "da uomo", "da donna", "per uomo", "per donna", "unisex",
+            "da bambino", "da bambina", "per bambini", "per bambina", "ragazzo", "ragazza",
+            "spedizione gratuita", "miglior prezzo", "migliore offerta"
+        ]
+        if isolatedRefinements.contains(lower) {
+            return false
+        }
+
+        // Standalone size or price filters
+        if lower.hasPrefix("taglia ") || lower.hasPrefix("tg ") || lower.hasPrefix("numero ") {
+            return false
+        }
+        if lower.hasPrefix("sotto i ") || lower.hasPrefix("sotto ") || lower.hasPrefix("meno di ") || lower.hasPrefix("fino a ") || lower.hasPrefix("max ") {
+            return false
+        }
+
+        // 3. Smalltalk / Greetings
+        let smalltalk = [
+            "ciao", "salve", "buongiorno", "buonasera", "buonanotte",
+            "come stai", "chi sei", "grazie", "grazie mille", "ok", "va bene", "perfetto"
+        ]
+        if smalltalk.contains(lower) {
+            return false
+        }
+
+        // 4. Off-topic domain guardrails (food recipes, weather forecasts, injections)
+        let offTopicKeywords = [
+            "pasta", "carbonara", "pizza", "amatriciana", "cacio e pepe", "spaghetti",
+            "ricetta", "cucina", "ristorante", "cena", "pranzo", "colazione",
+            "che tempo", "meteo", "previsioni del tempo", "gradi oggi",
+            "system prompt", "ignore previous", "dan mode", "jailbreak", "<script", "eval("
+        ]
+        for keyword in offTopicKeywords {
+            if lower.contains(keyword) {
+                return false
+            }
+        }
+
+        return true
     }
 
     // MARK: - Filtered Views for Search Redesign
@@ -173,6 +258,10 @@ class RecentActivityManager: ObservableObject {
         var seen = Set<String>()
         var unique: [RecentActivityItem] = []
         for act in activities {
+            // Must be a viewed product, a store, or a genuine shopping search query
+            if act.type == .search && !RecentActivityManager.isValidShoppingQuery(act.title) {
+                continue
+            }
             let key = act.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if !seen.contains(key) {
                 seen.insert(key)
@@ -187,6 +276,8 @@ class RecentActivityManager: ObservableObject {
     func recordSearch(_ query: String) {
         let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
+        // Guard against conversational follow-up questions, off-topic tests, or isolated filters
+        guard RecentActivityManager.isValidShoppingQuery(clean) else { return }
 
         // Deduplicate: remove any previous search for the same query so it rises to the top
         activities.removeAll { $0.type == .search && $0.title.caseInsensitiveCompare(clean) == .orderedSame }
@@ -329,7 +420,10 @@ class RecentActivityManager: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let decoded = try decoder.decode([RecentActivityItem].self, from: data)
-            self.activities = decoded
+            // Sanitize loaded activities so conversational/follow-up queries never persist
+            self.activities = decoded.filter {
+                $0.type != .search || RecentActivityManager.isValidShoppingQuery($0.title)
+            }
         } catch {
             print("Errore caricamento cronologia: \(error)")
         }

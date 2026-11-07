@@ -9,6 +9,7 @@ struct ProductDetailView: View {
     @State private var selectedSize: String? = nil
     @State private var showingAlertSheet: Bool = false
     @State private var showingMoveToCollection: Bool = false
+    @State private var showingComparisonSheet: Bool = false
     @State private var selectedImageIndex: Int = 0
     @State private var priceHistory: PriceHistoryResponse? = nil
     @State private var isLoadingPriceHistory: Bool = false
@@ -465,7 +466,9 @@ struct ProductDetailView: View {
 
                     // 5. Versus Mode AI Comparison (Only for footwear & GPS watches, hidden on accessories)
                     if product.isComparable {
-                        NavigationLink(destination: ModelCompareView(initialModelA: product.cleanTitle)) {
+                        Button(action: {
+                            showingComparisonSheet = true
+                        }) {
                             HStack(spacing: 12) {
                                 ZStack {
                                     Circle()
@@ -804,6 +807,9 @@ struct ProductDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $showingAlertSheet) {
             PriceAlertSheet(product: product)
         }
@@ -812,12 +818,15 @@ struct ProductDetailView: View {
                 MoveToCollectionSheet(item: item)
             }
         }
+        .sheet(isPresented: $showingComparisonSheet) {
+            ModelCompareView(initialModelA: product.cleanTitle)
+        }
         .onAppear {
-            TabBarVisibilityManager.shared.hide()
+            TabBarVisibilityManager.shared.hide(for: "product_detail")
             RecentActivityManager.shared.recordProductView(product)
         }
         .onDisappear {
-            TabBarVisibilityManager.shared.show()
+            TabBarVisibilityManager.shared.show(for: "product_detail")
         }
         .task {
             await loadPriceHistory()
@@ -848,6 +857,58 @@ struct ProductDetailView: View {
 
 struct PriceHistorySectionView: View {
     let history: PriceHistoryResponse
+    @State private var selectedPoint: PriceHistoryPoint? = nil
+
+    // Group history_points by calendar day string (yyyy-MM-dd)
+    // For each calendar day, keep the lowest recorded price and its store
+    // Sort strictly chronologically to eliminate overlapping vertical streaks
+    var dailyTrendPoints: [PriceHistoryPoint] {
+        var byDay: [String: PriceHistoryPoint] = [:]
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = TimeZone(secondsFromGMT: 0)
+
+        for pt in history.history_points {
+            let dayKey = df.string(from: pt.parsedDate)
+            if let existing = byDay[dayKey] {
+                if pt.price < existing.price {
+                    byDay[dayKey] = pt
+                }
+            } else {
+                byDay[dayKey] = pt
+            }
+        }
+
+        let sorted = byDay.values.sorted(by: { $0.parsedDate < $1.parsedDate })
+        if sorted.count >= 2 {
+            return sorted
+        }
+        // Fallback: if only 1 day is present, synthesize a baseline day to enable the chart
+        if let single = sorted.first {
+            let prevDate = Calendar.current.date(byAdding: .day, value: -3, to: single.parsedDate) ?? single.parsedDate
+            let basePrice = max(single.price, history.highest_price)
+            let basePoint = PriceHistoryPoint(
+                date: ISO8601DateFormatter().string(from: prevDate),
+                price: basePrice,
+                store_name: "Listino",
+                offer_id: nil
+            )
+            return [basePoint, single]
+        }
+        return sorted
+    }
+
+    private var chartMinPrice: Double {
+        let prices = dailyTrendPoints.map(\.price)
+        let minP = prices.min() ?? history.lowest_price
+        return max(0, minP * 0.90)
+    }
+
+    private var chartMaxPrice: Double {
+        let prices = dailyTrendPoints.map(\.price)
+        let maxP = prices.max() ?? history.highest_price
+        return maxP * 1.08
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -913,11 +974,60 @@ struct PriceHistorySectionView: View {
                 )
             }
 
-            // Interactive Swift Chart
-            if history.history_points.count >= 2 {
+            // Interactive Swift Chart with Scrubbing & Tooltip
+            if dailyTrendPoints.count >= 2 {
                 VStack(alignment: .leading, spacing: 6) {
+                    // Interactive Tooltip Card or Tap Hint
+                    if let sel = selectedPoint {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.shopPurple)
+                                .frame(width: 8, height: 8)
+
+                            Text(sel.formattedDateFull)
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.shopDark)
+
+                            Text(sel.formattedPrice)
+                                .font(.system(size: 13, weight: .black, design: .rounded))
+                                .foregroundColor(.shopPurple)
+
+                            Text("• \(sel.store_name)")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.shopTextMuted)
+                                .lineLimit(1)
+
+                            Spacer()
+
+                            Button(action: {
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                    selectedPoint = nil
+                                }
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Color.secondary.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.shopPurpleLight)
+                        .cornerRadius(10)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    } else {
+                        HStack(spacing: 4) {
+                            Image(systemName: "hand.tap")
+                                .font(.system(size: 10))
+                            Text("Tocca o scorri sul grafico per esplorare i giorni")
+                                .font(.system(size: 10.5, weight: .medium))
+                        }
+                        .foregroundColor(.shopTextMuted)
+                        .padding(.top, 2)
+                    }
+
                     Chart {
-                        ForEach(history.history_points) { point in
+                        ForEach(dailyTrendPoints) { point in
                             AreaMark(
                                 x: .value("Data", point.parsedDate),
                                 y: .value("Prezzo", point.price)
@@ -950,6 +1060,20 @@ struct PriceHistorySectionView: View {
                             .symbolSize(CGSize(width: 4.5, height: 4.5))
                         }
 
+                        // Selected interactive indicator
+                        if let sel = selectedPoint {
+                            RuleMark(x: .value("Data Selezionata", sel.parsedDate))
+                                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
+                                .foregroundStyle(Color.shopPurple)
+
+                            PointMark(
+                                x: .value("Data Selezionata", sel.parsedDate),
+                                y: .value("Prezzo Selezionato", sel.price)
+                            )
+                            .symbolSize(CGSize(width: 10, height: 10))
+                            .foregroundStyle(Color.shopPurple)
+                        }
+
                         // Rule mark for Average Price
                         RuleMark(y: .value("Media", history.average_price))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
@@ -961,7 +1085,7 @@ struct PriceHistorySectionView: View {
                                     .padding(.trailing, 4)
                             }
                     }
-                    .chartYScale(domain: (max(0, history.lowest_price * 0.85))...(history.highest_price * 1.08))
+                    .chartYScale(domain: chartMinPrice...chartMaxPrice)
                     .chartXAxis {
                         AxisMarks(values: .automatic(desiredCount: 4)) { value in
                             AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 2]))
@@ -984,7 +1108,31 @@ struct PriceHistorySectionView: View {
                             }
                         }
                     }
-                    .frame(height: 150)
+                    .chartOverlay { proxy in
+                        GeometryReader { geometry in
+                            Rectangle()
+                                .fill(Color.clear)
+                                .contentShape(Rectangle())
+                                .gesture(
+                                    DragGesture(minimumDistance: 0)
+                                        .onChanged { value in
+                                            let originX = geometry[proxy.plotAreaFrame].origin.x
+                                            let xPosition = value.location.x - originX
+                                            guard let date: Date = proxy.value(atX: xPosition) else { return }
+
+                                            if let closest = dailyTrendPoints.min(by: {
+                                                abs($0.parsedDate.timeIntervalSince(date)) < abs($1.parsedDate.timeIntervalSince(date))
+                                            }) {
+                                                if selectedPoint?.id != closest.id {
+                                                    selectedPoint = closest
+                                                    UISelectionFeedbackGenerator().selectionChanged()
+                                                }
+                                            }
+                                        }
+                                )
+                        }
+                    }
+                    .frame(height: 155)
                     .padding(.top, 4)
                 }
             }

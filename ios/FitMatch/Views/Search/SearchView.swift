@@ -24,6 +24,9 @@ struct SearchView: View {
 
     // Shopify Shop Intelligent Search Mode (AI Deep Dive vs Classic)
     @State private var isDeepDiveMode: Bool = true
+    @State private var userForcedClassicMode: Bool = false
+    @State private var rootQuery: String = ""
+    @State private var lastFollowUpQuery: String? = nil
     @State private var conversationalHeader: String = "Ho cercato prodotti"
     @State private var conversationalSummary: String = ""
     @State private var curatedSections: [CuratedProductSection] = []
@@ -35,6 +38,10 @@ struct SearchView: View {
     @State private var feedbackConfig: SearchFeedbackSheetConfig? = nil
     @State private var feedbackSubmittedToast: Bool = false
     @State private var lastContextQuery: String? = nil // Multi-turn conversational memory
+    @State private var conversationTurns: [SearchConversationTurn] = []
+    @State private var isFollowUpLoading: Bool = false
+    @State private var pendingFollowUpQuery: String? = nil
+    @State private var followUpErrorMessage: String? = nil
 
     // Comparison Navigation State
     @State private var comparisonModels: ComparisonPair? = nil
@@ -70,9 +77,12 @@ struct SearchView: View {
     private let availableSizes = ["Tutte", "40", "41", "42", "42.5", "43", "44", "44.5", "45", "46"]
 
     init(initialSearchQuery: String? = nil) {
-        _searchText = State(initialValue: initialSearchQuery ?? "")
+        let q = initialSearchQuery ?? ""
+        _searchText = State(initialValue: q)
+        _rootQuery = State(initialValue: q)
         if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
             _isDeepDiveMode = State(initialValue: false)
+            _userForcedClassicMode = State(initialValue: true)
         }
         if ProcessInfo.processInfo.arguments.contains("-testSearchClosed") {
             _hasAutoFocused = State(initialValue: true)
@@ -172,8 +182,9 @@ struct SearchView: View {
             }
             .sheet(isPresented: $showVisualSearch) {
                 ShopVisualSearchSheet { recognizedQuery in
+                    hideAllKeyboards()
                     searchText = recognizedQuery
-                    isSearchFieldFocused = false
+                    rootQuery = recognizedQuery
                     handleSearchOrComparison(query: recognizedQuery)
                 }
             }
@@ -205,29 +216,17 @@ struct SearchView: View {
                     }
                 }
             }
-            .onChange(of: isSearchFieldFocused) { focused in
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                    if focused || isFollowUpFieldFocused {
-                        tabVisibility.hide()
-                    } else {
-                        tabVisibility.show()
-                    }
-                }
+            .onChange(of: isSearchFieldFocused) { _ in
+                updateTabBarVisibility()
             }
-            .onChange(of: isFollowUpFieldFocused) { focused in
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                    if focused || isSearchFieldFocused {
-                        tabVisibility.hide()
-                    } else {
-                        tabVisibility.show()
-                    }
-                }
+            .onChange(of: isFollowUpFieldFocused) { _ in
+                updateTabBarVisibility()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FitMatchFocusSearch"))) { _ in
                 isSearchFieldFocused = true
             }
             .onDisappear {
-                tabVisibility.reset()
+                hideAllKeyboards()
             }
             .task {
                 loadInitialTopSavings()
@@ -260,6 +259,10 @@ struct SearchView: View {
                 .padding(.top, 10)
             }
             .scrollDismissesKeyboard(.interactively)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                hideAllKeyboards()
+            }
 
             // Autocomplete live suggestions overlay when typing
             if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasSearched {
@@ -293,10 +296,18 @@ struct SearchView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            hideAllKeyboards()
+        }
+    }
+
+    private var isAnyKeyboardFocused: Bool {
+        isSearchFieldFocused || isFollowUpFieldFocused
     }
 
     private var floatingBarBottomPadding: CGFloat {
-        if keyboardObserver.isKeyboardVisible || keyboardObserver.effectiveKeyboardOffset > 0 {
+        if isAnyKeyboardFocused && (keyboardObserver.isKeyboardVisible || keyboardObserver.effectiveKeyboardOffset > 0) {
             return keyboardObserver.effectiveKeyboardOffset + 8
         } else {
             return 98
@@ -548,6 +559,7 @@ struct SearchView: View {
             // Main Pill
             HStack(spacing: 10) {
                 Button(action: {
+                    hideAllKeyboards()
                     showVisualSearch = true
                 }) {
                     Image(systemName: "camera")
@@ -610,9 +622,7 @@ struct SearchView: View {
             if isSearchFieldFocused || keyboardObserver.isKeyboardVisible {
                 Button(action: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                        isSearchFieldFocused = false
-                    }
+                    hideAllKeyboards()
                 }) {
                     Circle()
                         .fill(Color.white)
@@ -661,16 +671,7 @@ struct SearchView: View {
             HStack(spacing: 12) {
                 // Back Button
                 Button(action: {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                        hasSearched = false
-                        searchResults = []
-                        curatedSections = []
-                        comparativeCards = []
-                        spotlight = nil
-                        followUpSuggestions = []
-                        isSmartSearchActive = false
-                        errorMessage = nil
-                    }
+                    resetToSearchTyping(keepText: false)
                 }) {
                     Circle()
                         .fill(Color.white)
@@ -687,10 +688,9 @@ struct SearchView: View {
 
                 // Query Pill Bubble (Screenshot 1: "Maison margiela scarpe nere")
                 Button(action: {
-                    hasSearched = false
-                    isSearchFieldFocused = true
+                    resetToSearchTyping(keepText: true)
                 }) {
-                    Text(searchText.isEmpty ? "Cerca prodotto..." : searchText)
+                    Text(rootQuery.isEmpty ? (searchText.isEmpty ? "Cerca prodotto..." : searchText) : rootQuery)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.shopDark)
                         .padding(.horizontal, 18)
@@ -704,6 +704,7 @@ struct SearchView: View {
 
             // "🔍 Cerca invece questo" Button (Exact match to Screenshot 1!)
             Button(action: {
+                userForcedClassicMode = true
                 withAnimation(.easeInOut(duration: 0.25)) {
                     isDeepDiveMode = false
                 }
@@ -729,230 +730,66 @@ struct SearchView: View {
     // MARK: - AI Deep Dive: Main Content View (Screenshots 1, 2, 3)
     private var aiDeepDiveContentView: some View {
         Group {
-            if isLoading {
-                ShopSearchDeepDiveSkeletonView()
+            if isLoading && conversationTurns.isEmpty {
+                ShopSearchDeepDiveSkeletonView(query: rootQuery.isEmpty ? searchText : rootQuery)
                     .transition(.opacity)
-            } else if let error = errorMessage {
+            } else if let error = errorMessage, conversationTurns.isEmpty {
                 aiErrorView(error)
-            } else if curatedSections.isEmpty && searchResults.isEmpty && spotlight == nil {
+            } else if conversationTurns.isEmpty && curatedSections.isEmpty && searchResults.isEmpty && spotlight == nil {
                 aiEmptyView
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
-                            // 1. Header: "Ho cercato prodotti >" (Screenshot 1)
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    showAiExplanation.toggle()
+                        LazyVStack(alignment: .leading, spacing: 18) {
+                            if !conversationTurns.isEmpty {
+                                ForEach(conversationTurns) { turn in
+                                    turnContentView(for: turn)
+                                        .id(turn.id)
                                 }
-                            }) {
-                                HStack(spacing: 4) {
-                                    Text(conversationalHeader)
-                                        .font(.system(size: 15, weight: .bold))
-                                        .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                                        .rotationEffect(.degrees(showAiExplanation ? 90 : 0))
-                                }
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.horizontal, 18)
-                            .padding(.top, 8)
-
-                            if showAiExplanation && !activeChips.isEmpty {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 8) {
-                                        ForEach(activeChips) { chip in
-                                            ShopSearchChipView(chip: chip) {
-                                                removeChip(chip)
-                                            }
-                                        }
-                                    }
-                                    .padding(.horizontal, 18)
-                                    .padding(.vertical, 2)
-                                }
-                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            } else {
+                                // Fallback if turns haven't initialized yet
+                                legacyTurnView
                             }
 
-                            // 2. Conversational Narrative Paragraph (Screenshot 1)
-                            if !conversationalSummary.isEmpty {
-                                Text(LocalizedStringKey(conversationalSummary))
-                                    .font(.system(size: 15.5, weight: .regular))
-                                    .foregroundColor(.shopDark)
-                                    .lineSpacing(4.5)
-                                    .padding(.horizontal, 18)
+                            // Follow-up loading state: user bubble + thinking indicator
+                            if isFollowUpLoading {
+                                followUpLoadingSection
+                                    .id("follow_up_loading_section")
                             }
 
-                            // 3. Thematic Curated Carousels (Screenshot 1 & 2)
-                            if !curatedSections.isEmpty {
-                                ForEach(curatedSections) { section in
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text(section.title)
-                                            .font(.system(size: 18.5, weight: .bold))
-                                            .foregroundColor(.shopDark)
-                                            .padding(.horizontal, 18)
-
-                                        Text(section.subtitle)
-                                            .font(.system(size: 12.5, weight: .regular))
-                                            .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                                            .padding(.horizontal, 18)
-                                            .padding(.bottom, 4)
-
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            HStack(spacing: 14) {
-                                                ForEach(section.products) { prod in
-                                                    ShopThemedCarouselCard(product: prod) {
-                                                        selectedRecentProduct = prod
-                                                    }
-                                                }
-                                            }
-                                            .padding(.horizontal, 18)
-                                            .padding(.vertical, 4)
-                                        }
-                                    }
-                                    .padding(.top, 8)
-                                }
-                            } else if !searchResults.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("I Modelli Selezionati")
-                                        .font(.system(size: 18.5, weight: .bold))
-                                        .foregroundColor(.shopDark)
-                                        .padding(.horizontal, 18)
-
-                                    Text("Tutti i prodotti trovati per la tua ricerca")
-                                        .font(.system(size: 12.5, weight: .regular))
-                                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                                        .padding(.horizontal, 18)
-                                        .padding(.bottom, 4)
-
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 14) {
-                                            ForEach(searchResults) { prod in
-                                                ShopThemedCarouselCard(product: prod) {
-                                                    selectedRecentProduct = prod
-                                                }
-                                            }
-                                        }
-                                        .padding(.horizontal, 18)
-                                        .padding(.vertical, 4)
-                                    }
-                                }
-                                .padding(.top, 8)
-                            }
-
-                            // 4. Comparative Spec Cards ("Confronto rapido" - Screenshot 4 style)
-                            if !comparativeCards.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(comparativeCards.first?.section_title ?? "Confronto rapido")
-                                        .font(.system(size: 18.5, weight: .bold))
-                                        .foregroundColor(.shopDark)
-                                        .padding(.horizontal, 18)
-
-                                    Text("Scegli in base all'uso principale")
-                                        .font(.system(size: 12.5, weight: .regular))
-                                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                                        .padding(.horizontal, 18)
-                                        .padding(.bottom, 4)
-
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(alignment: .top, spacing: 14) {
-                                            ForEach(comparativeCards) { card in
-                                                ShopComparativeCard(card: card) {
-                                                    selectedRecentProduct = card.product
-                                                }
-                                            }
-                                        }
-                                        .padding(.horizontal, 18)
-                                        .padding(.vertical, 4)
-                                    }
-                                }
-                                .padding(.top, 10)
-                                .id("comparative_section")
-                            }
-
-                            // 5. Spotlight / Best Deal Card (Screenshot 3)
-                            if let spot = spotlight {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    ShopSpotlightCardView(spotlight: spot) {
-                                        selectedRecentProduct = spot.product
-                                    }
-                                    .padding(.horizontal, 18)
-                                    .padding(.top, 10)
-                                }
-                                .id("spotlight_section")
-                            }
-
-                            // 5. Follow-Up Suggestion Pills (Screenshot 4 style)
-                            if !followUpSuggestions.isEmpty {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    ForEach(followUpSuggestions, id: \.self) { suggestion in
-                                        ShopFollowUpPillButton(title: suggestion) {
-                                            handleFollowUpTap(suggestion)
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 18)
-                                .padding(.top, 14)
-                                .id("followups_section")
-                            }
-
-                            // 6. AI Disclaimer & Thumbs Feedback (Matches Screenshot 1)
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("L'IA può commettere errori, ricontrolla le risposte.")
-                                    .font(.system(size: 13, weight: .regular))
-                                    .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
-                                    .padding(.horizontal, 18)
-                                    .padding(.top, 6)
-
-                                HStack(spacing: 0) {
-                                    Button(action: {
-                                        let impact = UIImpactFeedbackGenerator(style: .light)
-                                        impact.impactOccurred()
-                                        withAnimation { userFeedback = 1 }
-                                        feedbackConfig = SearchFeedbackSheetConfig(
-                                            query: searchText.isEmpty ? "Ricerca" : searchText,
-                                            feedbackType: "positive",
-                                            products: curatedProductsForFeedback
-                                        )
-                                    }) {
-                                        Image(systemName: userFeedback == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundColor(userFeedback == 1 ? Color(red: 22/255, green: 163/255, blue: 74/255) : Color(red: 110/255, green: 110/255, blue: 120/255))
-                                            .padding(.horizontal, 14)
-                                            .padding(.vertical, 8)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-
-                                    Divider()
-                                        .frame(height: 16)
-                                        .background(Color.black.opacity(0.12))
-
-                                    Button(action: {
-                                        let impact = UIImpactFeedbackGenerator(style: .light)
-                                        impact.impactOccurred()
-                                        withAnimation { userFeedback = -1 }
-                                        feedbackConfig = SearchFeedbackSheetConfig(
-                                            query: searchText.isEmpty ? "Ricerca" : searchText,
-                                            feedbackType: "negative",
-                                            products: curatedProductsForFeedback
-                                        )
-                                    }) {
-                                        Image(systemName: userFeedback == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundColor(userFeedback == -1 ? Color(red: 220/255, green: 38/255, blue: 38/255) : Color(red: 110/255, green: 110/255, blue: 120/255))
-                                            .padding(.horizontal, 14)
-                                            .padding(.vertical, 8)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
-                                .background(Color(red: 242/255, green: 243/255, blue: 246/255))
-                                .cornerRadius(12)
-                                .padding(.horizontal, 18)
+                            // Follow-up error retry banner (if follow-up failed)
+                            if let followUpErr = followUpErrorMessage {
+                                followUpErrorSection(followUpErr)
                             }
 
                             // Spacing at bottom for floating follow-up bar and dock
                             Spacer(minLength: 130)
+                        }
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            if isFollowUpFieldFocused || isSearchFieldFocused {
+                                hideAllKeyboards()
+                            }
+                        }
+                    )
+                    .onChange(of: conversationTurns.count) { _ in
+                        if let lastTurn = conversationTurns.last, lastTurn.isFollowUp {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                    proxy.scrollTo(lastTurn.id, anchor: .top)
+                                }
+                            }
+                        }
+                    }
+                    .onChange(of: isFollowUpLoading) { loading in
+                        if loading {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                withAnimation {
+                                    proxy.scrollTo("follow_up_loading_section", anchor: .bottom)
+                                }
+                            }
                         }
                     }
                     .onChange(of: curatedSections) { _ in
@@ -965,6 +802,516 @@ struct SearchView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // MARK: - Conversational Turn Content View
+    @ViewBuilder
+    private func turnContentView(for turn: SearchConversationTurn) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // User Follow-up Query Bubble (when this turn is a follow-up)
+            if turn.isFollowUp {
+                HStack {
+                    Spacer()
+                    Text(turn.query)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.shopPurple, Color(red: 100/255, green: 55/255, blue: 235/255)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .cornerRadius(20)
+                        .shadow(color: Color.shopPurple.opacity(0.18), radius: 6, y: 3)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
+                .padding(.bottom, 2)
+            }
+
+            // 1. Header: "Ho cercato ... >" (or Shield / Alert for Off-topic/Security)
+            if turn.isOffTopic || turn.isUnsafe || turn.conversationalHeader.contains("non pertinente") || turn.conversationalHeader.contains("non consentita") {
+                HStack(spacing: 6) {
+                    Image(systemName: turn.isUnsafe ? "shield.slash.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(turn.isUnsafe ? Color(red: 220/255, green: 38/255, blue: 38/255) : Color.shopPurple)
+                    Text(turn.conversationalHeader)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.shopDark)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, turn.isFollowUp ? 4 : 8)
+            } else {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if let idx = conversationTurns.firstIndex(where: { $0.id == turn.id }) {
+                            conversationTurns[idx].showAiExplanation.toggle()
+                        }
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Text(turn.conversationalHeader)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                            .rotationEffect(.degrees(turn.showAiExplanation ? 90 : 0))
+                    }
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(.horizontal, 18)
+                .padding(.top, turn.isFollowUp ? 4 : 8)
+            }
+
+            // Chips (collapsible)
+            if turn.showAiExplanation && !turn.activeChips.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(turn.activeChips) { chip in
+                            ShopSearchChipView(chip: chip) {
+                                removeChip(chip)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 2)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            // 2. Conversational Narrative Paragraph
+            if !turn.conversationalSummary.isEmpty {
+                if turn.isOffTopic || turn.isUnsafe || turn.conversationalHeader.contains("non pertinente") || turn.conversationalHeader.contains("non consentita") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(LocalizedStringKey(turn.conversationalSummary))
+                            .font(.system(size: 14.5, weight: .regular))
+                            .foregroundColor(.shopDark)
+                            .lineSpacing(4.5)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Color(red: 248/255, green: 248/255, blue: 251/255))
+                    .cornerRadius(16)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 18)
+                } else {
+                    Text(LocalizedStringKey(turn.conversationalSummary))
+                        .font(.system(size: 15.5, weight: .regular))
+                        .foregroundColor(.shopDark)
+                        .lineSpacing(4.5)
+                        .padding(.horizontal, 18)
+                }
+            }
+
+            // 3. Thematic Curated Carousels
+            if !turn.curatedSections.isEmpty {
+                ForEach(turn.curatedSections) { section in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(section.title)
+                            .font(.system(size: 18.5, weight: .bold))
+                            .foregroundColor(.shopDark)
+                            .padding(.horizontal, 18)
+
+                        Text(section.subtitle)
+                            .font(.system(size: 12.5, weight: .regular))
+                            .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                            .padding(.horizontal, 18)
+                            .padding(.bottom, 4)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 14) {
+                                ForEach(section.products) { prod in
+                                    ShopThemedCarouselCard(product: prod) {
+                                        selectedRecentProduct = prod
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+            } else if !turn.searchResults.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("I Modelli Selezionati")
+                        .font(.system(size: 18.5, weight: .bold))
+                        .foregroundColor(.shopDark)
+                        .padding(.horizontal, 18)
+
+                    Text("Tutti i prodotti trovati per la tua ricerca")
+                        .font(.system(size: 12.5, weight: .regular))
+                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 4)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 14) {
+                            ForEach(turn.searchResults) { prod in
+                                ShopThemedCarouselCard(product: prod) {
+                                    selectedRecentProduct = prod
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 4)
+                    }
+                }
+                .padding(.top, 8)
+            }
+
+            // 4. Comparative Spec Cards
+            if !turn.comparativeCards.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(turn.comparativeCards.first?.section_title ?? "Confronto rapido")
+                        .font(.system(size: 18.5, weight: .bold))
+                        .foregroundColor(.shopDark)
+                        .padding(.horizontal, 18)
+
+                    Text("Scegli in base all'uso principale")
+                        .font(.system(size: 12.5, weight: .regular))
+                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 4)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 14) {
+                            ForEach(turn.comparativeCards) { card in
+                                ShopComparativeCard(card: card) {
+                                    selectedRecentProduct = card.product
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 4)
+                    }
+                }
+                .padding(.top, 10)
+                .id(turn.id == conversationTurns.first?.id ? "comparative_section" : "comparative_section_\(turn.id)")
+            }
+
+            // 5. Spotlight / Best Deal Card
+            if let spot = turn.spotlight {
+                VStack(alignment: .leading, spacing: 6) {
+                    ShopSpotlightCardView(spotlight: spot) {
+                        selectedRecentProduct = spot.product
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 10)
+                }
+                .id(turn.id == conversationTurns.first?.id ? "spotlight_section" : "spotlight_section_\(turn.id)")
+            }
+
+            // 6. Follow-Up Suggestion Pills (Shown for the latest turn when not loading)
+            if turn.id == conversationTurns.last?.id && !isFollowUpLoading && !turn.followUpSuggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(turn.followUpSuggestions, id: \.self) { suggestion in
+                        ShopFollowUpPillButton(title: suggestion) {
+                            handleFollowUpTap(suggestion)
+                        }
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+                .id("followups_section")
+            }
+
+            // 7. AI Disclaimer & Thumbs Feedback
+            turnFeedbackBar(for: turn)
+
+            // Divider between conversation turns
+            if turn.id != conversationTurns.last?.id {
+                Divider()
+                    .background(Color.black.opacity(0.08))
+                    .padding(.horizontal, 18)
+                    .padding(.top, 12)
+            }
+        }
+    }
+
+    // MARK: - Follow-Up Loading Section
+    private var followUpLoadingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let pending = pendingFollowUpQuery {
+                HStack {
+                    Spacer()
+                    Text(pending)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.shopPurple, Color(red: 100/255, green: 55/255, blue: 235/255)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .cornerRadius(20)
+                        .shadow(color: Color.shopPurple.opacity(0.18), radius: 6, y: 3)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
+            }
+
+            // Upgraded Agent Thinking HUD for Follow-Up
+            ShopAgentThinkingCardView(
+                query: pendingFollowUpQuery ?? lastFollowUpQuery ?? "",
+                isFollowUp: true
+            )
+            .padding(.horizontal, 18)
+        }
+    }
+
+    // MARK: - Follow-Up Error Section
+    private func followUpErrorSection(_ errorText: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14))
+                .foregroundColor(Color(red: 220/255, green: 38/255, blue: 38/255))
+            Text(errorText)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.shopDark)
+            Spacer()
+            if let lastQ = lastFollowUpQuery {
+                Button("Riprova") {
+                    executeSearch(isFollowUp: true, rawFollowUpText: lastQ)
+                }
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(.shopPurple)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(red: 254/255, green: 242/255, blue: 242/255))
+        .cornerRadius(14)
+        .padding(.horizontal, 18)
+        .padding(.top, 4)
+    }
+
+    // MARK: - Turn Feedback Bar
+    private func turnFeedbackBar(for turn: SearchConversationTurn) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("L'IA può commettere errori, ricontrolla le risposte.")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                .padding(.horizontal, 18)
+                .padding(.top, 6)
+
+            HStack(spacing: 0) {
+                Button(action: {
+                    let impact = UIImpactFeedbackGenerator(style: .light)
+                    impact.impactOccurred()
+                    if let idx = conversationTurns.firstIndex(where: { $0.id == turn.id }) {
+                        withAnimation { conversationTurns[idx].userFeedback = 1 }
+                    }
+                    userFeedback = 1
+                    feedbackConfig = SearchFeedbackSheetConfig(
+                        query: turn.query.isEmpty ? (searchText.isEmpty ? "Ricerca" : searchText) : turn.query,
+                        feedbackType: "positive",
+                        products: turn.productsForFeedback
+                    )
+                }) {
+                    Image(systemName: turn.userFeedback == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(turn.userFeedback == 1 ? Color(red: 22/255, green: 163/255, blue: 74/255) : Color(red: 110/255, green: 110/255, blue: 120/255))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Divider()
+                    .frame(height: 16)
+                    .background(Color.black.opacity(0.12))
+
+                Button(action: {
+                    let impact = UIImpactFeedbackGenerator(style: .light)
+                    impact.impactOccurred()
+                    if let idx = conversationTurns.firstIndex(where: { $0.id == turn.id }) {
+                        withAnimation { conversationTurns[idx].userFeedback = -1 }
+                    }
+                    userFeedback = -1
+                    feedbackConfig = SearchFeedbackSheetConfig(
+                        query: turn.query.isEmpty ? (searchText.isEmpty ? "Ricerca" : searchText) : turn.query,
+                        feedbackType: "negative",
+                        products: turn.productsForFeedback
+                    )
+                }) {
+                    Image(systemName: turn.userFeedback == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(turn.userFeedback == -1 ? Color(red: 220/255, green: 38/255, blue: 38/255) : Color(red: 110/255, green: 110/255, blue: 120/255))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .background(Color(red: 242/255, green: 243/255, blue: 246/255))
+            .cornerRadius(12)
+            .padding(.horizontal, 18)
+        }
+    }
+
+    // MARK: - Legacy Single Turn View (Fallback)
+    private var legacyTurnView: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showAiExplanation.toggle()
+                }
+            }) {
+                HStack(spacing: 4) {
+                    Text(conversationalHeader)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                        .rotationEffect(.degrees(showAiExplanation ? 90 : 0))
+                }
+            }
+            .buttonStyle(PlainButtonStyle())
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+
+            if showAiExplanation && !activeChips.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(activeChips) { chip in
+                            ShopSearchChipView(chip: chip) {
+                                removeChip(chip)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 2)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            if !conversationalSummary.isEmpty {
+                Text(LocalizedStringKey(conversationalSummary))
+                    .font(.system(size: 15.5, weight: .regular))
+                    .foregroundColor(.shopDark)
+                    .lineSpacing(4.5)
+                    .padding(.horizontal, 18)
+            }
+
+            if !curatedSections.isEmpty {
+                ForEach(curatedSections) { section in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(section.title)
+                            .font(.system(size: 18.5, weight: .bold))
+                            .foregroundColor(.shopDark)
+                            .padding(.horizontal, 18)
+
+                        Text(section.subtitle)
+                            .font(.system(size: 12.5, weight: .regular))
+                            .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                            .padding(.horizontal, 18)
+                            .padding(.bottom, 4)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 14) {
+                                ForEach(section.products) { prod in
+                                    ShopThemedCarouselCard(product: prod) {
+                                        selectedRecentProduct = prod
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+            } else if !searchResults.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("I Modelli Selezionati")
+                        .font(.system(size: 18.5, weight: .bold))
+                        .foregroundColor(.shopDark)
+                        .padding(.horizontal, 18)
+
+                    Text("Tutti i prodotti trovati per la tua ricerca")
+                        .font(.system(size: 12.5, weight: .regular))
+                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 4)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 14) {
+                            ForEach(searchResults) { prod in
+                                ShopThemedCarouselCard(product: prod) {
+                                    selectedRecentProduct = prod
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 4)
+                    }
+                }
+                .padding(.top, 8)
+            }
+
+            if !comparativeCards.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(comparativeCards.first?.section_title ?? "Confronto rapido")
+                        .font(.system(size: 18.5, weight: .bold))
+                        .foregroundColor(.shopDark)
+                        .padding(.horizontal, 18)
+
+                    Text("Scegli in base all'uso principale")
+                        .font(.system(size: 12.5, weight: .regular))
+                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 4)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 14) {
+                            ForEach(comparativeCards) { card in
+                                ShopComparativeCard(card: card) {
+                                    selectedRecentProduct = card.product
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 4)
+                    }
+                }
+                .padding(.top, 10)
+                .id("comparative_section")
+            }
+
+            if let spot = spotlight {
+                VStack(alignment: .leading, spacing: 6) {
+                    ShopSpotlightCardView(spotlight: spot) {
+                        selectedRecentProduct = spot.product
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 10)
+                }
+                .id("spotlight_section")
+            }
+
+            if !followUpSuggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(followUpSuggestions, id: \.self) { suggestion in
+                        ShopFollowUpPillButton(title: suggestion) {
+                            handleFollowUpTap(suggestion)
+                        }
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+                .id("followups_section")
             }
         }
     }
@@ -1006,6 +1353,7 @@ struct SearchView: View {
                 }
 
                 Button(action: {
+                    userForcedClassicMode = true
                     withAnimation {
                         isDeepDiveMode = false
                     }
@@ -1062,9 +1410,11 @@ struct SearchView: View {
                 }
 
                 Button(action: {
+                    userForcedClassicMode = true
                     withAnimation {
                         isDeepDiveMode = false
                     }
+                    executeSearch()
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "magnifyingglass")
@@ -1087,12 +1437,7 @@ struct SearchView: View {
             // Top Nav Row
             HStack(spacing: 12) {
                 Button(action: {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                        hasSearched = false
-                        searchResults = []
-                        isSmartSearchActive = false
-                        errorMessage = nil
-                    }
+                    resetToSearchTyping(keepText: false)
                 }) {
                     Circle()
                         .fill(Color.white)
@@ -1106,15 +1451,14 @@ struct SearchView: View {
                 }
 
                 Button(action: {
-                    hasSearched = false
-                    isSearchFieldFocused = true
+                    resetToSearchTyping(keepText: true)
                 }) {
                     HStack(spacing: 10) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundColor(Color(red: 80/255, green: 80/255, blue: 90/255))
 
-                        Text(searchText.isEmpty ? "Cerca prodotto..." : searchText)
+                        Text(rootQuery.isEmpty ? (searchText.isEmpty ? "Cerca prodotto..." : searchText) : rootQuery)
                             .font(.system(size: 15.5, weight: .medium))
                             .foregroundColor(.shopDark)
                             .lineLimit(1)
@@ -1129,6 +1473,7 @@ struct SearchView: View {
 
                 // Switch to AI Deep Dive Mode Button
                 Button(action: {
+                    userForcedClassicMode = false
                     withAnimation(.easeInOut(duration: 0.25)) {
                         isDeepDiveMode = true
                     }
@@ -1344,6 +1689,14 @@ struct SearchView: View {
                     .padding(.top, 12)
                     .padding(.bottom, 130)
                 }
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        if isFollowUpFieldFocused || isSearchFieldFocused {
+                            hideAllKeyboards()
+                        }
+                    }
+                )
             } else {
                 VStack(spacing: 14) {
                     Image(systemName: "magnifyingglass.circle")
@@ -1364,69 +1717,168 @@ struct SearchView: View {
     // MARK: - Sticky Bottom Follow-Up Bar (Screenshots 1, 2, 3, 4)
     private var stickyFollowUpInputBar: some View {
         HStack(spacing: 10) {
-            Button(action: {
-                showVisualSearch = true
-            }) {
-                Image(systemName: "camera")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                    .padding(.leading, 2)
-            }
-            .buttonStyle(PlainButtonStyle())
-
-            TextField("Fai una domanda di follow-up", text: $followUpInputText)
-                .font(.system(size: 14.5, weight: .medium))
-                .foregroundColor(.shopDark)
-                .focused($isFollowUpFieldFocused)
-                .onSubmit {
-                    sendFollowUp()
-                }
-
-            if !followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Main Pill Capsule
+            HStack(spacing: 10) {
                 Button(action: {
-                    sendFollowUp()
+                    hideAllKeyboards()
+                    showVisualSearch = true
                 }) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 26))
-                        .foregroundColor(.shopPurple)
+                    Image(systemName: "camera")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                        .padding(.leading, 2)
                 }
-            } else {
-                Button(action: {
-                    withAnimation {
-                        hasSearched = false
-                        isSearchFieldFocused = true
+                .buttonStyle(PlainButtonStyle())
+
+                TextField("Fai una domanda di follow-up", text: $followUpInputText)
+                    .font(.system(size: 14.5, weight: .medium))
+                    .foregroundColor(.shopDark)
+                    .focused($isFollowUpFieldFocused)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        sendFollowUp()
                     }
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
-                        .frame(width: 28, height: 28)
-                        .background(Color.black.opacity(0.05))
-                        .clipShape(Circle())
+                    .disabled(isLoading || isFollowUpLoading)
+
+                if !followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // Quick clear button for what the user typed
+                    Button(action: {
+                        followUpInputText = ""
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    // Send Button
+                    Button(action: {
+                        sendFollowUp()
+                    }) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 26))
+                            .foregroundColor((isLoading || isFollowUpLoading) ? Color.shopPurple.opacity(0.4) : .shopPurple)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isLoading || isFollowUpLoading)
+                } else {
+                    // When text is empty:
+                    // If focused (keyboard is open): tapping this dismisses the keyboard!
+                    // If NOT focused (normal browsing): tapping this returns to search typing view!
+                    Button(action: {
+                        if isFollowUpFieldFocused || keyboardObserver.isKeyboardVisible {
+                            hideAllKeyboards()
+                        } else {
+                            resetToSearchTyping(keepText: true)
+                        }
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                            .frame(width: 28, height: 28)
+                            .background(Color.black.opacity(0.05))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color.white)
+            .cornerRadius(26)
+            .overlay(
+                RoundedRectangle(cornerRadius: 26)
+                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
+
+            // External dismiss button (Matches Image 1 style) when keyboard is open
+            if isFollowUpFieldFocused || keyboardObserver.isKeyboardVisible {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    hideAllKeyboards()
+                }) {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 48, height: 48)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24)
+                                .stroke(Color.black.opacity(0.12), lineWidth: 1)
+                        )
+                        .overlay(
+                            Image(systemName: "xmark")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.shopDark)
+                        )
+                        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 3)
+                }
+                .transition(.scale.combined(with: .opacity))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color.white)
-        .cornerRadius(26)
-        .overlay(
-            RoundedRectangle(cornerRadius: 26)
-                .stroke(Color.black.opacity(0.12), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
         .padding(.horizontal, 16)
         .padding(.bottom, floatingBarBottomPadding)
     }
 
+    private func hideAllKeyboards() {
+        isSearchFieldFocused = false
+        isFollowUpFieldFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        tabVisibility.setHidden(false, for: "search_input")
+    }
+
+    private func updateTabBarVisibility() {
+        let isFocused = isSearchFieldFocused || isFollowUpFieldFocused
+        tabVisibility.setHidden(isFocused, for: "search_input")
+    }
+
+    private func resetToSearchTyping(keepText: Bool = false) {
+        hideAllKeyboards()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+            hasSearched = false
+            searchResults = []
+            curatedSections = []
+            comparativeCards = []
+            spotlight = nil
+            followUpSuggestions = []
+            isSmartSearchActive = false
+            errorMessage = nil
+            followUpInputText = ""
+            selectedFilterCountry = nil
+            selectedSize = nil
+            selectedStore = nil
+            overrideMaxPrice = nil
+            userFeedback = nil
+            userForcedClassicMode = false
+            lastFollowUpQuery = nil
+            conversationTurns = []
+            isFollowUpLoading = false
+            pendingFollowUpQuery = nil
+            followUpErrorMessage = nil
+            if !keepText {
+                searchText = ""
+                rootQuery = ""
+                lastContextQuery = nil
+            } else if !rootQuery.isEmpty {
+                searchText = rootQuery
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isSearchFieldFocused = true
+        }
+    }
+
     private func sendFollowUp() {
+        guard !isLoading && !isFollowUpLoading else { return }
         let text = followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         followUpInputText = ""
+        hideAllKeyboards()
         handleFollowUpTap(text)
     }
 
     private func handleFollowUpTap(_ suggestion: String) {
+        guard !isLoading && !isFollowUpLoading else { return }
+        hideAllKeyboards()
         let trimmed = suggestion.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -1445,6 +1897,8 @@ struct SearchView: View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        hideAllKeyboards()
+
         if let (mA, mB) = parseComparisonQuery(trimmed) {
             let impact = UIImpactFeedbackGenerator(style: .medium)
             impact.impactOccurred()
@@ -1453,8 +1907,12 @@ struct SearchView: View {
             return
         }
 
-        searchText = trimmed
-        executeSearch(isFollowUp: isFollowUp)
+        if !isFollowUp {
+            rootQuery = trimmed
+            searchText = trimmed
+            userForcedClassicMode = false
+        }
+        executeSearch(isFollowUp: isFollowUp, rawFollowUpText: isFollowUp ? trimmed : nil)
     }
 
     private func parseComparisonQuery(_ text: String) -> (String, String)? {
@@ -1493,22 +1951,58 @@ struct SearchView: View {
     }
 
     // MARK: - Search Execution
-    private func executeSearch(isFollowUp: Bool = false) {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func executeSearch(isFollowUp: Bool = false, rawFollowUpText: String? = nil) {
+        let activeQuery = isFollowUp ? (rawFollowUpText ?? searchText) : searchText
+        let query = activeQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
 
-        recentManager.recordSearch(query)
-        isLoading = true
+        hideAllKeyboards()
+
+        if !isFollowUp {
+            rootQuery = query
+            conversationalHeader = "Ho cercato \(query)"
+            conversationTurns = []
+            isLoading = true
+            isFollowUpLoading = false
+            pendingFollowUpQuery = nil
+            followUpErrorMessage = nil
+        } else {
+            lastFollowUpQuery = query
+            pendingFollowUpQuery = query
+            isFollowUpLoading = true
+            // Do NOT wipe out existing turns with full-screen skeleton
+            isLoading = false
+            followUpErrorMessage = nil
+            userForcedClassicMode = false
+            isDeepDiveMode = true
+        }
+
         hasSearched = true
         errorMessage = nil
-        conversationalHeader = "Ho cercato \(query)"
 
-        let activeContext = isFollowUp ? lastContextQuery : nil
+        let activeContext: String?
+        if isFollowUp {
+            let turnQueries = conversationTurns.map { $0.query }.filter { !$0.isEmpty }
+            if !turnQueries.isEmpty {
+                activeContext = turnQueries.joined(separator: " >> ")
+            } else if let last = lastContextQuery, !last.isEmpty, last != rootQuery {
+                activeContext = "\(rootQuery) >> \(last)"
+            } else if !rootQuery.isEmpty {
+                activeContext = rootQuery
+            } else {
+                activeContext = lastContextQuery
+            }
+        } else {
+            activeContext = nil
+        }
+
+        let requestedMode = userForcedClassicMode ? "classic" : nil
 
         Task {
             do {
                 let smartRes = try await api.smartSearch(
                     query: query,
+                    mode: requestedMode,
                     maxPrice: overrideMaxPrice,
                     size: selectedSize,
                     store: selectedStore,
@@ -1516,6 +2010,7 @@ struct SearchView: View {
                 )
                 await MainActor.run {
                     self.errorMessage = nil
+                    self.followUpErrorMessage = nil
                     self.smartIntent = smartRes.intent
                     self.activeChips = smartRes.chips ?? []
                     self.searchResults = smartRes.results
@@ -1523,10 +2018,52 @@ struct SearchView: View {
                     self.comparativeCards = smartRes.comparative_cards ?? []
                     self.spotlight = smartRes.spotlight
                     self.followUpSuggestions = smartRes.follow_up_suggestions ?? []
-                    self.conversationalHeader = smartRes.conversational_header ?? "Ho cercato \(query)"
+                    self.conversationalHeader = smartRes.conversational_header ?? (isFollowUp ? "Ho cercato \(query)" : "Ho cercato \(self.rootQuery.isEmpty ? query : self.rootQuery)")
                     self.conversationalSummary = smartRes.conversational_summary ?? (smartRes.intent?.explanation ?? "")
-                    self.lastContextQuery = query
+
+                    let isOff = smartRes.is_off_topic ?? (smartRes.intent?.is_off_topic ?? false)
+                    let isUnsafe = smartRes.is_unsafe ?? (smartRes.intent?.is_unsafe ?? false)
+
+                    let newTurn = SearchConversationTurn(
+                        id: UUID().uuidString,
+                        query: query,
+                        isFollowUp: isFollowUp,
+                        conversationalHeader: self.conversationalHeader,
+                        conversationalSummary: self.conversationalSummary,
+                        smartIntent: smartRes.intent,
+                        activeChips: smartRes.chips ?? [],
+                        searchResults: smartRes.results,
+                        curatedSections: smartRes.curated_sections ?? [],
+                        comparativeCards: smartRes.comparative_cards ?? [],
+                        spotlight: smartRes.spotlight,
+                        followUpSuggestions: smartRes.follow_up_suggestions ?? [],
+                        userFeedback: nil,
+                        showAiExplanation: false,
+                        error: nil,
+                        isOffTopic: isOff,
+                        isUnsafe: isUnsafe,
+                        timestamp: Date()
+                    )
+
+                    if !isFollowUp {
+                        self.rootQuery = query
+                        self.lastContextQuery = query
+                        self.conversationTurns = [newTurn]
+                        // Record only genuine shopping searches with products (never conversational follow-ups, off-topic, or empty)
+                        if !isOff && !isUnsafe && !smartRes.results.isEmpty {
+                            self.recentManager.recordSearch(query)
+                        }
+                    } else {
+                        self.lastContextQuery = query
+                        self.conversationTurns.append(newTurn)
+                    }
+
+                    self.pendingFollowUpQuery = nil
+                    self.isFollowUpLoading = false
+
                     if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
+                        self.isDeepDiveMode = false
+                    } else if self.userForcedClassicMode {
                         self.isDeepDiveMode = false
                     } else {
                         self.isDeepDiveMode = smartRes.is_deep_dive ?? true
@@ -1535,26 +2072,37 @@ struct SearchView: View {
                     self.isLoading = false
                 }
             } catch {
-                if let local = try? await api.searchCatalog(query: query, limit: 30), !local.isEmpty {
-                    await MainActor.run {
-                        self.errorMessage = nil
-                        self.searchResults = local
-                        self.isDeepDiveMode = false
-                        self.isSmartSearchActive = false
-                        self.isLoading = false
-                    }
-                } else if let live = try? await api.search(query: query, size: selectedSize), !live.isEmpty {
-                    await MainActor.run {
-                        self.errorMessage = nil
-                        self.searchResults = live
-                        self.isDeepDiveMode = false
-                        self.isSmartSearchActive = false
-                        self.isLoading = false
+                if !isFollowUp {
+                    if let local = try? await api.searchCatalog(query: query, limit: 30), !local.isEmpty {
+                        await MainActor.run {
+                            self.errorMessage = nil
+                            self.searchResults = local
+                            self.isDeepDiveMode = false
+                            self.isSmartSearchActive = false
+                            self.isLoading = false
+                            self.recentManager.recordSearch(query)
+                        }
+                    } else if let live = try? await api.search(query: query, size: selectedSize), !live.isEmpty {
+                        await MainActor.run {
+                            self.errorMessage = nil
+                            self.searchResults = live
+                            self.isDeepDiveMode = false
+                            self.isSmartSearchActive = false
+                            self.isLoading = false
+                            self.recentManager.recordSearch(query)
+                        }
+                    } else {
+                        await MainActor.run {
+                            self.errorMessage = "Impossibile recuperare i risultati in questo momento. Il server potrebbe essere occupato, tocca Riprova per aggiornare."
+                            self.isLoading = false
+                        }
                     }
                 } else {
+                    // Follow-up failed: preserve all existing turns and show retry notification
                     await MainActor.run {
-                        self.errorMessage = "Impossibile recuperare i risultati in questo momento. Il server potrebbe essere occupato, tocca Riprova per aggiornare."
-                        self.isLoading = false
+                        self.isFollowUpLoading = false
+                        self.pendingFollowUpQuery = nil
+                        self.followUpErrorMessage = "Impossibile completare il follow-up in questo momento."
                     }
                 }
             }
@@ -1564,6 +2112,9 @@ struct SearchView: View {
     private func removeChip(_ chip: SmartSearchChip) {
         withAnimation {
             activeChips.removeAll { $0.id == chip.id }
+            if let lastIdx = conversationTurns.indices.last {
+                conversationTurns[lastIdx].activeChips.removeAll { $0.id == chip.id }
+            }
             if chip.param_key == "max_price" {
                 overrideMaxPrice = 9999.0
             } else if chip.param_key == "size" {

@@ -202,6 +202,15 @@ struct StoreDetailView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
+        .onAppear {
+            TabBarVisibilityManager.shared.hide(for: "store_detail")
+        }
+        .onDisappear {
+            TabBarVisibilityManager.shared.show(for: "store_detail")
+        }
         .task {
             loadStoreData()
         }

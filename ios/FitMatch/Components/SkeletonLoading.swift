@@ -273,9 +273,307 @@ struct ShopDealsSkeletonView: View {
     }
 }
 
-// MARK: - 4. Search Screen Skeletons (AI Deep Dive & Classic)
+// MARK: - 4. Search Screen Skeletons & Agent Thinking HUD (AI Deep Dive & Classic)
+
+// MARK: - AI Query Analysis for Agent Thinking
+
+struct QueryAnalysis {
+    var category: String? = nil
+    var budget: String? = nil
+    var brand: String? = nil
+    var technicalSpec: String? = nil
+
+    static func analyze(_ query: String) -> QueryAnalysis {
+        let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = clean.lowercased()
+        var res = QueryAnalysis()
+
+        // 1. Budget extraction
+        let budgetPatterns = [
+            #"(?:sotto|meno di|entro|fino a|max|massimo)\s+(?:i\s+)?(\d+)(?:\s*€|\s*euro)?"#,
+            #"<\s*(\d+)(?:\s*€|\s*euro)?"#,
+            #"(\d+)(?:\s*€|\s*euro)\s+max"#
+        ]
+        for pattern in budgetPatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+               let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+               let r = Range(match.range(at: 1), in: lower) {
+                let amount = String(lower[r])
+                res.budget = "max €\(amount)"
+                break
+            }
+        }
+        if res.budget == nil && (lower.contains("economiche") || lower.contains("economici") || lower.contains("sconto") || lower.contains("offerta")) {
+            res.budget = "Miglior rapporto qualità/prezzo"
+        }
+
+        // 2. Brand detection
+        let knownBrands = [
+            "Nike", "Adidas", "Asics", "Hoka", "Saucony", "Brooks", "Salomon", "Puma",
+            "Garmin", "Oakley", "Coros", "New Balance", "Regatta", "Arena", "Tyr", "Mizuno", "On"
+        ]
+        for b in knownBrands {
+            if lower.contains(b.lowercased()) {
+                res.brand = b
+                break
+            }
+        }
+
+        // 3. Category detection
+        let categories: [(keywords: [String], name: String)] = [
+            (["occhiali", "occhialini", "lenti"], "Occhiali & Protezione"),
+            (["scarpe", "scarpa", "sneaker", "footwear"], "Calzature Tecniche"),
+            (["pantaloncini", "shorts", "leggings", "tights", "pantaloni"], "Pantaloni & Shorts"),
+            (["maglia", "t-shirt", "long sleeve", "top", "canotta", "termica"], "Abbigliamento Tecnico"),
+            (["giacca", "antivento", "antipioggia", "k-way"], "Giacche & Protezione"),
+            (["orologio", "smartwatch", "cardio", "gps", "forerunner"], "Smartwatch & GPS"),
+            (["zaino", "gilet idratazione", "cintura", "borraccia"], "Accessori & Idratazione")
+        ]
+        for cat in categories {
+            if cat.keywords.contains(where: { lower.contains($0) }) {
+                res.category = cat.name
+                break
+            }
+        }
+
+        // 4. Activity / Technical specs
+        if lower.contains("running") || lower.contains("corsa") || lower.contains("maratona") {
+            res.technicalSpec = "Running su strada"
+        } else if lower.contains("trail") {
+            res.technicalSpec = "Trail Running"
+        } else if lower.contains("hyrox") || lower.contains("crossfit") || lower.contains("palestra") {
+            res.technicalSpec = "Allenamento Ibrido / Hyrox"
+        } else if lower.contains("nuoto") || lower.contains("piscina") {
+            res.technicalSpec = "Nuoto & Sport acquatici"
+        } else if lower.contains("bici") || lower.contains("ciclismo") {
+            res.technicalSpec = "Ciclismo & Bici"
+        } else if lower.contains("ammortizzat") {
+            res.technicalSpec = "Ammortizzazione avanzata"
+        } else if lower.contains("carbonio") || lower.contains("gara") {
+            res.technicalSpec = "Piastra in carbonio / Gara"
+        } else if lower.contains("pioggia") || lower.contains("gtx") || lower.contains("impermeabil") {
+            res.technicalSpec = "Membrana impermeabile"
+        } else if lower.contains("sport") {
+            res.technicalSpec = "Attrezzatura & Sport"
+        }
+
+        return res
+    }
+
+    var summaryText: String {
+        var parts: [String] = []
+        if let cat = category { parts.append(cat) }
+        if let spec = technicalSpec { parts.append(spec) }
+        if let br = brand { parts.append("Brand: \(br)") }
+        if let bg = budget { parts.append(bg) }
+        if parts.isEmpty {
+            return "Ricerca semantica cataloghi partner"
+        }
+        return parts.joined(separator: " • ")
+    }
+}
+
+// MARK: - Agent Thinking & Operations HUD (Codex / Antigravity Style)
+
+struct ShopAgentThinkingCardView: View {
+    var query: String
+    var isFollowUp: Bool = false
+
+    @State private var activeStep: Int = 0
+    @State private var isExpanded: Bool = true
+    @State private var isPulsing: Bool = false
+
+    private var analysis: QueryAnalysis {
+        QueryAnalysis.analyze(query)
+    }
+
+    private var steps: [(title: String, detail: String)] {
+        if isFollowUp {
+            return [
+                ("Analisi del contesto", "Integrazione con la cronologia della ricerca"),
+                ("Raffinamento parametri", analysis.summaryText == "Ricerca semantica cataloghi partner" ? "Applicazione: \"\(query)\"" : analysis.summaryText),
+                ("Aggiornamento selezione", "Ricalcolo modelli e migliori offerte cross-store")
+            ]
+        } else {
+            return [
+                ("Analisi dell'intento di ricerca", analysis.summaryText),
+                ("Scansione 14 partner in tempo reale", "Nike, Maxi Sport, Cisalfa, Alltricks, Deporvillage..."),
+                ("Confronto prezzi e sconti", "Calcolo miglior prezzo complessivo e disponibilità"),
+                ("Sintesi e modelli consigliati", "Generazione schede comparative e spotlight")
+            ]
+        }
+    }
+
+    private var headerStatusText: String {
+        if activeStep >= steps.count {
+            return "Composizione completata"
+        }
+        switch activeStep {
+        case 0:
+            return isFollowUp ? "Analisi del follow-up" : "Analisi della richiesta"
+        case 1:
+            return isFollowUp ? "Applicazione criteri" : "Scansione partner in corso"
+        case 2:
+            return isFollowUp ? "Aggiornamento modelli" : "Confronto prezzi e sconti"
+        case 3:
+            return "Finalizzazione risultati"
+        default:
+            return "Elaborazione in corso"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header Bar
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Color.shopPurpleLight)
+                        .frame(width: 34, height: 34)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.shopPurple)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(isFollowUp ? "AGENTE FITMATCH • FOLLOW-UP" : "AGENTE DI RICERCA FITMATCH")
+                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopPurple)
+                            .tracking(0.6)
+
+                        Circle()
+                            .fill(Color.shopPurple)
+                            .frame(width: 6, height: 6)
+                            .scaleEffect(isPulsing ? 1.3 : 0.8)
+                            .opacity(isPulsing ? 1.0 : 0.4)
+                    }
+
+                    Text(headerStatusText)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundColor(.shopDark)
+                        .lineLimit(1)
+                        .id("header_status_\(activeStep)")
+                }
+                .layoutPriority(1)
+
+                Spacer(minLength: 8)
+
+                Button(action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        isExpanded.toggle()
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Text(isExpanded ? "Comprimi" : "Dettagli")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.shopPurple)
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.shopPurple)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Color.shopPurpleLight)
+                    .cornerRadius(12)
+                    .fixedSize()
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+
+            if isExpanded {
+                Divider()
+                    .background(Color.shopPurple.opacity(0.12))
+                    .padding(.horizontal, 12)
+
+                // Progressive Steps List with vertical connecting lines
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { idx, step in
+                        HStack(alignment: .top, spacing: 12) {
+                            // Left indicator & vertical connector
+                            VStack(spacing: 0) {
+                                if idx < activeStep {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundColor(.shopPurple)
+                                        .frame(width: 18, height: 18)
+                                } else if idx == activeStep {
+                                    ProgressView()
+                                        .tint(Color.shopPurple)
+                                        .scaleEffect(0.75)
+                                        .frame(width: 18, height: 18)
+                                } else {
+                                    Circle()
+                                        .stroke(Color.black.opacity(0.18), lineWidth: 1.5)
+                                        .frame(width: 14, height: 14)
+                                        .frame(width: 18, height: 18)
+                                }
+
+                                if idx < steps.count - 1 {
+                                    Rectangle()
+                                        .fill(idx < activeStep ? Color.shopPurple.opacity(0.4) : Color.black.opacity(0.08))
+                                        .frame(width: 2)
+                                        .frame(maxHeight: .infinity)
+                                        .padding(.vertical, 2)
+                                }
+                            }
+                            .frame(width: 18)
+
+                            // Step Title & Detail
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(step.title)
+                                    .font(.system(size: 13, weight: idx == activeStep ? .bold : (idx < activeStep ? .semibold : .regular)))
+                                    .foregroundColor(idx <= activeStep ? .shopDark : Color(red: 160/255, green: 160/255, blue: 170/255))
+
+                                if idx <= activeStep {
+                                    Text(step.detail)
+                                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                                        .foregroundColor(idx == activeStep ? Color.shopPurple : Color(red: 125/255, green: 125/255, blue: 135/255))
+                                        .lineLimit(2)
+                                }
+                            }
+                            .padding(.bottom, idx < steps.count - 1 ? 12 : 2)
+
+                            Spacer()
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .background(Color.white)
+        .cornerRadius(18)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.shopPurple.opacity(0.2), lineWidth: 1.2)
+        )
+        .shadow(color: Color.shopPurple.opacity(0.06), radius: 10, y: 3)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                isPulsing = true
+            }
+
+            let delays: [Double] = isFollowUp ? [0.5, 1.3] : [0.5, 1.3, 2.2]
+            for (idx, delay) in delays.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        if activeStep <= idx {
+                            activeStep = idx + 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 struct ShopSearchDeepDiveSkeletonView: View {
+    var query: String = ""
     private let columns = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
@@ -283,14 +581,11 @@ struct ShopSearchDeepDiveSkeletonView: View {
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                // Conversational Header Line
-                HStack(spacing: 8) {
-                    ShopSkeletonCircle(size: 18)
-                    ShopSkeletonTextLine(width: 220, height: 14, cornerRadius: 5)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 6)
+            VStack(alignment: .leading, spacing: 16) {
+                // Agent Thinking / Operations HUD Card
+                ShopAgentThinkingCardView(query: query, isFollowUp: false)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
 
                 // Spotlight Card Skeleton
                 VStack(alignment: .leading, spacing: 12) {

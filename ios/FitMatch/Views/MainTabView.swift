@@ -2,30 +2,39 @@ import SwiftUI
 
 // MARK: - Tab Bar Visibility Manager
 
+@MainActor
 final class TabBarVisibilityManager: ObservableObject {
     static let shared = TabBarVisibilityManager()
     @Published var isHidden: Bool = false
-    private var hideCount: Int = 0
+    private var activeReasons = Set<String>()
 
-    func hide() {
-        hideCount += 1
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-            isHidden = true
+    func setHidden(_ hidden: Bool, for reason: String = "default") {
+        if hidden {
+            activeReasons.insert(reason)
+        } else {
+            activeReasons.remove(reason)
         }
-    }
-
-    func show() {
-        hideCount = max(0, hideCount - 1)
-        if hideCount == 0 {
+        let shouldHide = !activeReasons.isEmpty
+        if isHidden != shouldHide {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                isHidden = false
+                isHidden = shouldHide
             }
         }
     }
 
+    func hide(for reason: String = "default") {
+        setHidden(true, for: reason)
+    }
+
+    func show(for reason: String = "default") {
+        setHidden(false, for: reason)
+    }
+
     func reset() {
-        hideCount = 0
-        isHidden = false
+        activeReasons.removeAll()
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+            isHidden = false
+        }
     }
 }
 

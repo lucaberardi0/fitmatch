@@ -207,6 +207,11 @@ def compare_models(
     model_b: str = Query(..., min_length=2, description="Second model to compare (e.g. 'Nimbus 26', 'Forerunner 265')")
 ):
     """AI Side-by-side technical, biomechanical, and live pricing comparison between two sports gear models."""
+    from fitmatch.smart_search import QuerySecurityGuardrail
+    for m in [model_a, model_b]:
+        sec = QuerySecurityGuardrail.evaluate(m)
+        if sec and sec.get("is_blocked"):
+            raise HTTPException(status_code=400, detail="Il confronto tecnico è disponibile esclusivamente per scarpe e attrezzatura sportiva.")
     return comparator.compare_models(model_a, model_b)
 
 
@@ -242,6 +247,29 @@ def search_smart(
         return cached_resp
 
     intent = smart_engine.parse_query(q, force_mode=mode, context_query=eff_context)
+
+    # 1. Guardrail Safety & Relevance Check: Strictly block off-topic and unsafe queries!
+    if getattr(intent, "is_off_topic", False) or getattr(intent, "is_unsafe", False) or not intent.target_keywords:
+        logger.info(f"[search_smart] Guardrail blocked query '{q}' (off_topic={getattr(intent, 'is_off_topic', False)}, unsafe={getattr(intent, 'is_unsafe', False)})")
+        from fitmatch.smart_search import QuerySecurityGuardrail
+        result_data = {
+            "search_mode": intent.search_mode,
+            "is_deep_dive": True,
+            "conversational_header": intent.conversational_header or "Richiesta non pertinente",
+            "conversational_summary": intent.conversational_summary or "FitMatch è un assistente specializzato in prodotti per lo sport, la corsa, il fitness e l'outdoor.",
+            "curated_sections": [],
+            "comparative_cards": [],
+            "spotlight": None,
+            "follow_up_suggestions": intent.follow_up_suggestions or QuerySecurityGuardrail.DEFAULT_SPORTS_SUGGESTIONS,
+            "chips": [],
+            "intent": intent.model_dump(),
+            "total_found": 0,
+            "results": [],
+            "is_off_topic": getattr(intent, "is_off_topic", False),
+            "is_unsafe": getattr(intent, "is_unsafe", False)
+        }
+        cache_manager.set_search_response(cache_key, result_data)
+        return result_data
 
     from fitmatch.smart_search import QueryProductGuardrail
     detected_product_type = QueryProductGuardrail.detect_product_type(q, eff_context)
@@ -672,6 +700,11 @@ def search_live(
     cache: bool = Query(True, description="Enable local caching to speed up repeated queries")
 ):
     """Live multi-store federated search across all 10 retailers with optional size verification."""
+    from fitmatch.smart_search import QuerySecurityGuardrail
+    sec_eval = QuerySecurityGuardrail.evaluate(q)
+    if sec_eval and sec_eval.get("is_blocked"):
+        return SearchResult(query=q, total_found=0, matched_products=[], execution_time_ms=0.5)
+
     try:
         results = service.search_and_compare(query=q, size=size, limit_per_store=limit, use_cache=cache)
         return results

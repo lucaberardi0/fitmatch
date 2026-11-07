@@ -102,6 +102,20 @@ struct FitMatchApp: App {
                 NotificationsView()
             } else if ProcessInfo.processInfo.arguments.contains("-testWishlist") {
                 MainTabView(initialTab: 2)
+            } else if ProcessInfo.processInfo.arguments.contains("-testAgentLoading") {
+                NavigationStack {
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            ShopAgentThinkingCardView(query: "Occhiali da sport sotto i 35 euro", isFollowUp: false)
+                            ShopAgentThinkingCardView(query: "e per la pioggia?", isFollowUp: true)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                    }
+                    .background(Color(red: 247/255, green: 247/255, blue: 250/255).ignoresSafeArea())
+                    .navigationTitle("AI Agent Preview")
+                    .navigationBarTitleDisplayMode(.inline)
+                }
             } else if ProcessInfo.processInfo.arguments.contains("-testVisualSearch") {
                 ShopVisualSearchSheet(onSelectModel: { _ in })
             } else if ProcessInfo.processInfo.arguments.contains("-testSearch") {

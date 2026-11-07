@@ -192,7 +192,10 @@ struct HomeView: View {
             .buttonStyle(.plain)
 
             // Search Bar Capsule ("Cerca")
-            NavigationLink(destination: SearchView()) {
+            Button(action: {
+                selectedTab = 1
+                NotificationCenter.default.post(name: NSNotification.Name("FitMatchFocusSearch"), object: nil)
+            }) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 15, weight: .medium))

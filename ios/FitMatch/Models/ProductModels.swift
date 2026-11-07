@@ -468,6 +468,13 @@ struct PriceHistoryPoint: Identifiable, Codable, Hashable {
         df.dateFormat = "d MMM"
         return df.string(from: parsedDate)
     }
+
+    var formattedDateFull: String {
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "it_IT")
+        df.dateFormat = "d MMMM"
+        return df.string(from: parsedDate).capitalized
+    }
 }
 
 struct PriceHistoryResponse: Codable {
@@ -863,6 +870,8 @@ struct SmartSearchIntent: Codable, Hashable {
     let features: [String]?
     let explanation: String?
     let source: String?
+    let is_off_topic: Bool?
+    let is_unsafe: Bool?
 }
 
 struct SmartSearchResponse: Codable {
@@ -878,6 +887,90 @@ struct SmartSearchResponse: Codable {
     let chips: [SmartSearchChip]?
     let total_found: Int
     let results: [MatchedProduct]
+    let is_off_topic: Bool?
+    let is_unsafe: Bool?
+}
+
+// MARK: - Conversational Search Turn Model
+struct SearchConversationTurn: Identifiable, Codable, Hashable {
+    let id: String
+    let query: String
+    let isFollowUp: Bool
+    var conversationalHeader: String
+    var conversationalSummary: String
+    var smartIntent: SmartSearchIntent?
+    var activeChips: [SmartSearchChip]
+    var searchResults: [MatchedProduct]
+    var curatedSections: [CuratedProductSection]
+    var comparativeCards: [ComparativeSpecCard]
+    var spotlight: SpotlightRecommendation?
+    var followUpSuggestions: [String]
+    var userFeedback: Int?
+    var showAiExplanation: Bool
+    var error: String?
+    var isOffTopic: Bool
+    var isUnsafe: Bool
+    let timestamp: Date
+
+    init(
+        id: String = UUID().uuidString,
+        query: String,
+        isFollowUp: Bool,
+        conversationalHeader: String,
+        conversationalSummary: String,
+        smartIntent: SmartSearchIntent? = nil,
+        activeChips: [SmartSearchChip] = [],
+        searchResults: [MatchedProduct] = [],
+        curatedSections: [CuratedProductSection] = [],
+        comparativeCards: [ComparativeSpecCard] = [],
+        spotlight: SpotlightRecommendation? = nil,
+        followUpSuggestions: [String] = [],
+        userFeedback: Int? = nil,
+        showAiExplanation: Bool = false,
+        error: String? = nil,
+        isOffTopic: Bool = false,
+        isUnsafe: Bool = false,
+        timestamp: Date = Date()
+    ) {
+        self.id = id
+        self.query = query
+        self.isFollowUp = isFollowUp
+        self.conversationalHeader = conversationalHeader
+        self.conversationalSummary = conversationalSummary
+        self.smartIntent = smartIntent
+        self.activeChips = activeChips
+        self.searchResults = searchResults
+        self.curatedSections = curatedSections
+        self.comparativeCards = comparativeCards
+        self.spotlight = spotlight
+        self.followUpSuggestions = followUpSuggestions
+        self.userFeedback = userFeedback
+        self.showAiExplanation = showAiExplanation
+        self.error = error
+        self.isOffTopic = isOffTopic
+        self.isUnsafe = isUnsafe
+        self.timestamp = timestamp
+    }
+
+    var productsForFeedback: [MatchedProduct] {
+        var prods: [MatchedProduct] = []
+        for sec in curatedSections {
+            for p in sec.products {
+                if !prods.contains(where: { $0.id == p.id }) {
+                    prods.append(p)
+                }
+            }
+        }
+        for res in searchResults {
+            if !prods.contains(where: { $0.id == res.id }) {
+                prods.append(res)
+            }
+        }
+        if let spot = spotlight, !prods.contains(where: { $0.id == spot.product.id }) {
+            prods.insert(spot.product, at: 0)
+        }
+        return Array(prods.prefix(8))
+    }
 }
 
 // MARK: - AI Model Comparison Models
