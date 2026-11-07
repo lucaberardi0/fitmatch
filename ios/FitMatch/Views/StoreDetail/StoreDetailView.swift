@@ -17,6 +17,8 @@ struct StoreDetailView: View {
     @State private var showWriteReviewSheet: Bool = false
     @State private var showReportAlert: Bool = false
     @State private var showToastMessage: String? = nil
+    @State private var searchTask: Task<Void, Never>? = nil
+    @State private var isRemoteSearching: Bool = false
 
     private let api = APIService.shared
     private let columns = [
@@ -24,29 +26,61 @@ struct StoreDetailView: View {
         GridItem(.flexible(), spacing: 14)
     ]
 
+    var detectedCorrection: String? {
+        StoreSearchMatcher.detectCorrection(for: searchQuery)
+    }
+
     var filteredProducts: [StoreShowcaseProduct] {
         guard let prods = storeDetails?.products else { return [] }
-        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let filtered: [StoreShowcaseProduct]
-        if query.isEmpty {
-            filtered = prods
-        } else {
-            filtered = prods.filter {
-                $0.title.lowercased().contains(query) ||
-                ($0.brand?.lowercased().contains(query) ?? false) ||
-                $0.canonical_name.lowercased().contains(query)
-            }
+        let cleanQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanQuery.isEmpty {
+            return sortedProducts(prods)
         }
 
+        // Score all products with the intelligent matcher
+        let scored: [(product: StoreShowcaseProduct, score: Int)] = prods.compactMap { p in
+            let score = StoreSearchMatcher.matchScore(product: p, query: cleanQuery)
+            return score > 0 ? (p, score) : nil
+        }
+
+        // Sort by user preference, breaking ties by match relevance score
+        let sorted = scored.sorted { a, b in
+            switch selectedSort {
+            case "price_asc":
+                if a.product.current_price != b.product.current_price {
+                    return a.product.current_price < b.product.current_price
+                }
+                return a.score > b.score
+            case "price_desc":
+                if a.product.current_price != b.product.current_price {
+                    return a.product.current_price > b.product.current_price
+                }
+                return a.score > b.score
+            case "name":
+                return a.product.title.lowercased() < b.product.title.lowercased()
+            default: // "discount"
+                let discA = a.product.discount_pct ?? 0
+                let discB = b.product.discount_pct ?? 0
+                if discA != discB {
+                    return discA > discB
+                }
+                return a.score > b.score
+            }
+        }.map(\.product)
+
+        return sorted
+    }
+
+    private func sortedProducts(_ prods: [StoreShowcaseProduct]) -> [StoreShowcaseProduct] {
         switch selectedSort {
         case "price_asc":
-            return filtered.sorted { $0.current_price < $1.current_price }
+            return prods.sorted { $0.current_price < $1.current_price }
         case "price_desc":
-            return filtered.sorted { $0.current_price > $1.current_price }
+            return prods.sorted { $0.current_price > $1.current_price }
         case "name":
-            return filtered.sorted { $0.title.lowercased() < $1.title.lowercased() }
+            return prods.sorted { $0.title.lowercased() < $1.title.lowercased() }
         default:
-            return filtered.sorted { ($0.discount_pct ?? 0) > ($1.discount_pct ?? 0) }
+            return prods.sorted { ($0.discount_pct ?? 0) > ($1.discount_pct ?? 0) }
         }
     }
 
@@ -170,6 +204,14 @@ struct StoreDetailView: View {
         }
         .task {
             loadStoreData()
+        }
+        .onChange(of: searchQuery) { newQuery in
+            searchTask?.cancel()
+            searchTask = Task {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard !Task.isCancelled else { return }
+                await performRemoteSearch(query: newQuery)
+            }
         }
     }
 
@@ -314,33 +356,69 @@ struct StoreDetailView: View {
 
     // MARK: - 3. Catalog Section Header: "Tutti i prodotti" + Circular Filter Button
     private var catalogHeaderSection: some View {
-        HStack {
-            Text("Tutti i prodotti")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundColor(.shopDark)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Tutti i prodotti" : "Risultati (\(filteredProducts.count))")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
 
-            Spacer()
+                    if !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Ricerca intelligente nel catalogo")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundColor(.shopTextMuted)
+                    }
+                }
 
-            Menu {
-                Button(action: { selectedSort = "discount" }) {
-                    Label("Miglior Sconto", systemImage: selectedSort == "discount" ? "checkmark" : "")
+                Spacer()
+
+                if isRemoteSearching {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .padding(.trailing, 4)
                 }
-                Button(action: { selectedSort = "price_asc" }) {
-                    Label("Prezzo: Min", systemImage: selectedSort == "price_asc" ? "checkmark" : "")
+
+                Menu {
+                    Button(action: { selectedSort = "discount" }) {
+                        Label("Miglior Sconto", systemImage: selectedSort == "discount" ? "checkmark" : "")
+                    }
+                    Button(action: { selectedSort = "price_asc" }) {
+                        Label("Prezzo: Min", systemImage: selectedSort == "price_asc" ? "checkmark" : "")
+                    }
+                    Button(action: { selectedSort = "price_desc" }) {
+                        Label("Prezzo: Max", systemImage: selectedSort == "price_desc" ? "checkmark" : "")
+                    }
+                    Button(action: { selectedSort = "name" }) {
+                        Label("Nome A-Z", systemImage: selectedSort == "name" ? "checkmark" : "")
+                    }
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 40, height: 40)
+                        .background(Color(red: 24/255, green: 24/255, blue: 27/255))
+                        .clipShape(Circle())
                 }
-                Button(action: { selectedSort = "price_desc" }) {
-                    Label("Prezzo: Max", systemImage: selectedSort == "price_desc" ? "checkmark" : "")
+            }
+
+            // Auto-correction "Did you mean / Risultati per" badge
+            if let corrected = detectedCorrection {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.indigo)
+                    Text("Risultati intelligenti per ")
+                        .font(.system(size: 12))
+                        .foregroundColor(.shopTextMuted)
+                    + Text("\"\(corrected.capitalized)\"")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.shopDark)
                 }
-                Button(action: { selectedSort = "name" }) {
-                    Label("Nome A-Z", systemImage: selectedSort == "name" ? "checkmark" : "")
-                }
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(width: 40, height: 40)
-                    .background(Color(red: 24/255, green: 24/255, blue: 27/255))
-                    .clipShape(Circle())
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.indigo.opacity(0.08))
+                .cornerRadius(20)
+                .padding(.top, 2)
             }
         }
     }
@@ -356,9 +434,11 @@ struct StoreDetailView: View {
                     Text("Nessun prodotto trovato")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.shopDark)
-                    Text("Prova a modificare il termine di ricerca.")
+                    Text("Nessun modello corrisponde a \"\(searchQuery)\". Prova con un modello (es. Alphafly, Vomero, Pegasus) o una categoria (es. trail, corsa, donna).")
                         .font(.system(size: 13))
                         .foregroundColor(.shopTextMuted)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 50)
@@ -516,6 +596,181 @@ struct StoreDetailView: View {
                 }
             }
         }
+    }
+
+    private func performRemoteSearch(query: String) async {
+        let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+
+        await MainActor.run { isRemoteSearching = true }
+        defer { Task { @MainActor in isRemoteSearching = false } }
+
+        do {
+            let remote = try await api.getStoreDetails(
+                storeId: storeId,
+                query: clean,
+                sort: selectedSort
+            )
+            await MainActor.run {
+                guard let existing = storeDetails?.products else { return }
+                var merged = existing
+                let existingIds = Set(existing.map(\.id))
+                for item in remote.products {
+                    if !existingIds.contains(item.id) {
+                        merged.append(item)
+                    }
+                }
+                self.storeDetails?.products = merged
+            }
+        } catch {
+            // Silently fall back to in-memory smart filtered items
+        }
+    }
+}
+
+// MARK: - Store Intelligent Search Matcher
+struct StoreSearchMatcher {
+    static let knownAthleticModels: [String] = [
+        "alphafly", "vaporfly", "ultrafly", "streakfly", "pegasus", "vomero",
+        "invincible", "infinity", "metaspeed", "adizero", "boston", "adios",
+        "supercomp", "endorphin", "speedgoat", "forerunner", "nimbus", "kayano",
+        "cumulus", "novablast", "clifton", "bondi", "mach", "glycerin", "ghost",
+        "tempo", "terrakiger", "wildhorse", "zegama", "gt-2000"
+    ]
+
+    static let carbonModels: [String] = [
+        "alphafly", "vaporfly", "ultrafly", "metaspeed", "adizero pro",
+        "adios pro", "endorphin pro", "cielo x1", "rocket x", "fast-r", "sc elite"
+    ]
+
+    static func levenshtein(_ s1: String, _ s2: String) -> Int {
+        let a = Array(s1.utf8)
+        let b = Array(s2.utf8)
+        if a.isEmpty { return b.count }
+        if b.isEmpty { return a.count }
+        var dp = [Int](0...b.count)
+        for (i, ca) in a.enumerated() {
+            var newDp = [i + 1] + [Int](repeating: 0, count: b.count)
+            for (j, cb) in b.enumerated() {
+                let cost = ca == cb ? 0 : 1
+                newDp[j + 1] = min(newDp[j] + 1, dp[j + 1] + 1, dp[j] + cost)
+            }
+            dp = newDp
+        }
+        return dp[b.count]
+    }
+
+    static func normalizeWord(_ w: String) -> String {
+        var word = w.lowercased()
+        // 1. Collapse repeating characters at the end: alphaflyy -> alphafly, pegasuss -> pegasus
+        while word.count > 4, let last = word.last, word.dropLast().last == last {
+            word.removeLast()
+        }
+        // 2. Fuzzy match against known athletic models
+        for m in knownAthleticModels {
+            let maxDist = m.count >= 7 ? 2 : 1
+            if levenshtein(word, m) <= maxDist {
+                return m
+            }
+        }
+        return word
+    }
+
+    static func detectCorrection(for query: String) -> String? {
+        let clean = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !clean.isEmpty else { return nil }
+        let tokens = clean.components(separatedBy: CharacterSet.whitespacesAndNewlines).filter { !$0.isEmpty }
+        var changed = false
+        let normalizedTokens = tokens.map { tok -> String in
+            let norm = normalizeWord(tok)
+            if norm != tok { changed = true }
+            return norm
+        }
+        return changed ? normalizedTokens.joined(separator: " ") : nil
+    }
+
+    static func matchScore(product: StoreShowcaseProduct, query: String) -> Int {
+        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if cleanQuery.isEmpty { return 100 }
+
+        let titleLower = product.title.lowercased()
+        let canonLower = product.canonical_name.lowercased()
+        let brandLower = product.brand?.lowercased() ?? ""
+        let combined = "\(titleLower) \(canonLower) \(brandLower)"
+
+        // Exact full phrase containment
+        if combined.contains(cleanQuery) {
+            return 250
+        }
+
+        let rawTokens = cleanQuery.components(separatedBy: CharacterSet.whitespacesAndNewlines).filter { !$0.isEmpty }
+        if rawTokens.isEmpty { return 100 }
+
+        let targetWords = combined.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
+        var totalScore = 0
+
+        for rawToken in rawTokens {
+            let normToken = normalizeWord(rawToken)
+            var tokenScore = 0
+
+            // Semantic synonyms
+            if normToken == "carbonio" || normToken == "carbon" || normToken == "piastra" {
+                if carbonModels.contains(where: { combined.contains($0) }) || combined.contains("carbon") {
+                    tokenScore = max(tokenScore, 70)
+                }
+            } else if normToken == "trail" || normToken == "sterrato" || normToken == "montagna" {
+                if combined.contains("trail") || combined.contains("acg") || combined.contains("gore-tex") || combined.contains("gtx") {
+                    tokenScore = max(tokenScore, 65)
+                }
+            } else if normToken == "donna" || normToken == "women" || normToken == "femminile" {
+                if combined.contains("donna") || combined.contains("wmns") || combined.contains("women") {
+                    tokenScore = max(tokenScore, 60)
+                }
+            } else if normToken == "uomo" || normToken == "men" || normToken == "maschile" {
+                if combined.contains("uomo") || combined.contains("mens") || combined.contains("men") {
+                    tokenScore = max(tokenScore, 60)
+                }
+            } else if normToken == "gara" || normToken == "maratona" || normToken == "racing" {
+                if combined.contains("gara") || combined.contains("racing") || carbonModels.contains(where: { combined.contains($0) }) {
+                    tokenScore = max(tokenScore, 60)
+                }
+            } else if normToken == "ammortizzata" || normToken == "ammortizzazione" || normToken == "comoda" {
+                let cushionModels = ["invincible", "vomero", "infinity", "nimbus", "bondi", "more", "cumulus", "clifton"]
+                if cushionModels.contains(where: { combined.contains($0) }) {
+                    tokenScore = max(tokenScore, 60)
+                }
+            }
+
+            // Word-by-word token matching
+            for tWord in targetWords {
+                if tWord == rawToken || tWord == normToken {
+                    tokenScore = max(tokenScore, 90) // Exact word match
+                } else if tWord.hasPrefix(rawToken) || tWord.hasPrefix(normToken) || (normToken.count >= 4 && rawToken.hasPrefix(tWord)) {
+                    tokenScore = max(tokenScore, 70) // Prefix match
+                } else if tWord.contains(rawToken) || tWord.contains(normToken) {
+                    tokenScore = max(tokenScore, 50) // Substring
+                } else {
+                    let maxD = normToken.count >= 7 ? 2 : (normToken.count >= 4 ? 1 : 0)
+                    if maxD > 0 {
+                        let d1 = levenshtein(rawToken, tWord)
+                        let d2 = levenshtein(normToken, tWord)
+                        let d = min(d1, d2)
+                        if d <= maxD {
+                            tokenScore = max(tokenScore, 55 - (d * 12)) // Typo fuzzy match
+                        }
+                    }
+                }
+            }
+
+            // If token didn't match anywhere, this product doesn't match
+            if tokenScore == 0 {
+                return 0
+            }
+
+            totalScore += tokenScore
+        }
+
+        return totalScore
     }
 }
 

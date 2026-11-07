@@ -1423,7 +1423,9 @@ class Database:
             elif sort == "name":
                 order_by = "p.canonical_name ASC"
 
-            words = query.strip().lower().split()
+            from fitmatch.smart_search import LocalHeuristicParser
+            clean_q = LocalHeuristicParser.normalize_typos(query.strip().lower()) if query.strip() else ""
+            words = clean_q.split() if clean_q else []
             where_clauses = ["o.store_id = ?"]
             params = [sid]
 

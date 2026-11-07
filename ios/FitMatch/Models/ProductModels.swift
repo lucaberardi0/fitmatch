@@ -804,7 +804,7 @@ struct StoreDetailResponse: Codable {
     let total_offers: Int
     let avg_discount: Double
     let min_price: Double
-    let products: [StoreShowcaseProduct]
+    var products: [StoreShowcaseProduct]
     let contact_email: String?
     let contact_phone: String?
     let social_instagram: String?

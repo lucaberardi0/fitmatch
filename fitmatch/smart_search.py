@@ -644,22 +644,65 @@ class LocalHeuristicParser:
 
     @staticmethod
     def normalize_typos(text: str) -> str:
-        """Corrects common athletic gear phonetic typos and slang."""
+        """Corrects common athletic gear phonetic typos and slang with fuzzy Levenshtein tolerance."""
+        KNOWN_MODELS = [
+            "alphafly", "vaporfly", "ultrafly", "streakfly", "pegasus", "vomero",
+            "invincible", "infinity", "metaspeed", "adizero", "boston", "adios",
+            "supercomp", "endorphin", "speedgoat", "forerunner", "nimbus", "kayano",
+            "cumulus", "novablast", "clifton", "bondi", "mach", "glycerin", "ghost"
+        ]
+
+        def _lev(s1: str, s2: str) -> int:
+            if len(s1) < len(s2):
+                return _lev(s2, s1)
+            if not s2:
+                return len(s1)
+            prev = list(range(len(s2) + 1))
+            for i, c1 in enumerate(s1):
+                curr = [i + 1]
+                for j, c2 in enumerate(s2):
+                    cost = 0 if c1 == c2 else 1
+                    curr.append(min(curr[j] + 1, prev[j + 1] + 1, prev[j] + cost))
+                prev = curr
+            return prev[-1]
+
+        # 1. Clean individual words & collapse duplicate characters at the end
+        words = text.strip().lower().split()
+        cleaned_words = []
+        for w in words:
+            clean_w = w
+            if len(clean_w) > 4:
+                clean_w = re.sub(r'([a-zA-Z])\1+$', r'\1', clean_w)
+
+            # Match against known models with distance <= 2 (or 1 for shorter words)
+            fuzzy_matched = False
+            for m in KNOWN_MODELS:
+                max_d = 2 if len(m) >= 7 else 1
+                if _lev(clean_w, m) <= max_d:
+                    cleaned_words.append(m)
+                    fuzzy_matched = True
+                    break
+            if not fuzzy_matched:
+                cleaned_words.append(clean_w)
+
+        res = " ".join(cleaned_words)
+
         substitutions = [
-            (r"\b(?:alpha\s*fly|alphafly)\b", "alphafly"),
-            (r"\b(?:vapor\s*fly|vaporfly)\b", "vaporfly"),
+            (r"\b(?:alpha\s*fl[yie]+|alphafly+)\b", "alphafly"),
+            (r"\b(?:vapor\s*fl[yie]+|vaporfly+)\b", "vaporfly"),
+            (r"\b(?:ultra\s*fl[yie]+|ultrafly+)\b", "ultrafly"),
+            (r"\b(?:streak\s*fl[yie]+|streakfly+)\b", "streakfly"),
             (r"\b(?:tempo\s*next)\b", "tempo next"),
             (r"\b(?:zom\s*fli|zoomfly|zomfly|zoom\s*fli)\b", "zoom fly"),
-            (r"\b(?:peg|pegas)\b", "pegasus"),
-            (r"\b(?:invincibl|invincibile)\b", "invincible"),
-            (r"\b(?:vomer|vomer18)\b", "vomero"),
+            (r"\b(?:peg|pegas|pegasuss)\b", "pegasus"),
+            (r"\b(?:invincibl|invincibile|invinciblle)\b", "invincible"),
+            (r"\b(?:vomer|vomer18|vomerro)\b", "vomero"),
             (r"\b(?:speedgot|speed\s*got)\b", "speedgoat"),
             (r"\b(?:forunner|fore\s*runner)\b", "forerunner"),
             (r"\b(?:okley|oakly)\b", "oakley"),
             (r"\b(?:adizero\s*pro|adios\s*pro)\b", "adizero"),
             (r"\b(?:nimb|nimbus\s*26)\b", "nimbus"),
         ]
-        res = text
         for pat, repl in substitutions:
             res = re.sub(pat, repl, res, flags=re.IGNORECASE)
         return res

@@ -1261,9 +1261,48 @@ class SupabaseClient:
         privacy_policy_url = db_store.get("privacy_policy_url") or base_url
         terms_url = db_store.get("terms_url") or base_url
 
-        endpoint = f"store_offers?store_id=eq.{sid}&select=id,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,product_id,available_sizes,products(id,canonical_name,brand,category,gallery_images)&order=discount_pct.desc.nullslast&limit={limit}"
+        # Map sort parameter
+        order_clause = "discount_pct.desc.nullslast"
+        if sort == "price_asc":
+            order_clause = "current_price.asc"
+        elif sort == "price_desc":
+            order_clause = "current_price.desc"
+        elif sort == "name":
+            order_clause = "raw_title.asc"
+
+        query_params = [
+            f"store_id=eq.{sid}",
+            "select=id,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,product_id,available_sizes,products(id,canonical_name,brand,category,gallery_images)",
+            f"order={order_clause}",
+            f"limit={limit}"
+        ]
+
+        # Smart query filtering: apply phonetic & typo normalization
+        if query and query.strip():
+            from fitmatch.smart_search import LocalHeuristicParser
+            clean_q = LocalHeuristicParser.normalize_typos(query.strip().lower())
+            words = [w for w in clean_q.split() if len(w) > 1]
+            for w in words:
+                query_params.append(f"raw_title=ilike.*{w}*")
+
+        endpoint = f"store_offers?{'&'.join(query_params)}"
         resp = self._request(endpoint, count_exact=True)
         offers_data = resp.get("data") or []
+
+        # If strict multi-word query returned 0 results, retry with primary keyword
+        if not offers_data and query and query.strip():
+            words = [w for w in LocalHeuristicParser.normalize_typos(query.strip().lower()).split() if len(w) > 2]
+            if len(words) > 1:
+                fallback_params = [
+                    f"store_id=eq.{sid}",
+                    "select=id,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,product_id,available_sizes,products(id,canonical_name,brand,category,gallery_images)",
+                    f"order={order_clause}",
+                    f"raw_title=ilike.*{words[0]}*",
+                    f"limit={limit}"
+                ]
+                fallback_resp = self._request(f"store_offers?{'&'.join(fallback_params)}", count_exact=True)
+                offers_data = fallback_resp.get("data") or []
+
         cr = resp.get("content_range") or ""
         total_real_offers = int(cr.split("/")[-1]) if "/" in cr and cr.split("/")[-1] != "*" else len(offers_data)
 
