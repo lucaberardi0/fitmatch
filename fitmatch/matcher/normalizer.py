@@ -129,6 +129,9 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
     ("mount", [
         r"\bsupport[oi]\b", r"\bstaff[ae]\b", r"\bmounts?\b", r"\bstaffetta\b", r"\bportaborracci[ae]\b"
     ]),
+    ("pack", [
+        r"\bpacks?\b", r"\bbundles?\b", r"\bset\b", r"\bkit\b", r"\bcoppia\b", r"\bduo\b"
+    ]),
     ("nutrition", [
         r"\bgel\s+energetic[oi]\b", r"\benervit\b", r"\bisocarb\b", r"\bbarrett[ae]\b",
         r"\bmaltodestrin[ae]\b", r"\bsali\s+minerali\b", r"\bmaurten\b", r"\b226ers\b",
@@ -187,9 +190,6 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\btelo\b", r"\basciugaman[oi]\b", r"\bmanubri[o]?\b", r"\bkettlebell\b",
         r"\bcintur[ae]\b", r"\bbastoncini\b", r"\bshampoo\b", r"\bsterzo\b",
         r"\bpignoni\b", r"\bguarnitura\b", r"\bpedal[ei]\b", r"\bcoperton[ei]\b"
-    ]),
-    ("pack", [
-        r"\bpacks?\b", r"\bbundles?\b", r"\bset\b", r"\bkit\b", r"\bcoppia\b", r"\bduo\b"
     ])
 ]
 
