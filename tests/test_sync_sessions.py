@@ -57,6 +57,11 @@ def test_db_sync_session_lifecycle():
     assert latest is not None
     assert str(latest.get("id")) == str(session_id)
 
+    # 7. Delete session
+    deleted = db.delete_sync_session(session_id)
+    assert deleted is True
+    assert db.get_sync_session(session_id) is None
+
 
 def test_api_scheduler_sessions_endpoints():
     # Test GET /api/scheduler/status
@@ -74,3 +79,11 @@ def test_api_scheduler_sessions_endpoints():
     assert "total" in s_data
     assert "sessions" in s_data
     assert isinstance(s_data["sessions"], list)
+
+    # Test DELETE /api/scheduler/sessions/{session_id}
+    db = Database()
+    test_sid = db.create_sync_session(session_type="test_del", trigger_source="pytest")
+    del_res = client.delete(f"/api/scheduler/sessions/{test_sid}")
+    assert del_res.status_code == 200
+    assert del_res.json().get("status") == "success"
+    assert db.get_sync_session(test_sid) is None

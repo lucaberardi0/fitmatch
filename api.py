@@ -609,6 +609,28 @@ def get_scheduler_session_detail(session_id: str):
     return session
 
 
+@app.delete("/api/scheduler/sessions/{session_id}")
+def delete_scheduler_session(session_id: str):
+    """Delete a sync session record and its associated logs from Supabase/SQLite."""
+    ok = db.delete_sync_session(session_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Impossibile eliminare la sessione.")
+    return {"status": "success", "session_id": session_id, "message": "Sessione eliminata con successo."}
+
+
+@app.delete("/api/scheduler/sessions")
+def clear_scheduler_sessions(
+    status: Optional[str] = Query(None, description="Filtra per status da eliminare: running, completed, failed")
+):
+    """Bulk delete sync sessions by status (e.g. failed to clear all errors)."""
+    count = db.delete_sync_sessions(status=status)
+    return {
+        "status": "success",
+        "deleted_count": count,
+        "message": f"{count} sessioni con stato '{status or 'tutti'}' eliminate con successo."
+    }
+
+
 @app.post("/api/scheduler/start")
 def start_scheduler(
     refresh_interval_hours: float = Query(2.0, ge=0.5, le=24.0),

@@ -1203,6 +1203,37 @@ public struct AdminRootView: View {
                     .cornerRadius(20)
                     .padding(.top, 20)
                 } else {
+                    HStack {
+                        Text("\(failedSessions.count) Errori Registrati")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Button(action: {
+                            Task {
+                                let ok = await net.clearFailedSessions()
+                                if ok {
+                                    withAnimation {
+                                        sessions.removeAll { $0.status == "failed" }
+                                    }
+                                    statusToast = "Errori cancellati con successo."
+                                } else {
+                                    statusToast = "Errore durante la cancellazione."
+                                }
+                            }
+                        }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "trash")
+                                Text("Cancella Tutti")
+                            }
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(10)
+                        }
+                    }
+
                     ForEach(failedSessions) { sess in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
@@ -1213,15 +1244,38 @@ public struct AdminRootView: View {
                                 Text(sess.displayStartedAt)
                                     .font(.system(size: 10.5))
                                     .foregroundColor(.secondary)
+                                Button(action: {
+                                    Task {
+                                        let ok = await net.deleteSyncSession(id: sess.id)
+                                        if ok {
+                                            withAnimation {
+                                                sessions.removeAll { $0.id == sess.id }
+                                            }
+                                        }
+                                    }
+                                }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(Color.secondary.opacity(0.6))
+                                }
+                                .buttonStyle(.plain)
                             }
 
-                            if let err = sess.errorMessage {
+                            if let err = sess.errorMessage, !err.isEmpty {
                                 Text(err)
                                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                                     .foregroundColor(.red)
                                     .padding(10)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(Color.red.opacity(0.08))
+                                    .cornerRadius(10)
+                            } else {
+                                Text("Collisione tra cicli paralleli: task saltato perché un aggiornamento era già in corso.")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.orange)
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.orange.opacity(0.08))
                                     .cornerRadius(10)
                             }
                         }
@@ -1377,7 +1431,7 @@ struct AdminSessionDetailSheet: View {
                     .cornerRadius(18)
 
                     // Error Box if failed
-                    if let err = session.errorMessage, !err.isEmpty {
+                    if session.isFailed {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Image(systemName: "exclamationmark.triangle.fill")
@@ -1386,9 +1440,15 @@ struct AdminSessionDetailSheet: View {
                                     .font(.system(size: 13, weight: .bold))
                                     .foregroundColor(.red)
                             }
-                            Text(err)
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundColor(.red)
+                            if let err = session.errorMessage, !err.isEmpty {
+                                Text(err)
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.red)
+                            } else {
+                                Text("Task saltato per prevenire collisione: un ciclo di verifica prezzi era già attivamente in esecuzione.")
+                                    .font(.system(size: 11.5, weight: .medium))
+                                    .foregroundColor(.red.opacity(0.85))
+                            }
                         }
                         .padding(14)
                         .background(Color.red.opacity(0.08))
@@ -1462,6 +1522,23 @@ struct AdminSessionDetailSheet: View {
             .navigationTitle("Dettaglio Sessione")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        Task {
+                            let ok = await net.deleteSyncSession(id: session.id)
+                            if ok {
+                                withAnimation {
+                                    sessions.removeAll { $0.id == session.id }
+                                }
+                                statusToast = "Sessione eliminata."
+                                dismiss()
+                            }
+                        }
+                    }) {
+                        Image(systemName: "trash")
+                            .foregroundColor(.red)
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Chiudi") { dismiss() }
                         .font(.system(size: 15, weight: .bold))

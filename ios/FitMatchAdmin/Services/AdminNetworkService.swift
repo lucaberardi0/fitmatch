@@ -159,6 +159,62 @@ public class AdminNetworkService: ObservableObject {
         }
     }
 
+    public func deleteSyncSession(id: String) async -> Bool {
+        // Try deleting from backend first
+        if let bUrl = URL(string: "\(backendURL)/api/scheduler/sessions/\(id)") {
+            var req = URLRequest(url: bUrl)
+            req.httpMethod = "DELETE"
+            if let (_, resp) = try? await session.data(for: req),
+               let http = resp as? HTTPURLResponse, http.statusCode >= 200 && http.statusCode < 300 {
+                return true
+            }
+        }
+
+        // Direct Supabase fallback
+        guard let url = URL(string: "\(supabaseBaseURL)/sync_sessions?id=eq.\(id)") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        for (k, v) in makeSupabaseHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        do {
+            let (_, resp) = try await session.data(for: req)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            return status >= 200 && status < 300
+        } catch {
+            print("[AdminNetwork] Error deleting sync session: \(error)")
+            return false
+        }
+    }
+
+    public func clearFailedSessions() async -> Bool {
+        // Try clearing via backend first
+        if let bUrl = URL(string: "\(backendURL)/api/scheduler/sessions?status=failed") {
+            var req = URLRequest(url: bUrl)
+            req.httpMethod = "DELETE"
+            if let (_, resp) = try? await session.data(for: req),
+               let http = resp as? HTTPURLResponse, http.statusCode >= 200 && http.statusCode < 300 {
+                return true
+            }
+        }
+
+        // Direct Supabase fallback
+        guard let url = URL(string: "\(supabaseBaseURL)/sync_sessions?status=eq.failed") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        for (k, v) in makeSupabaseHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        do {
+            let (_, resp) = try await session.data(for: req)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            return status >= 200 && status < 300
+        } catch {
+            print("[AdminNetwork] Error clearing failed sync sessions: \(error)")
+            return false
+        }
+    }
+
     // MARK: - FastAPI Backend Triggers
 
     public func checkBackendHealth() async -> Bool {

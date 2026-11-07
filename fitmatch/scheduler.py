@@ -106,15 +106,21 @@ class SyncScheduler:
 
             # 1. Check if Full Catalog Discovery is due
             if current_time - last_discovery_time >= self.discovery_interval:
-                self._run_discovery_task()
-                last_discovery_time = time.time()
-                self.next_discovery_run = (datetime.now() + timedelta(seconds=self.discovery_interval)).strftime("%Y-%m-%d %H:%M:%S")
+                if self.current_task == "idle" and not self.updater.is_running:
+                    self._run_discovery_task()
+                    last_discovery_time = time.time()
+                    self.next_discovery_run = (datetime.now() + timedelta(seconds=self.discovery_interval)).strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    logger.info(f"[SyncScheduler] Discovery cycle deferred: current_task={self.current_task}, updater_busy={self.updater.is_running}")
 
             # 2. Check if Price & Stock Refresh is due
             elif current_time - last_refresh_time >= self.refresh_interval:
-                self._run_refresh_task()
-                last_refresh_time = time.time()
-                self.next_refresh_run = (datetime.now() + timedelta(seconds=self.refresh_interval)).strftime("%Y-%m-%d %H:%M:%S")
+                if self.current_task == "idle" and not self.updater.is_running:
+                    self._run_refresh_task()
+                    last_refresh_time = time.time()
+                    self.next_refresh_run = (datetime.now() + timedelta(seconds=self.refresh_interval)).strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    logger.info(f"[SyncScheduler] Scheduled refresh deferred: current_task={self.current_task}, updater_busy={self.updater.is_running}")
 
             # Heartbeat sleep (1 second interval allows rapid stop response)
             for _ in range(5):
@@ -126,6 +132,10 @@ class SyncScheduler:
 
     def _run_discovery_task(self, limit_per_store: int = 300, trigger_source: str = "scheduler") -> Dict[str, Any]:
         """Execute full multi-store catalog crawl and index new products with persistent session tracking."""
+        if self.updater.is_running:
+            logger.warning("[SyncScheduler] Price updater is running. Deferring discovery cycle.")
+            return {"status": "busy", "message": "Price updater already running."}
+
         self.current_task = "discovery"
         logger.info("[SyncScheduler] Initiating automatic catalog discovery cycle...")
         start_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -217,10 +227,15 @@ class SyncScheduler:
             }
             return self.last_discovery_stats
         finally:
-            self.current_task = "idle"
+            if self.current_task == "discovery":
+                self.current_task = "idle"
 
     def _run_refresh_task(self, limit: int = 50, trigger_source: str = "scheduler") -> Dict[str, Any]:
         """Execute continuous price and stock refresh for indexed products with persistent session tracking."""
+        if self.updater.is_running:
+            logger.warning("[SyncScheduler] Price updater is already active. Skipping duplicate refresh task to prevent collision.")
+            return {"status": "busy", "message": "Aggiornamento prezzi già in corso."}
+
         self.current_task = "refresh"
         logger.info(f"[SyncScheduler] Initiating price refresh cycle for {limit} products...")
         start_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -236,6 +251,13 @@ class SyncScheduler:
 
         try:
             res = self.updater.run_update_sync(limit=limit)
+            res_status = res.get("status", "success")
+
+            if res_status == "busy":
+                logger.warning(f"[SyncScheduler] Updater busy reported; deleting duplicate phantom session {session_id}")
+                self.db.delete_sync_session(session_id)
+                return {"status": "busy", "message": "Aggiornamento prezzi già in corso."}
+
             offers_checked = res.get("offers_checked", 0)
             prices_updated = res.get("prices_updated", 0)
             price_drops = res.get("price_drops", 0)
@@ -259,12 +281,13 @@ class SyncScheduler:
             # Complete persistent session
             self.db.update_sync_session(
                 session_id=session_id,
-                status="completed" if res.get("status") == "success" else "failed",
+                status="completed" if res_status == "success" else "failed",
                 duration_seconds=total_duration,
                 total_items_processed=offers_checked,
                 total_items_updated=prices_updated,
                 total_price_drops=price_drops,
                 store_stats={"total_savings": total_savings},
+                error_message=None if res_status == "success" else res.get("message", "Aggiornamento prezzi fallito"),
                 metadata={"watcher": watcher_stats, "limit": limit}
             )
 
@@ -272,7 +295,7 @@ class SyncScheduler:
             self.last_refresh_stats = {
                 "session_id": session_id,
                 "timestamp": start_iso,
-                "status": res.get("status", "success"),
+                "status": res_status,
                 "offers_checked": offers_checked,
                 "prices_updated": prices_updated,
                 "price_drops": price_drops,
@@ -304,7 +327,8 @@ class SyncScheduler:
             }
             return self.last_refresh_stats
         finally:
-            self.current_task = "idle"
+            if self.current_task == "refresh":
+                self.current_task = "idle"
 
     def run_size_enrichment_task(
         self,
@@ -401,9 +425,10 @@ class SyncScheduler:
 
     def trigger_discovery_now(self, limit_per_store: int = 200, trigger_source: str = "manual_api") -> Dict[str, Any]:
         """Trigger an immediate catalog discovery run in background."""
-        if self.current_task != "idle":
-            return {"status": "busy", "message": f"Task already running: {self.current_task}"}
+        if self.current_task != "idle" or self.updater.is_running:
+            return {"status": "busy", "message": f"Task already running: {self.current_task} (updater_running={self.updater.is_running})"}
 
+        self.current_task = "discovery"
         thread = threading.Thread(
             target=self._run_discovery_task,
             args=(limit_per_store, trigger_source),
@@ -417,9 +442,10 @@ class SyncScheduler:
 
     def trigger_refresh_now(self, limit: int = 50, trigger_source: str = "manual_api") -> Dict[str, Any]:
         """Trigger an immediate price refresh run in background."""
-        if self.current_task != "idle":
-            return {"status": "busy", "message": f"Task already running: {self.current_task}"}
+        if self.current_task != "idle" or self.updater.is_running:
+            return {"status": "busy", "message": f"Task already running: {self.current_task} (updater_running={self.updater.is_running})"}
 
+        self.current_task = "refresh"
         thread = threading.Thread(
             target=self._run_refresh_task,
             args=(limit, trigger_source),
@@ -433,9 +459,10 @@ class SyncScheduler:
 
     def trigger_enrichment_now(self, limit_per_store: int = 50, trigger_source: str = "manual_api") -> Dict[str, Any]:
         """Trigger an immediate size enrichment run in background."""
-        if self.current_task != "idle":
-            return {"status": "busy", "message": f"Task already running: {self.current_task}"}
+        if self.current_task != "idle" or self.updater.is_running:
+            return {"status": "busy", "message": f"Task already running: {self.current_task} (updater_running={self.updater.is_running})"}
 
+        self.current_task = "size_enrichment"
         thread = threading.Thread(
             target=self.run_size_enrichment_task,
             args=(limit_per_store, True, trigger_source),

@@ -720,6 +720,37 @@ class Database:
             session["crawl_logs"] = [dict(lr) for lr in cur_logs.fetchall()]
             return session
 
+    def delete_sync_session(self, session_id: str) -> bool:
+        """Delete a sync session and its linked crawl logs."""
+        if self.use_supabase and self.supabase:
+            return self.supabase.delete_sync_session(session_id)
+
+        with self.get_connection() as conn:
+            conn.execute("DELETE FROM crawl_logs WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM sync_sessions WHERE id = ?", (session_id,))
+            conn.commit()
+            return True
+
+    def delete_sync_sessions(self, status: Optional[str] = None) -> int:
+        """Delete multiple sync sessions filtered by status."""
+        if self.use_supabase and self.supabase:
+            return self.supabase.delete_sync_sessions(status=status)
+
+        with self.get_connection() as conn:
+            if status:
+                sessions = conn.execute("SELECT id FROM sync_sessions WHERE status = ?", (status,)).fetchall()
+            else:
+                sessions = conn.execute("SELECT id FROM sync_sessions").fetchall()
+
+            deleted = 0
+            for s in sessions:
+                sid = s["id"]
+                conn.execute("DELETE FROM crawl_logs WHERE session_id = ?", (sid,))
+                conn.execute("DELETE FROM sync_sessions WHERE id = ?", (sid,))
+                deleted += 1
+            conn.commit()
+            return deleted
+
     def get_latest_sync_session(self, session_type: str) -> Optional[Dict[str, Any]]:
         """Retrieve the most recent completed session of a specific type."""
         if self.use_supabase and self.supabase:

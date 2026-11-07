@@ -681,6 +681,30 @@ class SupabaseClient:
             return data[0]
         return None
 
+    def delete_sync_session(self, session_id: str) -> bool:
+        """Delete a sync session and its linked crawl logs from Supabase."""
+        try:
+            self._request(f"crawl_logs?session_id=eq.{session_id}", method="DELETE")
+            res = self._request(f"sync_sessions?id=eq.{session_id}", method="DELETE")
+            return res.get("status") in (200, 204)
+        except Exception as e:
+            logger.error(f"[Supabase] Error deleting sync session {session_id}: {e}")
+            return False
+
+    def delete_sync_sessions(self, status: Optional[str] = None) -> int:
+        """Delete sync sessions filtered by status (e.g. failed) and return deleted count."""
+        try:
+            sessions = self.get_sync_sessions(limit=100, status=status)
+            deleted = 0
+            for s in sessions:
+                sid = s.get("id")
+                if sid and self.delete_sync_session(sid):
+                    deleted += 1
+            return deleted
+        except Exception as e:
+            logger.error(f"[Supabase] Error bulk deleting sync sessions (status={status}): {e}")
+            return 0
+
     def get_store_health_metrics(self) -> List[Dict[str, Any]]:
         """Retrieve store health, active offers and size coverage from store_health_metrics view."""
         res = self._request("store_health_metrics?select=*&order=total_offers.desc")
