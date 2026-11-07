@@ -68,6 +68,11 @@ class PriceUpdater:
                     for offer in offers:
                         try:
                             cluster_key = self.normalizer.extract_cluster_key(offer)
+                            off_brand = self.normalizer.extract_brand(offer.title, offer.brand)
+                            off_cat = self.normalizer.detect_article_type(offer.title)
+                            off_gender = self.normalizer.extract_gender(offer.title, offer.url)
+                            off_canonical = self.normalizer.build_canonical_display_name(offer.title, off_brand)
+
                             offer_id = f"{offer.store_id}:{offer.product_id or offer.url}"
 
                             # Check existing price to detect drop
@@ -80,13 +85,13 @@ class PriceUpdater:
                                         drops += 1
                                         total_savings += (old_price - offer.price)
 
-                            # Upsert offer & record price_history point
+                            # Upsert offer with its own verified product identity (never overwrite another cluster with query)
                             self.db.upsert_product_and_offer(
                                 cluster_key=cluster_key,
-                                canonical_name=query,
-                                brand=row.get("brand"),
-                                category=row.get("category"),
-                                gender=row.get("gender"),
+                                canonical_name=off_canonical or query,
+                                brand=off_brand,
+                                category=off_cat,
+                                gender=off_gender,
                                 offer=offer
                             )
                         except Exception as e:

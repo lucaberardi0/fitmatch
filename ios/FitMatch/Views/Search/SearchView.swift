@@ -498,28 +498,48 @@ struct SearchView: View {
         guard !q.isEmpty else { return [] }
 
         let allPool: [String] = [
+            "Scarpe Hyrox e allenamento ibrido",
+            "Puma Deviate Nitro 3 Hyrox",
             "Adidas Adizero Dropset Pro",
+            "Long sleeve da corsa",
+            "Maglia termica running invernale",
             "Scarpe da gara per la maratona",
-            "Adidas da corsa per maratona",
-            "Scelte di scarpa per mezza maratona",
-            "Scelte Nike per running e training",
-            "Esplorare le opzioni Nike",
-            "Nike running e sneaker lifestyle",
-            "Nike Air Force 1 '07",
+            "Scarpe running massimo ammortizzamento",
+            "Scarpe running con piastra in carbonio",
+            "Scarpe da trail running impermeabili GTX",
             "Nike Pegasus 41",
+            "Nike Vomero 18",
             "Nike Vaporfly 3",
-            "Adidas Ultraboost Light",
-            "Adidas Samba OG",
-            "New Balance 9060",
+            "Nike Alphafly 3",
+            "Asics Gel-Nimbus 26",
             "Asics Novablast 4",
+            "Asics Superblast 2",
             "Hoka Clifton 9",
+            "Hoka Bondi 8",
+            "Hoka Speedgoat 6",
+            "Saucony Endorphin Speed 4",
+            "Saucony Triumph 22",
+            "Saucony Ride 18",
+            "Brooks Ghost 16",
+            "Brooks Glycerin 21",
+            "Adidas Adizero Adios Pro 4",
+            "Adidas Adizero Boston 12",
+            "New Balance Fresh Foam 1080 v14",
+            "On Cloudmonster 2",
+            "Salomon Speedcross 6",
+            "Gilet idratazione Salomon Active Skin",
+            "Garmin Forerunner 165",
             "Garmin Forerunner 265",
-            "Camicia a quadri Stüssy",
-            "Scarpe running ammortizzate",
-            "Scarpe running con piastra in carbonio"
+            "Garmin Fenix 8",
+            "Oakley Sutro Prizm",
+            "Rullo smart Wahoo Kickr"
         ]
 
-        return allPool.filter { $0.lowercased().contains(q) }
+        let queryTokens = q.split(separator: " ").map { String($0) }
+        return allPool.filter { candidate in
+            let candLow = candidate.lowercased()
+            return candLow.contains(q) || queryTokens.allSatisfy { candLow.contains($0) }
+        }
     }
 
     // MARK: - Floating Bottom Search Bar
@@ -1854,7 +1874,7 @@ struct ShopComparativeCard: View {
                         Text("Modello")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
-                        Text(card.model_name)
+                        Text(card.model_name.replacingOccurrences(of: "**", with: ""))
                             .font(.system(size: 12.5, weight: .bold))
                             .foregroundColor(.shopDark)
                             .lineLimit(1)
@@ -1864,7 +1884,7 @@ struct ShopComparativeCard: View {
                         Text("Uso")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
-                        Text(card.ideal_for)
+                        Text(LocalizedStringKey(card.ideal_for))
                             .font(.system(size: 12, weight: .regular))
                             .foregroundColor(.shopDark)
                             .lineLimit(2)
@@ -1875,7 +1895,7 @@ struct ShopComparativeCard: View {
                         Text("Punto Forte")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
-                        Text(card.strengths)
+                        Text(LocalizedStringKey(card.strengths))
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.shopDark)
                             .lineLimit(2)
@@ -1908,6 +1928,16 @@ struct ShopSpotlightCardView: View {
 
     var maxOffer: Offer? {
         spotlight.product.offers.max(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+    }
+
+    var referenceOriginalPrice: Double? {
+        if let best = bestOffer, let orig = best.original_price, orig > best.calculatedTotalPrice + 1 {
+            return orig
+        }
+        if let max = maxOffer, let best = bestOffer, max.calculatedTotalPrice > best.calculatedTotalPrice + 2 {
+            return max.calculatedTotalPrice
+        }
+        return nil
     }
 
     var body: some View {
@@ -1998,8 +2028,8 @@ struct ShopSpotlightCardView: View {
                                     .font(.system(size: 14.5, weight: .heavy))
                                     .foregroundColor(.shopDark)
 
-                                if let max = maxOffer, max.calculatedTotalPrice > best.calculatedTotalPrice + 2 {
-                                    Text(String(format: "€ %.2f", max.calculatedTotalPrice))
+                                if let orig = referenceOriginalPrice {
+                                    Text(String(format: "€ %.2f", orig))
                                         .font(.system(size: 12))
                                         .strikethrough()
                                         .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
@@ -2013,7 +2043,7 @@ struct ShopSpotlightCardView: View {
                                     Text("•")
                                         .font(.system(size: 12, weight: .bold))
                                         .foregroundColor(.shopDark)
-                                    Text(hl)
+                                    Text(LocalizedStringKey(hl))
                                         .font(.system(size: 12, weight: .regular))
                                         .foregroundColor(Color(red: 80/255, green: 80/255, blue: 90/255))
                                         .lineLimit(2)

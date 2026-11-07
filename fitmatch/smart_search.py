@@ -427,6 +427,165 @@ SPORTS_KNOWLEDGE = {
             "Filtra gilet idratazione sotto 80 euro"
         ]
     },
+    "hyrox": {
+        "models": ["puma deviate nitro hyrox", "puma velocity nitro hyrox", "adidas dropset", "adizero dropset", "puma deviate nitro", "puma velocity nitro", "nike metcon", "reebok nano"],
+        "label": "Scarpe Hyrox & Allenamento Ibrido",
+        "category": "running_shoes",
+        "description": "Scarpe specifiche per gare e allenamenti Hyrox: modelli da corsa ad alto grip (Puma Nitro Hyrox) e scarpe da training ibrido (Adidas Dropset, Nike Metcon).",
+        "conversational_summary": "Per **Hyrox** la scelta dipende dal tuo stile: scarpe da **running reattive con grip PUMAGRIP** (come la linea ufficiale **Puma Nitro Hyrox**) per correre forte gli 8x1km e spingere la slitta, oppure scarpe **stabili da training ibrido** (come **Adidas Adizero Dropset** e **Nike Metcon**) per massima solidità su lunges, wall balls e stazioni funzionali.",
+        "sections": [
+            {
+                "id": "sec_hyrox_race_running",
+                "title": "Linea Ufficiale Puma x Hyrox & Corsa Ibrida",
+                "subtitle": "Massima propulsione sugli 8 km di corsa e suola PUMAGRIP ad alta trazione per sled push e burpees.",
+                "keywords": ["hyrox", "deviate nitro", "velocity nitro"]
+            },
+            {
+                "id": "sec_hyrox_stability_training",
+                "title": "Stabilità Sotto Carico & Functional Training",
+                "subtitle": "Piattaforma a doppia densità e supporto laterale per affondi con sandbag, wall ball e pesi.",
+                "keywords": ["dropset", "adizero dropset", "metcon", "nano"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Puma Deviate Nitro Elite / 3 Hyrox",
+                "ideal_for": "Gara Hyrox e frazioni di corsa veloci",
+                "strengths": "Schiuma NITROFOAM, piastra PWRPLATE e grip PUMAGRIP",
+                "target_keyword": "deviate nitro"
+            },
+            {
+                "model_name": "Puma Velocity Nitro 3 / 4 Hyrox",
+                "ideal_for": "Allenamento ibrido e versatilità in gara",
+                "strengths": "Flessibile su burpees e lunges con trazione superiore",
+                "target_keyword": "velocity nitro"
+            },
+            {
+                "model_name": "Adidas Adizero Dropset Pro / 3",
+                "ideal_for": "Stabilità su sled push, lunges e wall balls",
+                "strengths": "Intersuola a doppia densità e tenuta laterale",
+                "target_keyword": "dropset"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "hyrox",
+            "badge_text": "Miglior Scelta per Hyrox",
+            "highlights": [
+                "Progettata per alternare 8 km di corsa e 8 stazioni funzionali",
+                "Trazione ad alto coefficiente per sled push e sled pull",
+                "Stabilità laterale e traspirabilità per alte intensità"
+            ]
+        },
+        "follow_ups": [
+            "Confronta Puma Deviate Nitro Hyrox e Adidas Dropset",
+            "Meglio scarpa da corsa o da training per Hyrox?",
+            "Mostrami modelli Hyrox sotto 130 euro"
+        ]
+    },
+    "running_apparel_long_sleeve": {
+        "models": ["adizero long sleeve", "manica lunga", "long sleeve", "odlo manica lunga", "salomon manica lunga", "kiprun", "mizuno", "asics", "nike", "craft"],
+        "label": "Maglie Tecniche a Manica Lunga da Corsa",
+        "category": "top",
+        "description": "Maglie tecniche a manica lunga, long sleeve ultraleggere e strati termici traspiranti per correre con clima fresco o invernale.",
+        "conversational_summary": "Per correre con il fresco o in inverno sceglierei tra una **long sleeve tecnica ultraleggera** per mezze stagioni e allenamenti intensi, e una **maglia termica o half-zip** per isolare dal freddo mantenendo la pelle asciutta.",
+        "sections": [
+            {
+                "id": "sec_lightweight_ls",
+                "title": "Long Sleeve Leggere & Da Gara",
+                "subtitle": "Tessuti tecnici ad asciugatura rapida per allenamenti veloci e mezze stagioni.",
+                "keywords": ["adizero long sleeve", "long sleeve", "manica lunga"]
+            },
+            {
+                "id": "sec_thermal_winter_ls",
+                "title": "Maglie Termiche & Half-Zip Invernali",
+                "subtitle": "Isolamento termico e gestione del sudore per correre alle basse temperature.",
+                "keywords": ["odlo", "warm", "termica", "half zip", "kiprun", "salomon", "mizuno"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Adidas Adizero Running Long Sleeve",
+                "ideal_for": "Allenamenti veloci e mezze stagioni",
+                "strengths": "Tessuto AEROREADY ultraleggero e dettagli riflettenti",
+                "target_keyword": "adizero long sleeve"
+            },
+            {
+                "model_name": "Odlo Active Warm / Essential Run",
+                "ideal_for": "Corsa invernale e basse temperature",
+                "strengths": "Termoregolazione avanzata e cuciture piatte anti-sfregamento",
+                "target_keyword": "odlo"
+            },
+            {
+                "model_name": "Salomon Cross Run / Shakeout Long Sleeve",
+                "ideal_for": "Running su strada e trail in clima fresco",
+                "strengths": "Tessuto tecnico traspirante ed elasticizzato",
+                "target_keyword": "salomon"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "adizero long sleeve",
+            "badge_text": "Top Long Sleeve",
+            "highlights": [
+                "Tessuto tecnico traspirante ad asciugatura rapida",
+                "Taglio ergonomico da running con cuciture anti-sfregamento",
+                "Ideale come primo strato o capo singolo nelle mezze stagioni"
+            ]
+        },
+        "follow_ups": [
+            "Mostrami maglie termiche invernali da corsa",
+            "Filtra long sleeve da running sotto 50 euro",
+            "Mostrami modelli con mezza zip (half-zip)"
+        ]
+    },
+    "running_apparel": {
+        "models": ["maglia running", "t-shirt running", "canotta running", "pantaloncini running", "giacca running", "adizero", "kiprun", "odlo", "salomon"],
+        "label": "Abbigliamento Tecnico da Corsa",
+        "category": "top",
+        "description": "Capi tecnici traspiranti, ultraleggeri e anti-sfregamento per corsa su strada e trail.",
+        "conversational_summary": "Per l'abbigliamento tecnico da corsa punta su **tessuti traspiranti ad asciugatura rapida** e cuciture piatte anti-sfregamento. Ecco i migliori capi tecnici confrontati:",
+        "sections": [
+            {
+                "id": "sec_running_tops",
+                "title": "Maglie Tecniche & Primo Strato",
+                "subtitle": "Massima traspirabilità e leggerezza per allenamenti e gare.",
+                "keywords": ["adizero", "maglia", "t-shirt", "long sleeve", "manica lunga", "canotta"]
+            },
+            {
+                "id": "sec_weather_protection",
+                "title": "Protezione Termica & Antivento",
+                "subtitle": "Capi progettati per correre con vento, pioggia o basse temperature.",
+                "keywords": ["giacca", "antivento", "odlo", "warm", "termica", "salomon"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Linea Adidas Adizero Running",
+                "ideal_for": "Gare e allenamenti ad alta intensità",
+                "strengths": "Tessuti ultraleggeri traforati e vestibilità atletica",
+                "target_keyword": "adizero"
+            },
+            {
+                "model_name": "Linea Tecnica Odlo / Salomon",
+                "ideal_for": "Comfort prolungato e protezione climatica",
+                "strengths": "Termoregolazione e materiali tecnici durevoli",
+                "target_keyword": "odlo"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "adizero",
+            "badge_text": "Scelta Runner",
+            "highlights": [
+                "Materiali tecnici studiati per evacuare rapidamente il sudore",
+                "Taglio ergonomico per libertà di movimento totale",
+                "Confronto prezzi tra i migliori store specializzati"
+            ]
+        },
+        "follow_ups": [
+            "Mostrami long sleeve da corsa",
+            "Mostrami giacche antivento da running",
+            "Filtra abbigliamento running sotto 50 euro"
+        ]
+    },
     "gym_training": {
         "models": ["adidas dropset", "adizero dropset", "dropset 4", "dropset pro", "nike metcon", "reebok nano", "under armour tribase", "puma fuse"],
         "label": "Palestra, Cross-Training & Hyrox",
@@ -632,8 +791,451 @@ KNOWN_BRANDS = [
     "salomon", "oakley", "theragun", "therabody", "enervit", "saucony",
     "mizuno", "new balance", "new-balance", "la sportiva", "poc", "kask", "abus",
     "bullpadel", "nox", "babolat", "starvie", "siux", "wahoo", "tacx", "favero", "castelli",
-    "maison margiela", "margiela"
+    "puma", "reebok", "under armour", "altra", "scarpa", "odlo", "craft", "gorewear",
+    "kiprun", "coros", "amazfit", "maison margiela", "margiela"
 ]
+
+BRAND_POPULAR_MODELS: Dict[str, List[str]] = {
+    "nike": ["nike pegasus", "nike vomero", "nike vaporfly", "nike alphafly", "nike invincible", "nike zoom fly", "nike streakfly", "nike structure", "nike metcon"],
+    "adidas": ["adidas adizero", "adidas supernova", "adidas ultraboost", "adidas boston", "adidas adios pro", "adidas takumi sen", "adidas dropset", "adidas terrex"],
+    "asics": ["asics nimbus", "asics novablast", "asics kayano", "asics cumulus", "asics superblast", "asics metaspeed", "asics trabuco", "asics gt 2000"],
+    "hoka": ["hoka clifton", "hoka bondi", "hoka speedgoat", "hoka mach", "hoka arahi", "hoka cielo", "hoka rincon", "hoka challenger"],
+    "saucony": ["saucony endorphin", "saucony triumph", "saucony ride", "saucony guide", "saucony peregrine", "saucony kinvara", "saucony hurricane", "saucony tempus"],
+    "brooks": ["brooks ghost", "brooks glycerin", "brooks cascadia", "brooks adrenaline", "brooks hyperion", "brooks caldera", "brooks trace"],
+    "new-balance": ["new balance 1080", "new balance rebel", "new balance fuelcell", "new balance fresh foam", "new balance hierro", "new balance more"],
+    "new balance": ["new balance 1080", "new balance rebel", "new balance fuelcell", "new balance fresh foam", "new balance hierro", "new balance more"],
+    "puma": ["puma deviate nitro", "puma velocity nitro", "puma magnify nitro", "puma fast-r", "puma foreverrun", "puma magmax"],
+    "mizuno": ["mizuno wave rider", "mizuno wave sky", "mizuno wave rebellion", "mizuno wave inspire", "mizuno wave mujin", "mizuno wave daichi"],
+    "salomon": ["salomon speedcross", "salomon ultra glide", "salomon genesis", "salomon pulsar", "salomon xa pro", "salomon sense ride", "salomon aero glide"],
+    "on": ["on cloudmonster", "on cloudsurfer", "on cloudrunner", "on cloudboom", "on cloudstratus", "on cloudflow", "on cloudultra"],
+    "altra": ["altra lone peak", "altra olympus", "altra torin", "altra timp", "altra vanish", "altra experience"],
+    "la sportiva": ["la sportiva prodigio", "la sportiva akasha", "la sportiva ultra raptor", "la sportiva bushido", "la sportiva jackal"],
+    "scarpa": ["scarpa ribelle", "scarpa spin", "scarpa golden gate", "scarpa rush"],
+    "garmin": ["garmin forerunner 165", "garmin forerunner 265", "garmin forerunner 965", "garmin fenix", "garmin instinct", "garmin edge", "garmin venu"],
+}
+
+
+class QueryProductGuardrail:
+    """Enforces strict product-type guardrails, bilingual Italian/English keyword expansion,
+    and intent sanitization so incompatible product categories never leak into search results.
+    """
+
+    CASUAL_NON_RUNNING_BRANDS = {
+        "only", "vero moda", "jack & jones", "woolrich", "armani", "ea7",
+        "calvin klein", "tommy hilfiger", "guess", "desigual", "levi's",
+        "levis", "ralph lauren", "hugo boss", "lacoste", "napapijri",
+        "colmar", "timberland", "vans", "converse", "dr martens"
+    }
+
+    SPORT_CONTEXT_STOPWORDS = {
+        "running", "corsa", "correre", "trail", "allenamento", "palestra",
+        "fitness", "sport", "sportivo", "sportiva", "sportivi", "sportive",
+        "gara", "maratona", "uomo", "donna", "unisex", "scarpe", "scarpa",
+        "modelli", "modello", "migliori", "migliore", "offerta", "offerte",
+        "da", "per", "con", "su", "in", "di", "del", "della", "dei", "delle"
+    }
+
+    @classmethod
+    def strip_markdown_bold(cls, text: str) -> str:
+        if not text:
+            return ""
+        cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", str(text))
+        cleaned = re.sub(r"^[\s•\-\*]+", "", cleaned).strip()
+        return cleaned
+
+    @classmethod
+    def detect_product_type(cls, query: str, context_query: Optional[str] = None) -> Optional[str]:
+        q = (query or "").strip().lower()
+        ctx = (context_query or "").strip().lower()
+
+        def _detect_single(t: str) -> Optional[str]:
+            if not t:
+                return None
+            # 1. Explicit apparel & accessories first (most specific)
+            if re.search(r"\b(long[\s-]*sleeve|manic[ae]\s*lung[ahe]+|magli[ae]\s*(?:a\s*)?manic[ae]\s*lung[ahe]+|t[\s-]*shirt\s*manic[ae]\s*lung[ahe]+|maglia\s*termica|1/2\s*zip|half[\s-]*zip|mezza\s*zip)\b", t):
+                return "long_sleeve_top"
+            if re.search(r"\b(canott[ae]|singlet|tank\s*top|sleeveless|smanicat[aoe])\b", t):
+                return "singlet_top"
+            if re.search(r"\b(short[\s-]*sleeve|manic[ae]\s*cort[ae]+|t[\s-]*shirt|magliett[ae]|maglia\s*(?:da\s*)?(?:running|corsa|trail|palestra|allenamento|sport))\b", t):
+                return "short_sleeve_top"
+            if re.search(r"\b(giacc[ahe]|antivento|windbreaker|k[\s-]*way|gilet\s*antivento|guscio)\b", t):
+                return "jacket"
+            if re.search(r"\b(pantaloncini|shorts?|leggings?|tights?|fuseaux|pantaloni|pantalone|corsari|ciclisti|sprinter)\b", t):
+                return "pants_shorts"
+            if re.search(r"\b(calze|calzini|calzettoni|socks?)\b", t):
+                return "socks"
+            if re.search(r"\b(cappellino|cappellini|cappello|berretto|visiera|fascia\s*testa|scaldacollo)\b", t):
+                return "headwear"
+            # 2. Tech & Hardgoods
+            if re.search(r"\b(orolog[io]|smartwatch|gps|cardiofrequenzimetro|forerunner|fenix|instinct|epix|venu|vivoactive|coros|suunto|polar\s*(?:vantage|pacer|grit)|amazfit|ciclocomputer|garmin\s*edge)\b", t):
+                return "gps_watch"
+            if re.search(r"\b(occhial[ie]|oakley|sutro|radar\s*ev|jawbreaker)\b", t):
+                return "eyewear"
+            if re.search(r"\b(gilet\s*(?:idratazione|trail)|zain[oi]|soft\s*flask|borracci[ae]|sacca\s*idrica|active\s*skin|adv\s*skin|camelbak)\b", t):
+                return "hydration"
+            if re.search(r"\b(racchett[ae]|pala\s*padel|bullpadel|nox\s*at10|padel)\b", t) and not re.search(r"\bscarp[ae]\b", t):
+                return "padel_racket"
+            if re.search(r"\b(rull[oi]|smart\s*trainer|wahoo\s*kickr|tacx\s*(?:flux|neo))\b", t):
+                return "smart_trainer"
+            if re.search(r"\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis)|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali|enervit|maurten)\b", t):
+                return "nutrition"
+            # 3. Shoes (explicit word or known shoe model/query)
+            if re.search(
+                r"\b(scarp[ae]|sneakers?|calzatur[ae]|dropset|metcon|pegasus|vomero|alphafly|vaporfly|streakfly|invincible|nimbus|kayano|cumulus|novablast|superblast|metaspeed|clifton|bondi|speedgoat|mach|cielo|glycerin|ghost|hyperion|cascadia|endorphin|triumph|ride|peregrine|deviate|velocity|fast[\s-]*r|magmax|adizero\s*(?:adios|boston|takumi|sl|evo|prime)|ultraboost|supernova|cloudmonster|cloudsurfer|cloudboom|cloudrunner|cloudstratus|wave\s*rider|wave\s*rebellion|wave\s*sky|fresh\s*foam|fuelcell|1080|rebel|hyrox)\b",
+                t
+            ):
+                return "shoes"
+            # 4. Brand + running/trail/marathon/gym without apparel word -> shoes
+            if re.search(r"\b(running|corsa|correre|maratona|mezza\s*maratona|trail|sterrato|ammortizzat[ae]|pronazione|supinazione)\b", t) and not re.search(r"\b(abbigliamento|completo|kit|accessori)\b", t):
+                return "shoes"
+            return None
+
+        primary = _detect_single(q)
+        if primary:
+            return primary
+        return _detect_single(ctx)
+
+    @classmethod
+    def _product_full_text(cls, product: Dict[str, Any]) -> str:
+        parts = [
+            str(product.get("canonical_name") or ""),
+            str(product.get("brand") or ""),
+            str(product.get("id") or ""),
+        ]
+        offers = product.get("offers") or []
+        for off in offers[:5]:
+            if isinstance(off, dict):
+                parts.append(str(off.get("raw_title") or ""))
+                parts.append(str(off.get("url") or ""))
+        return " ".join(parts).lower()
+
+    @classmethod
+    def is_product_compatible(cls, product: Dict[str, Any], product_type: Optional[str], raw_query: str = "") -> bool:
+        if not product_type:
+            return True
+
+        cat = str(product.get("category") or "").lower()
+        brand = str(product.get("brand") or "").lower().strip()
+        cname = str(product.get("canonical_name") or "").lower()
+        full_text = cls._product_full_text(product)
+        q_lower = (raw_query or "").lower()
+
+        if product_type == "shoes":
+            # Block clearly non-shoe categories
+            non_shoe_cats = {
+                "gps_watch", "eyewear", "hydration", "nutrition", "cycling",
+                "top", "jacket", "pants", "socks", "underwear", "swim",
+                "bag", "case", "gloves", "apparel"
+            }
+            if cat in non_shoe_cats:
+                return False
+            # Block non-shoe items by title/offer tokens (e.g., Amazfit T-Rex watch, towels, shirts, caps)
+            if re.search(
+                r"\b(t[\s-]*rex|smartwatch|orologio|garmin|amazfit|polar|suunto|coros|ciclocomputer|telo\s*microfibra|asciugamano|towel|borraccia|soft\s*flask|zaino|backpack|calze|calzini|socks?|t[\s-]*shirt|maglia|maglietta|long\s*sleeve|manica\s*lunga|maniche\s*lunghe|canotta|singlet|felpa|hoodie|giacca|jacket|piumino|pantaloncini|shorts?|leggings|tights|pantaloni|cappellino|\bcap\b|berretto|visiera|scaldacollo|guanti|gloves|occhiali|gel\s*energetico|barretta|rullo|casco|helmet|racchetta|pala\s*padel|kettlebell|manubri|corda\s*per\s*saltare|reggiseno|\bbra\b|slip|boxer)\b",
+                full_text
+            ):
+                return False
+            # If query is specifically for Hyrox shoes, require hyrox or known hybrid/training/running shoe models
+            if "hyrox" in q_lower:
+                if not re.search(r"\b(hyrox|dropset|deviate|velocity|metcon|nano|tribase|fuse|adizero|pegasus|endorphin|clifton|mach|rebel|novablast|superblast)\b", full_text):
+                    return False
+            return True
+
+        if product_type == "long_sleeve_top":
+            # Reject shoes, caps, watches, pants, jackets/puffers, short sleeves, singlets, kids
+            if cat in {"running_shoes", "shoes", "gps_watch", "eyewear", "hydration", "nutrition", "padel", "cycling", "pants", "socks", "underwear", "swim", "bag", "gloves"}:
+                return False
+            if re.search(
+                r"\b(scarp[ae]|shoe|sneaker|cappellino|\bcap\b|berretto|beanie|visiera|calze|calzini|socks?|pantaloncini|shorts?|leggings|tights|fuseaux|pantaloni|pantalone|zaino|backpack|borraccia|flask|orologio|smartwatch|occhiali|piumino|down\s*jacket|parka|smanicat[ao]|sleeveless|canotta|tank\s*top|singlet|manic[ae]\s*cort[ae]|short[\s-]*sleeve|reggiseno|\bbra\b|slip|boxer|guanti|gloves|scaldacollo|fascia|bambin[oi]|kids?|junior|jr\b|boy|girl)\b",
+                full_text
+            ):
+                return False
+            # Reject casual fashion non-sport brands when searching athletic long sleeves
+            if brand in cls.CASUAL_NON_RUNNING_BRANDS or any(cb in cname for cb in ["woolrich", "only t shirt", "ciao bella", "vero moda", "jack & jones"]):
+                return False
+            # Must contain positive evidence of long sleeve / thermal / half-zip top
+            if not re.search(
+                r"\b(long[\s-]*sleeve|manic[ae]\s*lung[ahe]|l/s\b|half[\s-]*zip|1/2[\s-]*zip|quarter[\s-]*zip|mezza\s*zip|maglia\s*termica|intimo\s*termico|active\s*warm|run\s*warm|warmalite|warm\b|termic[ao]|midlayer|mid[\s-]*layer|crew\s*neck)\b",
+                full_text
+            ):
+                return False
+            return True
+
+        if product_type == "short_sleeve_top":
+            if cat in {"running_shoes", "shoes", "gps_watch", "eyewear", "hydration", "nutrition", "padel", "cycling", "pants", "jacket", "socks", "underwear", "swim", "bag", "gloves"}:
+                return False
+            if re.search(
+                r"\b(scarp[ae]|shoe|sneaker|cappellino|\bcap\b|berretto|calze|calzini|pantaloncini|shorts?|leggings|tights|pantaloni|zaino|borraccia|orologio|piumino|giacca|jacket|long[\s-]*sleeve|manic[ae]\s*lung[ahe]|canotta|singlet|sleeveless|reggiseno|\bbra\b)\b",
+                full_text
+            ):
+                return False
+            if brand in cls.CASUAL_NON_RUNNING_BRANDS:
+                return False
+            return bool(re.search(r"\b(t[\s-]*shirt|maglia|maglietta|short[\s-]*sleeve|manic[ae]\s*cort[ae]|top|tee\b)\b", full_text))
+
+        if product_type == "singlet_top":
+            if cat in {"running_shoes", "shoes", "gps_watch", "eyewear", "hydration", "nutrition", "pants", "jacket", "socks"}:
+                return False
+            return bool(re.search(r"\b(canotta|canottiera|singlet|tank\s*top|sleeveless|smanicat[ao])\b", full_text))
+
+        if product_type == "jacket":
+            if cat in {"running_shoes", "shoes", "gps_watch", "eyewear", "hydration", "nutrition", "pants", "socks"}:
+                return False
+            return bool(re.search(r"\b(giacca|jacket|antivento|windbreaker|k[\s-]*way|gilet|vest|shell|guscio|impermeabile|rain)\b", full_text))
+
+        if product_type == "pants_shorts":
+            if cat in {"running_shoes", "shoes", "gps_watch", "eyewear", "hydration", "nutrition", "top", "jacket", "socks"}:
+                return False
+            return bool(re.search(r"\b(pantaloncini|shorts?|leggings?|tights?|fuseaux|pantaloni|pantalone|corsari|sprinter|ciclisti)\b", full_text))
+
+        if product_type == "gps_watch":
+            if cat in {"running_shoes", "shoes", "top", "jacket", "pants", "socks", "apparel", "eyewear", "nutrition", "padel", "case", "strap", "mount"}:
+                return False
+            if re.search(
+                r"\b(cinturino|strap|quickfit|pellicola|cover|custodia|cavo|caricabatterie|staffa|supporto\s*manubrio|protezion[ei]\s*(?:lo\s*)?schermo|idrogel|hydrogel|vetro\s*temp[ea]rato|screen\s*protector|sportenzia|second\s*hand)\b",
+                full_text
+            ):
+                return False
+            return bool(re.search(r"\b(garmin|forerunner|fenix|instinct|epix|venu|vivoactive|edge|polar|vantage|pacer|grit|suunto|coros|amazfit|t[\s-]*rex|orologio|smartwatch|gps)\b", full_text))
+
+        if product_type == "eyewear":
+            return bool(re.search(r"\b(occhiali|oakley|sutro|radar|jawbreaker|holbrook|bliz|rudy\s*project|smith|lenti|sunglasses)\b", full_text))
+
+        if product_type == "hydration":
+            return bool(re.search(r"\b(gilet|active\s*skin|adv\s*skin|sense\s*pro|zaino|borraccia|flask|camelbak|idratazione|hydration|quiver)\b", full_text))
+
+        if product_type == "padel_racket":
+            if re.search(r"\b(scarp[ae]|shoe|maglia|t[\s-]*shirt|pantaloncini|calze|palline|tubo|overgrip|borsa|zaino)\b", full_text):
+                return False
+            return bool(re.search(r"\b(bullpadel|nox|babolat|head|siux|starvie|kuikma|adidas\s*metalbone|racchetta|pala|padel|vertex|hack|at10|viper)\b", full_text))
+
+        if product_type == "smart_trainer":
+            return bool(re.search(r"\b(rullo|rulli|kickr|flux|neo\s*2t|tacx|wahoo|elite\s*suito|elite\s*direto|smart\s*trainer|zwift)\b", full_text))
+
+        if product_type == "nutrition":
+            return bool(re.search(r"\b(gel\b|enervit|maurten|sis\b|226ers|namedsport|maltodestrin|isocarb|barretta|elettrolit|sali\s*minerali|isotonic)\b", full_text))
+
+        return True
+
+    @classmethod
+    def clean_keyword_for_catalog(cls, kw: str) -> str:
+        """Removes generic sport filler words (e.g. 'Saucony da corsa' -> 'saucony')
+        that are stripped from canonical_name during product indexing.
+        """
+        if not kw:
+            return ""
+        kw_low = kw.strip().lower()
+        # Preserve specific compound product terms
+        preserved_phrases = [
+            "long sleeve", "manica lunga", "maniche lunghe", "short sleeve", "manica corta",
+            "half zip", "1/2 zip", "active warm", "run warm", "active skin", "adv skin",
+            "wave rider", "wave sky", "wave rebellion", "fresh foam", "lone peak",
+            "ultra raptor", "ultra glide", "aero glide", "zoom fly", "adios pro", "takumi sen"
+        ]
+        for phrase in preserved_phrases:
+            if phrase in kw_low:
+                return kw_low
+
+        tokens = re.findall(r"\b[a-zA-Z0-9\-\.]+\b", kw_low)
+        meaningful = [t for t in tokens if t not in cls.SPORT_CONTEXT_STOPWORDS]
+        if meaningful:
+            return " ".join(meaningful)
+        return kw_low
+
+    @classmethod
+    def expand_keywords(cls, raw_query: str, product_type: Optional[str], brand: Optional[str], existing_keywords: List[str]) -> List[str]:
+        q_low = (raw_query or "").strip().lower()
+        brand_low = (brand or "").strip().lower()
+        result: List[str] = []
+
+        def _add(k: str):
+            k_clean = k.strip().lower()
+            if k_clean and k_clean not in result:
+                result.append(k_clean)
+
+        # 1. Special domain expansions
+        if product_type == "long_sleeve_top":
+            if brand_low:
+                _add(f"{brand_low} long sleeve")
+                _add(f"{brand_low} manica lunga")
+                _add(brand_low)
+            else:
+                for kw in [
+                    "adizero long sleeve",
+                    "manica lunga",
+                    "long sleeve",
+                    "odlo manica lunga",
+                    "salomon manica lunga",
+                    "kiprun",
+                    "mizuno",
+                    "asics",
+                    "nike",
+                    "craft",
+                ]:
+                    _add(kw)
+
+        elif "hyrox" in q_low:
+            for kw in [
+                "hyrox",
+                "deviate nitro hyrox",
+                "velocity nitro hyrox",
+                "adidas dropset",
+                "adizero dropset",
+                "puma deviate nitro",
+                "puma velocity nitro",
+                "nike metcon",
+                "reebok nano",
+            ]:
+                _add(kw)
+
+        # 2. Clean and add existing keywords
+        for kw in (existing_keywords or []):
+            cleaned = cls.clean_keyword_for_catalog(kw)
+            if cleaned:
+                _add(cleaned)
+            _add(kw.strip().lower())
+
+        # 3. If brand is specified and query is a broad brand+category search (e.g. "Saucony da corsa", "Nike da running"),
+        # expand with the brand's actual popular models in the catalog so DB search hits immediately!
+        if brand_low and brand_low in BRAND_POPULAR_MODELS and product_type in (None, "shoes", "gps_watch"):
+            # Check if user asked for a specific model or just the brand in general
+            non_brand_tokens = [
+                t for t in re.findall(r"\b[a-zA-Z0-9]+\b", q_low)
+                if t not in cls.SPORT_CONTEXT_STOPWORDS and t not in brand_low.split()
+            ]
+            if not non_brand_tokens:
+                _add(brand_low)
+                for m in BRAND_POPULAR_MODELS[brand_low]:
+                    _add(m)
+
+        return result[:12]
+
+    @classmethod
+    def sanitize_intent(cls, intent: SmartSearchIntent, user_query: str, context_query: Optional[str] = None) -> SmartSearchIntent:
+        q_low = (user_query or "").strip().lower()
+        ctx_low = (context_query or "").strip().lower()
+        combined_q = f"{q_low} {ctx_low}".strip()
+        product_type = cls.detect_product_type(user_query, context_query)
+
+        # 0. Prevent LLM from hallucinating a brand filter when the user didn't mention a brand or brand-specific model
+        if intent.brand:
+            b_low = intent.brand.strip().lower()
+            b_variants = {b_low, b_low.replace("-", " "), b_low.replace(" ", "-")}
+            explicit_brand_in_q = any(re.search(rf"\b{re.escape(bv)}\b", combined_q) for bv in b_variants)
+            if not explicit_brand_in_q:
+                from fitmatch.matcher.normalizer import ICONIC_MODEL_BRANDS
+                implied_brand = None
+                for mod_kw, mod_brand in ICONIC_MODEL_BRANDS.items():
+                    if re.search(rf"\b{re.escape(mod_kw)}\b", combined_q):
+                        implied_brand = mod_brand
+                        break
+                if implied_brand and implied_brand.lower() in b_variants:
+                    intent.brand = implied_brand
+                else:
+                    intent.brand = None
+                    intent.chips = [c for c in (intent.chips or []) if c.param_key != "brand"]
+
+        # 1. Fix category based on detected product_type
+        if product_type == "long_sleeve_top" or product_type == "short_sleeve_top" or product_type == "singlet_top":
+            intent.category = "top"
+        elif product_type == "jacket":
+            intent.category = "jacket"
+        elif product_type == "pants_shorts":
+            intent.category = "pants"
+        elif product_type == "socks":
+            intent.category = "socks"
+        elif product_type == "headwear":
+            intent.category = "gear"
+        elif product_type == "gps_watch":
+            intent.category = "gps_watch"
+        elif product_type == "eyewear":
+            intent.category = "eyewear"
+        elif product_type == "hydration":
+            intent.category = "hydration"
+        elif product_type == "padel_racket":
+            intent.category = "padel"
+        elif product_type == "smart_trainer":
+            intent.category = "cycling"
+        elif product_type == "nutrition":
+            intent.category = "nutrition"
+        elif product_type == "shoes":
+            if intent.category not in ("running_shoes", "shoes", "fitness"):
+                intent.category = "running_shoes"
+
+        # 2. Override with specialized domain templates for Hyrox and Running Long Sleeve when generic/broken
+        if "hyrox" in q_low and product_type == "shoes" and not intent.brand:
+            hyrox_arch = SPORTS_KNOWLEDGE["hyrox"]
+            intent.conversational_header = "Ho cercato Scarpe Hyrox"
+            intent.conversational_summary = hyrox_arch["conversational_summary"]
+            intent.explanation = hyrox_arch["conversational_summary"]
+            intent.curated_sections = [
+                CuratedSectionDef(**s) for s in hyrox_arch["sections"]
+            ]
+            intent.spec_comparisons = [
+                SpecComparisonDef(**sc) for sc in hyrox_arch["spec_comparisons"]
+            ]
+            intent.spotlight = SpotlightDef(**hyrox_arch["spotlight"])
+            intent.follow_up_suggestions = list(hyrox_arch["follow_ups"])
+
+        elif product_type == "long_sleeve_top" and not intent.brand:
+            ls_arch = SPORTS_KNOWLEDGE["running_apparel_long_sleeve"]
+            intent.conversational_header = "Ho cercato Maglie a Manica Lunga da Corsa"
+            intent.conversational_summary = ls_arch["conversational_summary"]
+            intent.explanation = ls_arch["conversational_summary"]
+            intent.curated_sections = [
+                CuratedSectionDef(**s) for s in ls_arch["sections"]
+            ]
+            intent.spec_comparisons = [
+                SpecComparisonDef(**sc) for sc in ls_arch["spec_comparisons"]
+            ]
+            intent.spotlight = SpotlightDef(**ls_arch["spotlight"])
+            intent.follow_up_suggestions = list(ls_arch["follow_ups"])
+
+        # 3. Expand and sanitize target_keywords
+        intent.target_keywords = cls.expand_keywords(
+            raw_query=user_query,
+            product_type=product_type,
+            brand=intent.brand,
+            existing_keywords=intent.target_keywords,
+        )
+
+        # 4. Strip markdown asterisks from spotlight highlights, spec_comparisons, and section titles
+        if intent.spotlight and intent.spotlight.highlights:
+            intent.spotlight.highlights = [
+                cls.strip_markdown_bold(h) for h in intent.spotlight.highlights if cls.strip_markdown_bold(h)
+            ]
+            intent.spotlight.badge_text = cls.strip_markdown_bold(intent.spotlight.badge_text) or "Miglior Scelta"
+
+        deduped_specs: List[SpecComparisonDef] = []
+        seen_spec_keys = set()
+        for sc in (intent.spec_comparisons or []):
+            sc.model_name = cls.strip_markdown_bold(sc.model_name)
+            sc.ideal_for = cls.strip_markdown_bold(sc.ideal_for)
+            sc.strengths = cls.strip_markdown_bold(sc.strengths)
+            if sc.target_keyword:
+                sc.target_keyword = cls.clean_keyword_for_catalog(sc.target_keyword)
+            key = (sc.model_name.lower(), (sc.target_keyword or "").lower())
+            if key not in seen_spec_keys:
+                seen_spec_keys.add(key)
+                deduped_specs.append(sc)
+        intent.spec_comparisons = deduped_specs
+
+        for sec in (intent.curated_sections or []):
+            sec.title = cls.strip_markdown_bold(sec.title)
+            sec.subtitle = cls.strip_markdown_bold(sec.subtitle)
+            if product_type == "gps_watch" and "accessori" in sec.title.lower():
+                sec.title = "Alternative & Altri Modelli GPS"
+                sec.subtitle = "Altri smartwatch sportivi per corsa, triathlon e outdoor."
+            cleaned_sec_kws = []
+            for kw in (sec.keywords or []):
+                ckw = cls.clean_keyword_for_catalog(kw)
+                if ckw and ckw not in cleaned_sec_kws:
+                    cleaned_sec_kws.append(ckw)
+                if kw.lower().strip() not in cleaned_sec_kws:
+                    cleaned_sec_kws.append(kw.lower().strip())
+            sec.keywords = cleaned_sec_kws
+
+        return intent
 
 
 class LocalHeuristicParser:
@@ -756,7 +1358,11 @@ class LocalHeuristicParser:
         if is_waterproof:
             features.append("waterproof")
 
-        if re.search(r"\b(orolog[io]|smartwatch|gps|cardio|garmin|polar|suunto|forerunner|fenix|instinct|epix|venu|vivoactive|ciclocomputer)\b", text):
+        if re.search(r"\b(long[\s-]*sleeve|manic[ae]\s*lung[ahe]+|magli[ae]\s*(?:a\s*)?manic[ae]\s*lung[ahe]+|maglia\s*termica|1/2\s*zip|half[\s-]*zip|mezza\s*zip)\b", text):
+            archetype_key = "running_apparel_long_sleeve"
+        elif re.search(r"\b(t[\s-]*shirt|magliett[ae]|maglia\s*(?:da\s*)?(?:running|corsa|trail)|canott[ae]|singlet|abbigliamento\s*(?:running|corsa))\b", text):
+            archetype_key = "running_apparel"
+        elif re.search(r"\b(orolog[io]|smartwatch|gps|cardio|garmin|polar|suunto|forerunner|fenix|instinct|epix|venu|vivoactive|ciclocomputer)\b", text):
             archetype_key = "gps_watch"
             if not detected_brand and re.search(r"\b(forerunner|fenix|instinct|epix|venu|vivoactive)\b", text):
                 detected_brand = "Garmin"
@@ -777,6 +1383,9 @@ class LocalHeuristicParser:
         elif re.search(r"\b(trail|sterrato|fango|montagna|sentier[oi]|bosco)\b", text):
             archetype_key = "trail_running"
             features.append("trail")
+        elif re.search(r"\bhyrox\b", text) and not re.search(r"\b(dropset|metcon|nano)\b", text):
+            archetype_key = "hyrox"
+            features.append("training")
         elif re.search(r"\b(dropset|metcon|nano|tribase|fuse|powerlifting|crossfit|hyrox|palestra|pesi|sollevamento|allenamento funzionale)\b", text):
             archetype_key = "gym_training"
             features.append("training")
@@ -1012,28 +1621,30 @@ Il tuo obiettivo è analizzare la ricerca dell'utente e restituire una risposta 
    - Imposta SEMPRE "search_mode": "deep_dive" e "is_deep_dive": true (anche per ricerche di singoli modelli come "Forerunner 165" o "Adizero Dropset"), così che l'utente riceva sempre il riassunto conversazionale, lo spotlight con la migliore offerta, il confronto rapido tra edizioni e i pulsanti di follow-up utili! Usa "classic" SOLO se l'utente richiede espressamente una lista piatta senza AI (es. "mostra solo lista").
 
 2. CONOSCENZA DEL DOMINIO ATLETICO & REGOLE CRITICHE SULLE CATEGORIE:
+   - "Hyrox" (es. "Scarpe hyrox"): la competizione Hyrox alterna 8x1km di corsa e 8 stazioni funzionali. I modelli migliori sono sia la linea ufficiale da running ibrido **Puma Nitro Hyrox** (Puma Deviate Nitro 3 Hyrox, Puma Deviate Nitro Elite Hyrox, Puma Velocity Nitro 3/4 Hyrox) sia le scarpe da training ibrido stabili (**Adidas Adizero Dropset**, **Nike Metcon**). Nelle target_keywords per Hyrox includi SEMPRE ["hyrox", "deviate nitro hyrox", "velocity nitro hyrox", "adidas dropset", "nike metcon"]!
+   - Abbigliamento tecnico da corsa (es. "Long sleeve da corsa", "maglia manica lunga running"): imposta 'category': 'top' (o 'jacket' per giacche antivento, 'pants' per pantaloncini/leggings). Nelle target_keywords includi sia i termini italiani che inglesi usati nei cataloghi (es. ["adizero long sleeve", "manica lunga", "long sleeve", "odlo manica lunga", "salomon"]).
    - "Adidas Dropset" (Dropset Trainer, Dropset Pro, Dropset 3, Dropset 4) è una scarpa specifica per PALESTRA, PESISTICA, FUNCTIONAL TRAINING e HYROX (suola piatta a doppia densità, drop ridotto, supporto laterale per squat e slitte). NON descriverla MAI come scarpa da corsa o con ammortizzazione da running! Imposta 'category': 'fitness'.
    - "Garmin Forerunner" (es. Forerunner 165, 265, 965) è uno SMARTWATCH GPS DA CORSA. "Garmin Edge" (es. Edge 840) è un CICLOCOMPUTER DA MANUBRIO BICI: non confonderli MAI! Imposta 'category': 'gps_watch'.
-   - Scarpe da corsa (running_shoes): Pegasus, Vomero, Nimbus, Clifton, Bondi, Ghost, Speedgoat, Novablast, Endorphin, Adizero Adios / Boston.
+   - Scarpe da corsa (running_shoes): Pegasus, Vomero, Nimbus, Clifton, Bondi, Ghost, Speedgoat, Novablast, Endorphin, Adizero Adios / Boston, Deviate Nitro, Velocity Nitro.
    - Scarpe da training/palestra (fitness): Dropset, Metcon, Nano, Tribase, Fuse.
 
 3. STRUTTURA DELLE SEZIONI & SPEC COMPARISONS ("Confronto Rapido"):
-   - conversational_header: Intestazione pulita e specifica (es. "Ho cercato Garmin Forerunner 165" o "Ho cercato Adidas Adizero Dropset").
+   - conversational_header: Intestazione pulita e specifica (es. "Ho cercato Garmin Forerunner 165" o "Ho cercato Scarpe Hyrox").
    - conversational_summary: 1 o 2 frasi concise ed esperte in italiano, con **i concetti chiave in grassetto** (es. "Ho trovato le **Adidas Adizero Dropset**: scarpe a base piatta e supporto laterale rinforzato per **allenamento ibrido, pesi e gare Hyrox**.").
-   - curated_sections: 2 o 3 caroselli tematici coerenti (es. "Modelli Dropset Disponibili", "Alternative per Allenamento Ibrido"), con keyword pertinenti al modello cercato.
-   - spotlight: Il miglior prodotto/modello cercato con badge ("Miglior Scelta" o "Prezzo Top") e 3 bullet point tecnici accurati.
-   - spec_comparisons: 2 o 3 modelli a confronto per la card 'Confronto rapido' (come nello screenshot di Shop), con:
-     * model_name: nome commerciale (es. "Adidas Adizero Dropset Pro Trainer", "Adidas Dropset 4 Power")
-     * ideal_for: uso primario (es. "Allenamento ibrido e Hyrox", "Sollevamento pesi e forza")
-     * strengths: punto forte tecnico (es. "Doppia densità e stabilità sotto carico", "Base ribassata per massimo radicamento")
-     * target_keyword: termine mirato per agganciare il prodotto a database (es. "dropset", "forerunner 165")
-   - follow_up_suggestions: 3 pulsanti pillola con domande realistiche da appassionato (es. ["Confrontale con le adidas Dropset 4", "Quali sono migliori per Hyrox?", "Cercale nella mia taglia"]).
+   - curated_sections: 2 o 3 caroselli tematici coerenti, con keyword pertinenti al modello cercato. NON intitolare una sezione a un solo brand (es. "Scarpe Adidas") se le keyword sono generiche (es. "hyrox")!
+   - spotlight: Il miglior prodotto/modello cercato con badge ("Miglior Scelta" o "Prezzo Top") e 3 bullet point tecnici accurati SENZA asterischi markdown (**).
+   - spec_comparisons: 2 o 3 modelli DISTINTI a confronto per la card 'Confronto rapido' (mai due card con la stessa target_keyword!), con:
+     * model_name: nome commerciale distinto (es. "Puma Deviate Nitro 3 Hyrox", "Adidas Adizero Dropset Pro")
+     * ideal_for: uso primario SENZA asterischi markdown (**)
+     * strengths: punto forte tecnico SENZA asterischi markdown (**)
+     * target_keyword: termine mirato e distinto per agganciare ciascun prodotto a database (es. "deviate nitro", "dropset")
+   - follow_up_suggestions: 3 pulsanti pillola con domande realistiche da appassionato.
    - chips: Filtri rapidi estratti (brand, prezzo, taglia).
 
 REGOLE CRITICHE SUI FILTRI:
 - NON INVENTARE FILTRI: se l'utente NON ha specificato esplicitamente un prezzo massimo o minimo (es. 'sotto 150 euro'), imposta SEMPRE 'max_price': null e 'min_price': null!
 - GENERE: imposta 'gender' a 'Uomo' o 'Donna' SOLO se esplicitamente dichiarato nella query. Altrimenti 'gender': null.
-- TARGET KEYWORDS: includi 2-4 parole chiave mirate sul MODELLO e sul PRODOTTO (es. ['Garmin Forerunner 165', 'Forerunner 165']). Metti il modello specifico per primo!
+- TARGET KEYWORDS: usa parole chiave pulite che compaiono davvero nei nomi dei prodotti in catalogo (es. ['saucony triumph', 'saucony ride', 'saucony endorphin'] invece di 'Saucony da corsa'). NON aggiungere parole generiche come 'da corsa' o 'da running' dentro le target_keywords!
 - STRINGHE DI TESTO: 'conversational_header' deve essere una stringa breve (es. 'Ho cercato Nike Vomero Plus') e 'conversational_summary' una breve frase descrittiva; non impostarli MAI a null anche se search_mode è classic.
 
 Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
@@ -1127,7 +1738,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
                 "model": current_model,
                 "messages": messages,
                 "temperature": 0.1,
-                "max_tokens": 800
+                "max_tokens": 1400
             }
 
             headers = {
@@ -1274,7 +1885,8 @@ class SmartSearchEngine:
         cached_data = self.cache_manager.get_intent(cache_lookup_query, force_mode=force_mode)
         if cached_data:
             try:
-                return SmartSearchIntent.model_validate(cached_data)
+                cached_intent = SmartSearchIntent.model_validate(cached_data)
+                return QueryProductGuardrail.sanitize_intent(cached_intent, user_query=user_query, context_query=context_query)
             except Exception as e:
                 logger.debug("Failed to re-validate cached intent: %s", e)
 
@@ -1285,8 +1897,9 @@ class SmartSearchEngine:
         if not intent:
             intent = LocalHeuristicParser.parse(user_query=user_query, force_mode=force_mode)
 
-        # 2. Store in Multi-Tier Cache with 7-day TTL
         if intent:
+            intent = QueryProductGuardrail.sanitize_intent(intent, user_query=user_query, context_query=context_query)
+            # 2. Store in Multi-Tier Cache with 7-day TTL
             self.cache_manager.set_intent(cache_lookup_query, force_mode=force_mode, intent_data=intent)
 
         return intent

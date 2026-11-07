@@ -805,43 +805,108 @@ class SupabaseClient:
 
     # MARK: - Catalog Search & Smart Search
 
+    CATEGORY_EQUIVALENTS = {
+        "running_shoes": ["running_shoes", "shoes", "fitness"],
+        "shoes": ["running_shoes", "shoes", "fitness"],
+        "fitness": ["fitness", "running_shoes", "shoes"],
+        "top": ["top", "apparel"],
+        "apparel": ["top", "apparel", "jacket", "pants"],
+        "jacket": ["jacket", "apparel", "top"],
+        "pants": ["pants", "apparel"],
+        "socks": ["socks", "apparel", "gear"],
+        "gps_watch": ["gps_watch", "gear"],
+        "eyewear": ["eyewear", "gear"],
+        "hydration": ["hydration", "gear", "bag"],
+        "padel": ["padel", "gear", "shoes"],
+        "cycling": ["cycling", "gear", "shoes"],
+        "nutrition": ["nutrition", "gear"],
+    }
+
+    @classmethod
+    def _build_category_filter(cls, category: Optional[str]) -> Optional[str]:
+        if not category or category.lower() in ("all", "tutti"):
+            return None
+        c_low = category.lower().strip()
+        eq_cats = cls.CATEGORY_EQUIVALENTS.get(c_low, [c_low])
+        if len(eq_cats) == 1:
+            return f"category=eq.{urllib.parse.quote(eq_cats[0])}"
+        joined = ",".join(urllib.parse.quote(c) for c in eq_cats)
+        return f"category=in.({joined})"
+
     def search_indexed(self, query: str = "", category: Optional[str] = None, limit: int = 25) -> List[Dict[str, Any]]:
         """Fast catalog query on Supabase Cloud PostgreSQL with store offers joined."""
         query_clean = query.strip()
         params = ["select=*,store_offers!inner(*)"]
 
-        if category and category.lower() not in ("all", "tutti"):
-            params.append(f"category=eq.{urllib.parse.quote(category.lower())}")
+        cat_filter = self._build_category_filter(category)
+        if cat_filter:
+            params.append(cat_filter)
 
-        STOPWORDS = {
-            "scarpe", "scarpa", "modello", "per", "la", "il", "lo", "i", "gli", "le",
+        BASE_STOPWORDS = {
+            "scarpe", "scarpa", "modello", "modelli", "per", "la", "il", "lo", "i", "gli", "le",
             "un", "una", "uno", "di", "a", "da", "in", "con", "su", "della", "dello",
-            "dei", "degli", "delle", "shoe", "shoes", "trova", "cerca", "cerco"
+            "dei", "degli", "delle", "shoe", "shoes", "trova", "cerca", "cerco",
+            "migliori", "migliore", "offerta", "offerte", "prezzo", "prezzi"
         }
-        words = [w for w in re.findall(r"\b\w+\b", query_clean.lower()) if w not in STOPWORDS and len(w) > 1] if query_clean else []
+        SPORT_CONTEXT_WORDS = {
+            "running", "corsa", "correre", "trail", "allenamento", "palestra",
+            "sport", "sportivo", "sportiva", "uomo", "donna", "unisex"
+        }
+        all_tokens = [w for w in re.findall(r"\b\w+\b", query_clean.lower()) if w not in BASE_STOPWORDS and len(w) > 1] if query_clean else []
+        # Strip generic sport context words if there are other specific tokens (brand/model/garment)
+        specific_tokens = [w for w in all_tokens if w not in SPORT_CONTEXT_WORDS]
+        words = specific_tokens if specific_tokens else all_tokens
 
         if words:
             if len(words) == 1:
-                params.append(f"or=(canonical_name.ilike.*{urllib.parse.quote(words[0])}*,brand.ilike.*{urllib.parse.quote(words[0])}*)")
+                w_enc = urllib.parse.quote(words[0])
+                params.append(f"or=(canonical_name.ilike.*{w_enc}*,brand.ilike.*{w_enc}*)")
             else:
                 and_parts = [f"or(canonical_name.ilike.*{urllib.parse.quote(w)}*,brand.ilike.*{urllib.parse.quote(w)}*)" for w in words[:4]]
                 params.append(f"and=({','.join(and_parts)})")
 
-        params.append(f"limit={max(limit * 2, 25)}")
+        params.append(f"limit={max(limit * 2, 30)}")
         endpoint = f"products?{'&'.join(params)}"
         resp = self._request(endpoint)
         raw_prods = resp.get("data") or []
+        seen_pids = {p.get("id") for p in raw_prods if p.get("id")}
 
-        # Fallback if strict multi-word query returned 0 products
+        # Also check store_offers.raw_title if query has specific terms and few products matched canonical_name
+        if words and len(raw_prods) < 8:
+            offer_and_parts = [f"raw_title=ilike.*{urllib.parse.quote(w)}*" for w in words[:3]]
+            off_endpoint = f"store_offers?{'&'.join(offer_and_parts)}&select=product_id&limit=40"
+            off_resp = self._request(off_endpoint)
+            off_rows = off_resp.get("data") or []
+            extra_pids = []
+            for r in off_rows:
+                pid = r.get("product_id")
+                if pid and pid not in seen_pids and pid not in extra_pids:
+                    extra_pids.append(pid)
+            if extra_pids:
+                pids_in = ",".join(f'"{urllib.parse.quote(pid)}"' for pid in extra_pids[:25])
+                p_extra_ep = f"products?id=in.({pids_in})&select=*,store_offers!inner(*)"
+                if cat_filter:
+                    p_extra_ep += f"&{cat_filter}"
+                extra_resp = self._request(p_extra_ep)
+                for ep in (extra_resp.get("data") or []):
+                    if ep.get("id") not in seen_pids:
+                        seen_pids.add(ep.get("id"))
+                        raw_prods.append(ep)
+
+        # Fallback if strict multi-word query still returned 0 products
         if not raw_prods and len(words) > 1:
-            num_tokens = [w for w in words if w.isdigit()]
-            target_w = num_tokens[0] if num_tokens else sorted(words, key=len, reverse=True)[0]
-            params_fb = ["select=*,store_offers!inner(*)", f"or=(canonical_name.ilike.*{urllib.parse.quote(target_w)}*,brand.ilike.*{urllib.parse.quote(target_w)}*)"]
-            if category and category.lower() not in ("all", "tutti"):
-                params_fb.append(f"category=eq.{urllib.parse.quote(category.lower())}")
-            params_fb.append(f"limit={max(limit * 2, 25)}")
-            fb_resp = self._request(f"products?{'&'.join(params_fb)}")
-            raw_prods = fb_resp.get("data") or []
+            or_parts = []
+            for w in words[:4]:
+                if w not in SPORT_CONTEXT_WORDS:
+                    w_enc = urllib.parse.quote(w)
+                    or_parts.append(f"canonical_name.ilike.*{w_enc}*")
+            if or_parts:
+                params_fb = ["select=*,store_offers!inner(*)", f"or=({','.join(or_parts)})"]
+                if cat_filter:
+                    params_fb.append(cat_filter)
+                params_fb.append(f"limit={max(limit * 2, 30)}")
+                fb_resp = self._request(f"products?{'&'.join(params_fb)}")
+                raw_prods = fb_resp.get("data") or []
 
         results = []
         for p in raw_prods:
@@ -858,10 +923,55 @@ class SupabaseClient:
         if not offers_raw:
             return None
 
+        from fitmatch.matcher.normalizer import ProductNormalizer
+        norm = ProductNormalizer()
+
+        # Self-healing check: ensure canonical_name & brand are consistent with the product's actual offers
+        sorted_offers_raw = sorted(offers_raw, key=lambda x: x.get("current_price") or 99999)
+        primary_raw_title = (sorted_offers_raw[0].get("raw_title") or "").strip()
+        p_brand = (p.get("brand") or "").strip()
+        c_name = (p.get("canonical_name") or "").strip()
+
+        if primary_raw_title:
+            inferred_brand = norm.extract_brand(primary_raw_title)
+            if inferred_brand and (not p_brand or p_brand.lower() in ("generic", "elite", "scarpa", "on") and inferred_brand.lower() != p_brand.lower()):
+                p_brand = inferred_brand
+
+            # Check token overlap between canonical_name and primary offer raw_title
+            cname_tokens = {w for w in re.findall(r"\b[a-z0-9]{3,}\b", c_name.lower()) if w not in ("uomo", "donna", "unisex", "generic")}
+            raw_tokens = {w for w in re.findall(r"\b[a-z0-9]{3,}\b", primary_raw_title.lower())}
+            # Also check bilingual equivalence (manica lunga <-> long sleeve)
+            has_bilingual_match = (
+                ("long" in cname_tokens or "sleeve" in cname_tokens) and ("manica" in raw_tokens or "maniche" in raw_tokens)
+            ) or (
+                ("manica" in cname_tokens or "lunga" in cname_tokens) and ("long" in raw_tokens or "sleeve" in raw_tokens)
+            )
+            if not c_name or c_name.lower().startswith("generic ") or (cname_tokens and raw_tokens and not cname_tokens.intersection(raw_tokens) and not has_bilingual_match):
+                c_name = ProductNormalizer.build_canonical_display_name(primary_raw_title, brand=p_brand)
+            else:
+                c_name = ProductNormalizer.build_canonical_display_name(c_name, brand=p_brand)
+
+        # Filter out any accidentally cross-linked offer whose explicit brand or model number conflicts with primary offer
+        primary_digits = set(re.findall(r"\b\d+\b", primary_raw_title.lower()))
+        primary_price = float(sorted_offers_raw[0].get("current_price") or 0.0)
+        consistent_offers_raw = []
+        for o in sorted_offers_raw:
+            o_title = o.get("raw_title") or ""
+            o_brand = norm.extract_brand(o_title)
+            if p_brand and o_brand and p_brand.lower() not in ("generic",) and o_brand.lower() != p_brand.lower():
+                continue
+            o_digits = set(re.findall(r"\b\d+\b", o_title.lower()))
+            o_price = float(o.get("current_price") or 0.0)
+            if primary_digits and o_digits and primary_digits != o_digits and primary_price > 0 and o_price > primary_price * 1.8:
+                continue
+            consistent_offers_raw.append(o)
+        if consistent_offers_raw:
+            offers_raw = consistent_offers_raw
+
         # Fallback product image if missing/invalid
         p_img = clean_image_url(p.get("image_url"))
         valid_offer_imgs = [clean_image_url(o.get("image_url")) for o in offers_raw if clean_image_url(o.get("image_url"))]
-        if not p_img and valid_offer_imgs:
+        if valid_offer_imgs and (not p_img or p_img not in valid_offer_imgs):
             p_img = valid_offer_imgs[0]
 
         # Build comprehensive product gallery
@@ -919,10 +1029,11 @@ class SupabaseClient:
                 "product_url": o.get("product_url"),
                 "image_url": off_img,
                 "gallery_images": off_gallery,
-                "title": o.get("raw_title") or p.get("canonical_name"),
+                "title": o.get("raw_title") or c_name,
+                "raw_title": o.get("raw_title") or c_name,
                 "variant_name": extract_variant_title(o.get("raw_title")),
                 "available_sizes": off_sizes,
-                "brand": p.get("brand"),
+                "brand": p_brand or p.get("brand"),
                 "in_stock": o.get("in_stock", True),
                 "shipping_cost": cost,
                 "total_price": round(price + cost, 2),
@@ -938,8 +1049,6 @@ class SupabaseClient:
         savings = round(max_p - min_p, 2) if len(prices) > 1 else 0.0
 
         # Clean duplicate brand prefix in canonical_name
-        p_brand = p.get("brand") or ""
-        c_name = p.get("canonical_name") or ""
         if p_brand:
             c_name = re.sub(r"^(" + re.escape(p_brand) + r"\s+)+", f"{p_brand} ", c_name, flags=re.IGNORECASE).strip()
 
@@ -960,7 +1069,7 @@ class SupabaseClient:
         return {
             "id": p["id"],
             "canonical_name": c_name,
-            "brand": p.get("brand"),
+            "brand": p_brand or p.get("brand"),
             "category": p.get("category"),
             "gender": p.get("gender", "Unisex"),
             "image_url": p_img,
@@ -1056,11 +1165,17 @@ class SupabaseClient:
         min_price: Optional[float] = None,
         size: Optional[str] = None,
         store_id: Optional[str] = None,
-        limit: int = 35
+        limit: int = 35,
+        raw_query: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Shopify Shop-style intelligent query on Supabase Cloud PostgreSQL with multi-store offers."""
+        from fitmatch.smart_search import QueryProductGuardrail
+
         raw_results = []
         seen_names = set()
+
+        eff_query_str = (raw_query or " ".join(target_keywords or [])).strip()
+        detected_product_type = QueryProductGuardrail.detect_product_type(eff_query_str)
 
         eff_max_price: Optional[float] = None
         if max_price is not None:
@@ -1086,34 +1201,39 @@ class SupabaseClient:
             if norm_size in US_TO_EU_MEN:
                 target_size_candidates.add(US_TO_EU_MEN[norm_size])
 
-        keywords_to_query = target_keywords[:4] if target_keywords else [""]
-        for kw in keywords_to_query:
+        keywords_to_query = target_keywords[:8] if target_keywords else [""]
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _fetch_kw(kw: str) -> List[Dict[str, Any]]:
             query_term = kw.strip()
-            # Try with category first if provided
             prods = self.search_indexed(query=query_term, category=category, limit=limit)
-            # If 0 products and category was restrictive, retry without category
             if not prods and category:
                 prods = self.search_indexed(query=query_term, category=None, limit=limit)
+            return prods
 
+        with ThreadPoolExecutor(max_workers=min(6, max(1, len(keywords_to_query)))) as executor:
+            kw_batches = list(executor.map(_fetch_kw, keywords_to_query))
+
+        for prods in kw_batches:
             for p in prods:
-                p_ident = p.get("canonical_name") or p.get("id")
+                p_ident = p.get("id") or p.get("canonical_name")
                 if p_ident not in seen_names:
                     seen_names.add(p_ident)
                     raw_results.append(p)
 
-        # Vector Semantic candidates via Supabase pgvector
-        if target_keywords:
-            sem_query = " ".join([k for k in target_keywords if k.strip()])
+        # Vector Semantic candidates via Supabase pgvector (only if lexical results are sparse or to enrich)
+        if target_keywords and len(raw_results) < limit:
+            sem_query = raw_query.strip() if raw_query and raw_query.strip() else " ".join([k for k in target_keywords[:4] if k.strip()])
             if sem_query:
                 sem_prods = self.search_semantic(query=sem_query, threshold=0.38, limit=limit)
                 for sp in sem_prods:
-                    p_ident = sp.get("canonical_name") or sp.get("id")
+                    p_ident = sp.get("id") or sp.get("canonical_name")
                     if p_ident not in seen_names:
                         seen_names.add(p_ident)
                         raw_results.append(sp)
                     else:
                         for ex in raw_results:
-                            if (ex.get("canonical_name") or ex.get("id")) == p_ident:
+                            if (ex.get("id") or ex.get("canonical_name")) == p_ident:
                                 ex["semantic_similarity"] = max(ex.get("semantic_similarity", 0.0), sp.get("semantic_similarity", 0.0))
 
         BIKE_HARDWARE = {
@@ -1132,10 +1252,15 @@ class SupabaseClient:
             p_brand = (p.get("brand") or "").lower()
             p_name = (p.get("canonical_name") or "").lower()
 
+            # Product-Type Guardrail: block watches/towels on shoe searches, caps/short-sleeves on long-sleeve searches, etc.
+            if not QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=eff_query_str):
+                continue
+
             # Strict Brand Filter: if brand is requested, product MUST match brand in brand field or canonical name
             if brand:
                 b_clean = brand.lower().strip()
-                matches_brand = (b_clean in p_brand) or (b_clean in p_name)
+                b_variants = {b_clean, b_clean.replace("-", " "), b_clean.replace(" ", "-")}
+                matches_brand = any((bv in p_brand) or (bv in p_name) for bv in b_variants)
                 if not matches_brand:
                     continue
 
@@ -1183,43 +1308,62 @@ class SupabaseClient:
             score = 0.0
             pname = (prod.get("canonical_name") or "").lower()
             pbrand = (prod.get("brand") or "").lower()
-            tokens = set(re.findall(r"\b\w+\b", pname))
+            off_titles = " ".join((o.get("title") or "") for o in (prod.get("offers") or [])[:3]).lower()
+            combined_text = f"{pname} {off_titles}"
+            tokens = set(re.findall(r"\b\w+\b", combined_text))
 
-            for kw in query_kws:
+            for idx, kw in enumerate(query_kws):
                 kw_low = kw.lower().strip()
                 if not kw_low:
                     continue
+                # Higher weight for primary keywords at the start of target_keywords
+                priority_mult = 1.25 if idx < 3 else 1.0
                 if kw_low in pname:
-                    score += 100.0
+                    score += 110.0 * priority_mult
+                elif kw_low in combined_text:
+                    score += 85.0 * priority_mult
+
                 kw_tokens = re.findall(r"\b\w+\b", kw_low)
                 for t in kw_tokens:
                     if t in tokens:
-                        score += 30.0
+                        score += 28.0 * priority_mult
                         if t.isdigit():
-                            score += 60.0
+                            score += 55.0
                     elif t in pbrand:
                         score += 20.0
 
                 q_digits = [t for t in kw_tokens if t.isdigit()]
-                p_digits = [t for t in tokens if t.isdigit()]
-                if q_digits and p_digits:
+                p_digits = [t for t in re.findall(r"\b\w+\b", pname) if t.isdigit()]
+                if q_digits and p_digits and len(query_kws) <= 2:
                     if not set(q_digits).intersection(set(p_digits)):
-                        score -= 75.0  # Penalize mismatched generation/model numbers
+                        score -= 75.0  # Penalize mismatched generation/model numbers on specific SKU queries
+
+            # Domain-specific relevance boosts
+            if detected_product_type == "long_sleeve_top":
+                if any(b in pbrand for b in ("adidas", "nike", "asics", "salomon", "odlo", "mizuno", "kiprun", "hoka", "brooks", "craft", "under armour", "gorewear", "puma", "new balance")):
+                    score += 65.0
+                if re.search(r"\b(running|run|adizero|cross\s*run|active\s*warm|warmalite|element)\b", combined_text):
+                    score += 50.0
+            elif "hyrox" in eff_query_str.lower():
+                if "hyrox" in combined_text:
+                    score += 140.0
+                elif any(m in combined_text for m in ("dropset", "deviate nitro", "velocity nitro", "metcon")):
+                    score += 95.0
 
             ACCESSORY_KEYWORDS = {
                 "pellicola", "vetro temperato", "film hydrogel", "protezione schermo",
                 "custodia", "sportenzia", "cinturino"
             }
             if any(acc in pname for acc in ACCESSORY_KEYWORDS):
-                score -= 50.0
+                score -= 80.0
 
             # Semantic similarity bonus
             sem_sim = float(prod.get("semantic_similarity") or 0.0)
             if sem_sim > 0.35:
-                score += sem_sim * 70.0
+                score += sem_sim * 55.0
 
-            score += min(prod.get("cross_store_savings", 0.0) * 0.1, 15.0)
-            score += min(len(prod.get("offers", [])) * 2.0, 10.0)
+            score += min(prod.get("cross_store_savings", 0.0) * 0.15, 20.0)
+            score += min(len(prod.get("offers", [])) * 4.0, 16.0)
             return score
 
         for p in filtered:
@@ -1233,7 +1377,52 @@ class SupabaseClient:
             ),
             reverse=True
         )
-        return filtered[:limit]
+
+        # Deduplicate / disambiguate products that share the same cleaned canonical_name
+        deduped = []
+        seen_canon_gender = {}
+        for p in filtered:
+            cname = (p.get("canonical_name") or "").strip()
+            cname_key = cname.lower()
+            gend = (p.get("gender") or "Unisex").strip()
+            p_img = p.get("image_url") or ""
+            p_price = round(float(p.get("best_price") or 0.0), 2)
+
+            # Check if an identical card (same canonical name & either same gender or same image+price) is already present
+            duplicate_found = False
+            for existing in deduped:
+                ex_name = (existing.get("canonical_name") or "").strip().lower()
+                ex_base_name = re.sub(r"\s*\((uomo|donna)\)$", "", ex_name, flags=re.IGNORECASE)
+                if ex_base_name == cname_key:
+                    ex_gend = (existing.get("gender") or "Unisex").strip()
+                    ex_img = existing.get("image_url") or ""
+                    ex_price = round(float(existing.get("best_price") or 0.0), 2)
+                    if ex_gend.lower() == gend.lower() or (ex_img == p_img and ex_price == p_price):
+                        # Merge any unique offers into existing product
+                        ex_urls = {o.get("url") for o in existing.get("offers", [])}
+                        for o in p.get("offers", []):
+                            if o.get("url") not in ex_urls:
+                                existing["offers"].append(o)
+                                ex_urls.add(o.get("url"))
+                        existing["offers"].sort(key=lambda x: float(x.get("price") or 99999))
+                        prices = [float(o["price"]) for o in existing["offers"]]
+                        existing["offer_count"] = len(existing["offers"])
+                        existing["best_price"] = min(prices)
+                        existing["max_price"] = max(prices)
+                        existing["highest_price"] = max(prices)
+                        existing["cross_store_savings"] = round(max(prices) - min(prices), 2) if len(prices) > 1 else 0.0
+                        duplicate_found = True
+                        break
+                    else:
+                        # Different gender variant with different image/price: disambiguate both titles
+                        if ex_gend in ("Uomo", "Donna") and not existing["canonical_name"].endswith(f"({ex_gend})"):
+                            existing["canonical_name"] = f"{existing['canonical_name']} ({ex_gend})"
+                        if gend in ("Uomo", "Donna") and not cname.endswith(f"({gend})"):
+                            p["canonical_name"] = f"{cname} ({gend})"
+            if not duplicate_found:
+                deduped.append(p)
+
+        return deduped[:limit]
 
     # MARK: - Store Showcases & Details
 

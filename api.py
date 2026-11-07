@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from dotenv import load_dotenv
 load_dotenv()
@@ -242,6 +243,9 @@ def search_smart(
 
     intent = smart_engine.parse_query(q, force_mode=mode, context_query=eff_context)
 
+    from fitmatch.smart_search import QueryProductGuardrail
+    detected_product_type = QueryProductGuardrail.detect_product_type(q, eff_context)
+
     # Use explicit query overrides if user modified/toggled active chips
     eff_max_price = max_price if max_price is not None else intent.max_price
     eff_size = size if size is not None else intent.size
@@ -256,17 +260,25 @@ def search_smart(
         min_price=intent.min_price,
         size=eff_size,
         store_id=store,
-        limit=limit
+        limit=limit,
+        raw_query=q
     )
+
+    # Extra safety filter: ensure every returned product satisfies product-type guardrails
+    if products and detected_product_type:
+        products = [
+            p for p in products
+            if QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=q)
+        ]
 
     # Live Multi-Store Federated Search Fallback:
     # If local indexed DB returns 0 products for this smart query, immediately trigger live scrapers across retailers!
     if not products:
         brand_names = {"nike", "adidas", "puma", "asics", "brooks", "saucony", "hoka", "mizuno", "on", "new balance", "salomon", "garmin"}
         candidate_kws = [k for k in (intent.target_keywords or []) if k.strip().lower() not in brand_names]
-        queries_to_crawl = candidate_kws[:3] if len(candidate_kws) >= 2 else ([candidate_kws[0]] if candidate_kws else [q])
+        queries_to_crawl = candidate_kws[:2] if len(candidate_kws) >= 2 else ([candidate_kws[0]] if candidate_kws else [q])
         logger.info(f"[search_smart] 0 local products for '{q}'. Triggering fan-out live multi-store crawler for {queries_to_crawl}")
-        
+
         from concurrent.futures import ThreadPoolExecutor
         def _crawl_kw(kw: str):
             eff_kw = f"{intent.brand} {kw}" if intent.brand and intent.brand.lower() not in kw.lower() else kw
@@ -276,7 +288,7 @@ def search_smart(
                 logger.error(f"[search_smart] Live crawl federation error for '{eff_kw}': {e}")
                 return None
 
-        with ThreadPoolExecutor(max_workers=min(3, len(queries_to_crawl))) as executor:
+        with ThreadPoolExecutor(max_workers=min(2, len(queries_to_crawl))) as executor:
             crawl_results = list(executor.map(_crawl_kw, queries_to_crawl))
 
         BIKE_HARDWARE = {"cuffie", "cuffia", "serie sterzo", "headset", "attacco manubrio", "supporto manubrio", "movimento centrale"}
@@ -307,12 +319,12 @@ def search_smart(
                         for off in mp.offers:
                             cluster_key = ProductNormalizer.extract_cluster_key(off)
                             brand = ProductNormalizer.extract_brand(off.title) or mp.brand or intent.brand
-                            clean_t, _ = ProductNormalizer.clean_title(off.title, brand=brand)
+                            canon_display = ProductNormalizer.build_canonical_display_name(off.title, brand=brand)
                             cat = ProductNormalizer.detect_article_type(off.title)
                             gend = ProductNormalizer.extract_gender(off.title, off.url)
                             db.upsert_product_and_offer(
                                 cluster_key=cluster_key,
-                                canonical_name=clean_t or mp.canonical_name,
+                                canonical_name=canon_display or mp.canonical_name,
                                 brand=brand,
                                 category=cat,
                                 gender=gend,
@@ -322,7 +334,7 @@ def search_smart(
                         logger.warning(f"[search_smart] Failed to cache live offers: {save_err}")
 
         if merged_prods:
-            products = [
+            candidate_live = [
                 {
                     "id": mp.canonical_name,
                     "canonical_name": mp.canonical_name,
@@ -340,6 +352,27 @@ def search_smart(
                 }
                 for mp in merged_prods.values()
             ]
+            products = [
+                p for p in candidate_live
+                if QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=q)
+            ]
+
+    # Helper to check if a section title/subtitle is locked to a specific brand
+    SECTION_BRAND_NAMES = [
+        "adidas", "nike", "puma", "asics", "hoka", "saucony", "brooks",
+        "salomon", "garmin", "mizuno", "odlo", "new balance", "on", "reebok", "oakley"
+    ]
+
+    def _product_matches_section(p: dict, sec_kws: list, sec_brand_lock: Optional[str]) -> bool:
+        name_lower = (p.get("canonical_name") or "").lower()
+        brand_lower = (p.get("brand") or "").lower()
+        off_titles = " ".join((o.get("title") or "") for o in (p.get("offers") or [])[:2]).lower()
+        combined = f"{name_lower} {brand_lower} {off_titles}"
+        if sec_brand_lock and sec_brand_lock not in brand_lower and sec_brand_lock not in name_lower:
+            return False
+        if not sec_kws:
+            return True
+        return any(k in combined for k in sec_kws)
 
     # Curate Thematic Carousels for AI Deep Dive
     curated_sections_out = []
@@ -348,125 +381,253 @@ def search_smart(
     if intent.curated_sections and products:
         for sec_def in intent.curated_sections:
             sec_prods = []
-            sec_kws = [k.lower() for k in sec_def.keywords]
+            sec_kws = [k.lower().strip() for k in (sec_def.keywords or []) if k.strip()]
+            sec_title_sub = f"{sec_def.title} {sec_def.subtitle}".lower()
+            sec_brands_mentioned = [b for b in SECTION_BRAND_NAMES if re.search(rf"\b{re.escape(b)}\b", sec_title_sub)]
+            sec_brand_lock = sec_brands_mentioned[0] if len(sec_brands_mentioned) == 1 else None
+
             for p in products:
-                name_lower = (p.get("canonical_name") or "").lower()
-                brand_lower = (p.get("brand") or "").lower()
-                matched = any(k in name_lower or k in brand_lower for k in sec_kws) if sec_kws else False
-                if matched and p.get("id") not in used_product_ids:
+                if p.get("id") in used_product_ids:
+                    continue
+                if _product_matches_section(p, sec_kws, sec_brand_lock):
                     sec_prods.append(p)
                     used_product_ids.add(p.get("id"))
                 if len(sec_prods) >= 8:
                     break
 
-            # Fallback: if section has 0 products with strict unused check, allow best keyword matches
+            # Fallback without brand lock if 0 products matched and user didn't filter by that brand
             if not sec_prods and sec_kws:
                 for p in products:
-                    name_lower = (p.get("canonical_name") or "").lower()
-                    brand_lower = (p.get("brand") or "").lower()
-                    if any(k in name_lower or k in brand_lower for k in sec_kws):
+                    if p.get("id") in used_product_ids:
+                        continue
+                    if _product_matches_section(p, sec_kws, None):
                         sec_prods.append(p)
-                    if len(sec_prods) >= 4:
+                        used_product_ids.add(p.get("id"))
+                    if len(sec_prods) >= 6:
                         break
 
             if sec_prods:
+                sec_title = QueryProductGuardrail.strip_markdown_bold(sec_def.title)
+                sec_subtitle = QueryProductGuardrail.strip_markdown_bold(sec_def.subtitle)
+                # Ensure section title doesn't claim a single brand if products inside belong to other brands
+                if sec_brand_lock:
+                    actual_brands = {(sp.get("brand") or "").lower() for sp in sec_prods if sp.get("brand")}
+                    if actual_brands and not all(sec_brand_lock in ab for ab in actual_brands):
+                        sec_title = "I Modelli Più Rilevanti"
+                        sec_subtitle = "Selezionati e confrontati tra i migliori store specializzati."
                 curated_sections_out.append({
                     "id": sec_def.id,
-                    "title": sec_def.title,
-                    "subtitle": sec_def.subtitle,
+                    "title": sec_title,
+                    "subtitle": sec_subtitle,
                     "products": sec_prods
                 })
 
-    # If no sections could be formed, create one default section
+    # If remaining relevant products were not placed in any section, either enrich the sole section or add a second section
+    unused_products = [p for p in products if p.get("id") not in used_product_ids]
     if not curated_sections_out and products:
         curated_sections_out.append({
             "id": "sec_all",
             "title": "I Modelli Selezionati",
             "subtitle": "I migliori prodotti trovati in base alla tua ricerca.",
-            "products": products[:8]
+            "products": products[:10]
         })
+    elif len(curated_sections_out) == 1 and unused_products:
+        if len(curated_sections_out[0]["products"]) < 6:
+            need = 8 - len(curated_sections_out[0]["products"])
+            curated_sections_out[0]["products"].extend(unused_products[:need])
+            unused_products = unused_products[need:]
+        if len(unused_products) >= 2:
+            curated_sections_out.append({
+                "id": "sec_more_options",
+                "title": "Altre Opzioni Consigliate",
+                "subtitle": "Ulteriori modelli tecnici compatibili con la tua ricerca.",
+                "products": unused_products[:8]
+            })
 
     # Populate Comparative Spec Cards ("Confronto rapido" section matching Shopify Shop)
     comparative_cards_out = []
-    if intent.spec_comparisons:
+    used_comp_ids = set()
+    used_comp_models = set()
+    GENERIC_COMP_WORDS = {
+        "long", "sleeve", "manica", "lunga", "maniche", "lunghe", "short", "corta",
+        "running", "corsa", "scarpe", "scarpa", "uomo", "donna", "maglia", "shirt", "hyrox", "pro", "elite"
+    }
+
+    def _model_dedup_signature(prod: dict) -> str:
+        cname = (prod.get("canonical_name") or "").lower()
+        # Strip gender & colorway tags so two variants of the same shoe/garment share a signature
+        cname = re.sub(r"\b(uomo|donna|unisex|wide|gtx|gore-tex)\b", "", cname)
+        tokens = [t for t in re.findall(r"\b[a-z0-9]+\b", cname) if len(t) > 1]
+        return " ".join(tokens[:4])
+
+    if intent.spec_comparisons and products:
         for spec in intent.spec_comparisons:
-            target_kw = (spec.target_keyword or spec.model_name).lower()
-            # 1. Match from already loaded products
-            matched_spec_prod = next(
-                (p for p in products if target_kw in (p.get("canonical_name") or "").lower() or any(w in (p.get("canonical_name") or "").lower() for w in target_kw.split() if len(w) > 3)),
-                None
-            )
-            # 2. If not found in current products, query DB specifically for this model
-            if not matched_spec_prod:
-                try:
-                    db_spec_prods = db.search_indexed(query=spec.target_keyword or spec.model_name, category=eff_category, limit=1)
-                    if db_spec_prods:
-                        matched_spec_prod = db_spec_prods[0]
-                except Exception:
-                    pass
+            target_kw = (spec.target_keyword or spec.model_name).lower().strip()
+            spec_model_low = (spec.model_name or "").lower()
+            spec_brand = next((b for b in SECTION_BRAND_NAMES if re.search(rf"\b{re.escape(b)}\b", spec_model_low)), None)
+
+            matched_spec_prod = None
+            for p in products:
+                pid = p.get("id") or p.get("canonical_name")
+                msig = _model_dedup_signature(p)
+                if pid in used_comp_ids or (msig and msig in used_comp_models):
+                    continue
+                pname = (p.get("canonical_name") or "").lower()
+                pbrand = (p.get("brand") or "").lower()
+                # If spec card names a specific brand, product must match that brand
+                if spec_brand and spec_brand not in pbrand and spec_brand not in pname:
+                    continue
+                if target_kw and target_kw in pname:
+                    matched_spec_prod = p
+                    break
+                specific_words = [w for w in target_kw.split() if len(w) > 3 and w not in GENERIC_COMP_WORDS]
+                if specific_words and any(w in pname for w in specific_words):
+                    matched_spec_prod = p
+                    break
 
             if matched_spec_prod:
+                pid = matched_spec_prod.get("id") or matched_spec_prod.get("canonical_name")
+                msig = _model_dedup_signature(matched_spec_prod)
+                used_comp_ids.add(pid)
+                if msig:
+                    used_comp_models.add(msig)
+                # Ensure displayed model_name reflects the actual matched product
+                display_model_name = matched_spec_prod.get("canonical_name") or spec.model_name
                 comparative_cards_out.append({
                     "product": matched_spec_prod,
-                    "model_name": spec.model_name,
-                    "ideal_for": spec.ideal_for,
-                    "strengths": spec.strengths,
+                    "model_name": QueryProductGuardrail.strip_markdown_bold(display_model_name),
+                    "ideal_for": QueryProductGuardrail.strip_markdown_bold(spec.ideal_for),
+                    "strengths": QueryProductGuardrail.strip_markdown_bold(spec.strengths),
                     "section_title": "Confronto rapido"
                 })
 
-    # If spec comparisons were empty or failed to match, synthesize dynamic comparative cards from top 2 models
-    if not comparative_cards_out and len(products) >= 2:
-        p1 = products[0]
-        p2 = products[1]
-        p1_name = p1.get("canonical_name", "").title()
-        p2_name = p2.get("canonical_name", "").title()
-        if p1_name.lower() != p2_name.lower():
-            comparative_cards_out = [
-                {
-                    "product": p1,
-                    "model_name": p1_name,
-                    "ideal_for": "Miglior prezzo e disponibilità",
-                    "strengths": f"Prezzo più basso a € {p1.get('best_price', 0):.2f}",
-                    "section_title": "Confronto rapido"
-                },
-                {
-                    "product": p2,
-                    "model_name": p2_name,
-                    "ideal_for": "Alternativa versatile",
-                    "strengths": f"Confrontato tra {len(p2.get('offers', []))} negozi",
-                    "section_title": "Confronto rapido"
-                }
-            ]
+    # Top up comparative_cards_out to at least 2-3 distinct products if we have more products available
+    if len(comparative_cards_out) < 2 and len(products) >= 2:
+        for p in products:
+            pid = p.get("id") or p.get("canonical_name")
+            msig = _model_dedup_signature(p)
+            if pid in used_comp_ids or (msig and msig in used_comp_models):
+                continue
+            used_comp_ids.add(pid)
+            if msig:
+                used_comp_models.add(msig)
+            p_name = p.get("canonical_name") or "Modello Selezionato"
+            p_brand = p.get("brand") or ""
+            p_offers = p.get("offers") or []
+            best_off = p_offers[0] if p_offers else {}
+            disc = best_off.get("discount_pct")
+
+            if len(comparative_cards_out) == 0:
+                ideal = "Scelta principale per rapporto qualità/prezzo"
+            elif "warm" in p_name.lower() or "termic" in p_name.lower() or "odlo" in p_brand.lower():
+                ideal = "Uscite con clima freddo e isolamento termico"
+            elif "hyrox" in p_name.lower() or "deviate" in p_name.lower() or "velocity" in p_name.lower():
+                ideal = "Frazioni di corsa e trazione su slitta Hyrox"
+            elif "dropset" in p_name.lower() or "metcon" in p_name.lower():
+                ideal = "Stabilità sotto carico, affondi e wall ball"
+            else:
+                ideal = f"Alternativa tecnica {p_brand}".strip()
+
+            if len(p_offers) > 1 and p.get("cross_store_savings", 0) > 0:
+                strength = f"Confrontato in {len(p_offers)} store (risparmi € {p['cross_store_savings']:.0f})"
+            elif disc and float(disc) >= 10:
+                strength = f"In offerta a € {p.get('best_price', 0):.2f} (-{int(round(float(disc)))}%)"
+            elif best_off.get("is_free_shipping"):
+                strength = f"€ {p.get('best_price', 0):.2f} con spedizione gratuita"
+            else:
+                strength = f"Miglior prezzo verificato a € {p.get('best_price', 0):.2f}"
+
+            comparative_cards_out.append({
+                "product": p,
+                "model_name": p_name,
+                "ideal_for": ideal,
+                "strengths": strength,
+                "section_title": "Confronto rapido"
+            })
+            if len(comparative_cards_out) >= 3:
+                break
 
     # Populate Spotlight Deal / Best Pick Card (Shopify Shop Best Pick)
+    def _build_truthful_spotlight(prod: dict, raw_badge: Optional[str], raw_highlights: Optional[List[str]]) -> dict:
+        offers = prod.get("offers") or []
+        best_off = offers[0] if offers else {}
+        num_stores = len({o.get("store_id") for o in offers if o.get("store_id")}) or len(offers) or 1
+        best_price = float(prod.get("best_price") or best_off.get("price") or 0.0)
+        orig_price = float(best_off.get("original_price") or 0.0)
+        disc_pct = float(best_off.get("discount_pct") or 0.0)
+        if not disc_pct and orig_price > best_price > 0:
+            disc_pct = ((orig_price - best_price) / orig_price) * 100.0
+        savings_cross = float(prod.get("cross_store_savings") or 0.0)
+        avail_sizes = prod.get("available_sizes") or best_off.get("available_sizes") or []
+
+        # Clean technical highlights from intent (strip ** and filter out fake store-count claims)
+        clean_tech_hl = []
+        for h in (raw_highlights or []):
+            ch = QueryProductGuardrail.strip_markdown_bold(h)
+            if not ch:
+                continue
+            if any(phrase in ch.lower() for phrase in ["1 negozi", "12 store", "più negozi", "più store", "risparmio garantito rispetto"]):
+                continue
+            clean_tech_hl.append(ch)
+
+        final_highlights = clean_tech_hl[:2]
+
+        # Add 100% truthful real-time pricing/store/availability bullets
+        if num_stores > 1 and savings_cross >= 5:
+            final_highlights.append(f"Confrontato tra {num_stores} negozi con risparmio immediato di € {savings_cross:.0f}")
+        elif num_stores > 1:
+            final_highlights.append(f"Prezzo più basso confrontato tra {num_stores} negozi ufficiali")
+        elif disc_pct >= 5 and orig_price > best_price:
+            final_highlights.append(f"In sconto del {int(round(disc_pct))}% rispetto al listino (€ {orig_price:.2f})")
+        else:
+            store_label = best_off.get("store_name") or "store ufficiale"
+            final_highlights.append(f"Miglior offerta verificata su {store_label} a € {best_price:.2f}")
+
+        if len(final_highlights) < 3:
+            if avail_sizes:
+                final_highlights.append(f"Taglie disponibili: {', '.join(str(s) for s in avail_sizes[:6])}")
+            elif best_off.get("is_free_shipping"):
+                final_highlights.append("Spedizione gratuita inclusa sul miglior prezzo")
+            else:
+                final_highlights.append("Disponibilità e spedizione rapida verificate")
+
+        badge = QueryProductGuardrail.strip_markdown_bold(raw_badge or "Miglior Scelta")
+        # Don't show fake discount % badge if the product isn't discounted
+        if "sconto" in badge.lower() and disc_pct < 5:
+            badge = "Miglior Scelta"
+        elif disc_pct >= 15 and badge in ("Miglior Scelta", "Prezzo Top"):
+            badge = f"-{int(round(disc_pct))}% Miglior Prezzo"
+
+        return {
+            "product": prod,
+            "badge_text": badge,
+            "highlights": final_highlights[:3]
+        }
+
     spotlight_out = None
     if products and intent.spotlight and intent.spotlight.target_keyword:
         target_kw = intent.spotlight.target_keyword.lower().strip()
         matched_spotlight_prod = next(
-            (p for p in products if target_kw in (p.get("canonical_name") or "").lower() or target_kw in (p.get("brand") or "").lower()),
+            (
+                p for p in products
+                if target_kw in (p.get("canonical_name") or "").lower()
+                or target_kw in (p.get("brand") or "").lower()
+            ),
             None
         )
         if matched_spotlight_prod:
-            spotlight_out = {
-                "product": matched_spotlight_prod,
-                "badge_text": intent.spotlight.badge_text,
-                "highlights": intent.spotlight.highlights
-            }
+            spotlight_out = _build_truthful_spotlight(
+                matched_spotlight_prod,
+                intent.spotlight.badge_text,
+                intent.spotlight.highlights
+            )
 
     # If no explicit spotlight or didn't match, pick the top relevance product
     if not spotlight_out and products:
         best_p = products[0]
-        # Only highlight if it genuinely matches the query
-        if best_p.get("relevance_score", 100) > 40 or not intent.target_keywords:
-            spotlight_out = {
-                "product": best_p,
-                "badge_text": "Miglior Scelta",
-                "highlights": [
-                    f"Miglior prezzo confrontato tra {len(best_p.get('offers', []))} negozi",
-                    "Risparmio garantito rispetto al prezzo di listino",
-                    "Spedizione e disponibilità verificate"
-                ]
-            }
+        raw_hl = intent.spotlight.highlights if intent.spotlight else None
+        raw_badge = intent.spotlight.badge_text if intent.spotlight else "Miglior Scelta"
+        spotlight_out = _build_truthful_spotlight(best_p, raw_badge, raw_hl)
 
     result_data = {
         "search_mode": intent.search_mode,

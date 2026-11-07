@@ -75,20 +75,26 @@ def analyze_and_recluster(execute: bool = False, limit: int = 15000):
 
         cluster_key = ProductNormalizer.extract_cluster_key(off)
         brand = ProductNormalizer.extract_brand(title)
-        clean_title, _ = ProductNormalizer.clean_title(title, brand=brand)
+        display_name = ProductNormalizer.build_canonical_display_name(title, brand=brand)
         art_type = ProductNormalizer.detect_article_type(title)
         gender = ProductNormalizer.extract_gender(title, off.url)
 
         if cluster_key not in clusters:
             clusters[cluster_key] = {
                 "cluster_key": cluster_key,
-                "canonical_name": clean_title,
+                "canonical_name": display_name,
                 "brand": brand,
                 "category": art_type,
                 "gender": gender,
                 "image_url": off.image_url,
                 "offers": []
             }
+        else:
+            # Prefer a richer canonical name if current one is very short
+            if len(display_name) > len(clusters[cluster_key]["canonical_name"]) and len(display_name) <= 55:
+                clusters[cluster_key]["canonical_name"] = display_name
+            if brand and not clusters[cluster_key]["brand"]:
+                clusters[cluster_key]["brand"] = brand
         
         # Keep highest quality image if available
         if off.image_url and not clusters[cluster_key]["image_url"]:
@@ -147,11 +153,15 @@ def analyze_and_recluster(execute: bool = False, limit: int = 15000):
             "updated_at": now_iso
         })
 
-    # Batch upsert in chunks of 500
-    for i in range(0, len(prod_rows), 500):
-        chunk = prod_rows[i:i + 500]
-        sb.upsert_products(chunk)
-        print(f"    Upserted {min(i + 500, len(prod_rows))}/{len(prod_rows)} products...", end="\r", flush=True)
+    # Batch upsert in chunks of 100 (with fallback to 25 on statement timeout)
+    chunk_size = 100
+    for i in range(0, len(prod_rows), chunk_size):
+        chunk = prod_rows[i:i + chunk_size]
+        res = sb.upsert_products(chunk)
+        if not res:
+            for k in range(0, len(chunk), 25):
+                sb.upsert_products(chunk[k:k + 25])
+        print(f"    Upserted {min(i + chunk_size, len(prod_rows))}/{len(prod_rows)} products...", end="\r", flush=True)
     print("\n    ✓ Master products upserted successfully.")
 
     # 5b. Update store_offers.product_id to cluster_key

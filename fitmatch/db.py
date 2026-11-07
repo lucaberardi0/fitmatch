@@ -946,7 +946,8 @@ class Database:
         min_price: Optional[float] = None,
         size: Optional[str] = None,
         store_id: Optional[str] = None,
-        limit: int = 30
+        limit: int = 30,
+        raw_query: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Smart AI-powered SQL retrieval matching multiple candidate models, price bounds and filters."""
         if self.use_supabase and self.supabase:
@@ -960,7 +961,8 @@ class Database:
                     min_price=min_price,
                     size=size,
                     store_id=store_id,
-                    limit=limit
+                    limit=limit,
+                    raw_query=raw_query
                 )
             except Exception as e:
                 import traceback

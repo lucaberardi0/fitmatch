@@ -139,10 +139,12 @@ class SearchCacheManager:
         q = re.sub(r"[?!.,;]+$", "", q).strip()
         return q
 
+    CACHE_SCHEMA_VERSION = "v5"
+
     def make_intent_key(self, query: str, force_mode: Optional[str] = None) -> str:
         norm_q = self.normalize_query(query)
         mode_str = force_mode.strip().lower() if force_mode else "auto"
-        return f"intent:{norm_q}::{mode_str}"
+        return f"intent:{self.CACHE_SCHEMA_VERSION}:{norm_q}::{mode_str}"
 
     def make_response_key(
         self,
@@ -156,6 +158,7 @@ class SearchCacheManager:
     ) -> str:
         norm_q = self.normalize_query(query)
         params = [
+            f"v={self.CACHE_SCHEMA_VERSION}",
             f"q={norm_q}",
             f"m={mode or 'auto'}",
             f"p={max_price or 'none'}",
@@ -166,7 +169,7 @@ class SearchCacheManager:
         ]
         param_str = "&".join(params)
         h = hashlib.sha256(param_str.encode("utf-8")).hexdigest()[:16]
-        return f"resp:{norm_q}:{h}"
+        return f"resp:{self.CACHE_SCHEMA_VERSION}:{norm_q}:{h}"
 
     # MARK: - L2 Disk Persistence Helpers
 
