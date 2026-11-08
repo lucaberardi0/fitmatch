@@ -780,16 +780,40 @@ class SupabaseManager: ObservableObject {
         return apiFallback
     }
 
-    private static func formatRelativeDate(_ iso: String?) -> String {
-        guard let iso = iso else { return "Recentemente" }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var date = formatter.date(from: iso)
-        if date == nil {
-            formatter.formatOptions = [.withInternetDateTime]
-            date = formatter.date(from: iso)
+    // MARK: - Robust Date Parsing
+    nonisolated static func parseISO8601Date(_ string: String?) -> Date? {
+        guard let string = string?.trimmingCharacters(in: .whitespacesAndNewlines), !string.isEmpty else {
+            return nil
         }
-        guard let d = date else { return "Recentemente" }
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = isoFormatter.date(from: string) { return d }
+
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        if let d = isoFormatter.date(from: string) { return d }
+
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = TimeZone(secondsFromGMT: 0)
+        let patterns = [
+            "yyyy-MM-dd HH:mm:ss.SSSSSSZ",
+            "yyyy-MM-dd HH:mm:ss.SSSSSSXXXXX",
+            "yyyy-MM-dd HH:mm:ssZ",
+            "yyyy-MM-dd HH:mm:ssXXXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd"
+        ]
+        for pattern in patterns {
+            df.dateFormat = pattern
+            if let d = df.date(from: string) { return d }
+        }
+        return nil
+    }
+
+    private static func formatRelativeDate(_ iso: String?) -> String {
+        guard let d = parseISO8601Date(iso) else { return "Recentemente" }
         let days = Calendar.current.dateComponents([.day], from: d, to: Date()).day ?? 0
         if days <= 0 { return "Oggi" }
         if days == 1 { return "Ieri" }
@@ -835,9 +859,8 @@ class SupabaseManager: ObservableObject {
         }
 
         let rows = try JSONDecoder().decode([ActivityRow].self, from: data)
-        let isoFormatter = ISO8601DateFormatter()
         return rows.map { r in
-            let date = r.created_at.flatMap { isoFormatter.date(from: $0) } ?? Date()
+            let date = SupabaseManager.parseISO8601Date(r.created_at) ?? Date()
             let actType: ActivityType
             if r.activity_type == "search" {
                 actType = .search
@@ -1541,12 +1564,163 @@ class SupabaseManager: ObservableObject {
     }
 
     private func parseNotificationDate(_ dateString: String?) -> Date {
-        guard let dateString = dateString else { return Date() }
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = isoFormatter.date(from: dateString) { return d }
-        isoFormatter.formatOptions = [.withInternetDateTime]
-        if let d = isoFormatter.date(from: dateString) { return d }
-        return Date()
+        return SupabaseManager.parseISO8601Date(dateString) ?? Date()
+    }
+
+    // MARK: - Direct Smart Catalog Query (Intent-Aligned Supabase Cloud Enrichment)
+
+    func fetchSmartProductsDirect(
+        category: String?,
+        keywords: [String],
+        brand: String? = nil,
+        maxPrice: Double? = nil,
+        size: String? = nil,
+        store: String? = nil,
+        limit: Int = 35
+    ) async -> [MatchedProduct] {
+        struct RawOfferRow: Codable {
+            let id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String?
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+            let available_sizes: [String]?
+            let in_stock: Bool?
+        }
+
+        struct RawProductRow: Codable {
+            let id: String
+            let canonical_name: String
+            let brand: String?
+            let category: String?
+            let gender: String?
+            let image_url: String?
+            let store_offers: [RawOfferRow]?
+        }
+
+        let cleanKeywords = Array(keywords.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty }.prefix(8))
+        let queryTerms = cleanKeywords.isEmpty ? [""] : cleanKeywords
+        let headers = makeHeaders(isPublic: true)
+        let restBase = self.restURL
+        let urlSession = self.session
+
+        var rawProducts: [RawProductRow] = []
+        var seenIds: Set<String> = []
+
+        for term in queryTerms {
+            var params: [String] = ["select=id,canonical_name,brand,category,gender,image_url,store_offers!inner(id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,in_stock)"]
+            if let cat = category?.lowercased(), !cat.isEmpty, cat != "all", cat != "tutti" {
+                switch cat {
+                case "gps_watch":
+                    params.append("category=eq.gps_watch")
+                case "running_shoes", "shoes":
+                    params.append("category=in.(running_shoes,shoes,fitness)")
+                case "padel":
+                    params.append("category=in.(padel,racket)")
+                case "hydration":
+                    params.append("category=in.(hydration,pack,bag)")
+                default:
+                    if let encCat = cat.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                        params.append("category=eq.\(encCat)")
+                    }
+                }
+            }
+            if !term.isEmpty {
+                let words = term.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count >= 2 }
+                if words.count == 1, let wEnc = words[0].addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                    params.append("or=(canonical_name.ilike.*\(wEnc)*,brand.ilike.*\(wEnc)*)")
+                } else if words.count > 1 {
+                    let andParts = words.prefix(3).compactMap { w -> String? in
+                        guard let wEnc = w.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+                        return "or(canonical_name.ilike.*\(wEnc)*,brand.ilike.*\(wEnc)*)"
+                    }
+                    if !andParts.isEmpty {
+                        params.append("and=(\(andParts.joined(separator: ",")))")
+                    }
+                }
+            }
+            params.append("limit=25")
+
+            guard let url = URL(string: "\(restBase)/products?\(params.joined(separator: "&"))") else { continue }
+            var req = URLRequest(url: url)
+            for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+
+            if let (data, resp) = try? await urlSession.data(for: req),
+               let http = resp as? HTTPURLResponse, http.statusCode == 200,
+               let decoded = try? JSONDecoder().decode([RawProductRow].self, from: data) {
+                for row in decoded where !seenIds.contains(row.id) {
+                    seenIds.insert(row.id)
+                    rawProducts.append(row)
+                }
+            }
+        }
+
+        var results: [MatchedProduct] = []
+        for p in rawProducts {
+            guard let rawOffers = p.store_offers, !rawOffers.isEmpty else { continue }
+            if let reqBrand = brand?.lowercased(), !reqBrand.isEmpty {
+                let pBrand = (p.brand ?? "").lowercased()
+                let pName = p.canonical_name.lowercased()
+                if !pBrand.contains(reqBrand) && !pName.contains(reqBrand) {
+                    continue
+                }
+            }
+
+            var formattedOffers: [Offer] = []
+            for o in rawOffers.sorted(by: { $0.current_price < $1.current_price }) {
+                if let st = store?.lowercased(), !st.isEmpty, st != "tutti" {
+                    if !o.store_id.lowercased().contains(st) && !o.store_name.lowercased().contains(st) {
+                        continue
+                    }
+                }
+                if let mp = maxPrice, o.current_price > mp {
+                    continue
+                }
+                let offerObj = Offer(
+                    store_id: o.store_id,
+                    store_name: o.store_name,
+                    product_id: p.id,
+                    title: o.raw_title ?? p.canonical_name,
+                    brand: p.brand,
+                    price: o.current_price,
+                    original_price: o.original_price,
+                    discount_pct: o.discount_pct,
+                    url: o.product_url,
+                    image_url: o.image_url ?? p.image_url,
+                    available_sizes: o.available_sizes,
+                    in_stock: o.in_stock ?? true
+                )
+                if let sz = size, !sz.isEmpty, sz != "Tutte", offerObj.hasKnownSizes && !offerObj.hasSize(sz) {
+                    continue
+                }
+                formattedOffers.append(offerObj)
+            }
+
+            guard !formattedOffers.isEmpty else { continue }
+            let prices = formattedOffers.map { $0.price }
+            let minP = prices.min() ?? 0.0
+            let maxP = prices.max() ?? minP
+            let savings = prices.count > 1 ? max(0.0, maxP - minP) : 0.0
+            let primaryImg = p.image_url ?? formattedOffers.first?.image_url
+
+            results.append(MatchedProduct(
+                id_val: p.id,
+                canonical_name: p.canonical_name,
+                brand: p.brand,
+                image_url: primaryImg,
+                gallery_images: primaryImg != nil ? [primaryImg!] : nil,
+                gender: p.gender ?? "Unisex",
+                offers: formattedOffers,
+                best_price: minP,
+                highest_price: maxP,
+                cross_store_savings: savings
+            ))
+        }
+
+        return Array(results.prefix(limit))
     }
 }

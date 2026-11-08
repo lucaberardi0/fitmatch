@@ -149,7 +149,297 @@ class APIService: ObservableObject {
         guard let url = components.url else { throw URLError(.badURL) }
 
         let data = try await fetchDataWithRetry(url: url)
-        return try JSONDecoder().decode(SmartSearchResponse.self, from: data)
+        let decoded = try JSONDecoder().decode(SmartSearchResponse.self, from: data)
+        return await validateAndEnrichSmartSearchResponse(
+            decoded,
+            query: query,
+            contextQuery: contextQuery,
+            maxPrice: maxPrice,
+            size: size,
+            store: store
+        )
+    }
+
+    // MARK: - Client-Side Intent Alignment & Product Relevance Guardrail
+
+    private enum DetectedQueryKind {
+        case gpsWatch
+        case bikeComputer
+        case eyewear
+        case hydration
+        case padelRacket
+        case socks
+        case jacket
+        case pants
+        case top
+        case shoes
+    }
+
+    private func detectExpectedQueryKind(query: String, contextQuery: String?, summary: String?) -> DetectedQueryKind? {
+        let q = "\(query) \(contextQuery ?? "")".lowercased()
+        if q.range(of: #"\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*bici|garmin\s*edge|wahoo\s*elemnt|bryton|igpsport)\b"#, options: .regularExpression) != nil {
+            return .bikeComputer
+        }
+        if q.range(of: #"\b(orologi[o]?|smartwatch|sportwatch|forerunner|fenix|instinct|epix|venu|vivoactive|coros|suunto|polar\s*(?:vantage|pacer|grit)|garmin)\b"#, options: .regularExpression) != nil {
+            return .gpsWatch
+        }
+        if q.range(of: #"\b(occhial[ie]|oakley|sutro|radar\s*ev|jawbreaker)\b"#, options: .regularExpression) != nil {
+            return .eyewear
+        }
+        if q.range(of: #"\b(zain[oi]|gilet\s*(?:idratazione|trail)|active\s*skin|adv\s*skin|borracc(?:ia|e)|soft\s*flask|camelbak)\b"#, options: .regularExpression) != nil {
+            return .hydration
+        }
+        if q.range(of: #"\b(racchett[ae]|pala\s*padel|bullpadel|nox\s*at10|padel)\b"#, options: .regularExpression) != nil && !q.contains("scarp") {
+            return .padelRacket
+        }
+        if q.range(of: #"\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b"#, options: .regularExpression) != nil {
+            return .socks
+        }
+        if q.range(of: #"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way)\b"#, options: .regularExpression) != nil {
+            return .jacket
+        }
+        if q.range(of: #"\b(pantaloncin[oi]|shorts?|leggings?|tights?|pantalon[ie])\b"#, options: .regularExpression) != nil {
+            return .pants
+        }
+        if q.range(of: #"\b(magli[ae]|t[\s-]*shirt|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet)\b"#, options: .regularExpression) != nil {
+            return .top
+        }
+        if q.range(of: #"\b(scarp[ae]|sneakers?|running|corsa|maratona|trail|palestra|hyrox|ammortizzat[ae]|pegasus|vomero|vaporfly|alphafly|nimbus|clifton|bondi|ghost|glycerin|adizero|dropset|metcon)\b"#, options: .regularExpression) != nil {
+            return .shoes
+        }
+        return nil
+    }
+
+    private func isProductCompatible(_ product: MatchedProduct, with kind: DetectedQueryKind) -> Bool {
+        let name = product.canonical_name.lowercased()
+        let brand = (product.brand ?? "").lowercased()
+        let offerTitles = product.offers.prefix(3).map { $0.title.lowercased() }.joined(separator: " ")
+        let fullText = "\(name) \(brand) \(offerTitles)"
+        let bestPrice = product.best_price ?? product.offers.first?.price ?? 0.0
+
+        // Global junk filter (screen protectors, used items)
+        if fullText.range(of: #"\b(panzerglass|vetro\s*temp[ea]?rato|pellicol[ae]|idrogel|hydrogel|screen\s*protector|sportenzia|second\s*hand)\b"#, options: .regularExpression) != nil {
+            return false
+        }
+
+        switch kind {
+        case .gpsWatch:
+            if fullText.range(of: #"\b(igpsport|bsc100|bsc200|bsc300|igs\d+|ciclocomputer|bike\s*computer|contachilometri|contatore|garmin\s*edge|\bedge\s*(?:530|540|830|840|1030|1040|explore)\b|bryton|wahoo\s*elemnt|supporto|staff[ae]|mount|cinturin[oi]|strap|bracelet|quickfit|custodi[ae]|cover|felp[ae]|pile\b|cardigan|polo\b|scarp[ae])\b"#, options: .regularExpression) != nil {
+                return false
+            }
+            if bestPrice > 0 && bestPrice < 55 { return false }
+            return fullText.range(of: #"\b(garmin|forerunner|fenix|instinct|epix|venu|vivoactive|polar|vantage|pacer|grit|ignite|suunto|coros|pace|apex|vertix|amazfit|orologi[o]?|smartwatch)\b"#, options: .regularExpression) != nil
+
+        case .bikeComputer:
+            if fullText.range(of: #"\b(supporto|staff[ae]|mount|custodi[ae]|cover|cinturin[oi]|forerunner|fenix|instinct|venu|scarp[ae])\b"#, options: .regularExpression) != nil {
+                return false
+            }
+            if bestPrice > 0 && bestPrice < 38 { return false }
+            return fullText.range(of: #"\b(edge|ciclocomputer|bike\s*computer|contachilometri|contatore|igpsport|bsc|bryton|wahoo\s*elemnt)\b"#, options: .regularExpression) != nil
+
+        case .eyewear:
+            if name.hasPrefix("oakley lenti ") || name.hasPrefix("rudy project lenti ") || fullText.range(of: #"\b(lenti\s*occhiali|lente\s*di\s*ricambio|replacement\s*lens|custodi[ae]|scarp[ae])\b"#, options: .regularExpression) != nil {
+                return false
+            }
+            return fullText.range(of: #"\b(occhial[ie]|oakley|sutro|radar|jawbreaker|bliz|rudy|smith|sunglasses)\b"#, options: .regularExpression) != nil
+
+        case .hydration:
+            if fullText.range(of: #"\b(scarp[ae]|magli[ae]|pantaloncin[oi]|orologi[o]?)\b"#, options: .regularExpression) != nil {
+                return false
+            }
+            return fullText.range(of: #"\b(zain[oi]|gilet|active\s*skin|adv\s*skin|sense\s*pro|borracc|flask|camelbak|idratazione)\b"#, options: .regularExpression) != nil
+
+        case .padelRacket:
+            if fullText.range(of: #"\b(scarp[ae]|magli[ae]|pantaloncin[oi]|pallin[ae]|tubo|overgrip|\bgrip\b|hesacore|ammortizzator|vibe\b|bors[ae]|zain[oi]|occhial[ie]|pit\s*viper|skysurfer)\b"#, options: .regularExpression) != nil {
+                return false
+            }
+            if bestPrice > 0 && bestPrice < 38 { return false }
+            return fullText.range(of: #"\b(bullpadel|nox|babolat|head|siux|starvie|kuikma|metalbone|adipower|racchett[ae]|pala|vertex|hack|at10)\b"#, options: .regularExpression) != nil
+
+        case .socks:
+            if fullText.range(of: #"\b(scarp[ae]|ghost|pegasus|nimbus|clifton|bondi|magli[ae]|pantaloncin[oi]|orologi[o]?)\b"#, options: .regularExpression) != nil {
+                return false
+            }
+            return fullText.range(of: #"\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b"#, options: .regularExpression) != nil
+
+        case .jacket:
+            return fullText.range(of: #"\b(giacc(?:a|he)|jacket|antivento|windbreaker|k[\s-]*way|gilet|guscio|impermeabil[ei])\b"#, options: .regularExpression) != nil
+
+        case .pants:
+            return fullText.range(of: #"\b(pantaloncin[oi]|shorts?|leggings?|tights?|pantalon[ie]|fuseaux|sprinter)\b"#, options: .regularExpression) != nil
+
+        case .top:
+            if fullText.range(of: #"\b(scarp[ae]|pantaloncin[oi]|shorts?|leggings|calz[ae]|orologi[o]?|zain[oi])\b"#, options: .regularExpression) != nil {
+                return false
+            }
+            return fullText.range(of: #"\b(magli[ae]|magliett[ae]|t[\s-]*shirt|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet|top|half\s*zip)\b"#, options: .regularExpression) != nil
+
+        case .shoes:
+            if fullText.range(of: #"\b(orologi[o]?|smartwatch|garmin|polar|suunto|coros|igpsport|bsc100|bsc200|ciclocomputer|bike\s*computer|contatore|magli[ae]|t[\s-]*shirt|long\s*sleeve|manic(?:a|he)|pantaloncin[oi]|shorts?|giacc(?:a|he)|calz[ae]|calzin[oi]|zain[oi]|borracc|occhial[ie]|racchett[ae])\b"#, options: .regularExpression) != nil {
+                return false
+            }
+            return true
+        }
+    }
+
+    private func validateAndEnrichSmartSearchResponse(
+        _ response: SmartSearchResponse,
+        query: String,
+        contextQuery: String?,
+        maxPrice: Double?,
+        size: String?,
+        store: String?
+    ) async -> SmartSearchResponse {
+        if response.is_off_topic == true || response.is_unsafe == true {
+            return response
+        }
+
+        guard let kind = detectExpectedQueryKind(query: query, contextQuery: contextQuery, summary: response.conversational_summary) else {
+            return response
+        }
+
+        let validResults = response.results.filter { isProductCompatible($0, with: kind) }
+        let needsDirectEnrichment = validResults.count < 5 || (response.results.count > 0 && Double(validResults.count) / Double(response.results.count) < 0.6)
+
+        var finalResults = validResults
+        if needsDirectEnrichment {
+            let fallbackCategory: String
+            let fallbackKeywords: [String]
+            switch kind {
+            case .gpsWatch:
+                fallbackCategory = "gps_watch"
+                fallbackKeywords = ["forerunner 265", "forerunner 165", "forerunner 965", "coros pace", "suunto race", "polar vantage", "garmin fenix", "garmin instinct"]
+            case .bikeComputer:
+                fallbackCategory = "cycling"
+                fallbackKeywords = ["edge 540", "edge 840", "edge 1040", "edge explore", "garmin edge", "igpsport bsc200", "bryton"]
+            case .eyewear:
+                fallbackCategory = "eyewear"
+                fallbackKeywords = ["oakley sutro", "oakley radar", "oakley jawbreaker", "rudy project", "bliz"]
+            case .hydration:
+                fallbackCategory = "hydration"
+                fallbackKeywords = ["active skin", "adv skin", "salomon", "camelbak"]
+            case .padelRacket:
+                fallbackCategory = "padel"
+                fallbackKeywords = ["bullpadel vertex", "bullpadel hack", "nox at10", "head extreme", "babolat viper", "adidas metalbone"]
+            case .socks:
+                fallbackCategory = "socks"
+                fallbackKeywords = ["asics calze", "nike", "salomon", "compressport", "uyn"]
+            case .jacket:
+                fallbackCategory = "jacket"
+                fallbackKeywords = ["giacca antivento", "salomon bonatti", "nike stride", "adizero", "odlo"]
+            case .pants:
+                fallbackCategory = "pants"
+                fallbackKeywords = ["nike stride", "nike challenger", "adizero", "salomon", "odlo"]
+            case .top:
+                fallbackCategory = "top"
+                fallbackKeywords = ["adizero", "odlo", "kiprun", "nike stride", "salomon"]
+            case .shoes:
+                fallbackCategory = "running_shoes"
+                fallbackKeywords = ["nike pegasus", "asics nimbus", "asics novablast", "hoka clifton", "brooks ghost", "new balance 1080", "adidas adizero", "saucony"]
+            }
+
+            let directProds = await SupabaseManager.shared.fetchSmartProductsDirect(
+                category: fallbackCategory,
+                keywords: fallbackKeywords,
+                brand: response.intent?.brand,
+                maxPrice: maxPrice ?? response.intent?.max_price,
+                size: size ?? response.intent?.size,
+                store: store,
+                limit: 35
+            ).filter { isProductCompatible($0, with: kind) }
+
+            var seenNames = Set(finalResults.map { $0.canonical_name.lowercased() })
+            for dp in directProds where !seenNames.contains(dp.canonical_name.lowercased()) {
+                seenNames.insert(dp.canonical_name.lowercased())
+                finalResults.append(dp)
+            }
+        }
+
+        guard !finalResults.isEmpty else { return response }
+
+        // Clean curated sections so no incompatible product remains
+        var cleanedSections: [CuratedProductSection] = []
+        var usedIds = Set<String>()
+        for sec in (response.curated_sections ?? []) {
+            let validSecProds = sec.products.filter { isProductCompatible($0, with: kind) }
+            if !validSecProds.isEmpty {
+                for p in validSecProds { usedIds.insert(p.id) }
+                cleanedSections.append(CuratedProductSection(
+                    id: sec.id,
+                    title: sec.title,
+                    subtitle: sec.subtitle,
+                    products: validSecProds
+                ))
+            }
+        }
+        if cleanedSections.isEmpty {
+            cleanedSections.append(CuratedProductSection(
+                id: "sec_selected",
+                title: "I Modelli Selezionati",
+                subtitle: "I migliori prodotti trovati in base alla tua ricerca.",
+                products: Array(finalResults.prefix(10))
+            ))
+        }
+
+        // Clean comparative cards
+        var cleanedComps = (response.comparative_cards ?? []).filter { isProductCompatible($0.product, with: kind) }
+        if cleanedComps.count < 2 && finalResults.count >= 2 {
+            var compIds = Set(cleanedComps.map { $0.product.id })
+            for p in finalResults where !compIds.contains(p.id) {
+                compIds.insert(p.id)
+                let ideal = cleanedComps.isEmpty ? "Scelta principale per rapporto qualità/prezzo" : "Alternativa tecnica \(p.brand ?? "")".trimmingCharacters(in: .whitespaces)
+                let strength: String
+                if p.offers.count > 1, let sav = p.cross_store_savings, sav > 0 {
+                    strength = "Confrontato in \(p.offers.count) store (risparmi € \(Int(sav)))"
+                } else {
+                    strength = String(format: "Miglior prezzo verificato a € %.2f", p.best_price ?? 0)
+                }
+                cleanedComps.append(ComparativeSpecCard(
+                    product: p,
+                    model_name: p.canonical_name,
+                    ideal_for: ideal,
+                    strengths: strength,
+                    section_title: "Confronto rapido"
+                ))
+                if cleanedComps.count >= 3 { break }
+            }
+        }
+
+        // Clean spotlight
+        var cleanedSpotlight = response.spotlight
+        if let spot = cleanedSpotlight, !isProductCompatible(spot.product, with: kind) {
+            let bestP = finalResults[0]
+            let numStores = max(1, bestP.offers.count)
+            let hl3 = numStores > 1
+                ? "Prezzo più basso confrontato tra \(numStores) negozi ufficiali"
+                : String(format: "Miglior offerta verificata a € %.2f", bestP.best_price ?? 0)
+            cleanedSpotlight = SpotlightRecommendation(
+                product: bestP,
+                badge_text: "Miglior Scelta",
+                highlights: [
+                    "Selezionato per prestazioni e affidabilità nella categoria",
+                    "Disponibilità immediata verificata nei negozi partner",
+                    hl3
+                ]
+            )
+        }
+
+        return SmartSearchResponse(
+            search_mode: response.search_mode,
+            is_deep_dive: response.is_deep_dive,
+            conversational_header: response.conversational_header,
+            conversational_summary: response.conversational_summary,
+            curated_sections: cleanedSections,
+            comparative_cards: cleanedComps,
+            spotlight: cleanedSpotlight,
+            follow_up_suggestions: response.follow_up_suggestions,
+            intent: response.intent,
+            chips: response.chips,
+            total_found: finalResults.count,
+            results: finalResults,
+            is_off_topic: response.is_off_topic,
+            is_unsafe: response.is_unsafe
+        )
     }
 
     func getAIAdvice(prompt: String) async throws -> AIAdviceResponse {

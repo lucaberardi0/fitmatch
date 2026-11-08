@@ -388,19 +388,63 @@ def search_smart(
     # Helper to check if a section title/subtitle is locked to a specific brand
     SECTION_BRAND_NAMES = [
         "adidas", "nike", "puma", "asics", "hoka", "saucony", "brooks",
-        "salomon", "garmin", "mizuno", "odlo", "new balance", "on", "reebok", "oakley"
+        "salomon", "garmin", "mizuno", "odlo", "new balance", "on", "reebok", "oakley",
+        "coros", "suunto", "polar", "bullpadel", "nox", "babolat", "head"
     ]
 
-    def _product_matches_section(p: dict, sec_kws: list, sec_brand_lock: Optional[str]) -> bool:
+    def _product_matches_section(p: dict, sec_kws: list, sec_brand_lock: Optional[str], sec_title_sub: str = "") -> bool:
         name_lower = (p.get("canonical_name") or "").lower()
         brand_lower = (p.get("brand") or "").lower()
+        p_cat = (p.get("category") or "").lower()
         off_titles = " ".join((o.get("title") or "") for o in (p.get("offers") or [])[:2]).lower()
         combined = f"{name_lower} {brand_lower} {off_titles}"
-        if sec_brand_lock and sec_brand_lock not in brand_lower and sec_brand_lock not in name_lower:
+
+        if sec_brand_lock and not re.search(rf"\b{re.escape(sec_brand_lock)}\b", f"{brand_lower} {name_lower}"):
             return False
+
+        # Guard against cross-category contamination inside thematic sections
+        is_apparel_sec = bool(re.search(r"\b(abbigliamento|magli[ae]|t[\s-]*shirt|canott[ae]|pantaloncin[oi]|leggings|giacc(?:a|he)|antivento|termic[aoe]|long\s*sleeve|manic(?:a|he))\b", sec_title_sub))
+        is_shoe_sec = bool(re.search(r"\b(scarp[ae]|calzatur[ae]|sneakers?|daily\s*trainer|ammortizzat[ae]|maratona)\b", sec_title_sub)) and not is_apparel_sec
+        is_road_sec = bool(re.search(r"\b(strada|asfalto)\b", sec_title_sub)) and not bool(re.search(r"\b(trail|sterrato|sentier)\b", sec_title_sub))
+        is_trail_sec = bool(re.search(r"\b(trail|sterrato|sentier[oi]|montagna|fango)\b", sec_title_sub)) and not bool(re.search(r"\b(strada|asfalto)\b", sec_title_sub))
+
+        if is_apparel_sec:
+            if p_cat in ("shoes", "running_shoes", "trail_running", "gps_watch", "cycling", "eyewear", "padel", "racket"):
+                return False
+            if not re.search(r"\b(magli[ae]|t[\s-]*shirt|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet|pantaloncin[oi]|shorts?|leggings|tights|giacc(?:a|he)|jacket|antivento|gilet|felp[ae]|hoodie|calz[ae]|top|tee\b)\b", combined):
+                return False
+        elif is_shoe_sec:
+            if not QueryProductGuardrail.is_product_compatible(p, "shoes", raw_query=q):
+                return False
+
+        if is_road_sec and (p_cat == "trail_running" or re.search(r"\b(trail|speedcross|trabuco|speedgoat|cascadia|terrex\s*agravic|sonoma|mujin|ultra\s*raptor|akasha)\b", name_lower)):
+            return False
+        if is_trail_sec and not (p_cat == "trail_running" or re.search(r"\b(trail|speedcross|trabuco|speedgoat|cascadia|terrex|ultra\s*glide|prodigio|akasha|bushido|peregrine|hierro|salomon)\b", combined)):
+            return False
+
+        # Gender guardrails when section title explicitly targets Uomo or Donna
+        p_gender = (p.get("gender") or "").lower()
+        sec_wants_men = bool(re.search(r"\b(per\s+uomo|da\s+uomo|\buomo\b)\b", sec_title_sub)) and not bool(re.search(r"\b(donna|unisex)\b", sec_title_sub))
+        sec_wants_women = bool(re.search(r"\b(per\s+donna|da\s+donna|\bdonna\b)\b", sec_title_sub)) and not bool(re.search(r"\b(uomo|unisex)\b", sec_title_sub))
+        if sec_wants_men and (p_gender == "donna" or "(donna)" in name_lower):
+            return False
+        if sec_wants_women and (p_gender == "uomo" or "(uomo)" in name_lower):
+            return False
+
         if not sec_kws:
             return True
-        return any(k in combined for k in sec_kws)
+
+        # Strip the query's own global brand or generic words if there are more specific section keywords
+        q_brand_low = (intent.brand or "").lower().strip()
+        specific_sec_kws = [
+            k for k in sec_kws
+            if k not in QueryProductGuardrail.GENERIC_CATEGORY_KEYWORDS
+            and k != q_brand_low
+        ]
+        if not specific_sec_kws:
+            return True
+
+        return any(re.search(rf"\b{re.escape(k)}\b", combined) for k in specific_sec_kws)
 
     # Curate Thematic Carousels for AI Deep Dive
     curated_sections_out = []
@@ -417,7 +461,7 @@ def search_smart(
             for p in products:
                 if p.get("id") in used_product_ids:
                     continue
-                if _product_matches_section(p, sec_kws, sec_brand_lock):
+                if _product_matches_section(p, sec_kws, sec_brand_lock, sec_title_sub):
                     sec_prods.append(p)
                     used_product_ids.add(p.get("id"))
                 if len(sec_prods) >= 8:
@@ -428,7 +472,7 @@ def search_smart(
                 for p in products:
                     if p.get("id") in used_product_ids:
                         continue
-                    if _product_matches_section(p, sec_kws, None):
+                    if _product_matches_section(p, sec_kws, None, sec_title_sub):
                         sec_prods.append(p)
                         used_product_ids.add(p.get("id"))
                     if len(sec_prods) >= 6:
@@ -576,6 +620,59 @@ def search_smart(
                 break
 
     # Populate Spotlight Deal / Best Pick Card (Shopify Shop Best Pick)
+    def _default_tech_highlights_for_product(prod: dict) -> List[str]:
+        pname = (prod.get("canonical_name") or "").lower()
+        pcat = (prod.get("category") or "").lower()
+        if pcat == "gps_watch" or re.search(r"\b(forerunner|fenix|instinct|coros|suunto|vantage|pacer)\b", pname):
+            return [
+                "GPS multi-banda ad alta precisione e cardio al polso",
+                "Metriche avanzate di passo, carico di allenamento e recupero"
+            ]
+        if pcat == "cycling" or re.search(r"\b(edge|ciclocomputer|bsc|igpsport|bryton|kickr|flux)\b", pname):
+            return [
+                "Navigazione GPS e metriche di performance per ciclismo",
+                "Connettività ANT+ / Bluetooth e lunga autonomia"
+            ]
+        if pcat == "eyewear" or re.search(r"\b(oakley|sutro|radar|jawbreaker|occhiali|bliz|rudy)\b", pname):
+            return [
+                "Lenti ad alto contrasto con protezione UV 100%",
+                "Montatura ultraleggera e stabile anche con sudore intenso"
+            ]
+        if pcat in ("padel", "racket") or re.search(r"\b(vertex|hack|at10|viper|metalbone|racchetta|pala)\b", pname):
+            return [
+                "Costruzione in carbonio per equilibrio tra potenza e controllo",
+                "Nucleo reattivo con assorbimento delle vibrazioni"
+            ]
+        if pcat in ("hydration", "pack") or re.search(r"\b(active\s*skin|adv\s*skin|zaino|gilet|flask)\b", pname):
+            return [
+                "Vestibilità ergonomica stabile senza rimbalzi in corsa",
+                "Scomparti rapidi per borracce morbide e accessori"
+            ]
+        if pcat in ("top", "jacket", "pants", "socks", "apparel"):
+            return [
+                "Tessuto tecnico traspirante ad asciugatura rapida",
+                "Taglio ergonomico sportivo con cuciture anti-sfregamento"
+            ]
+        if re.search(r"\b(vaporfly|alphafly|adios\s*pro|metaspeed|endorphin\s*pro|cielo|deviate\s*nitro\s*elite)\b", pname):
+            return [
+                "Intersuola super-critica ad alto ritorno di energia per gara",
+                "Geometria propulsiva leggera per maratona e ritmi veloci"
+            ]
+        if re.search(r"\b(nimbus|bondi|glycerin|clifton|1080|triumph|vomero|wave\s*sky)\b", pname):
+            return [
+                "Massima ammortizzazione e assorbimento degli impatti su strada",
+                "Tomaia traspirante progettata per lunghi chilometraggi"
+            ]
+        if re.search(r"\b(speedgoat|speedcross|trabuco|cascadia|ultra\s*raptor|prodigio|akasha|peregrine)\b", pname):
+            return [
+                "Suola tassellata ad alta aderenza su sentieri, rocce e fango",
+                "Tomaia rinforzata per stabilità e protezione in montagna"
+            ]
+        return [
+            "Ammortizzazione reattiva e transizione fluida",
+            "Tomaia in mesh ingegnerizzato leggero e traspirante"
+        ]
+
     def _build_truthful_spotlight(prod: dict, raw_badge: Optional[str], raw_highlights: Optional[List[str]]) -> dict:
         offers = prod.get("offers") or []
         best_off = offers[0] if offers else {}
@@ -597,6 +694,9 @@ def search_smart(
             if any(phrase in ch.lower() for phrase in ["1 negozi", "12 store", "più negozi", "più store", "risparmio garantito rispetto"]):
                 continue
             clean_tech_hl.append(ch)
+
+        if not clean_tech_hl:
+            clean_tech_hl = _default_tech_highlights_for_product(prod)
 
         final_highlights = clean_tech_hl[:2]
 
@@ -635,11 +735,12 @@ def search_smart(
     spotlight_out = None
     if products and intent.spotlight and intent.spotlight.target_keyword:
         target_kw = intent.spotlight.target_keyword.lower().strip()
+        spec_words = [w for w in re.findall(r"\b\w+\b", target_kw) if len(w) > 3 and w not in GENERIC_COMP_WORDS]
         matched_spotlight_prod = next(
             (
                 p for p in products
-                if target_kw in (p.get("canonical_name") or "").lower()
-                or target_kw in (p.get("brand") or "").lower()
+                if re.search(rf"\b{re.escape(target_kw)}\b", (p.get("canonical_name") or "").lower())
+                or (spec_words and all(re.search(rf"\b{re.escape(sw)}\b", (p.get("canonical_name") or "").lower()) for sw in spec_words))
             ),
             None
         )
@@ -650,12 +751,11 @@ def search_smart(
                 intent.spotlight.highlights
             )
 
-    # If no explicit spotlight or didn't match, pick the top relevance product
+    # If no explicit spotlight or didn't match, pick the top relevance product with product-accurate highlights
     if not spotlight_out and products:
         best_p = products[0]
-        raw_hl = intent.spotlight.highlights if intent.spotlight else None
         raw_badge = intent.spotlight.badge_text if intent.spotlight else "Miglior Scelta"
-        spotlight_out = _build_truthful_spotlight(best_p, raw_badge, raw_hl)
+        spotlight_out = _build_truthful_spotlight(best_p, raw_badge, None)
 
     result_data = {
         "search_mode": intent.search_mode,

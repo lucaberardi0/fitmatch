@@ -116,6 +116,48 @@ struct FitMatchApp: App {
                     .navigationTitle("AI Agent Preview")
                     .navigationBarTitleDisplayMode(.inline)
                 }
+            } else if ProcessInfo.processInfo.arguments.contains("-testFollowUpCards") {
+                NavigationStack {
+                    ZStack {
+                        Color(red: 247/255, green: 247/255, blue: 250/255).ignoresSafeArea()
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Opzioni di Approfondimento")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(.shopDark)
+                                .padding(.top, 16)
+
+                            ShopFollowUpPillButton(title: "Qual è il tuo livello di allenamento?") { }
+                            ShopFollowUpPillButton(title: "Stai cercando scarpe per running su strada o su sentieri?") { }
+                            ShopFollowUpPillButton(title: "Scarpe con ammortizzazione massima") { }
+                            ShopFollowUpPillButton(title: "Alternative sotto i 120 euro") { }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 18)
+                    }
+                    .navigationTitle("Follow-up Cards")
+                    .navigationBarTitleDisplayMode(.inline)
+                }
+            } else if ProcessInfo.processInfo.arguments.contains("-testFollowUpSheet") {
+                NavigationStack {
+                    ZStack {
+                        Color(red: 247/255, green: 247/255, blue: 250/255).ignoresSafeArea()
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Ricerca Nike").font(.headline)
+                            ShopFollowUpPillButton(title: "Qual è il tuo livello di allenamento?") { }
+                            Spacer()
+                        }
+                        .padding(18)
+                    }
+                    .sheet(isPresented: .constant(true)) {
+                        FollowUpQuestionSheet(
+                            question: "Qual è il tuo livello di allenamento?",
+                            baseQuery: "Nike",
+                            onAnswerSelected: { _ in }
+                        )
+                        .presentationDetents([.medium, .large])
+                        .presentationDragIndicator(.visible)
+                    }
+                }
             } else if ProcessInfo.processInfo.arguments.contains("-testVisualSearch") {
                 ShopVisualSearchSheet(onSelectModel: { _ in })
             } else if ProcessInfo.processInfo.arguments.contains("-testSearch") {

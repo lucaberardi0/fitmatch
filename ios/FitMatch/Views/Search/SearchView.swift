@@ -33,6 +33,7 @@ struct SearchView: View {
     @State private var comparativeCards: [ComparativeSpecCard] = []
     @State private var spotlight: SpotlightRecommendation? = nil
     @State private var followUpSuggestions: [String] = []
+    @State private var activeQuestionPrompt: FollowUpQuestionPrompt? = nil
     @State private var followUpInputText: String = ""
     @State private var userFeedback: Int? = nil // 1 for thumbs up, -1 for down
     @State private var feedbackConfig: SearchFeedbackSheetConfig? = nil
@@ -205,6 +206,17 @@ struct SearchView: View {
                 .presentationDetents([.fraction(0.64), .large])
                 .presentationDragIndicator(.visible)
             }
+            .sheet(item: $activeQuestionPrompt) { prompt in
+                FollowUpQuestionSheet(
+                    question: prompt.question,
+                    baseQuery: rootQuery.isEmpty ? searchText : rootQuery,
+                    onAnswerSelected: { answer in
+                        handleQuestionAnswered(question: prompt.question, answer: answer)
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarHidden(true)
@@ -230,6 +242,7 @@ struct SearchView: View {
             }
             .task {
                 loadInitialTopSavings()
+                await recentManager.syncFromDatabase()
                 if !searchText.isEmpty && !hasSearched {
                     executeSearch()
                 }
@@ -1882,6 +1895,12 @@ struct SearchView: View {
         let trimmed = suggestion.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        // If suggestion is a question, present the quick-answer sheet so user can answer
+        if SearchView.isQuestionSuggestion(trimmed) {
+            activeQuestionPrompt = FollowUpQuestionPrompt(question: trimmed)
+            return
+        }
+
         // Smart User Preference Auto-Fill: "Cercale nella mia taglia"
         if trimmed.lowercased().contains("nella mia taglia") || trimmed.lowercased().contains("mia taglia") {
             let prefSize = UserPreferencesManager.shared.preferences.preferredShoeSize
@@ -1891,6 +1910,125 @@ struct SearchView: View {
         }
 
         handleSearchOrComparison(query: trimmed, isFollowUp: true)
+    }
+
+    private func handleQuestionAnswered(question: String, answer: String) {
+        let clean = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+
+        // Simplify parenthesized descriptions, e.g. "Principiante (Prime corse / Camminata)" -> "Principiante"
+        let simplified = clean.components(separatedBy: " (").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? clean
+
+        // If user preference applies
+        if simplified.lowercased().contains("nella mia taglia") || simplified.lowercased().contains("mia taglia") {
+            let prefSize = UserPreferencesManager.shared.preferences.preferredShoeSize
+            if !prefSize.isEmpty {
+                selectedSize = prefSize
+            }
+        }
+
+        handleSearchOrComparison(query: simplified, isFollowUp: true)
+    }
+
+    static func isQuestionSuggestion(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains("?") || trimmed.contains("¿") { return true }
+        let lower = trimmed.lowercased()
+        let questionStarters = [
+            "qual è", "quale", "quali", "cosa", "come", "dove", "quando", "quanto", "quanti", "quante", "perché", "perchè", "chi",
+            "stai cercando", "cerchi", "preferisci", "hai una preferenza", "hai preferenze", "ti alleni", "vorresti", "vuoi",
+            "meglio per", "su che", "in che"
+        ]
+        return questionStarters.contains { lower.hasPrefix($0) }
+    }
+
+    static func extractQuickOptions(for question: String) -> [String] {
+        let lower = question.lowercased()
+
+        // 1. Level / experience / training
+        if lower.contains("livello") || lower.contains("allenament") || lower.contains("esperienza") || lower.contains("esperto") || lower.contains("ritmo") {
+            return [
+                "Principiante (Prime corse / Camminata)",
+                "Intermedio (Allenamenti regolari)",
+                "Avanzato (Maratona & Ritmi veloci)"
+            ]
+        }
+
+        // 2. Terrain / Surface
+        if lower.contains("strada") || lower.contains("sentier") || lower.contains("trail") || lower.contains("terreno") || lower.contains("asfalto") || lower.contains("superficie") {
+            return [
+                "Corsa su strada e asfalto",
+                "Sentieri e trail running",
+                "Misto (Parchi, sterrato e asfalto)",
+                "Tapis roulant o pista indoor"
+            ]
+        }
+
+        // 3. Cushioning / Comfort / Support
+        if lower.contains("cushioning") || lower.contains("ammortizz") || lower.contains("reattiv") || lower.contains("schiuma") || lower.contains("morbide") {
+            return [
+                "Ammortizzazione massima (Max Cushioning)",
+                "Reattivo ed elastico per ritmi veloci",
+                "Equilibrato per tutti i giorni",
+                "Leggero da gara con piastra in carbonio"
+            ]
+        }
+
+        // 4. Budget / Price
+        if lower.contains("prezzo") || lower.contains("budget") || lower.contains("costo") || lower.contains("spendere") || lower.contains("euro") || lower.contains("sconto") {
+            return [
+                "Sotto i 100€ (Economiche)",
+                "Tra 100€ e 150€ (Miglior rapporto qualità/prezzo)",
+                "Top di gamma senza limiti di budget"
+            ]
+        }
+
+        // 5. Distance / Mileage
+        if lower.contains("distanza") || lower.contains("km") || lower.contains("chilometri") || lower.contains("maratona") || lower.contains("lungo") {
+            return [
+                "Corse brevi (5-10 km)",
+                "Mezza maratona (10-21 km)",
+                "Maratona e lunghissimi (oltre 30 km)",
+                "Uso versatile quotidiano"
+            ]
+        }
+
+        // 6. Pronation / Support
+        if lower.contains("pronazion") || lower.contains("appoggio") || lower.contains("piatto") || lower.contains("stabilit") {
+            return [
+                "Appoggio neutro",
+                "Supporto per iperpronazione",
+                "Supinazione / Arco alto"
+            ]
+        }
+
+        // 7. Binary/disjunctive " o " question (e.g. "scarpe A o scarpe B", "leggere o protettive")
+        if lower.contains(" o ") {
+            let parts = question
+                .replacingOccurrences(of: "?", with: "")
+                .replacingOccurrences(of: "¿", with: "")
+                .components(separatedBy: " o ")
+            if parts.count >= 2 {
+                let p1 = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                let p2 = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                let cleanP1 = p1
+                    .replacingOccurrences(of: "Stai cercando ", with: "", options: .caseInsensitive)
+                    .replacingOccurrences(of: "Preferisci ", with: "", options: .caseInsensitive)
+                    .replacingOccurrences(of: "Cerchi ", with: "", options: .caseInsensitive)
+                    .capitalized
+                let cleanP2 = p2.capitalized
+                if cleanP1.count > 2 && cleanP2.count > 2 {
+                    return [cleanP1, cleanP2, "Entrambi / Misto"]
+                }
+            }
+        }
+
+        // Default universal options
+        return [
+            "Miglior modello per iniziare",
+            "Opzione più versatile e comoda",
+            "Miglior rapporto qualità / prezzo"
+        ]
     }
 
     private func handleSearchOrComparison(query: String, isFollowUp: Bool = false) {
@@ -2618,23 +2756,227 @@ struct ShopSpotlightCardView: View {
     }
 }
 
-// MARK: - Follow-Up Suggestion Purple Pill Button (Screenshot 3)
+// MARK: - Follow-Up Question Prompt & Sheet
+
+struct FollowUpQuestionPrompt: Identifiable {
+    let id = UUID()
+    let question: String
+}
+
+struct FollowUpQuestionSheet: View {
+    let question: String
+    let baseQuery: String
+    let onAnswerSelected: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var customAnswerText: String = ""
+    @FocusState private var isCustomFieldFocused: Bool
+
+    private var options: [String] {
+        SearchView.extractQuickOptions(for: question)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                // Header badge & title
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.shopPurple)
+                        Text("ASSISTENTE FITMATCH")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopPurple)
+                            .tracking(0.5)
+                    }
+
+                    Text(question)
+                        .font(.system(size: 17.5, weight: .bold))
+                        .foregroundColor(.shopDark)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if !baseQuery.isEmpty {
+                        Text("Scegli o scrivi una risposta per affinare «\(baseQuery)»:")
+                            .font(.system(size: 12.5))
+                            .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+
+                // Quick Answer Options
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 8) {
+                        ForEach(options, id: \.self) { opt in
+                            Button(action: {
+                                dismiss()
+                                onAnswerSelected(opt)
+                            }) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "circle.fill")
+                                        .font(.system(size: 6.5))
+                                        .foregroundColor(.shopPurple)
+
+                                    Text(opt)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(.shopDark)
+                                        .multilineTextAlignment(.leading)
+
+                                    Spacer()
+
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 11.5, weight: .bold))
+                                        .foregroundColor(.shopPurple)
+                                }
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 11)
+                                .background(Color(red: 247/255, green: 246/255, blue: 252/255))
+                                .cornerRadius(14)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .stroke(Color.shopPurple.opacity(0.12), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 2)
+                }
+
+                // Bottom Custom Answer Field
+                VStack(spacing: 8) {
+                    Divider()
+
+                    HStack(spacing: 10) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "pencil.line")
+                                .font(.system(size: 14))
+                                .foregroundColor(Color(red: 150/255, green: 150/255, blue: 160/255))
+
+                            TextField("Oppure digita qui la tua risposta...", text: $customAnswerText)
+                                .font(.system(size: 14))
+                                .focused($isCustomFieldFocused)
+                                .submitLabel(.send)
+                                .onSubmit {
+                                    submitCustom()
+                                }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color(red: 245/255, green: 245/255, blue: 248/255))
+                        .cornerRadius(20)
+
+                        if !customAnswerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Button(action: submitCustom) {
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 34, height: 34)
+                                    .background(Color.shopPurple)
+                                    .clipShape(Circle())
+                            }
+                            .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(Color(red: 190/255, green: 190/255, blue: 200/255))
+                    }
+                }
+            }
+        }
+    }
+
+    private func submitCustom() {
+        let clean = customAnswerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        dismiss()
+        onAnswerSelected(clean)
+    }
+}
+
+// MARK: - Follow-Up Suggestion Purple Pill Button
 struct ShopFollowUpPillButton: View {
     let title: String
     let onTap: () -> Void
 
+    private var isQuestion: Bool {
+        SearchView.isQuestionSuggestion(title)
+    }
+
     var body: some View {
         Button(action: onTap) {
-            HStack {
+            HStack(spacing: 12) {
+                // Left Icon
+                ZStack {
+                    Circle()
+                        .fill(isQuestion ? Color.shopPurple.opacity(0.12) : Color.white.opacity(0.8))
+                        .frame(width: 28, height: 28)
+
+                    Image(systemName: isQuestion ? "questionmark.bubble.fill" : "sparkle")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color.shopPurple)
+                }
+
+                // Text
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Color(red: 90/255, green: 50/255, blue: 220/255))
-                Spacer()
+                    .foregroundColor(Color(red: 70/255, green: 40/255, blue: 180/255))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                Spacer(minLength: 8)
+
+                // Right action hint
+                if isQuestion {
+                    HStack(spacing: 4) {
+                        Text("Rispondi")
+                            .font(.system(size: 11.5, weight: .bold))
+                            .foregroundColor(Color.shopPurple)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(Color.shopPurple)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4.5)
+                    .background(Color.white.opacity(0.9))
+                    .cornerRadius(12)
+                } else {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Color.shopPurple.opacity(0.75))
+                        .padding(6)
+                        .background(Color.white.opacity(0.8))
+                        .clipShape(Circle())
+                }
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .background(Color(red: 242/255, green: 238/255, blue: 255/255))
-            .cornerRadius(22)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(red: 243/255, green: 239/255, blue: 255/255),
+                        Color(red: 248/255, green: 245/255, blue: 255/255)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .cornerRadius(20)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.shopPurple.opacity(0.16), lineWidth: 1)
+            )
         }
         .buttonStyle(PlainButtonStyle())
     }

@@ -373,15 +373,20 @@ struct QueryAnalysis {
     }
 }
 
-// MARK: - Agent Thinking & Operations HUD (Codex / Antigravity Style)
+// MARK: - Agent Thinking & Operations HUD (Redesigned Antigravity Style)
 
 struct ShopAgentThinkingCardView: View {
     var query: String
     var isFollowUp: Bool = false
 
     @State private var activeStep: Int = 0
-    @State private var isExpanded: Bool = true
+    @State private var progress: CGFloat = 0.18
     @State private var isPulsing: Bool = false
+
+    private var cleanQuery: String {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return q.isEmpty ? "Sport" : q
+    }
 
     private var analysis: QueryAnalysis {
         QueryAnalysis.analyze(query)
@@ -389,182 +394,223 @@ struct ShopAgentThinkingCardView: View {
 
     private var steps: [(title: String, detail: String)] {
         if isFollowUp {
+            let detailParams = analysis.summaryText == "Ricerca semantica cataloghi partner"
+                ? "Applicazione criteri per «\(cleanQuery)»"
+                : analysis.summaryText
             return [
-                ("Analisi del contesto", "Integrazione con la cronologia della ricerca"),
-                ("Raffinamento parametri", analysis.summaryText == "Ricerca semantica cataloghi partner" ? "Applicazione: \"\(query)\"" : analysis.summaryText),
-                ("Aggiornamento selezione", "Ricalcolo modelli e migliori offerte cross-store")
+                ("Integrazione contesto", "Collegamento alla ricerca precedente e storico"),
+                ("Raffinamento parametri", detailParams),
+                ("Aggiornamento offerte", "Ricalcolo modelli e prezzi migliori tra i partner")
             ]
         } else {
+            let detailIntent = analysis.summaryText == "Ricerca semantica cataloghi partner"
+                ? "Identificazione modelli e caratteristiche per «\(cleanQuery)»"
+                : analysis.summaryText
             return [
-                ("Analisi dell'intento di ricerca", analysis.summaryText),
-                ("Scansione 14 partner in tempo reale", "Nike, Maxi Sport, Cisalfa, Alltricks, Deporvillage..."),
-                ("Confronto prezzi e sconti", "Calcolo miglior prezzo complessivo e disponibilità"),
-                ("Sintesi e modelli consigliati", "Generazione schede comparative e spotlight")
+                ("Analisi richiesta", detailIntent),
+                ("Scansione 14 partner in tempo reale", "Nike, Alltricks, Cisalfa, Deporvillage, Maxi Sport..."),
+                ("Confronto prezzi & sconti", "Calcolo miglior prezzo assoluto e modelli consigliati")
             ]
         }
     }
 
-    private var headerStatusText: String {
-        if activeStep >= steps.count {
-            return "Composizione completata"
+    private var currentHeadline: String {
+        if isFollowUp {
+            return "Raffino su «\(cleanQuery)»"
+        } else {
+            return "Ricerca intelligente in corso..."
         }
+    }
+
+    private var currentTickerText: String {
         switch activeStep {
         case 0:
-            return isFollowUp ? "Analisi del follow-up" : "Analisi della richiesta"
+            if let b = analysis.brand {
+                return "⚡ Riconosciuto brand \(b) e requisiti tecnici..."
+            }
+            return "⚡ Analisi dell'intento e dei parametri sportivi..."
         case 1:
-            return isFollowUp ? "Applicazione criteri" : "Scansione partner in corso"
+            return "🔍 Verifica prezzi e stock su 14 store partner..."
         case 2:
-            return isFollowUp ? "Aggiornamento modelli" : "Confronto prezzi e sconti"
-        case 3:
-            return "Finalizzazione risultati"
+            return "🏷️ Calcolo offerte con sconti fino al 40%..."
         default:
-            return "Elaborazione in corso"
+            return "✨ Composizione schede e modelli consigliati..."
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 14) {
             // Header Bar
-            HStack(spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                // Agent Glowing Avatar
                 ZStack {
                     Circle()
-                        .fill(Color.shopPurpleLight)
-                        .frame(width: 34, height: 34)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.shopPurple, Color(red: 130/255, green: 75/255, blue: 255/255)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 38, height: 38)
+                        .shadow(color: Color.shopPurple.opacity(isPulsing ? 0.35 : 0.15), radius: 6, y: 2)
+
                     Image(systemName: "sparkles")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.shopPurple)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
                 }
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(isFollowUp ? "AGENTE FITMATCH • FOLLOW-UP" : "AGENTE DI RICERCA FITMATCH")
+                        Circle()
+                            .fill(Color(red: 34/255, green: 197/255, blue: 94/255))
+                            .frame(width: 6, height: 6)
+                            .scaleEffect(isPulsing ? 1.25 : 0.8)
+
+                        Text(isFollowUp ? "AGENTE FITMATCH • APPROFONDIMENTO" : "AGENTE FITMATCH • RICERCA AI")
                             .font(.system(size: 10.5, weight: .bold, design: .rounded))
                             .foregroundColor(.shopPurple)
-                            .tracking(0.6)
-
-                        Circle()
-                            .fill(Color.shopPurple)
-                            .frame(width: 6, height: 6)
-                            .scaleEffect(isPulsing ? 1.3 : 0.8)
-                            .opacity(isPulsing ? 1.0 : 0.4)
+                            .tracking(0.5)
                     }
 
-                    Text(headerStatusText)
-                        .font(.system(size: 13.5, weight: .semibold))
+                    Text(currentHeadline)
+                        .font(.system(size: 14.5, weight: .bold))
                         .foregroundColor(.shopDark)
                         .lineLimit(1)
-                        .id("header_status_\(activeStep)")
                 }
-                .layoutPriority(1)
 
-                Spacer(minLength: 8)
+                Spacer()
 
-                Button(action: {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        isExpanded.toggle()
-                    }
-                }) {
-                    HStack(spacing: 4) {
-                        Text(isExpanded ? "Comprimi" : "Dettagli")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.shopPurple)
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.shopPurple)
-                    }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
+                // Progress Percentage Pill
+                Text("\(Int(progress * 100))%")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(.shopPurple)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3.5)
                     .background(Color.shopPurpleLight)
-                    .cornerRadius(12)
-                    .fixedSize()
-                }
-                .buttonStyle(PlainButtonStyle())
+                    .cornerRadius(10)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
 
-            if isExpanded {
-                Divider()
-                    .background(Color.shopPurple.opacity(0.12))
-                    .padding(.horizontal, 12)
+            // Fluid Animated Progress Bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.black.opacity(0.06))
+                        .frame(height: 3.5)
 
-                // Progressive Steps List with vertical connecting lines
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(steps.enumerated()), id: \.offset) { idx, step in
-                        HStack(alignment: .top, spacing: 12) {
-                            // Left indicator & vertical connector
-                            VStack(spacing: 0) {
-                                if idx < activeStep {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 15, weight: .bold))
-                                        .foregroundColor(.shopPurple)
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.shopPurple, Color(red: 160/255, green: 100/255, blue: 255/255)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: max(16, geo.size.width * progress), height: 3.5)
+                        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: progress)
+                }
+            }
+            .frame(height: 3.5)
+
+            // Step List
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { idx, step in
+                    HStack(alignment: .top, spacing: 12) {
+                        // Left step indicator
+                        VStack(spacing: 0) {
+                            if idx < activeStep {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.shopPurple)
+                                    .frame(width: 18, height: 18)
+                            } else if idx == activeStep {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.shopPurpleLight)
                                         .frame(width: 18, height: 18)
-                                } else if idx == activeStep {
                                     ProgressView()
                                         .tint(Color.shopPurple)
-                                        .scaleEffect(0.75)
-                                        .frame(width: 18, height: 18)
-                                } else {
-                                    Circle()
-                                        .stroke(Color.black.opacity(0.18), lineWidth: 1.5)
-                                        .frame(width: 14, height: 14)
-                                        .frame(width: 18, height: 18)
+                                        .scaleEffect(0.65)
                                 }
-
-                                if idx < steps.count - 1 {
-                                    Rectangle()
-                                        .fill(idx < activeStep ? Color.shopPurple.opacity(0.4) : Color.black.opacity(0.08))
-                                        .frame(width: 2)
-                                        .frame(maxHeight: .infinity)
-                                        .padding(.vertical, 2)
-                                }
+                                .frame(width: 18, height: 18)
+                            } else {
+                                Circle()
+                                    .stroke(Color.black.opacity(0.12), lineWidth: 1.5)
+                                    .frame(width: 14, height: 14)
+                                    .frame(width: 18, height: 18)
                             }
-                            .frame(width: 18)
 
-                            // Step Title & Detail
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(step.title)
-                                    .font(.system(size: 13, weight: idx == activeStep ? .bold : (idx < activeStep ? .semibold : .regular)))
-                                    .foregroundColor(idx <= activeStep ? .shopDark : Color(red: 160/255, green: 160/255, blue: 170/255))
-
-                                if idx <= activeStep {
-                                    Text(step.detail)
-                                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
-                                        .foregroundColor(idx == activeStep ? Color.shopPurple : Color(red: 125/255, green: 125/255, blue: 135/255))
-                                        .lineLimit(2)
-                                }
+                            if idx < steps.count - 1 {
+                                Rectangle()
+                                    .fill(idx < activeStep ? Color.shopPurple.opacity(0.4) : Color.black.opacity(0.06))
+                                    .frame(width: 1.5)
+                                    .frame(maxHeight: .infinity)
+                                    .padding(.vertical, 2)
                             }
-                            .padding(.bottom, idx < steps.count - 1 ? 12 : 2)
-
-                            Spacer()
                         }
+                        .frame(width: 18)
+
+                        // Title & Detail
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(step.title)
+                                .font(.system(size: 13, weight: idx == activeStep ? .bold : (idx < activeStep ? .semibold : .regular)))
+                                .foregroundColor(idx <= activeStep ? .shopDark : Color(red: 165/255, green: 165/255, blue: 175/255))
+
+                            if idx <= activeStep {
+                                Text(step.detail)
+                                    .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                                    .foregroundColor(idx == activeStep ? Color.shopPurple : Color(red: 125/255, green: 125/255, blue: 135/255))
+                                    .lineLimit(2)
+                            }
+                        }
+                        .padding(.bottom, idx < steps.count - 1 ? 8 : 0)
+
+                        Spacer()
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-                .padding(.bottom, 12)
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            .padding(.top, 2)
+
+            // Dynamic Live Activity Ticker Pill
+            HStack(spacing: 8) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.shopPurple)
+
+                Text(currentTickerText)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundColor(Color(red: 70/255, green: 70/255, blue: 85/255))
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .background(Color(red: 247/255, green: 245/255, blue: 255/255))
+            .cornerRadius(11)
         }
+        .padding(16)
         .background(Color.white)
-        .cornerRadius(18)
+        .cornerRadius(20)
         .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(Color.shopPurple.opacity(0.2), lineWidth: 1.2)
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.shopPurple.opacity(0.18), lineWidth: 1.2)
         )
-        .shadow(color: Color.shopPurple.opacity(0.06), radius: 10, y: 3)
+        .shadow(color: Color.shopPurple.opacity(0.06), radius: 12, y: 4)
         .onAppear {
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 isPulsing = true
             }
 
-            let delays: [Double] = isFollowUp ? [0.5, 1.3] : [0.5, 1.3, 2.2]
-            for (idx, delay) in delays.enumerated() {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        if activeStep <= idx {
-                            activeStep = idx + 1
-                        }
+            let timeline: [(delay: Double, step: Int, prog: CGFloat)] = isFollowUp
+                ? [(0.4, 1, 0.55), (1.1, 2, 0.92)]
+                : [(0.4, 1, 0.45), (1.1, 2, 0.78), (1.8, 3, 0.96)]
+
+            for item in timeline {
+                DispatchQueue.main.asyncAfter(deadline: .now() + item.delay) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        activeStep = item.step
+                        progress = item.prog
                     }
                 }
             }

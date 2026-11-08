@@ -806,19 +806,19 @@ class SupabaseClient:
     # MARK: - Catalog Search & Smart Search
 
     CATEGORY_EQUIVALENTS = {
-        "running_shoes": ["running_shoes", "shoes", "fitness"],
-        "shoes": ["running_shoes", "shoes", "fitness"],
+        "running_shoes": ["running_shoes", "shoes", "fitness", "trail_running"],
+        "shoes": ["running_shoes", "shoes", "fitness", "trail_running"],
         "fitness": ["fitness", "running_shoes", "shoes"],
         "top": ["top", "apparel"],
         "apparel": ["top", "apparel", "jacket", "pants"],
         "jacket": ["jacket", "apparel", "top"],
         "pants": ["pants", "apparel"],
         "socks": ["socks", "apparel", "gear"],
-        "gps_watch": ["gps_watch", "gear"],
+        "gps_watch": ["gps_watch", "sensor", "gear"],
         "eyewear": ["eyewear", "gear"],
-        "hydration": ["hydration", "gear", "bag"],
-        "padel": ["padel", "gear", "shoes"],
-        "cycling": ["cycling", "gear", "shoes"],
+        "hydration": ["hydration", "pack", "gear", "bag"],
+        "padel": ["padel", "racket", "gear"],
+        "cycling": ["cycling", "trainer", "helmet", "gear"],
         "nutrition": ["nutrition", "gear"],
     }
 
@@ -1201,7 +1201,7 @@ class SupabaseClient:
             if norm_size in US_TO_EU_MEN:
                 target_size_candidates.add(US_TO_EU_MEN[norm_size])
 
-        keywords_to_query = target_keywords[:8] if target_keywords else [""]
+        keywords_to_query = target_keywords[:12] if target_keywords else [""]
         from concurrent.futures import ThreadPoolExecutor
 
         def _fetch_kw(kw: str) -> List[Dict[str, Any]]:
@@ -1304,51 +1304,111 @@ class SupabaseClient:
                 filtered.append(p)
 
         # Relevance scoring to ensure exact model matches top the results
+        q_str_low = eff_query_str.lower()
+        q_str_no_filters = re.sub(
+            r"\b(?:sotto|fino\s*a|max|min|oltre|sopra|euro|eur|taglia|misura|size|eu|us|uk)\s*\d+(?:[.,]\d+)?\b",
+            " ",
+            q_str_low
+        )
+        raw_query_model_digits = set(re.findall(r"\b\d+\b", q_str_no_filters))
+        wants_trail = bool(re.search(r"\b(trail|sterrato|montagna|sentier[oi]|fango|bosco|skyrunning)\b", q_str_low))
+        wants_waterproof = bool(re.search(r"\b(gtx|gore[\s-]*tex|impermeabil[ei]|pioggia|invern[oa]|waterproof|shield)\b", q_str_low))
+        wants_hr_strap = bool(re.search(r"\b(fascia\s*cardio|cardiofrequenzimetro\s*fascia|h10|h9|hrm|verity)\b", q_str_low))
+
         def compute_relevance(prod: Dict[str, Any], query_kws: List[str]) -> float:
             score = 0.0
             pname = (prod.get("canonical_name") or "").lower()
             pbrand = (prod.get("brand") or "").lower()
+            pcat = (prod.get("category") or "").lower()
             off_titles = " ".join((o.get("title") or "") for o in (prod.get("offers") or [])[:3]).lower()
             combined_text = f"{pname} {off_titles}"
             tokens = set(re.findall(r"\b\w+\b", combined_text))
+            p_digits = set(re.findall(r"\b\d+\b", pname))
+
+            if raw_query_model_digits:
+                if raw_query_model_digits.intersection(p_digits):
+                    score += 240.0
+                elif p_digits:
+                    score -= 120.0
 
             for idx, kw in enumerate(query_kws):
                 kw_low = kw.lower().strip()
                 if not kw_low:
                     continue
+                is_generic_kw = kw_low in QueryProductGuardrail.GENERIC_CATEGORY_KEYWORDS
                 # Higher weight for primary keywords at the start of target_keywords
-                priority_mult = 1.25 if idx < 3 else 1.0
-                if kw_low in pname:
-                    score += 110.0 * priority_mult
-                elif kw_low in combined_text:
-                    score += 85.0 * priority_mult
+                priority_mult = 1.5 if idx == 0 else (1.3 if idx < 3 else (1.1 if idx < 6 else 1.0))
+                kw_regex = rf"\b{re.escape(kw_low)}\b"
 
-                kw_tokens = re.findall(r"\b\w+\b", kw_low)
+                if re.search(kw_regex, pname):
+                    score += (25.0 if is_generic_kw else 145.0) * priority_mult
+                elif re.search(kw_regex, combined_text):
+                    score += (18.0 if is_generic_kw else 105.0) * priority_mult
+
+                kw_tokens = [
+                    t for t in re.findall(r"\b\w+\b", kw_low)
+                    if t not in QueryProductGuardrail.SPORT_CONTEXT_STOPWORDS
+                ]
                 for t in kw_tokens:
                     if t in tokens:
-                        score += 28.0 * priority_mult
+                        score += (10.0 if is_generic_kw else 30.0) * priority_mult
                         if t.isdigit():
                             score += 55.0
                     elif t in pbrand:
-                        score += 20.0
+                        score += 22.0
 
                 q_digits = [t for t in kw_tokens if t.isdigit()]
-                p_digits = [t for t in re.findall(r"\b\w+\b", pname) if t.isdigit()]
                 if q_digits and p_digits and len(query_kws) <= 2:
-                    if not set(q_digits).intersection(set(p_digits)):
+                    if not set(q_digits).intersection(p_digits):
                         score -= 75.0  # Penalize mismatched generation/model numbers on specific SKU queries
 
             # Domain-specific relevance boosts
-            if detected_product_type == "long_sleeve_top":
+            if detected_product_type == "gps_watch":
+                if wants_hr_strap:
+                    if re.search(r"\b(fascia|hrm|h10|h9|verity|cardiofrequenzimetro)\b", combined_text):
+                        score += 150.0
+                else:
+                    if pcat == "gps_watch":
+                        score += 65.0
+                    if re.search(r"\b(forerunner|fenix|instinct|epix|venu|vivoactive|coros\s*pace|coros\s*apex|suunto\s*race|suunto\s*vertical|suunto\s*run|polar\s*vantage|polar\s*pacer|polar\s*grit)\b", combined_text):
+                        score += 110.0
+                    if re.search(r"\b(corsa|running|maratona)\b", q_str_low) and re.search(r"\b(forerunner|coros\s*pace|polar\s*pacer|suunto\s*run|suunto\s*race)\b", combined_text):
+                        score += 65.0
+            elif detected_product_type == "bike_computer":
+                if re.search(r"\b(garmin\s*edge|\bedge\s*(?:530|540|830|840|1030|1040|1050|explore)\b|wahoo\s*elemnt|bryton|igpsport\s*bsc)\b", combined_text):
+                    score += 120.0
+            elif detected_product_type == "long_sleeve_top":
                 if any(b in pbrand for b in ("adidas", "nike", "asics", "salomon", "odlo", "mizuno", "kiprun", "hoka", "brooks", "craft", "under armour", "gorewear", "puma", "new balance")):
                     score += 65.0
                 if re.search(r"\b(running|run|adizero|cross\s*run|active\s*warm|warmalite|element)\b", combined_text):
                     score += 50.0
-            elif "hyrox" in eff_query_str.lower():
+            elif detected_product_type in ("short_sleeve_top", "pants_shorts", "jacket", "socks"):
+                if any(b in pbrand for b in ("adidas", "nike", "asics", "salomon", "odlo", "mizuno", "kiprun", "hoka", "brooks", "craft", "under armour", "gorewear", "puma", "new balance", "cep", "compressport", "uyn")):
+                    score += 55.0
+                if re.search(r"\b(running|run|adizero|dri[\s-]*fit|miler|stride|challenger|bonatti|zeroweight|fujitrail)\b", combined_text):
+                    score += 45.0
+            elif detected_product_type == "padel_racket":
+                if re.search(r"\b(vertex|hack|at10|ml10|technical\s*viper|air\s*viper|counter\s*viper|metalbone|adipower|speed\s*pro|extreme\s*pro|diablo|electra)\b", combined_text):
+                    score += 95.0
+            elif detected_product_type == "eyewear":
+                if re.search(r"\b(sutro|radar\s*ev|radar|jawbreaker|encoder|sphaera|bisphaera)\b", combined_text):
+                    score += 90.0
+            elif "hyrox" in q_str_low:
                 if "hyrox" in combined_text:
                     score += 140.0
                 elif any(m in combined_text for m in ("dropset", "deviate nitro", "velocity nitro", "metcon")):
                     score += 95.0
+            elif detected_product_type == "shoes" or (detected_product_type is None and category in ("running_shoes", "shoes")):
+                if not wants_trail:
+                    if pcat == "trail_running" or re.search(r"\b(trail|speedcross|trabuco|speedgoat|cascadia|ultra\s*raptor|akasha|bushido|sonoma|mujin|daichi|terrex\s*agravic|hierro|peregrine)\b", pname):
+                        score -= 75.0
+                    if re.search(r"\b(pegasus|vomero|vaporfly|alphafly|streakfly|invincible|nimbus|novablast|cumulus|kayano|superblast|metaspeed|clifton|bondi|mach|cielo|ghost|glycerin|hyperion|endorphin|triumph|ride|adizero|supernova|ultraboost|1080|rebel|fuelcell|wave\s*rider|wave\s*sky|wave\s*rebellion|deviate\s*nitro|velocity\s*nitro|cloudmonster|cloudsurfer|cloudboom)\b", pname):
+                        score += 65.0
+                else:
+                    if pcat == "trail_running" or re.search(r"\b(trail|speedcross|trabuco|speedgoat|cascadia|ultra\s*raptor|akasha|bushido|prodigio|ultra\s*glide|genesis|peregrine|hierro)\b", pname):
+                        score += 85.0
+                if not wants_waterproof and re.search(r"\b(gtx|gore[\s-]*tex|waterproof|shield)\b", pname):
+                    score -= 35.0
 
             ACCESSORY_KEYWORDS = {
                 "pellicola", "vetro temperato", "film hydrogel", "protezione schermo",
@@ -1362,8 +1422,12 @@ class SupabaseClient:
             if sem_sim > 0.35:
                 score += sem_sim * 55.0
 
+            num_offers = len(prod.get("offers", []))
+            if num_offers >= 4:
+                score += 40.0
+            elif num_offers >= 2:
+                score += 22.0
             score += min(prod.get("cross_store_savings", 0.0) * 0.15, 20.0)
-            score += min(len(prod.get("offers", [])) * 4.0, 16.0)
             return score
 
         for p in filtered:
@@ -1421,6 +1485,58 @@ class SupabaseClient:
                             p["canonical_name"] = f"{cname} ({gend})"
             if not duplicate_found:
                 deduped.append(p)
+
+        # Model-Family Diversity Ranking (MMR): showcase distinct flagship models in top slots
+        # before repeating colorways/editions of the same model family
+        if len(deduped) > 2:
+            top_score = float(deduped[0].get("relevance_score") or 0.0)
+            FAMILY_NOISE = {
+                "uomo", "donna", "unisex", "plus", "premium", "se", "tr", "gtx", "gore", "tex",
+                "wide", "medium", "music", "solar", "amp", "pro", "elite", "scarpe", "scarpa",
+                "sneaker", "sneakers", "orologio", "smartwatch", "racchetta", "padel", "occhiali",
+                "zaino", "idratante", "borsa", "maglia", "giacca", "pantaloni", "pantaloncini",
+                "calze", "top", "one", "trail", "running", "corsa", "strada", "gara"
+            }
+            COMPOUND_MODEL_PREFIXES = {
+                "forerunner", "fenix", "instinct", "edge", "adizero", "wave", "fresh",
+                "deviate", "velocity", "active", "adv", "sense", "ultra", "lone"
+            }
+
+            def _model_family_key(prod: Dict[str, Any]) -> str:
+                cname = (prod.get("canonical_name") or "").lower()
+                pbrand = (prod.get("brand") or "").lower().strip()
+                raw_tokens = [
+                    t for t in re.findall(r"\b[a-z0-9]+\b", cname)
+                    if t not in FAMILY_NOISE and t not in pbrand.split() and len(t) > 1
+                ]
+                if not raw_tokens:
+                    return f"{pbrand}:{cname[:15]}"
+                first = raw_tokens[0]
+                if first in ("forerunner", "fenix", "instinct", "edge", "bsc100", "bsc200", "bsc300"):
+                    # Keep watch/computer number (e.g., forerunner 165 vs forerunner 265 vs forerunner 965)
+                    num_tok = next((t for t in raw_tokens[1:3] if any(c.isdigit() for c in t)), "")
+                    return f"{pbrand}:{first}:{num_tok}"
+                if first in COMPOUND_MODEL_PREFIXES and len(raw_tokens) >= 2 and not raw_tokens[1].isdigit():
+                    return f"{pbrand}:{first}:{raw_tokens[1]}"
+                return f"{pbrand}:{first}"
+
+            round1, round2, rest = [], [], []
+            seen_r1, seen_r2 = set(), set()
+            min_diverse_score = top_score * 0.52
+
+            for p in deduped:
+                sc = float(p.get("relevance_score") or 0.0)
+                fk = _model_family_key(p)
+                if sc >= min_diverse_score and fk not in seen_r1:
+                    seen_r1.add(fk)
+                    round1.append(p)
+                elif sc >= min_diverse_score and fk not in seen_r2:
+                    seen_r2.add(fk)
+                    round2.append(p)
+                else:
+                    rest.append(p)
+
+            deduped = round1 + round2 + rest
 
         return deduped[:limit]
 

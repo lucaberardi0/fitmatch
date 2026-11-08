@@ -19,7 +19,7 @@ KNOWN_BRANDS = [
     "black diamond", "petzl", "leki", "camelbak", "osprey", "deuter", "buff", "compressport",
 
     # Electronics & Optics
-    "garmin", "polar", "suunto", "coros", "amazfit", "wahoo", "bryton", "oakley", "bliz",
+    "garmin", "polar", "suunto", "coros", "amazfit", "wahoo", "bryton", "igpsport", "oakley", "bliz",
     "rudy project", "100%", "shokz", "aftershokz", "apple", "huawei",
 
     # Cycling & Helmets
@@ -59,7 +59,8 @@ BRAND_ALIASES = {
     "2xu": "2XU",
     "uyn": "UYN",
     "cmp": "CMP",
-    "alé": "Alé"
+    "alé": "Alé",
+    "igpsport": "iGPSPORT"
 }
 
 ICONIC_MODEL_BRANDS = {
@@ -102,6 +103,9 @@ ICONIC_MODEL_BRANDS = {
     "venu": "Garmin", "vivoactive": "Garmin", "edge": "Garmin",
     # Polar
     "vantage": "Polar", "grit x": "Polar", "pacer": "Polar", "ignite": "Polar",
+    # Coros & Suunto
+    "pace 3": "Coros", "pace 4": "Coros", "pace pro": "Coros", "apex 2": "Coros", "apex 4": "Coros", "vertix": "Coros",
+    "suunto race": "Suunto", "suunto vertical": "Suunto", "suunto run": "Suunto",
     # Salomon
     "speedcross": "Salomon", "sense ride": "Salomon", "pulsar": "Salomon", "xa pro": "Salomon",
     "active skin": "Salomon", "adv skin": "Salomon",
@@ -120,17 +124,30 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\bpanzerglass\b", r"\bprotezion[ei]\s+(?:lo\s+)?schermo\b",
         r"\bidrogel\b", r"\bhydrogel\b", r"\bsportenzia\b"
     ]),
+    ("mount", [
+        r"\bsupport[oi]\b", r"\bstaff[ae]\b", r"\bmounts?\b", r"\bstaffetta\b", r"\bportaborracc(?:ia|e|ie)\b",
+        r"\bflush\s+out\s+front\b", r"\bextended\s+out\b"
+    ]),
     ("strap", [
-        r"\bcinturin[oi]\b", r"\bstraps?\b", r"\bwristband\b", r"\bbraccialetto\b"
+        r"\bcinturin[oi]\b", r"\bstraps?\b", r"\bwristband\b", r"\bbraccialetto\b", r"\bbracelet\b"
+    ]),
+    ("pack", [
+        r"\bpacks?\b", r"\bbundles?\b", r"\bset\b", r"\bkit\b", r"\bcoppia\b", r"\bduo\b"
     ]),
     ("sensor", [
         r"\bfascia cardio\b", r"\bhrm\b", r"\bsensore\b", r"\bspeed sensor\b", r"\bcadence\b"
     ]),
-    ("mount", [
-        r"\bsupport[oi]\b", r"\bstaff[ae]\b", r"\bmounts?\b", r"\bstaffetta\b", r"\bportaborracci[ae]\b"
+    ("cycling", [
+        r"\bciclocomputer\b", r"\bbike\s+computer\b", r"\bcontachilometri\b", r"\bcontatore\b",
+        r"\bgarmin\s+edge\b", r"\bedge\s+(?:130|530|540|550|830|840|1030|1040|1050|explore|mtb)\b",
+        r"\bwahoo\s+elemnt\b", r"\bbryton\b", r"\bigpsport\b"
     ]),
-    ("pack", [
-        r"\bpacks?\b", r"\bbundles?\b", r"\bset\b", r"\bkit\b", r"\bcoppia\b", r"\bduo\b"
+    ("gps_watch", [
+        r"\bsmartwatch\b", r"\borologi[o]?\b", r"\bforerunner\b", r"\bfenix\b",
+        r"\bepix\b", r"\binstinct\b", r"\bvenu\b", r"\bvivoactive\b",
+        r"\bcardiofrequenzimetr[oi]\b", r"\bapple\s+watch\b",
+        r"\bt[\s-]?rex\s*\d\b", r"\bamazfit\b", r"\bcoros\s+(?:pace|apex|vertix|nomad)\b",
+        r"\bpolar\s+(?:vantage|pacer|grit|ignite)\b", r"\bsuunto\s+(?:race|vertical|9|peak|run)\b"
     ]),
     ("nutrition", [
         r"\bgel\s+energetic[oi]\b", r"\benervit\b", r"\bisocarb\b", r"\bbarrett[ae]\b",
@@ -139,12 +156,12 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
     ]),
     ("hydration", [
         r"\bzain[oi]\b", r"\bactive\s+skin\b", r"\badv\s+skin\b", r"\bsoft\s*flask\b",
-        r"\bflask\b", r"\bborracci[ae]\b", r"\bsacca\s+idrica\b", r"\bcamelbak\b",
+        r"\bflask\b", r"\bborracc(?:ia|e|ie)\b", r"\bsacca\s+idrica\b", r"\bcamelbak\b",
         r"\bgilet\s+(?:da\s+)?(?:trail|idratazione|running|corsa)\b"
     ]),
     ("eyewear", [
-        r"\bocchial[ii]\b", r"\bsunglasses\b", r"\blent[ie]\b", r"\bmascher[ae]\b",
-        r"\bsutro\b", r"\bjawbreaker\b"
+        r"\bocchial[ie]\b", r"\bsunglasses\b", r"\blent[ie]\b", r"\bmascher[ae]\b",
+        r"\bsutro\b", r"\bjawbreaker\b", r"\bradar\s+ev\b"
     ]),
     ("racket", [
         r"\bracchett[ae]\b", r"\bpala\b", r"\bpalas\b", r"\bracks?\b", r"\bpadel\b"
@@ -152,41 +169,34 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
     ("trainer", [
         r"\brull[oi]\b", r"\bsmart trainer\b", r"\bkickr\b", r"\bflux\b", r"\bsuito\b", r"\bdireto\b"
     ]),
-    ("gps_watch", [
-        r"\bsmartwatch\b", r"\borolog[io]\b", r"\bforerunner\b", r"\bfenix\b",
-        r"\bepix\b", r"\binstinct\b", r"\bvenu\b", r"\bvivoactive\b",
-        r"\bcardiofrequenzimetr[oi]\b", r"\bciclocomputer\b", r"\bgarmin\s+edge\b",
-        r"\bt[\s-]?rex\s*\d\b", r"\bamazfit\b", r"\bcoros\s+(?:pace|apex|vertix)\b",
-        r"\bpolar\s+(?:vantage|pacer|grit|ignite)\b", r"\bsuunto\s+(?:race|vertical|9|peak)\b"
-    ]),
     ("jacket", [
-        r"\bgiacc[ae]\b", r"\bgiubbin[oi]\b", r"\bgiubbott[oi]\b", r"\bjackets?\b",
+        r"\bgiacc(?:a|he)\b", r"\bgiubbin[oi]\b", r"\bgiubbott[oi]\b", r"\bjackets?\b",
         r"\bantivento\b", r"\bwindbreaker\b", r"\bwindstopper\b", r"\bgilet\b", r"\bvest\b",
         r"\banorak\b", r"\bshell\b", r"\bpiumin[oi]\b", r"\bcappott[oi]\b", r"\bparka\b"
     ]),
     ("pants", [
-        r"\bpantalon[ii]\b", r"\bpantaloncin[ii]\b", r"\bshorts?\b", r"\btights?\b",
+        r"\bpantalon[ie]\b", r"\bpantaloncin[oi]\b", r"\bshorts?\b", r"\btights?\b",
         r"\bleggings?\b", r"\bcapri\b", r"\bcalzamagli[ae]\b", r"\bbermuda\b", r"\bsprinter\b"
     ]),
     ("top", [
         r"\bmagli[ae]\b", r"\bmagliett[ae]\b", r"\bt-?shirts?\b", r"\bcanott[ae]\b",
         r"\bsinglets?\b", r"\btops?\b", r"\bfelp[ae]\b", r"\bhoodie\b", r"\blong\s+sleeve\b",
-        r"\bshort\s+sleeve\b", r"\bsleeveless\b", r"\bmanic[ae]\s+lung[ahe]+\b",
-        r"\bmanic[ae]\s+cort[ae]\b", r"\bjersey\b", r"\bpolo\b", r"\breggisen[oi]\b", r"\bbra\b"
+        r"\bshort\s+sleeve\b", r"\bsleeveless\b", r"\bmanic(?:a|he)\s+lung(?:a|he)\b",
+        r"\bmanic(?:a|he)\s+cort(?:a|e)\b", r"\bjersey\b", r"\bpolo\b", r"\breggisen[oi]\b", r"\bbra\b"
     ]),
     ("socks", [
-        r"\bcalz[ae]\b", r"\bcalzin[ii]\b", r"\bsocks?\b"
+        r"\bcalz[ae]\b", r"\bcalzin[oi]\b", r"\bsocks?\b"
     ]),
     ("shoes", [
         r"\bscarp[ae]\b", r"\bshoes?\b", r"\bsneakers?\b", r"\bcalzatur[ae]\b",
-        r"\bstival[ii]\b", r"\bstivalett[ii]\b", r"\bciabatt[ae]\b", r"\bchiodat[ae]\b",
-        r"\bscarpon[ii]\b", r"\bscarpett[ae]\b"
+        r"\bstival[ie]\b", r"\bstivalett[oi]\b", r"\bciabatt[ae]\b", r"\bchiodat[ae]\b",
+        r"\bscarpon[ie]\b", r"\bscarpett[ae]\b"
     ]),
     ("gear", [
         r"\btheragun\b", r"\bpistola\s+(?:per\s+)?massaggi\b", r"\bstimolatore\s+muscolare\b",
-        r"\bcasc[oi]\b", r"\bhelmet\b", r"\bcappellin[oi]\b", r"\bcappell[oi]\b", r"\bcap\b",
+        r"\bcasc(?:o|hi)\b", r"\bhelmet\b", r"\bcappellin[oi]\b", r"\bcappell[oi]\b", r"\bcap\b",
         r"\bberrett[oi]\b", r"\bbeanie\b", r"\bvisier[ae]\b", r"\bfasci[ae]\b",
-        r"\bguant[ii]\b", r"\bscaldacollo\b", r"\bscaldamani\b", r"\bpolsin[ii]\b",
+        r"\bguant[oi]\b", r"\bscaldacollo\b", r"\bscaldamani\b", r"\bpolsin[oi]\b",
         r"\btelo\b", r"\basciugaman[oi]\b", r"\bmanubri[o]?\b", r"\bkettlebell\b",
         r"\bcintur[ae]\b", r"\bbastoncini\b", r"\bshampoo\b", r"\bsterzo\b",
         r"\bpignoni\b", r"\bguarnitura\b", r"\bpedal[ei]\b", r"\bcoperton[ei]\b"
@@ -241,7 +251,7 @@ class ProductNormalizer:
     def extract_brand(cls, title: str, existing_brand: Optional[str] = None) -> Optional[str]:
         """Detect standard canonical brand name from title or existing hint, avoiding false-positive collisions."""
         lower_title = (title or "").lower()
-        ambiguous_brands = {"scarpa", "elite", "on", "head"}
+        ambiguous_brands = {"scarpa", "elite", "on", "head", "polar"}
 
         # 1. Check non-ambiguous known brands in the title first (longest match first)
         primary_brands = [b for b in KNOWN_BRANDS if b not in ambiguous_brands]
@@ -297,6 +307,10 @@ class ProductNormalizer:
             if any(w in lower_title for w in ("padel", "racchetta", "pala", "speed", "extreme", "delta", "gravity", "radical", "tennis", "sci")):
                 return "Head"
 
+        if re.search(r"\bpolar\b", lower_title):
+            if not any(w in lower_title for w in ("felpa", "pile", "giacca", "fleece", "lacoste", "columbia", "cardigan", "scaldacollo")):
+                return "Polar"
+
         if existing_brand and existing_brand.strip().lower() not in STORE_NAMES_LOWER and existing_brand.strip().lower() != "elite":
             return existing_brand.strip().capitalize()
         return None
@@ -312,8 +326,8 @@ class ProductNormalizer:
         # Check if it matches any iconic shoe/watch model before defaulting
         for model_sub, brand_name in ICONIC_MODEL_BRANDS.items():
             if re.search(rf"\b{re.escape(model_sub)}\b", tl):
-                if brand_name in ("Garmin", "Polar"):
-                    return "gps_watch"
+                if brand_name in ("Garmin", "Polar", "Coros", "Suunto"):
+                    return "cycling" if model_sub == "edge" else "gps_watch"
                 if brand_name == "Oakley":
                     return "eyewear"
                 if brand_name == "Bullpadel":
@@ -470,7 +484,7 @@ class ProductNormalizer:
         model_key = " ".join(model_parts).strip() if model_parts else "general"
 
         # Devices, electronics, eyewear, cycling trainers, rackets & gear are genderless
-        if art_type in ("gps_watch", "gear", "eyewear", "racket", "trainer", "sensor", "mount", "case", "strap", "pack", "nutrition", "hydration"):
+        if art_type in ("gps_watch", "cycling", "gear", "eyewear", "racket", "trainer", "sensor", "mount", "case", "strap", "pack", "nutrition", "hydration"):
             return f"{brand.lower()} {model_key} [{art_type}]"
 
         # Racing super-shoes (e.g. adios pro, alphafly, vaporfly, metaspeed, cielo, vanish, endorphin elite, sc elite)

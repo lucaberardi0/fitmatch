@@ -53,7 +53,16 @@ struct RecentActivityItem: Identifiable, Codable, Hashable {
         self.subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
         self.imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
         self.systemIcon = try container.decodeIfPresent(String.self, forKey: .systemIcon)
-        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
+        if let d = try? container.decode(Date.self, forKey: .timestamp) {
+            self.timestamp = d
+        } else if let s = try? container.decode(String.self, forKey: .timestamp),
+                  let d = SupabaseManager.parseISO8601Date(s) {
+            self.timestamp = d
+        } else if let ts = try? container.decode(Double.self, forKey: .timestamp) {
+            self.timestamp = Date(timeIntervalSince1970: ts)
+        } else {
+            self.timestamp = Date()
+        }
         self.productData = try container.decodeIfPresent(MatchedProduct.self, forKey: .productData)
         self.storeId = try container.decodeIfPresent(String.self, forKey: .storeId)
     }
@@ -93,7 +102,7 @@ struct RecentActivityItem: Identifiable, Codable, Hashable {
         let now = Date()
 
         let elapsedSeconds = now.timeIntervalSince(timestamp)
-        if elapsedSeconds < 60 {
+        if elapsedSeconds <= 60 {
             return "adesso"
         } else if elapsedSeconds < 3600 {
             let minutes = max(1, Int(elapsedSeconds / 60))
@@ -107,12 +116,17 @@ struct RecentActivityItem: Identifiable, Codable, Hashable {
             return "ieri"
         }
 
+        let days = calendar.dateComponents([.day], from: timestamp, to: now).day ?? 0
+        if days < 7 {
+            return "\(max(2, days)) giorni fa"
+        }
+
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "it_IT")
         if calendar.component(.year, from: timestamp) == calendar.component(.year, from: now) {
-            formatter.dateFormat = "MMM d"
+            formatter.dateFormat = "d MMM"
         } else {
-            formatter.dateFormat = "MMM d yyyy"
+            formatter.dateFormat = "d MMM yyyy"
         }
         return formatter.string(from: timestamp).lowercased()
     }
@@ -141,6 +155,20 @@ class RecentActivityManager: ObservableObject {
             saveActivities()
             UserDefaults.standard.set(true, forKey: "fitmatch_recent_purged_v5")
         }
+
+        // Heal any local cache corrupted by previous versions where all items got identical timestamps
+        if !UserDefaults.standard.bool(forKey: "fitmatch_recent_timestamps_fixed_v2") {
+            let timestamps = self.activities.map { $0.timestamp.timeIntervalSince1970 }
+            if let first = timestamps.first, timestamps.count > 1 {
+                let allIdentical = timestamps.allSatisfy { abs($0 - first) < 5.0 }
+                if allIdentical {
+                    self.activities = []
+                    try? FileManager.default.removeItem(at: fileURL)
+                }
+            }
+            UserDefaults.standard.set(true, forKey: "fitmatch_recent_timestamps_fixed_v2")
+        }
+
         Task {
             await syncFromDatabase()
         }
@@ -149,10 +177,34 @@ class RecentActivityManager: ObservableObject {
     func syncFromDatabase() async {
         do {
             let supaItems = try await SupabaseManager.shared.fetchRecentActivities()
-            // Sanitize synced activities so conversational/follow-up queries never leak into state
-            self.activities = supaItems.filter {
-                $0.type != .search || RecentActivityManager.isValidShoppingQuery($0.title)
+            // Deduplicate remote items preserving the newest timestamp
+            var seenKeys = Set<String>()
+            var deduplicated: [RecentActivityItem] = []
+            for item in supaItems {
+                guard item.type != .search || RecentActivityManager.isValidShoppingQuery(item.title) else {
+                    continue
+                }
+                let key = "\(item.type.rawValue):\(item.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+                if !seenKeys.contains(key) {
+                    seenKeys.insert(key)
+                    deduplicated.append(item)
+                }
             }
+
+            // Keep any recent local activities that haven't synced to remote yet
+            for local in self.activities {
+                let key = "\(local.type.rawValue):\(local.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+                if !seenKeys.contains(key) {
+                    seenKeys.insert(key)
+                    deduplicated.append(local)
+                }
+            }
+
+            deduplicated.sort { $0.timestamp > $1.timestamp }
+            if deduplicated.count > 30 {
+                deduplicated = Array(deduplicated.prefix(30))
+            }
+            self.activities = deduplicated
             saveActivities()
         } catch {
             print("RecentActivityManager sync note: \(error)")
