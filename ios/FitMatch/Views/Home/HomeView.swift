@@ -193,8 +193,14 @@ struct HomeView: View {
 
             // Search Bar Capsule ("Cerca")
             Button(action: {
-                selectedTab = 1
-                NotificationCenter.default.post(name: NSNotification.Name("FitMatchFocusSearch"), object: nil)
+                let gen = UIImpactFeedbackGenerator(style: .light)
+                gen.impactOccurred()
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                    selectedTab = 1
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    NotificationCenter.default.post(name: NSNotification.Name("FitMatchFocusSearch"), object: nil)
+                }
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
@@ -266,9 +272,15 @@ struct HomeView: View {
                         Button(action: {
                             let gen = UIImpactFeedbackGenerator(style: .light)
                             gen.impactOccurred()
-                            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
-                                activeSubTab = tab
-                                scrollProxy.scrollTo(tab.id, anchor: .center)
+                            if tab == .salvati {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                                    selectedTab = 2
+                                }
+                            } else {
+                                withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                                    activeSubTab = tab
+                                    scrollProxy.scrollTo(tab.id, anchor: .center)
+                                }
                             }
                         }) {
                             HStack(spacing: 6) {
@@ -420,15 +432,15 @@ struct HomeView: View {
         let thumbSize = (cardWidth - 32 - 20) / 3
 
         return VStack(alignment: .leading, spacing: 14) {
-            // Header: Title + Circular Chevron Button
-            HStack {
-                Text("Visti di recente")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+            // Header: Title + Circular Chevron Button (Pushes RecentlyViewedView)
+            NavigationLink(destination: RecentlyViewedView()) {
+                HStack {
+                    Text("Visti di recente")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
 
-                Spacer()
+                    Spacer()
 
-                NavigationLink(destination: RecentlyViewedView()) {
                     Circle()
                         .fill(Color(red: 244/255, green: 245/255, blue: 248/255))
                         .frame(width: 32, height: 32)
@@ -438,8 +450,8 @@ struct HomeView: View {
                                 .foregroundColor(Color(red: 70/255, green: 70/255, blue: 75/255))
                         )
                 }
-                .buttonStyle(.plain)
             }
+            .buttonStyle(.plain)
 
             // Thumbnails of real recently viewed items
             let items = previewRecentProducts
@@ -520,20 +532,20 @@ struct HomeView: View {
 
         return VStack(alignment: .leading, spacing: 14) {
             // Header: Title + Circular Chevron Button (switches to Salvati tab)
-            HStack {
-                Text("Elementi salvati")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+            Button(action: {
+                let gen = UIImpactFeedbackGenerator(style: .light)
+                gen.impactOccurred()
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                    selectedTab = 2
+                }
+            }) {
+                HStack {
+                    Text("Elementi salvati")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
 
-                Spacer()
+                    Spacer()
 
-                Button(action: {
-                    let gen = UIImpactFeedbackGenerator(style: .light)
-                    gen.impactOccurred()
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
-                        selectedTab = 2
-                    }
-                }) {
                     Circle()
                         .fill(Color(red: 244/255, green: 245/255, blue: 248/255))
                         .frame(width: 32, height: 32)
@@ -543,32 +555,41 @@ struct HomeView: View {
                                 .foregroundColor(Color(red: 70/255, green: 70/255, blue: 75/255))
                         )
                 }
-                .buttonStyle(.plain)
             }
+            .buttonStyle(.plain)
 
             // Thumbnails of real saved items
             let saved = Array(wishlist.items.prefix(3))
             if saved.isEmpty {
-                HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
-                            .frame(width: 52, height: 52)
-                        Image(systemName: "heart")
-                            .font(.system(size: 20))
-                            .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.7))
+                Button(action: {
+                    let gen = UIImpactFeedbackGenerator(style: .light)
+                    gen.impactOccurred()
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                        selectedTab = 2
                     }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Nessun articolo salvato")
-                            .font(.system(size: 13.5, weight: .semibold, design: .rounded))
-                            .foregroundColor(Color.shopDark)
-                        Text("Tocca l'icona del cuore sui prodotti")
-                            .font(.system(size: 11.5, weight: .regular))
-                            .foregroundColor(.shopTextMuted)
+                }) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
+                                .frame(width: 52, height: 52)
+                            Image(systemName: "heart")
+                                .font(.system(size: 20))
+                                .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.7))
+                        }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Nessun articolo salvato")
+                                .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                                .foregroundColor(Color.shopDark)
+                            Text("Tocca l'icona del cuore sui prodotti")
+                                .font(.system(size: 11.5, weight: .regular))
+                                .foregroundColor(.shopTextMuted)
+                        }
+                        Spacer()
                     }
-                    Spacer()
+                    .frame(height: thumbSize)
                 }
-                .frame(height: thumbSize)
+                .buttonStyle(.plain)
             } else {
                 HStack(spacing: 10) {
                     ForEach(saved) { item in

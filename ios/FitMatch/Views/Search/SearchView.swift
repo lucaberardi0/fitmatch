@@ -235,7 +235,9 @@ struct SearchView: View {
                 updateTabBarVisibility()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FitMatchFocusSearch"))) { _ in
-                isSearchFieldFocused = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    isSearchFieldFocused = true
+                }
             }
             .onDisappear {
                 hideAllKeyboards()
@@ -255,6 +257,16 @@ struct SearchView: View {
         ZStack(alignment: .bottom) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 26) {
+                    // Header Title: Cerca
+                    HStack {
+                        Text("Cerca")
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopDark)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
+
                     // Section 1: "Visti di recente >" (Screenshot 1 & 2 top)
                     if !recentManager.recentlyViewedProducts.isEmpty {
                         recentlyViewedSection
@@ -350,17 +362,20 @@ struct SearchView: View {
     // MARK: - Section 1: Visti di recente >
     private var recentlyViewedSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 5) {
-                Text("Visti di recente")
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(.shopDark)
+            NavigationLink(destination: RecentlyViewedView()) {
+                HStack(spacing: 5) {
+                    Text("Visti di recente")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(.shopDark)
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
 
-                Spacer()
+                    Spacer()
+                }
             }
+            .buttonStyle(.plain)
             .padding(.horizontal, 20)
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -379,17 +394,20 @@ struct SearchView: View {
     // MARK: - Section 2: Continua ad acquistare >
     private var continueShoppingSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 5) {
-                Text("Continua ad acquistare")
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(.shopDark)
+            NavigationLink(destination: RecentlyViewedView()) {
+                HStack(spacing: 5) {
+                    Text("Continua ad acquistare")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(.shopDark)
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
 
-                Spacer()
+                    Spacer()
+                }
             }
+            .buttonStyle(.plain)
             .padding(.horizontal, 20)
 
             VStack(spacing: 12) {

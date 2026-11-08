@@ -159,11 +159,14 @@ struct ShopFloatingIslandDock: View {
         Button(action: {
             let gen = UIImpactFeedbackGenerator(style: .light)
             gen.impactOccurred()
-            if selectedTab == index && index == 1 {
-                NotificationCenter.default.post(name: NSNotification.Name("FitMatchFocusSearch"), object: nil)
-            }
+            let isSwitchingToSearch = (index == 1)
             withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
                 selectedTab = index
+            }
+            if isSwitchingToSearch {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    NotificationCenter.default.post(name: NSNotification.Name("FitMatchFocusSearch"), object: nil)
+                }
             }
         }) {
             ZStack {
