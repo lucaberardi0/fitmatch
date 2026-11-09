@@ -2229,7 +2229,35 @@ struct SearchView: View {
                 }
             } catch {
                 if !isFollowUp {
-                    if let local = try? await api.searchCatalog(query: query, limit: 30), !local.isEmpty {
+                    // 1. Direct Supabase Cloud instant fallback for high availability
+                    let directProds = await SupabaseManager.shared.fetchSmartProductsDirect(
+                        category: nil,
+                        keywords: [query],
+                        maxPrice: overrideMaxPrice,
+                        size: selectedSize,
+                        store: selectedStore,
+                        limit: 30
+                    )
+                    if !directProds.isEmpty {
+                        await MainActor.run {
+                            self.errorMessage = nil
+                            self.searchResults = directProds
+                            self.curatedSections = [
+                                CuratedProductSection(
+                                    id: "sec_cloud",
+                                    title: "Migliori Risultati Trovati",
+                                    subtitle: "Offerte verificate nel catalogo FitMatch Cloud",
+                                    products: directProds
+                                )
+                            ]
+                            self.conversationalHeader = "Ho cercato \(query)"
+                            self.conversationalSummary = "Ecco i modelli trovati per la tua ricerca:"
+                            self.isDeepDiveMode = true
+                            self.isSmartSearchActive = true
+                            self.isLoading = false
+                            self.recentManager.recordSearch(query)
+                        }
+                    } else if let local = try? await api.searchCatalog(query: query, limit: 30), !local.isEmpty {
                         await MainActor.run {
                             self.errorMessage = nil
                             self.searchResults = local

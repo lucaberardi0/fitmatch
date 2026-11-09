@@ -95,9 +95,22 @@ class APIService: ObservableObject {
 
         guard let url = components.url else { throw URLError(.badURL) }
 
-        let data = try await fetchDataWithRetry(url: url)
-        let decoded = try JSONDecoder().decode(SearchResponse.self, from: data)
-        return decoded.matched_products
+        do {
+            let data = try await fetchDataWithRetry(url: url)
+            let decoded = try JSONDecoder().decode(SearchResponse.self, from: data)
+            return decoded.matched_products
+        } catch {
+            let direct = await SupabaseManager.shared.fetchSmartProductsDirect(
+                category: nil,
+                keywords: [query],
+                size: size,
+                limit: 30
+            )
+            if !direct.isEmpty {
+                return direct
+            }
+            throw error
+        }
     }
 
     func fetchPriceHistory(canonicalName: String, productId: String? = nil, days: Int = 90) async throws -> PriceHistoryResponse {
@@ -148,15 +161,123 @@ class APIService: ObservableObject {
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
 
-        let data = try await fetchDataWithRetry(url: url)
-        let decoded = try JSONDecoder().decode(SmartSearchResponse.self, from: data)
-        return await validateAndEnrichSmartSearchResponse(
-            decoded,
-            query: query,
-            contextQuery: contextQuery,
+        do {
+            let data = try await fetchDataWithRetry(url: url)
+            let decoded = try JSONDecoder().decode(SmartSearchResponse.self, from: data)
+            return await validateAndEnrichSmartSearchResponse(
+                decoded,
+                query: query,
+                contextQuery: contextQuery,
+                maxPrice: maxPrice,
+                size: size,
+                store: store
+            )
+        } catch {
+            // High-Availability Fallback: if Render backend is sleeping (cold start), deploying, or experiencing high load,
+            // query Supabase Cloud directly so user gets instantaneous real products instead of an error view!
+            if let directFallback = await buildDirectSmartSearchFallback(
+                query: query,
+                category: category,
+                maxPrice: maxPrice,
+                size: size,
+                store: store
+            ) {
+                return directFallback
+            }
+            throw error
+        }
+    }
+
+    /// Autonomous client-side fallback building a rich SmartSearchResponse directly from Supabase Cloud
+    func buildDirectSmartSearchFallback(
+        query: String,
+        category: String? = nil,
+        maxPrice: Double? = nil,
+        size: String? = nil,
+        store: String? = nil
+    ) async -> SmartSearchResponse? {
+        let prods = await SupabaseManager.shared.fetchSmartProductsDirect(
+            category: category,
+            keywords: [query],
+            brand: nil,
             maxPrice: maxPrice,
             size: size,
-            store: store
+            store: store,
+            limit: 35
+        )
+        guard !prods.isEmpty else { return nil }
+
+        let topProd = prods.first!
+        let sections = [
+            CuratedProductSection(
+                id: "sec_cloud_results",
+                title: "Migliori Risultati Trovati",
+                subtitle: "Offerte e disponibilità verificate in tempo reale sul catalogo FitMatch Cloud.",
+                products: prods
+            )
+        ]
+
+        var compCards: [ComparativeSpecCard] = []
+        for p in prods.prefix(3) {
+            let strength: String
+            if p.offers.count > 1, let sav = p.cross_store_savings, sav > 0 {
+                strength = "Confrontato in \(p.offers.count) store (risparmi € \(Int(sav)))"
+            } else {
+                strength = String(format: "Miglior prezzo verificato a € %.2f", p.best_price ?? 0)
+            }
+            compCards.append(ComparativeSpecCard(
+                product: p,
+                model_name: p.canonical_name,
+                ideal_for: compCards.isEmpty ? "Miglior rapporto qualità/prezzo" : "Alternativa tecnica \(p.brand ?? "")".trimmingCharacters(in: .whitespaces),
+                strengths: strength,
+                section_title: "Confronto rapido"
+            ))
+        }
+
+        let spotlight = SpotlightRecommendation(
+            product: topProd,
+            badge_text: (topProd.cross_store_savings ?? 0) > 10 ? "Miglior Risparmio" : "Miglior Scelta",
+            highlights: [
+                String(format: "Miglior offerta a partire da € %.2f", topProd.best_price ?? 0),
+                topProd.offers.count > 1 ? "Confrontato tra \(topProd.offers.count) negozi specializzati" : "Disponibilità immediata verificata",
+                "Spedizione e prezzi aggiornati in tempo reale"
+            ]
+        )
+
+        return SmartSearchResponse(
+            search_mode: "deep_dive",
+            is_deep_dive: true,
+            conversational_header: "Ho cercato \(query)",
+            conversational_summary: "Ecco i modelli trovati per la tua ricerca:",
+            curated_sections: sections,
+            comparative_cards: compCards,
+            spotlight: spotlight,
+            follow_up_suggestions: [
+                "Mostrami solo le offerte con spedizione gratuita",
+                "Filtra per prezzo più basso"
+            ],
+            intent: SmartSearchIntent(
+                raw_query: query,
+                search_mode: "deep_dive",
+                is_deep_dive: true,
+                target_keywords: [query],
+                brand: topProd.brand,
+                category: category ?? "shoes",
+                gender: nil,
+                max_price: maxPrice,
+                min_price: nil,
+                size: size,
+                features: nil,
+                explanation: nil,
+                source: "supabase_direct",
+                is_off_topic: false,
+                is_unsafe: false
+            ),
+            chips: [],
+            total_found: prods.count,
+            results: prods,
+            is_off_topic: false,
+            is_unsafe: false
         )
     }
 
@@ -480,12 +601,24 @@ class APIService: ObservableObject {
         components.queryItems = queryItems
 
         guard let url = components.url else { throw URLError(.badURL) }
-        let data = try await fetchDataWithRetry(url: url)
-        struct CatalogResultResponse: Decodable {
-            let results: [MatchedProduct]
+        do {
+            let data = try await fetchDataWithRetry(url: url)
+            struct CatalogResultResponse: Decodable {
+                let results: [MatchedProduct]
+            }
+            let decoded = try JSONDecoder().decode(CatalogResultResponse.self, from: data)
+            return decoded.results
+        } catch {
+            let direct = await SupabaseManager.shared.fetchSmartProductsDirect(
+                category: category,
+                keywords: trimmed.isEmpty ? [] : [trimmed],
+                limit: limit
+            )
+            if !direct.isEmpty {
+                return direct
+            }
+            throw error
         }
-        let decoded = try JSONDecoder().decode(CatalogResultResponse.self, from: data)
-        return decoded.results
     }
 
     func getStats() async throws -> CatalogStatsResponse {

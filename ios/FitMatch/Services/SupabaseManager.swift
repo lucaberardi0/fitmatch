@@ -1630,11 +1630,16 @@ class SupabaseManager: ObservableObject {
                 }
             }
             if !term.isEmpty {
-                let words = term.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count >= 2 }
+                let allWords = term.components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { $0.count >= 2 || ($0.count == 1 && $0.first?.isNumber == true) }
+                let stopwords = Set(["scarpe", "scarpa", "running", "corsa", "per", "da", "di", "in", "con", "il", "la", "le", "i", "gli", "un", "una", "uno", "shoe", "shoes"])
+                let specificWords = allWords.filter { !stopwords.contains($0.lowercased()) }
+                let words = specificWords.isEmpty ? allWords : specificWords
+
                 if words.count == 1, let wEnc = words[0].addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
                     params.append("or=(canonical_name.ilike.*\(wEnc)*,brand.ilike.*\(wEnc)*)")
                 } else if words.count > 1 {
-                    let andParts = words.prefix(3).compactMap { w -> String? in
+                    let andParts = words.prefix(4).compactMap { w -> String? in
                         guard let wEnc = w.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
                         return "or(canonical_name.ilike.*\(wEnc)*,brand.ilike.*\(wEnc)*)"
                     }
