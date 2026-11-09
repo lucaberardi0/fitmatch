@@ -70,11 +70,20 @@ class PriceDropWatcher:
                 if not device_id:
                     continue
 
+                # Respect user alert toggle
+                if item.get("is_alert_enabled") is False:
+                    continue
+
                 old_price = float(item.get("current_price") or 0.0)
                 if old_price <= 0:
                     continue
 
-                req_size = item.get("selected_size")
+                req_size = (item.get("selected_size") or "").strip()
+                is_specific_size = bool(
+                    req_size and req_size.lower() not in (
+                        "standard", "tutte", "tutte le taglie", "all", "none", "", "default"
+                    )
+                )
                 target_price = float(item["target_alert_price"]) if item.get("target_alert_price") else None
 
                 # Find best offer that has user size if requested
@@ -83,9 +92,9 @@ class PriceDropWatcher:
                     o_price = float(o.get("price") or 0.0)
                     if o_price <= 0:
                         continue
-                    if req_size:
+                    if is_specific_size:
                         sizes = o.get("available_sizes") or []
-                        if req_size not in sizes:
+                        if not any(s.strip().lower() == req_size.lower() for s in sizes):
                             continue
                     valid_offers.append(o)
 
@@ -95,7 +104,12 @@ class PriceDropWatcher:
                 best_offer = min(valid_offers, key=lambda x: float(x.get("price") or 0.0))
                 best_price = float(best_offer.get("price") or 0.0)
 
-                # Check if price actually dropped
+                # Check if target price constraint applies
+                is_target_reached = bool(target_price and best_price <= target_price)
+                if target_price and not is_target_reached:
+                    continue
+
+                # Check if price actually dropped by at least min_drop_amount
                 if best_price >= (old_price - min_drop_amount):
                     continue
 
@@ -105,7 +119,6 @@ class PriceDropWatcher:
                 offer_url = best_offer.get("url") or item.get("product_url")
                 img_url = best_offer.get("image_url") or item.get("image_url")
 
-                is_target_reached = bool(target_price and best_price <= target_price)
                 notif_type = "target_reached" if is_target_reached else "price_drop"
 
                 if is_target_reached:
@@ -139,7 +152,7 @@ class PriceDropWatcher:
                     "is_read": False
                 }
                 try:
-                    self.supabase._request("notifications", method="POST", json_body=notif_payload)
+                    self.supabase._request("notifications", method="POST", data=notif_payload)
                     stats["notifications_dispatched"] += 1
                 except Exception as e:
                     logger.error(f"[Watcher] Error recording notification in Supabase: {e}")
@@ -182,7 +195,7 @@ class PriceDropWatcher:
                         self.supabase._request(
                             f"wishlists?id=eq.{w_id}",
                             method="PATCH",
-                            json_body={"current_price": best_price}
+                            data={"current_price": best_price}
                         )
                         stats["items_updated"].append({"id": w_id, "name": c_name, "new_price": best_price})
                 except Exception as e:

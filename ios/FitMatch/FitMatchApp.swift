@@ -1,8 +1,11 @@
 import SwiftUI
 import UIKit
 import UserNotifications
+import BackgroundTasks
 
 class AppDelegate: NSObject, UIApplicationDelegate {
+    private let bgTaskIdentifier = "com.lucaberardi06.frontend.pricecheck"
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil
@@ -13,7 +16,42 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         URLCache.shared = URLCache(memoryCapacity: memLimit, diskCapacity: diskLimit, diskPath: "fitmatch_network_cache")
 
         NotificationManager.shared.setupRemoteNotifications()
+        registerBackgroundTasks()
         return true
+    }
+
+    private func registerBackgroundTasks() {
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: bgTaskIdentifier,
+            using: nil
+        ) { task in
+            if let refreshTask = task as? BGAppRefreshTask {
+                self.handleAppRefresh(task: refreshTask)
+            }
+        }
+    }
+
+    private func handleAppRefresh(task: BGAppRefreshTask) {
+        scheduleAppRefresh()
+        task.expirationHandler = {
+            print("⚠️ [Background] Task scaduto prima del completamento")
+        }
+
+        Task { @MainActor in
+            await NotificationManager.shared.checkIntelligentNotifications(force: false)
+            task.setTaskCompleted(success: true)
+        }
+    }
+
+    func scheduleAppRefresh() {
+        let request = BGAppRefreshTaskRequest(identifier: bgTaskIdentifier)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 30 * 60)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            print("⏰ [Background] Task programmato con successo tra 30 minuti")
+        } catch {
+            print("⚠️ [Background] Impossibile programmare task di refresh: \(error.localizedDescription)")
+        }
     }
 
     func application(
@@ -50,6 +88,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct FitMatchApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // Initialize NotificationManager & register delegate
@@ -333,6 +372,11 @@ struct FitMatchApp: App {
                 )
             } else {
                 MainTabView()
+            }
+        }
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .background {
+                appDelegate.scheduleAppRefresh()
             }
         }
     }

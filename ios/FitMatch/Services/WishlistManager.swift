@@ -615,17 +615,19 @@ class WishlistManager: ObservableObject {
                         dropsFound += 1
 
                         if items[i].isAlertEnabled {
-                            let shouldNotify = (items[i].targetAlertPrice == nil) || (newBest <= items[i].targetAlertPrice!)
-                            if shouldNotify {
-                                NotificationManager.shared.sendPriceDropNotification(
-                                    productTitle: item.canonical_name,
-                                    oldPrice: oldPrice,
-                                    newPrice: newBest,
-                                    storeName: items[i].bestStore ?? "Store Partner",
-                                    targetPrice: items[i].targetAlertPrice,
-                                    url: items[i].bestStoreUrl
-                                )
-                            }
+                            NotificationManager.shared.sendPriceDropNotification(
+                                productTitle: item.canonical_name,
+                                oldPrice: oldPrice,
+                                newPrice: newBest,
+                                storeName: items[i].bestStore ?? "Store Partner",
+                                targetPrice: items[i].targetAlertPrice,
+                                url: items[i].bestStoreUrl
+                            )
+                        }
+
+                        let updated = items[i]
+                        Task {
+                            _ = try? await SupabaseManager.shared.upsertWishlistItem(item: updated)
                         }
                     } else {
                         items[i].currentBestPrice = newBest

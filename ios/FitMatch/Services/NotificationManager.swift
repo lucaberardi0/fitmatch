@@ -17,11 +17,21 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
 
     private let storageKey = "fitmatch_notifications_cache_v2"
     private let lastCheckKey = "fitmatch_last_notif_check"
+    private let notifiedHistoryKey = "fitmatch_notified_price_history_v2"
+    private let notifiedDateKey = "fitmatch_notified_date_history_v2"
+    private var notifiedPriceHistory: [String: Double] = [:]
+    private var notifiedDateHistory: [String: Double] = [:]
 
     override init() {
         super.init()
         UNUserNotificationCenter.current().delegate = self
         self.deviceToken = UserDefaults.standard.string(forKey: "fitmatch_apns_device_token")
+        if let ph = UserDefaults.standard.dictionary(forKey: notifiedHistoryKey) as? [String: Double] {
+            self.notifiedPriceHistory = ph
+        }
+        if let dh = UserDefaults.standard.dictionary(forKey: notifiedDateKey) as? [String: Double] {
+            self.notifiedDateHistory = dh
+        }
         checkAuthorization()
         loadNotifications()
         if let ts = UserDefaults.standard.object(forKey: lastCheckKey) as? Date {
@@ -35,6 +45,9 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             Task { @MainActor in
                 self.isAuthorized = (settings.authorizationStatus == .authorized)
+                if self.isAuthorized {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
             }
         }
     }
@@ -120,16 +133,82 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         UNUserNotificationCenter.current().setBadgeCount(self.unreadCount) { _ in }
     }
 
+    // MARK: - Price Drop Throttling & Deduplication
+
+    func shouldNotifyPriceDrop(
+        canonicalName: String,
+        oldPrice: Double,
+        newPrice: Double,
+        targetPrice: Double? = nil
+    ) -> Bool {
+        let canonicalKey = canonicalName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        // 1. Must be a real reduction of at least €0.99
+        guard (oldPrice - newPrice) >= 0.99 else { return false }
+
+        // 2. Target price check: if user set a target, newPrice must meet or beat it
+        if let target = targetPrice, newPrice > target {
+            return false
+        }
+
+        // 3. Check previously notified price for this canonical product
+        if let lastNotified = notifiedPriceHistory[canonicalKey] {
+            // If we already notified at a price lower than or within €0.50 of newPrice, do not re-notify
+            if newPrice >= (lastNotified - 0.50) {
+                return false
+            }
+
+            // If notified recently (< 6 hours), only allow re-notification if it's a significant drop (> 10% lower than last notified)
+            if let lastDateTimestamp = notifiedDateHistory[canonicalKey] {
+                let elapsed = Date().timeIntervalSince1970 - lastDateTimestamp
+                if elapsed < 21600 { // 6 hours
+                    let dropFromLast = (lastNotified - newPrice) / lastNotified
+                    if dropFromLast < 0.10 {
+                        return false
+                    }
+                }
+            }
+        }
+
+        return true
+    }
+
+    func recordNotifiedPriceDrop(canonicalName: String, price: Double) {
+        let canonicalKey = canonicalName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        notifiedPriceHistory[canonicalKey] = price
+        notifiedDateHistory[canonicalKey] = Date().timeIntervalSince1970
+        UserDefaults.standard.set(notifiedPriceHistory, forKey: notifiedHistoryKey)
+        UserDefaults.standard.set(notifiedDateHistory, forKey: notifiedDateKey)
+    }
+
     // MARK: - Notification Management
 
     func addNotification(_ notif: AppNotification, schedulePush: Bool = true) {
-        // Prevent duplicate notifications for same product/store within 6 hours
-        if notifications.contains(where: {
-            $0.type == notif.type &&
-            $0.title == notif.title &&
-            abs($0.timestamp.timeIntervalSince(notif.timestamp)) < 21600
-        }) {
-            return
+        // Prevent duplicate notifications
+        if notif.type == .priceDrop, let prodName = notif.productCanonicalName?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
+            let alreadyExists = notifications.contains { existing in
+                guard existing.type == .priceDrop,
+                      let exProd = existing.productCanonicalName?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines),
+                      exProd == prodName else {
+                    return false
+                }
+                // Same product: if within 6 hours and price is within 50 cents, it's a duplicate
+                if let exPrice = existing.newPrice, let nPrice = notif.newPrice, abs(exPrice - nPrice) < 0.50 {
+                    return true
+                }
+                return abs(existing.timestamp.timeIntervalSince(notif.timestamp)) < 21600
+            }
+            if alreadyExists {
+                return
+            }
+        } else {
+            if notifications.contains(where: {
+                $0.type == notif.type &&
+                $0.title == notif.title &&
+                abs($0.timestamp.timeIntervalSince(notif.timestamp)) < 21600
+            }) {
+                return
+            }
         }
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
@@ -222,6 +301,17 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         url: String? = nil,
         imageUrl: String? = nil
     ) {
+        guard shouldNotifyPriceDrop(
+            canonicalName: productTitle,
+            oldPrice: oldPrice,
+            newPrice: newPrice,
+            targetPrice: targetPrice
+        ) else {
+            return
+        }
+
+        recordNotifiedPriceDrop(canonicalName: productTitle, price: newPrice)
+
         let savings = oldPrice - newPrice
         let discPct = oldPrice > 0 ? ((oldPrice - newPrice) / oldPrice) * 100.0 : 0.0
 
@@ -303,6 +393,9 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
                     self.notifications.append(r)
                     existingIds.insert(r.id)
                     added = true
+                    if let prod = r.productCanonicalName, let p = r.newPrice {
+                        self.recordNotifiedPriceDrop(canonicalName: prod, price: p)
+                    }
                 }
             }
             if added {
@@ -314,8 +407,14 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         // 2. Intelligent Check: Real-time scan of user's saved wishlist items
         let savedItems = WishlistManager.shared.items
         for item in savedItems {
+            // Respect user alert toggle
+            guard item.isAlertEnabled else { continue }
+
             // Priority 1: Direct Supabase store_offers lookup (fast, 100% reliable)
-            if let directMatch = await SupabaseManager.shared.findBestLiveOfferDirect(canonicalName: item.canonical_name) {
+            if let directMatch = await SupabaseManager.shared.findBestLiveOfferDirect(
+                canonicalName: item.canonical_name,
+                requiredSize: item.selectedSize
+            ) {
                 let liveBest = directMatch.price
                 let oldPrice = item.currentBestPrice
 
@@ -323,19 +422,33 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
                     let savings = oldPrice - liveBest
                     let store = directMatch.storeName
 
-                    sendPriceDropNotification(
-                        productTitle: item.canonical_name,
+                    let shouldAlert = shouldNotifyPriceDrop(
+                        canonicalName: item.canonical_name,
                         oldPrice: oldPrice,
                         newPrice: liveBest,
-                        storeName: store,
-                        targetPrice: item.targetAlertPrice,
-                        url: directMatch.url,
-                        imageUrl: directMatch.imageUrl ?? item.image_url
+                        targetPrice: item.targetAlertPrice
                     )
+
+                    if shouldAlert {
+                        sendPriceDropNotification(
+                            productTitle: item.canonical_name,
+                            oldPrice: oldPrice,
+                            newPrice: liveBest,
+                            storeName: store,
+                            targetPrice: item.targetAlertPrice,
+                            url: directMatch.url,
+                            imageUrl: directMatch.imageUrl ?? item.image_url
+                        )
+                    }
 
                     if let idx = WishlistManager.shared.items.firstIndex(where: { $0.canonical_name == item.canonical_name }) {
                         WishlistManager.shared.items[idx].currentBestPrice = liveBest
                         WishlistManager.shared.items[idx].lastPriceDrop = savings
+                        WishlistManager.shared.saveItems()
+                        let updated = WishlistManager.shared.items[idx]
+                        Task {
+                            _ = try? await SupabaseManager.shared.upsertWishlistItem(item: updated)
+                        }
                     }
                     continue
                 }
@@ -350,21 +463,33 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
                         let savings = oldPrice - liveBest
                         let store = matched.bestOffer?.store_name ?? item.bestStore ?? "Negozio Partner"
 
-                        // Notify user of price drop
-                        sendPriceDropNotification(
-                            productTitle: item.canonical_name,
+                        let shouldAlert = shouldNotifyPriceDrop(
+                            canonicalName: item.canonical_name,
                             oldPrice: oldPrice,
                             newPrice: liveBest,
-                            storeName: store,
-                            targetPrice: item.targetAlertPrice,
-                            url: matched.bestOffer?.url ?? item.bestStoreUrl,
-                            imageUrl: matched.image_url ?? item.image_url
+                            targetPrice: item.targetAlertPrice
                         )
 
-                        // Update local item price
+                        if shouldAlert {
+                            sendPriceDropNotification(
+                                productTitle: item.canonical_name,
+                                oldPrice: oldPrice,
+                                newPrice: liveBest,
+                                storeName: store,
+                                targetPrice: item.targetAlertPrice,
+                                url: matched.bestOffer?.url ?? item.bestStoreUrl,
+                                imageUrl: matched.image_url ?? item.image_url
+                            )
+                        }
+
                         if let idx = WishlistManager.shared.items.firstIndex(where: { $0.canonical_name == item.canonical_name }) {
                             WishlistManager.shared.items[idx].currentBestPrice = liveBest
                             WishlistManager.shared.items[idx].lastPriceDrop = savings
+                            WishlistManager.shared.saveItems()
+                            let updated = WishlistManager.shared.items[idx]
+                            Task {
+                                _ = try? await SupabaseManager.shared.upsertWishlistItem(item: updated)
+                            }
                         }
                     }
                 }

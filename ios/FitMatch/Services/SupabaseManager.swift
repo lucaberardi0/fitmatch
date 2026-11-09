@@ -1206,7 +1206,7 @@ class SupabaseManager: ObservableObject {
         let imageUrl: String?
     }
 
-    func findBestLiveOfferDirect(canonicalName: String) async -> LiveOfferResult? {
+    func findBestLiveOfferDirect(canonicalName: String, requiredSize: String? = nil) async -> LiveOfferResult? {
         let stopWords: Set<String> = ["scarpe", "scarpa", "donna", "uomo", "modello", "edition"]
         let rawWords = canonicalName
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -1219,7 +1219,7 @@ class SupabaseManager: ObservableObject {
 
         let pattern = searchWords.joined(separator: "*")
         guard let encodedPattern = "*\(pattern)*".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(restURL)/store_offers?raw_title=ilike.\(encodedPattern)&order=current_price.asc&limit=1") else {
+              let url = URL(string: "\(restURL)/store_offers?raw_title=ilike.\(encodedPattern)&order=current_price.asc&limit=15") else {
             return nil
         }
 
@@ -1236,20 +1236,42 @@ class SupabaseManager: ObservableObject {
             let discount_pct: Double?
             let product_url: String
             let image_url: String?
+            let available_sizes: [String]?
         }
 
-        if let list = try? JSONDecoder().decode([OfferMatchRow].self, from: data), let best = list.first {
-            return LiveOfferResult(
-                price: best.current_price,
-                originalPrice: best.original_price,
-                discountPct: best.discount_pct,
-                storeName: best.store_name,
-                storeId: best.store_id,
-                url: best.product_url,
-                imageUrl: best.image_url
-            )
+        guard let list = try? JSONDecoder().decode([OfferMatchRow].self, from: data), !list.isEmpty else {
+            return nil
         }
-        return nil
+
+        let cleanSize = (requiredSize ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isSpecific = !cleanSize.isEmpty && !["standard", "tutte", "tutte le taglie", "all", "none", "default"].contains(cleanSize)
+
+        let selectedOffer: OfferMatchRow
+        if isSpecific {
+            if let matched = list.first(where: { row in
+                guard let sizes = row.available_sizes else { return false }
+                return sizes.contains { s in
+                    let c = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    return c == cleanSize || c.contains(cleanSize)
+                }
+            }) {
+                selectedOffer = matched
+            } else {
+                return nil
+            }
+        } else {
+            selectedOffer = list.first!
+        }
+
+        return LiveOfferResult(
+            price: selectedOffer.current_price,
+            originalPrice: selectedOffer.original_price,
+            discountPct: selectedOffer.discount_pct,
+            storeName: selectedOffer.store_name,
+            storeId: selectedOffer.store_id,
+            url: selectedOffer.product_url,
+            imageUrl: selectedOffer.image_url
+        )
     }
 
     // MARK: - Dedicated Deals Showcases (Ranked by Deepest Discount & Category Filtered)
