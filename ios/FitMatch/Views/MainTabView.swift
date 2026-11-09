@@ -42,6 +42,7 @@ struct MainTabView: View {
     @State private var selectedTab: Int
     @ObservedObject private var wishlist = WishlistManager.shared
     @ObservedObject private var tabVisibility = TabBarVisibilityManager.shared
+    @ObservedObject private var notifManager = NotificationManager.shared
 
     init(initialTab: Int = 0) {
         _selectedTab = State(initialValue: initialTab)
@@ -69,6 +70,14 @@ struct MainTabView: View {
                 ShopFloatingIslandDock(selectedTab: $selectedTab)
                     .padding(.bottom, 16)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .sheet(item: $notifManager.deepLinkProduct) { prod in
+            ProductDetailView(product: prod)
+        }
+        .sheet(item: $notifManager.deepLinkStore) { store in
+            NavigationStack {
+                StoreDetailView(storeId: store.id, initialStoreName: store.name)
             }
         }
         .ignoresSafeArea(.keyboard)

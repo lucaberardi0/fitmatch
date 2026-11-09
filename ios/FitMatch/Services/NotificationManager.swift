@@ -14,6 +14,8 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     @Published var isChecking: Bool = false
     @Published var lastCheckDate: Date? = nil
     @Published var deviceToken: String? = nil
+    @Published var deepLinkProduct: MatchedProduct? = nil
+    @Published var deepLinkStore: StoreDeepLink? = nil
 
     private let storageKey = "fitmatch_notifications_cache_v2"
     private let lastCheckKey = "fitmatch_last_notif_check"
@@ -277,7 +279,11 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         ]
         if let p = notif.productCanonicalName { userInfo["product"] = p }
         if let s = notif.storeId { userInfo["store_id"] = s }
+        if let sn = notif.storeName { userInfo["store_name"] = sn }
         if let u = notif.actionUrl { userInfo["url"] = u }
+        if let img = notif.imageUrl { userInfo["image_url"] = img }
+        if let pr = notif.newPrice { userInfo["price"] = pr }
+        if let old = notif.oldPrice { userInfo["old_price"] = old }
         content.userInfo = userInfo
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1.0, repeats: false)
@@ -565,21 +571,88 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         completionHandler([.banner, .badge, .sound])
     }
 
+    // MARK: - Push Notification Tap Handler (Deep Linking to Product / Store)
+
+    func handlePushNotificationTap(userInfo: [AnyHashable: Any]) {
+        let notifId = (userInfo["notification_id"] ?? userInfo["id"]) as? String
+        if let nId = notifId {
+            markAsRead(id: nId)
+        }
+
+        let prodName = (userInfo["product"] ?? userInfo["product_canonical_name"]) as? String
+
+        // 1. Try finding cached notification for highest fidelity
+        if let id = notifId, let cached = notifications.first(where: { $0.id == id }) {
+            if let matched = cached.toMatchedProduct() {
+                self.deepLinkProduct = matched
+                if let name = cached.productCanonicalName {
+                    Task {
+                        if let results = try? await APIService.shared.search(query: name), let full = results.first {
+                            self.deepLinkProduct = full
+                        }
+                    }
+                }
+                return
+            } else if let sId = cached.storeId, !sId.isEmpty {
+                self.deepLinkStore = StoreDeepLink(id: sId, name: cached.storeName ?? "Negozio Partner")
+                return
+            }
+        }
+
+        // 2. Direct product payload from APNs push
+        if let name = prodName, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let price = (userInfo["price"] as? Double) ?? (userInfo["new_price"] as? Double) ?? 0.0
+            let oldPrice = (userInfo["old_price"] as? Double)
+            let storeId = (userInfo["store_id"] as? String) ?? "store"
+            let storeName = (userInfo["store_name"] as? String) ?? "Negozio Partner"
+            let url = (userInfo["url"] as? String) ?? ""
+            let img = (userInfo["image_url"] as? String)
+
+            let fallbackNotif = AppNotification(
+                type: .priceDrop,
+                title: name,
+                body: "",
+                productCanonicalName: name,
+                storeId: storeId,
+                storeName: storeName,
+                imageUrl: img,
+                oldPrice: oldPrice,
+                newPrice: price,
+                actionUrl: url
+            )
+
+            if let matched = fallbackNotif.toMatchedProduct() {
+                self.deepLinkProduct = matched
+                Task {
+                    if let results = try? await APIService.shared.search(query: name), let full = results.first {
+                        self.deepLinkProduct = full
+                    }
+                }
+                return
+            }
+        }
+
+        // 3. Direct store payload
+        if let sId = userInfo["store_id"] as? String, !sId.isEmpty {
+            let sName = (userInfo["store_name"] as? String) ?? "Negozio Partner"
+            self.deepLinkStore = StoreDeepLink(id: sId, name: sName)
+            return
+        }
+
+        // 4. External URL fallback
+        if let urlStr = userInfo["url"] as? String, let url = URL(string: urlStr) {
+            UIApplication.shared.open(url)
+        }
+    }
+
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        if let notifId = userInfo["notification_id"] as? String {
-            Task { @MainActor in
-                NotificationManager.shared.markAsRead(id: notifId)
-            }
-        }
-        if let urlString = userInfo["url"] as? String, let url = URL(string: urlString) {
-            Task { @MainActor in
-                UIApplication.shared.open(url)
-            }
+        Task { @MainActor in
+            NotificationManager.shared.handlePushNotificationTap(userInfo: userInfo)
         }
         completionHandler()
     }

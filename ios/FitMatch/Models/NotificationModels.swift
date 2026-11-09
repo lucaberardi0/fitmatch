@@ -95,4 +95,60 @@ struct AppNotification: Identifiable, Codable, Hashable {
         self.discountPct = discountPct
         self.actionUrl = actionUrl
     }
+
+    func toMatchedProduct() -> MatchedProduct? {
+        guard let name = productCanonicalName, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let price = newPrice ?? oldPrice ?? 0.0
+        let orig = oldPrice ?? price
+        let savings = (orig > price) ? (orig - price) : nil
+        let disc = discountPct ?? ((orig > price && orig > 0) ? ((orig - price) / orig * 100.0) : nil)
+
+        let sId = (storeId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? storeId! : "store"
+        let sName = (storeName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? storeName! : "Negozio Partner"
+
+        let brandCandidate = name.split(separator: " ").first.map(String.init) ?? "Scarpe"
+
+        let offer = Offer(
+            store_id: sId,
+            store_name: sName,
+            product_id: nil,
+            title: name,
+            brand: brandCandidate,
+            price: price,
+            original_price: orig,
+            discount_pct: disc,
+            savings: savings,
+            url: actionUrl ?? "",
+            image_url: imageUrl,
+            gallery_images: imageUrl != nil ? [imageUrl!] : nil,
+            available_sizes: nil,
+            in_stock: true,
+            shipping_cost: 0.0,
+            total_price: price,
+            is_free_shipping: true,
+            shipping_label: "Spedizione partner",
+            free_shipping_threshold: nil,
+            courier: nil
+        )
+
+        return MatchedProduct(
+            id_val: id,
+            canonical_name: name,
+            brand: brandCandidate,
+            image_url: imageUrl,
+            gallery_images: imageUrl != nil ? [imageUrl!] : nil,
+            gender: nil,
+            offers: [offer],
+            best_price: price,
+            highest_price: orig,
+            cross_store_savings: savings
+        )
+    }
+}
+
+struct StoreDeepLink: Identifiable, Hashable {
+    let id: String
+    let name: String
 }

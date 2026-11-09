@@ -73,6 +73,8 @@ struct NotificationsView: View {
                                     NotificationCard(
                                         notification: notif,
                                         onTap: {
+                                            let gen = UIImpactFeedbackGenerator(style: .light)
+                                            gen.impactOccurred()
                                             notifManager.markAsRead(id: notif.id)
                                             handleNotificationAction(notif)
                                         },
@@ -406,15 +408,29 @@ struct NotificationsView: View {
     // MARK: - Action Handler
 
     private func handleNotificationAction(_ notif: AppNotification) {
-        if let sId = notif.storeId {
-            navigatingStoreId = sId
-            navigatingStoreName = notif.storeName
-        } else if let pTitle = notif.productCanonicalName {
-            Task {
-                if let results = try? await APIService.shared.search(query: pTitle), let first = results.first {
-                    selectedProduct = first
+        // Priority 1: If notification is about a specific product (Price Drop / Product alert), open Product Detail directly!
+        if let directProduct = notif.toMatchedProduct() {
+            selectedProduct = directProduct
+            if let pTitle = notif.productCanonicalName {
+                Task {
+                    if let results = try? await APIService.shared.search(query: pTitle), let first = results.first {
+                        selectedProduct = first
+                    }
                 }
             }
+            return
+        }
+
+        // Priority 2: If notification is about a Store Drop (new arrivals in a store), open Store Detail
+        if let sId = notif.storeId, !sId.isEmpty {
+            navigatingStoreId = sId
+            navigatingStoreName = notif.storeName ?? "Negozio Partner"
+            return
+        }
+
+        // Priority 3: External promotional link
+        if let urlStr = notif.actionUrl, let url = URL(string: urlStr) {
+            UIApplication.shared.open(url)
         }
     }
 }

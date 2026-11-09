@@ -1,4 +1,5 @@
 import logging
+import uuid
 from typing import Dict, Any, List, Optional
 from fitmatch.supabase_client import SupabaseClient
 from fitmatch.push_service import APNsPushService
@@ -134,7 +135,9 @@ class PriceDropWatcher:
                 logger.info(f"[Watcher] Price drop detected for '{c_name}': €{old_price:.2f} -> €{best_price:.2f} on {store_name}")
 
                 # 1. Insert in-app notification in Supabase
+                notif_id = str(uuid.uuid4())
                 notif_payload = {
+                    "id": notif_id,
                     "device_id": device_id,
                     "user_id": item.get("user_id"),
                     "type": notif_type,
@@ -170,10 +173,15 @@ class PriceDropWatcher:
                             continue
 
                         custom_data = {
+                            "notification_id": notif_id,
                             "product": c_name,
                             "type": notif_type,
                             "url": offer_url,
-                            "price": best_price
+                            "price": best_price,
+                            "old_price": old_price,
+                            "store_name": store_name,
+                            "store_id": best_offer.get("store_id"),
+                            "image_url": img_url
                         }
                         push_res = await self.push_service.send_push(
                             device_token=token,
