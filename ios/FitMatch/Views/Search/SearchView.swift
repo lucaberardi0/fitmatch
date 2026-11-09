@@ -1904,7 +1904,18 @@ struct SearchView: View {
         guard !text.isEmpty else { return }
         followUpInputText = ""
         hideAllKeyboards()
-        handleFollowUpTap(text)
+
+        // Smart User Preference Auto-Fill: "Cercale nella mia taglia"
+        if text.lowercased().contains("nella mia taglia") || text.lowercased().contains("mia taglia") {
+            let prefSize = UserPreferencesManager.shared.preferences.preferredShoeSize
+            if !prefSize.isEmpty {
+                selectedSize = prefSize
+            }
+        }
+
+        // When the user directly types into the follow-up bar, ALWAYS execute the follow-up query.
+        // Never intercept user-typed questions with the prompt/clarification sheet.
+        handleSearchOrComparison(query: text, isFollowUp: true)
     }
 
     private func handleFollowUpTap(_ suggestion: String) {
