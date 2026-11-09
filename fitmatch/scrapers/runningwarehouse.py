@@ -163,12 +163,38 @@ class RunningWarehouseScraper(BaseScraper):
             sizes: List[str] = []
 
             for row in rows:
-                txt = row.text
-                # Extract US shoe sizes from subproduct table
-                m = re.search(r"US\s*([0-9]+(?:\.[0-9]+)?)", txt)
-                if m:
-                    val = re.sub(r"\.0$", "", m.group(1))
-                    sizes.append(val)
+                stock_el = row.select_one(".stock .available")
+                if stock_el and stock_el.text.strip() == "0":
+                    continue
+
+                # 1. Primary: Extract directly from data-eu on styleitem (standard for RunningWarehouse EU)
+                eu_items = row.select("span.styleitem[data-eu]")
+                found_eu = False
+                for item in eu_items:
+                    eu_val = item.get("data-eu")
+                    if eu_val and eu_val.strip():
+                        sizes.append(eu_val.strip())
+                        found_eu = True
+
+                if not found_eu:
+                    # 2. Apparel or non-EU shoes: check Taglia styleitem
+                    for item in row.select("ul.stylelist li"):
+                        lbl = item.select_one("span.style")
+                        if lbl and any(w in lbl.text.lower() for w in ["tagli", "misur", "size"]):
+                            val_el = item.select_one("span.styleitem")
+                            if val_el:
+                                s_text = val_el.get("data-eu") or val_el.get("data-us") or val_el.text.strip()
+                                if s_text:
+                                    sizes.append(s_text)
+                                    found_eu = True
+
+                if not found_eu:
+                    # 3. Fallback regex on row text
+                    txt = row.text
+                    m = re.search(r"(?:US|EU)\s*([0-9]+(?:\.[0-9]+)?)", txt)
+                    if m:
+                        val = re.sub(r"\.0$", "", m.group(1))
+                        sizes.append(val)
 
             return normalize_sizes(sizes)
         except Exception:

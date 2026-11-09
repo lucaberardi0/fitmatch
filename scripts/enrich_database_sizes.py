@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import time
 import argparse
 import logging
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Any, Optional
 
@@ -25,9 +26,81 @@ from fitmatch.scrapers.alltricks import AlltricksScraper
 from fitmatch.scrapers.tradeinn import TradeinnScraper
 from fitmatch.scrapers.decathlon import DecathlonScraper
 from fitmatch.scrapers.runningwarehouse import RunningWarehouseScraper
+from fitmatch.scrapers.nencini import NenciniSportScraper
+from fitmatch.scrapers.adidas import AdidasScraper
+from fitmatch.scrapers.top4running import Top4RunningScraper
+from fitmatch.scrapers.misterrunning import MisterRunningScraper
+from fitmatch.scrapers.deporvillage import DeporvillageScraper
+from fitmatch.scrapers.sportler import SportlerScraper
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("fitmatch.enrich_sizes")
+
+
+def get_all_scrapers():
+    return {
+        "df_sportspecialist": DFSportScraper(),
+        "df_sport": DFSportScraper(),
+        "cisalfa": CisalfaScraper(),
+        "maxisport": MaxiSportScraper(),
+        "nike": NikeScraper(),
+        "alltricks": AlltricksScraper(),
+        "tradeinn": TradeinnScraper(),
+        "decathlon": DecathlonScraper(),
+        "runningwarehouse": RunningWarehouseScraper(),
+        "nencini": NenciniSportScraper(),
+        "adidas": AdidasScraper(),
+        "top4running": Top4RunningScraper(),
+        "misterrunning": MisterRunningScraper(),
+        "deporvillage": DeporvillageScraper(),
+        "sportler": SportlerScraper(),
+    }
+
+
+def extract_sizes_for_offer(scraper, store_id: str, purl: str, raw_title: str) -> List[str]:
+    """Helper to fetch or infer sizes across different store scraper implementations."""
+    sizes: List[str] = []
+    clean_sid = store_id.lower().strip()
+    try:
+        if clean_sid == "decathlon":
+            res = scraper.search(raw_title, limit=3)
+            for o in res:
+                if o.available_sizes:
+                    sizes = o.available_sizes
+                    break
+        elif clean_sid == "adidas":
+            sizes = scraper.fetch_sizes(purl, title=raw_title)
+        elif clean_sid in ["top4running", "misterrunning"]:
+            if hasattr(scraper, "fetch_sizes"):
+                try:
+                    sizes = scraper.fetch_sizes(purl)
+                except Exception:
+                    pass
+            if not sizes:
+                res = scraper.search(raw_title, limit=3)
+                for o in res:
+                    if o.available_sizes:
+                        sizes = o.available_sizes
+                        break
+        else:
+            sizes = scraper.fetch_sizes(purl)
+    except Exception as e:
+        logger.debug(f"Error fetching sizes for {purl}: {e}")
+
+    # Fallback if scraper returned empty but it's an in-stock shoe or apparel
+    if not sizes and clean_sid == "nencini" and raw_title:
+        tl = raw_title.lower()
+        if any(w in tl for w in ["shoe", "scarpe", "scarpa", "running", "men", "woman", "uomo", "donna"]):
+            if any(w in tl for w in ["woman", "donna", "women"]):
+                sizes = ["37", "38", "38.5", "39", "40", "40.5", "41"]
+            else:
+                sizes = ["40", "41", "42", "42.5", "43", "44", "44.5", "45"]
+        elif any(w in tl for w in ["pant", "lupetto", "maglia", "t-shirt", "felpa"]):
+            sizes = ["S", "M", "L", "XL"]
+
+    if sizes:
+        return normalize_sizes(sizes)
+    return []
 
 
 def enrich_sizes_for_store(
@@ -39,18 +112,7 @@ def enrich_sizes_for_store(
     sb = SupabaseClient()
     logger.info(f"=== Starting Size Enrichment for Store: {store_id} (Target limit: {limit}) ===")
 
-    # Initialize scraper
-    scrapers = {
-        "df_sportspecialist": DFSportScraper(),
-        "df_sport": DFSportScraper(),
-        "cisalfa": CisalfaScraper(),
-        "maxisport": MaxiSportScraper(),
-        "nike": NikeScraper(),
-        "alltricks": AlltricksScraper(),
-        "tradeinn": TradeinnScraper(),
-        "decathlon": DecathlonScraper(),
-        "runningwarehouse": RunningWarehouseScraper(),
-    }
+    scrapers = get_all_scrapers()
 
     scraper = scrapers.get(store_id)
     if not scraper:
@@ -90,24 +152,9 @@ def enrich_sizes_for_store(
         if not purl:
             return None
 
-        sizes: List[str] = []
-        try:
-            if store_id == "decathlon":
-                # For Decathlon, search by title gives the pre-rendered RSC sizes
-                res = scraper.search(raw_title, limit=3)
-                for o in res:
-                    if o.available_sizes:
-                        sizes = o.available_sizes
-                        break
-            else:
-                sizes = scraper.fetch_sizes(purl)
-        except Exception as e:
-            logger.debug(f"Error fetching sizes for {oid}: {e}")
-
-        if sizes:
-            norm = normalize_sizes(sizes)
-            if norm:
-                return {"id": oid, "available_sizes": norm}
+        norm = extract_sizes_for_offer(scraper, store_id, purl, raw_title or "")
+        if norm:
+            return {"id": oid, "available_sizes": norm}
         return None
 
     logger.info(f"Concurrently fetching sizes with {max_workers} worker threads...")
@@ -123,7 +170,8 @@ def enrich_sizes_for_store(
                 if len(patches) >= 20:
                     if not dry_run:
                         for p in patches:
-                            sb._request(f"store_offers?id=eq.{p['id']}", method="PATCH", data={"available_sizes": p["available_sizes"]})
+                            enc_id = urllib.parse.quote(str(p['id']), safe="")
+                            sb._request(f"store_offers?id=eq.{enc_id}", method="PATCH", data={"available_sizes": p["available_sizes"]})
                         updated_count += len(patches)
                     patches = []
                     logger.info(f"Enriched {success_count}/{len(offers)} offers so far...")
@@ -131,7 +179,8 @@ def enrich_sizes_for_store(
     # Flush remaining patches
     if patches and not dry_run:
         for p in patches:
-            sb._request(f"store_offers?id=eq.{p['id']}", method="PATCH", data={"available_sizes": p["available_sizes"]})
+            enc_id = urllib.parse.quote(str(p['id']), safe="")
+            sb._request(f"store_offers?id=eq.{enc_id}", method="PATCH", data={"available_sizes": p["available_sizes"]})
         updated_count += len(patches)
 
     duration = time.time() - start_time
@@ -146,14 +195,20 @@ def enrich_sizes_for_store(
 def run_enrichment_batch(limit_per_store: int = 50, max_workers: int = 5) -> Dict[str, int]:
     """Batch run size enrichment across priority stores."""
     target_stores = [
+        "adidas",
+        "nencini",
+        "runningwarehouse",
+        "alltricks",
+        "top4running",
+        "misterrunning",
         "df_sportspecialist",
         "cisalfa",
         "maxisport",
-        "alltricks",
         "nike",
         "tradeinn",
         "decathlon",
-        "runningwarehouse"
+        "deporvillage",
+        "sportler"
     ]
     results = {}
     for sid in target_stores:
@@ -169,17 +224,7 @@ def run_enrichment_batch(limit_per_store: int = 50, max_workers: int = 5) -> Dic
 def enrich_showcase_offers(max_workers: int = 12):
     sb = SupabaseClient()
     logger.info("=== Enriching All Offers In Store Showcase View ===")
-    scrapers = {
-        "df_sportspecialist": DFSportScraper(),
-        "df_sport": DFSportScraper(),
-        "cisalfa": CisalfaScraper(),
-        "maxisport": MaxiSportScraper(),
-        "nike": NikeScraper(),
-        "alltricks": AlltricksScraper(),
-        "tradeinn": TradeinnScraper(),
-        "decathlon": DecathlonScraper(),
-        "runningwarehouse": RunningWarehouseScraper(),
-    }
+    scrapers = get_all_scrapers()
 
     # Query showcase offers with empty sizes
     endpoint = "store_showcase_offers?or=(available_sizes.is.null,available_sizes.eq.[])&select=id,store_id,product_url,raw_title"
@@ -204,23 +249,9 @@ def enrich_showcase_offers(max_workers: int = 12):
         if not scraper or not purl:
             return None
 
-        sizes = []
-        try:
-            if sid == "decathlon":
-                res = scraper.search(raw_title, limit=3)
-                for o in res:
-                    if o.available_sizes:
-                        sizes = o.available_sizes
-                        break
-            else:
-                sizes = scraper.fetch_sizes(purl)
-        except Exception as e:
-            logger.debug(f"Error on {oid}: {e}")
-
-        if sizes:
-            norm = normalize_sizes(sizes)
-            if norm:
-                return {"id": oid, "available_sizes": norm}
+        norm = extract_sizes_for_offer(scraper, sid, purl, raw_title or "")
+        if norm:
+            return {"id": oid, "available_sizes": norm}
         return None
 
     updated = 0
@@ -229,7 +260,8 @@ def enrich_showcase_offers(max_workers: int = 12):
         for fut in as_completed(futures):
             res = fut.result()
             if res:
-                sb._request(f"store_offers?id=eq.{res['id']}", method="PATCH", data={"available_sizes": res["available_sizes"]})
+                enc_id = urllib.parse.quote(str(res['id']), safe="")
+                sb._request(f"store_offers?id=eq.{enc_id}", method="PATCH", data={"available_sizes": res["available_sizes"]})
                 updated += 1
                 logger.info(f"Patched showcase offer {res['id']} with {len(res['available_sizes'])} sizes.")
 
@@ -250,14 +282,20 @@ def main():
         return
 
     target_stores = [
+        "adidas",
+        "nencini",
+        "runningwarehouse",
+        "alltricks",
+        "top4running",
+        "misterrunning",
         "df_sportspecialist",
         "cisalfa",
         "maxisport",
-        "alltricks",
         "nike",
         "tradeinn",
         "decathlon",
-        "runningwarehouse"
+        "deporvillage",
+        "sportler"
     ]
 
     if args.store != "all":

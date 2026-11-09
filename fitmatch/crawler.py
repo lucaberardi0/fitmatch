@@ -655,7 +655,7 @@ class CategoryCrawler:
                     img_url = attrs.get("image_link")
                     product_url = urllib.parse.urljoin(self.top4running.base_url, raw_url)
                     pid = str(h.get("id") or attrs.get("id") or "")
-                    raw_sizes = attrs.get("sizes_eu") or []
+                    raw_sizes = attrs.get("sizes_eu") or attrs.get("sizes_default") or attrs.get("Size") or []
                     sizes = normalize_sizes(raw_sizes)
 
                     offer = Offer(
