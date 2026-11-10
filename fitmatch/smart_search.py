@@ -1692,6 +1692,42 @@ class QueryProductGuardrail:
                 if not set(raw_model_digits).intersection(set(spot_kw_digits)):
                     intent.spotlight.target_keyword = raw_clean_model
 
+        # Enforce strict Garmin/athletic model number consistency:
+        # If the user specifically queried a model with a distinct number (e.g. 165, 265, 965, 55, 255, 955):
+        # We must prevent any conflicting model number from leaking into conversational_header,
+        # conversational_summary, spotlight.target_keyword, or top target_keywords!
+        user_norm = LocalHeuristicParser.normalize_typos(user_query.lower())
+        user_garmin_nums = re.findall(r"\b(165|265|965|55|255|955)\b", user_norm)
+        if not user_garmin_nums and context_query:
+            ctx_norm = LocalHeuristicParser.normalize_typos(context_query.lower())
+            user_garmin_nums = re.findall(r"\b(165|265|965|55|255|955)\b", ctx_norm)
+
+        if user_garmin_nums and ("garmin" in user_norm or "forerunner" in user_norm or product_type == "gps_watch" or (context_query and ("garmin" in context_query.lower() or "forerunner" in context_query.lower()))):
+            target_num = user_garmin_nums[0]
+            conflicting_nums = [n for n in ["165", "265", "965", "55", "255", "955"] if n != target_num]
+            # Sanitize conversational_header
+            for c_num in conflicting_nums:
+                intent.conversational_header = re.sub(rf"\bForerunner\s+{c_num}\b", f"Forerunner {target_num}", intent.conversational_header, flags=re.IGNORECASE)
+                intent.conversational_header = re.sub(rf"\b{c_num}\b", target_num, intent.conversational_header)
+            # Sanitize conversational_summary
+            for c_num in conflicting_nums:
+                intent.conversational_summary = re.sub(rf"\bForerunner\s+{c_num}\b", f"Forerunner {target_num}", intent.conversational_summary, flags=re.IGNORECASE)
+                intent.conversational_summary = re.sub(rf"\b{c_num}\b", target_num, intent.conversational_summary)
+            # Sanitize spotlight
+            if intent.spotlight:
+                for c_num in conflicting_nums:
+                    if intent.spotlight.target_keyword and c_num in intent.spotlight.target_keyword:
+                        intent.spotlight.target_keyword = f"forerunner {target_num}"
+            # Ensure target_keywords has the target model
+            primary_kw = f"garmin forerunner {target_num}"
+            secondary_kw = f"forerunner {target_num}"
+            filtered_kws = [k for k in intent.target_keywords if not any(re.search(rf"\b{re.escape(c_num)}\b", k) for c_num in conflicting_nums)]
+            if secondary_kw not in filtered_kws:
+                filtered_kws.insert(0, secondary_kw)
+            if primary_kw not in filtered_kws:
+                filtered_kws.insert(0, primary_kw)
+            intent.target_keywords = filtered_kws
+
         # 4. Strip markdown asterisks from spotlight highlights, spec_comparisons, and section titles
         if intent.spotlight and intent.spotlight.highlights:
             intent.spotlight.highlights = [
@@ -1744,7 +1780,8 @@ class LocalHeuristicParser:
             "alphafly", "vaporfly", "ultrafly", "streakfly", "pegasus", "vomero",
             "invincible", "infinity", "metaspeed", "adizero", "boston", "adios",
             "supercomp", "endorphin", "speedgoat", "forerunner", "nimbus", "kayano",
-            "cumulus", "novablast", "clifton", "bondi", "mach", "glycerin", "ghost"
+            "cumulus", "novablast", "clifton", "bondi", "mach", "glycerin", "ghost",
+            "garmin", "fenix", "instinct"
         ]
 
         def _lev(s1: str, s2: str) -> int:
@@ -1783,6 +1820,10 @@ class LocalHeuristicParser:
         res = " ".join(cleaned_words)
 
         substitutions = [
+            (r"\b(?:garmen|gamrin|garmn|garmmin)\b", "garmin"),
+            (r"\b(?:forunner|fore\s*runner|forerun|forerunne)\b", "forerunner"),
+            (r"\b(?:fennix|fenx)\b", "fenix"),
+            (r"\b(?:garmin\s+forerunner|garmin|forerunner)\s*(165|265|965|55|255|955)\b", r"garmin forerunner \1"),
             (r"\b(?:alpha\s*fl[yie]+|alphafly+)\b", "alphafly"),
             (r"\b(?:vapor\s*fl[yie]+|vaporfly+)\b", "vaporfly"),
             (r"\b(?:ultra\s*fl[yie]+|ultrafly+)\b", "ultrafly"),
@@ -1793,7 +1834,6 @@ class LocalHeuristicParser:
             (r"\b(?:invincibl|invincibile|invinciblle)\b", "invincible"),
             (r"\b(?:vomer|vomer18|vomerro)\b", "vomero"),
             (r"\b(?:speedgot|speed\s*got)\b", "speedgoat"),
-            (r"\b(?:forunner|fore\s*runner)\b", "forerunner"),
             (r"\b(?:okley|oakly)\b", "oakley"),
             (r"\b(?:adizero\s*pro|adios\s*pro)\b", "adizero"),
             (r"\b(?:nimb|nimbus\s*26)\b", "nimbus"),
@@ -1803,9 +1843,11 @@ class LocalHeuristicParser:
         return res
 
     @staticmethod
-    def parse(user_query: str, force_mode: Optional[str] = None) -> SmartSearchIntent:
+    def parse(user_query: str, force_mode: Optional[str] = None, context_query: Optional[str] = None) -> SmartSearchIntent:
         text = LocalHeuristicParser.normalize_typos(user_query.strip().lower())
         words = text.split()
+        ctx_text = LocalHeuristicParser.normalize_typos(context_query.strip().lower()) if context_query else ""
+        has_context = bool(ctx_text)
 
         # 1. Price Bounds
         max_price = None
@@ -1901,6 +1943,23 @@ class LocalHeuristicParser:
         elif re.search(r"\b(ammortizzat[ae]|morbida?|comod[ae]|protettiv[ae]|ginocchi[ao]|schiena|pesant[ei]|peso|\d{2,3}\s*kg)\b", text):
             archetype_key = "max_cushion"
             features.append("cushioning")
+
+        # Context-aware archetype inheritance for follow-up conversational queries
+        if has_context:
+            is_relative = bool(re.search(r"\b(alternative|modelli|prestazioni|funzionalit|funzioni|sotto|meno|max|confronta|altri|altre|economici|economiche|miglior|scelta|smartwatch)\b", text))
+            if is_relative or archetype_key == "daily_trainer":
+                if re.search(r"\b(garmin|forerunner|fenix|instinct|epix|venu|smartwatch|orologi|sportwatch|gps|cardio|polar|suunto|coros)\b", ctx_text):
+                    archetype_key = "gps_watch"
+                    if not detected_brand and "garmin" in ctx_text:
+                        detected_brand = "Garmin"
+                elif re.search(r"\b(ciclocomputer|edge|bike\s*computer|igpsport|bryton|wahoo)\b", ctx_text):
+                    archetype_key = "bike_computer"
+                elif re.search(r"\b(long[\s-]*sleeve|manica\s*lunga|termic)\b", ctx_text):
+                    archetype_key = "running_apparel_long_sleeve"
+                elif re.search(r"\bhyrox\b", ctx_text):
+                    archetype_key = "hyrox"
+                elif re.search(r"\b(trail|sterrato)\b", ctx_text):
+                    archetype_key = "trail_running"
 
         arch = SPORTS_KNOWLEDGE[archetype_key]
         category = arch["category"]
@@ -2008,8 +2067,334 @@ class LocalHeuristicParser:
             for s in spec_comparisons_raw
         ]
 
+        # Specialized GPS Watch & Multi-Turn Follow-Up Handling
+        is_forerunner_165 = archetype_key == "gps_watch" and ("165" in text and ("forerunner" in text or "garmin" in text or "forerunner" in ctx_text or "garmin" in ctx_text))
+        is_forerunner_265 = archetype_key == "gps_watch" and ("265" in text and ("forerunner" in text or "garmin" in text or "forerunner" in ctx_text or "garmin" in ctx_text))
+        is_forerunner_965 = archetype_key == "gps_watch" and ("965" in text and ("forerunner" in text or "garmin" in text or "forerunner" in ctx_text or "garmin" in ctx_text))
+        is_gps_sub_price = archetype_key == "gps_watch" and (max_price is not None or bool(re.search(r"\b(alternative\s+sotto|sotto\s+i?\s*\d+|meno\s+di\s*\d+|economici|economiche)\b", text)))
+        is_gps_running_models = archetype_key == "gps_watch" and bool(re.search(r"\b(modelli\s+di\s+smartwatch|smartwatch\s+gps\s+per\s+la\s+corsa|orologi\s+(?:da\s+)?corsa)\b", text))
+        is_gps_advanced_features = archetype_key == "gps_watch" and bool(re.search(r"\b(funzionalit[aà]\s+avanzate|analisi\s+delle\s+prestazioni|training\s+readiness|metriche\s+avanzate)\b", text))
+
+        if is_forerunner_165:
+            detected_brand = "Garmin"
+            target_keywords = ["garmin forerunner 165", "forerunner 165", "forerunner 165 music"]
+            conversational_header = "Ho cercato Garmin Forerunner 165"
+            conversational_summary = "Il **Garmin Forerunner 165** è lo smartwatch GPS per la corsa con luminoso **display touch AMOLED**, piani di allenamento adattivi Garmin Coach e monitoraggio avanzato del recupero."
+            curated_sections = [
+                CuratedSectionDef(
+                    id="sec_forerunner_165",
+                    title="Garmin Forerunner 165 & Versioni Music",
+                    subtitle="Tutte le colorazioni e versioni con memoria musicale.",
+                    keywords=["forerunner 165", "165 music"]
+                ),
+                CuratedSectionDef(
+                    id="sec_family",
+                    title="Alternative Famiglia Garmin Forerunner",
+                    subtitle="Confronta con Forerunner 55 e 265 per runner esigenti.",
+                    keywords=["forerunner 55", "forerunner 265", "forerunner 255"]
+                ),
+                CuratedSectionDef(
+                    id="sec_acc",
+                    title="Fasce Cardio & Accessori Compatibili",
+                    subtitle="Fasce cardio toraciche HRM e accessori per la massima precisione.",
+                    keywords=["fascia cardio", "hrm", "cinturino"]
+                )
+            ]
+            spec_comparisons = [
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 165",
+                    ideal_for="Runner su strada e miglior qualità/prezzo",
+                    strengths="Display AMOLED touch, Garmin Coach, ultraleggero (39g)",
+                    target_keyword="forerunner 165"
+                ),
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 265",
+                    ideal_for="Maratona, triathlon e metriche avanzate",
+                    strengths="GPS multi-banda, Training Readiness, più sport e musica",
+                    target_keyword="forerunner 265"
+                ),
+                SpecComparisonDef(
+                    model_name="Coros Pace 3",
+                    ideal_for="Autonomia al vertice e massima leggerezza",
+                    strengths="Peso piuma di soli 30g e batteria straordinaria",
+                    target_keyword="coros pace"
+                )
+            ]
+            spotlight_def = SpotlightDef(
+                target_keyword="forerunner 165",
+                badge_text="Miglior Scelta",
+                highlights=[
+                    "Schermo a colori touchscreen AMOLED ultra nitido",
+                    "Durata batteria fino a 11 giorni in modalità smartwatch",
+                    "Miglior offerta verificata tra i negozi partner"
+                ]
+            )
+            follow_ups = [
+                "Modelli di smartwatch GPS per la corsa",
+                "Funzionalità avanzate per l'analisi delle prestazioni",
+                "Alternative sotto i 300 euro"
+            ]
+
+        elif is_forerunner_265:
+            detected_brand = "Garmin"
+            target_keywords = ["garmin forerunner 265", "forerunner 265", "forerunner 265 music"]
+            conversational_header = "Ho cercato Garmin Forerunner 265"
+            conversational_summary = "Il **Garmin Forerunner 265** è lo smartwatch GPS per runner e triatleti con **display AMOLED**, GPS multi-banda ad altissima precisione e metriche di Training Readiness."
+            curated_sections = [
+                CuratedSectionDef(
+                    id="sec_forerunner_265",
+                    title="Garmin Forerunner 265 & 265S",
+                    subtitle="Versioni standard e small con display AMOLED e musica.",
+                    keywords=["forerunner 265", "265 music", "forerunner 265s"]
+                ),
+                CuratedSectionDef(
+                    id="sec_forerunner_alts",
+                    title="Alternative Famiglia Garmin Forerunner",
+                    subtitle="Dal più accessibile Forerunner 165 al top Forerunner 965.",
+                    keywords=["forerunner 165", "forerunner 965", "forerunner 255"]
+                ),
+                CuratedSectionDef(
+                    id="sec_acc_265",
+                    title="Fasce Cardio Toraciche & Accessori",
+                    subtitle="Fasce cardio HRM per dinamiche di corsa avanzate.",
+                    keywords=["fascia cardio", "hrm", "cinturino"]
+                )
+            ]
+            spec_comparisons = [
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 265",
+                    ideal_for="Maratona, triathlon e runner evoluti",
+                    strengths="GPS multi-banda, Training Readiness, display AMOLED",
+                    target_keyword="forerunner 265"
+                ),
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 165",
+                    ideal_for="Rapporto qualità/prezzo su strada",
+                    strengths="Display AMOLED e Garmin Coach a prezzo più basso",
+                    target_keyword="forerunner 165"
+                ),
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 965",
+                    ideal_for="Top di gamma con cartografia offline",
+                    strengths="Mappe integrate, ghiera in titanio e schermo 1.4\"",
+                    target_keyword="forerunner 965"
+                )
+            ]
+            spotlight_def = SpotlightDef(
+                target_keyword="forerunner 265",
+                badge_text="Miglior Scelta",
+                highlights=[
+                    "Display AMOLED touchscreen e GPS multi-banda",
+                    "Durata batteria fino a 13 giorni in modalità smartwatch",
+                    "Miglior offerta verificata tra i negozi partner"
+                ]
+            )
+            follow_ups = [
+                "Alternative sotto i 300 euro",
+                "Confronta Garmin Forerunner 165 e 265",
+                "Mostrami orologi con mappe cartografiche"
+            ]
+
+        elif is_forerunner_965:
+            detected_brand = "Garmin"
+            target_keywords = ["garmin forerunner 965", "forerunner 965"]
+            conversational_header = "Ho cercato Garmin Forerunner 965"
+            conversational_summary = "Il **Garmin Forerunner 965** è il top di gamma con **ghiera in titanio**, mappe topografiche integrate a colori e display AMOLED da 1.4 pollici per prestazioni senza compromessi."
+            curated_sections = [
+                CuratedSectionDef(
+                    id="sec_forerunner_965",
+                    title="Garmin Forerunner 965 & Titanio",
+                    subtitle="Tutte le colorazioni del flagship Garmin con cartografia.",
+                    keywords=["forerunner 965"]
+                ),
+                CuratedSectionDef(
+                    id="sec_multisport_flagship",
+                    title="Alternative Multisport & Outdoor",
+                    subtitle="Confronta con Garmin Fenix e Coros Apex per gare ultra.",
+                    keywords=["fenix", "coros apex", "forerunner 265"]
+                )
+            ]
+            spec_comparisons = [
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 965",
+                    ideal_for="Gare maratona, ultra e cartografia",
+                    strengths="Mappe offline, titanio, schermo 1.4\" AMOLED",
+                    target_keyword="forerunner 965"
+                ),
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 265",
+                    ideal_for="Runner e triatleti che cercano leggerezza",
+                    strengths="GPS multi-banda e Training Readiness (47g)",
+                    target_keyword="forerunner 265"
+                )
+            ]
+            spotlight_def = SpotlightDef(
+                target_keyword="forerunner 965",
+                badge_text="Top di Gamma",
+                highlights=[
+                    "Mappe topografiche integrate a colori e ghiera in titanio",
+                    "Schermo AMOLED da 1.4 pollici ultra nitido",
+                    "Miglior offerta verificata tra i rivenditori partner"
+                ]
+            )
+            follow_ups = [
+                "Confronta Forerunner 965 e Fenix 7 Pro",
+                "Alternative sotto i 500 euro",
+                "Mostrami modelli con mappe offline"
+            ]
+
+        elif is_gps_sub_price:
+            price_limit = int(max_price) if max_price else 300
+            if not max_price:
+                max_price = 300.0
+            target_keywords = ["forerunner 165", "coros pace", "forerunner 55", "polar pacer", "forerunner 255"]
+            conversational_header = f"Alternative sotto i {price_limit} euro"
+            conversational_summary = f"Ecco le migliori **alternative sotto i € {price_limit}** per smartwatch GPS da corsa, confrontate tra i migliori negozi partner:"
+            curated_sections = [
+                CuratedSectionDef(
+                    id="sec_sub_price",
+                    title=f"Smartwatch GPS sotto {price_limit} euro",
+                    subtitle="Modelli leggeri con GPS integrato e cardiofrequenzimetro al miglior prezzo.",
+                    keywords=["forerunner 165", "coros pace", "forerunner 55", "polar pacer"]
+                ),
+                CuratedSectionDef(
+                    id="sec_higher_end",
+                    title="Alternative di fascia superiore",
+                    subtitle="Per chi valuta funzioni avanzate di dinamica e multi-banda.",
+                    keywords=["forerunner 265", "coros apex", "vantage"]
+                )
+            ]
+            spec_comparisons = [
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 165",
+                    ideal_for="Display AMOLED brillante e affidabilità Garmin",
+                    strengths="Touchscreen reattivo e piani Garmin Coach",
+                    target_keyword="forerunner 165"
+                ),
+                SpecComparisonDef(
+                    model_name="Coros Pace 3",
+                    ideal_for="Massima durata batteria e peso ridotto",
+                    strengths="38 ore continue in GPS e rotella digitale",
+                    target_keyword="coros pace"
+                ),
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 55",
+                    ideal_for="Budget essenziale e massima semplicità d'uso",
+                    strengths="Interfaccia a 5 tasti e autonomia eccellente",
+                    target_keyword="forerunner 55"
+                )
+            ]
+            spotlight_def = SpotlightDef(
+                target_keyword="forerunner 165",
+                badge_text=f"Best Buy < €{price_limit}",
+                highlights=[
+                    "Display touchscreen AMOLED a colori nitido",
+                    "Cardio al polso e autonomia fino a 11 giorni",
+                    f"Miglior prezzo verificato sotto i € {price_limit}"
+                ]
+            )
+            follow_ups = [
+                "Modelli di smartwatch GPS per la corsa",
+                "Funzionalità avanzate per l'analisi delle prestazioni",
+                "Alternative con memoria musica"
+            ]
+
+        elif is_gps_running_models:
+            target_keywords = ["garmin forerunner 165", "garmin forerunner 265", "coros pace", "polar vantage"]
+            conversational_header = "Smartwatch GPS per la Corsa"
+            conversational_summary = "Ecco i modelli di riferimento di **smartwatch GPS per la corsa e l'allenamento**, con rilevazione del passo, frequenza cardiaca e metriche VO2 max:"
+            curated_sections = [
+                CuratedSectionDef(
+                    id="sec_forerunner_models",
+                    title="Serie Garmin Forerunner",
+                    subtitle="I modelli GPS di riferimento per ogni livello di runner.",
+                    keywords=["forerunner 165", "forerunner 265", "forerunner 965"]
+                ),
+                CuratedSectionDef(
+                    id="sec_other_brands",
+                    title="Alternative Coros & Polar",
+                    subtitle="Focus su autonomia record e analisi del carico cardio.",
+                    keywords=["coros pace", "polar pacer", "suunto race"]
+                )
+            ]
+            spec_comparisons = [
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 165",
+                    ideal_for="Runner su strada e miglior qualità/prezzo",
+                    strengths="Display AMOLED touch, Garmin Coach, ultraleggero",
+                    target_keyword="forerunner 165"
+                ),
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 265",
+                    ideal_for="Maratona e triathlon avanzato",
+                    strengths="GPS multi-banda e Training Readiness",
+                    target_keyword="forerunner 265"
+                )
+            ]
+            spotlight_def = SpotlightDef(
+                target_keyword="forerunner 165",
+                badge_text="Best Buy Corsa",
+                highlights=[
+                    "Display AMOLED ultra brillante e GPS integrato",
+                    "Piani di allenamento personalizzati Garmin Coach",
+                    "Miglior offerta verificata tra i rivenditori partner"
+                ]
+            )
+            follow_ups = [
+                "Alternative sotto i 300 euro",
+                "Funzionalità avanzate per l'analisi delle prestazioni",
+                "Confronta Garmin Forerunner 165 e 265"
+            ]
+
+        elif is_gps_advanced_features:
+            target_keywords = ["garmin forerunner 265", "garmin forerunner 965", "garmin fenix", "coros apex"]
+            conversational_header = "Smartwatch con Analisi Prestazioni Avanzate"
+            conversational_summary = "Questi modelli offrono **GPS multi-banda ad altissima precisione**, Training Readiness, stato di forma e cartografia topografica per ottimizzare la preparazione:"
+            curated_sections = [
+                CuratedSectionDef(
+                    id="sec_multiband_gps",
+                    title="GPS Multi-Banda & Training Readiness",
+                    subtitle="Precisione satellitare assoluta e calcolo del recupero.",
+                    keywords=["forerunner 265", "forerunner 965"]
+                ),
+                CuratedSectionDef(
+                    id="sec_cartography",
+                    title="Mappe Topografiche & Multisport",
+                    subtitle="Navigazione cartografica a colori e profilo altimetrico.",
+                    keywords=["garmin fenix", "coros apex", "suunto race"]
+                )
+            ]
+            spec_comparisons = [
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 265",
+                    ideal_for="Corsa avanzata e triathlon",
+                    strengths="Training Readiness, HRV status e display AMOLED",
+                    target_keyword="forerunner 265"
+                ),
+                SpecComparisonDef(
+                    model_name="Garmin Forerunner 965",
+                    ideal_for="Top di gamma con cartografia offline",
+                    strengths="Mappe integrate, ghiera in titanio e schermo 1.4\"",
+                    target_keyword="forerunner 965"
+                )
+            ]
+            spotlight_def = SpotlightDef(
+                target_keyword="forerunner 265",
+                badge_text="Top Metriche",
+                highlights=[
+                    "GPS multi-banda e display AMOLED touchscreen",
+                    "Training Readiness e dinamiche di corsa avanzate",
+                    "Miglior offerta verificata tra i negozi partner"
+                ]
+            )
+            follow_ups = [
+                "Alternative sotto i 300 euro",
+                "Modelli di smartwatch GPS per la corsa",
+                "Confronta Garmin Forerunner 265 e 965"
+            ]
+
         # Fashion / Custom query fallback sections if not standard sports archetype
-        if detected_brand and detected_brand == "Maison Margiela":
+        elif detected_brand and detected_brand == "Maison Margiela":
             conversational_summary = "Ho trovato diverse **scarpe nere Maison Margiela**: dalle Replica più versatili alle Tabi e ai modelli Future, con prezzi e stili molto diversi."
             curated_sections = [
                 CuratedSectionDef(
@@ -2433,10 +2818,16 @@ class SmartSearchEngine:
                 logger.debug("Failed to re-validate cached intent: %s", e)
 
         # 2. Ultra-Fast Local Athletic NLP Engine (Zero latency: ~3ms)
-        local_intent = LocalHeuristicParser.parse(user_query=user_query, force_mode=force_mode)
+        local_intent = LocalHeuristicParser.parse(user_query=user_query, force_mode=force_mode, context_query=context_query)
 
         # Determine if local intent is sufficiently decisive to skip slow remote LLM calls
         has_context = bool(context_query and context_query.strip())
+        is_confident_context = has_context and (
+            local_intent.max_price is not None or
+            local_intent.category in ("gps_watch", "cycling", "top", "jacket", "pants", "fitness") or
+            bool(re.search(r"\b(alternative|modelli|prestazioni|funzionalit|funzioni|sotto|econom|confronta|miglior|scelta|smartwatch|orologi)\b", user_query.lower()))
+        )
+
         is_confident_local = (
             local_intent.brand is not None or
             local_intent.max_price is not None or
@@ -2445,11 +2836,11 @@ class SmartSearchEngine:
             local_intent.gender is not None or
             bool(local_intent.features) or
             local_intent.category != "running_shoes" or
-            bool(re.search(r"\b(hyrox|palestra|maratona|gara|trail|ammortizzat|carbonio|piastra|adizero|dropset|metcon|nano|alphafly|vaporfly|vomero|pegasus|nimbus|clifton|bondi|ghost|speedgoat|forerunner|fenix|novablast|superblast|endorphin|sutro|radar|vertex|hack|at10|long\s*sleeve|antivento|termic|giacc|magli|pantaloncin)\b", user_query.lower()))
+            bool(re.search(r"\b(hyrox|palestra|maratona|gara|trail|ammortizzat|carbonio|piastra|adizero|dropset|metcon|nano|alphafly|vaporfly|vomero|pegasus|nimbus|clifton|bondi|ghost|speedgoat|forerunner|fenix|instinct|novablast|superblast|endorphin|sutro|radar|vertex|hack|at10|long\s*sleeve|antivento|termic|giacc|magli|pantaloncin|garmin|coros|polar|suunto|smartwatch|orologi)\b", user_query.lower()))
         )
 
         intent = None
-        if is_confident_local and not has_context:
+        if is_confident_local and (not has_context or is_confident_context):
             intent = local_intent
         elif self.api_key:
             try:
@@ -2471,7 +2862,5 @@ class SmartSearchEngine:
             # 2. Store in Multi-Tier Cache with 7-day TTL (only if not off-topic/unsafe)
             if not intent.is_off_topic and not intent.is_unsafe:
                 self.cache_manager.set_intent(cache_lookup_query, force_mode=force_mode, intent_data=intent)
-
-        return intent
 
         return intent

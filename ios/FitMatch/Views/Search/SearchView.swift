@@ -2293,11 +2293,49 @@ struct SearchView: View {
                         }
                     }
                 } else {
-                    // Follow-up failed: preserve all existing turns and show retry notification
-                    await MainActor.run {
-                        self.isFollowUpLoading = false
-                        self.pendingFollowUpQuery = nil
-                        self.followUpErrorMessage = "Impossibile completare il follow-up in questo momento."
+                    // Follow-up failed or timed out: attempt direct Supabase fallback before failing!
+                    if let directFallback = await api.buildDirectSmartSearchFallback(
+                        query: query,
+                        category: smartIntent?.category,
+                        maxPrice: overrideMaxPrice,
+                        size: selectedSize,
+                        store: selectedStore,
+                        contextQuery: activeContext
+                    ) {
+                        await MainActor.run {
+                            self.isFollowUpLoading = false
+                            self.pendingFollowUpQuery = nil
+                            self.followUpErrorMessage = nil
+                            let newTurn = SearchConversationTurn(
+                                id: UUID().uuidString,
+                                query: query,
+                                isFollowUp: true,
+                                conversationalHeader: directFallback.conversational_header ?? "Ho cercato \(query)",
+                                conversationalSummary: directFallback.conversational_summary ?? "Risultati verificati sul catalogo FitMatch Cloud.",
+                                smartIntent: directFallback.intent,
+                                activeChips: directFallback.chips ?? [],
+                                searchResults: directFallback.results,
+                                curatedSections: directFallback.curated_sections ?? [],
+                                comparativeCards: directFallback.comparative_cards ?? [],
+                                spotlight: directFallback.spotlight,
+                                followUpSuggestions: directFallback.follow_up_suggestions ?? [],
+                                userFeedback: nil,
+                                showAiExplanation: false,
+                                error: nil,
+                                isOffTopic: false,
+                                isUnsafe: false,
+                                timestamp: Date()
+                            )
+                            self.conversationTurns.append(newTurn)
+                            self.lastContextQuery = query
+                        }
+                    } else {
+                        // Follow-up failed: preserve all existing turns and show retry notification
+                        await MainActor.run {
+                            self.isFollowUpLoading = false
+                            self.pendingFollowUpQuery = nil
+                            self.followUpErrorMessage = "Impossibile completare il follow-up in questo momento."
+                        }
                     }
                 }
             }

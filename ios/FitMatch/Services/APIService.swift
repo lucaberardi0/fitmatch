@@ -192,7 +192,7 @@ class APIService: ObservableObject {
         guard let url = components.url else { throw URLError(.badURL) }
 
         do {
-            let data = try await fetchFastData(url: url, timeout: 4.0)
+            let data = try await fetchFastData(url: url, timeout: 12.0)
             let decoded = try JSONDecoder().decode(SmartSearchResponse.self, from: data)
             let enriched = await validateAndEnrichSmartSearchResponse(
                 decoded,
@@ -212,7 +212,8 @@ class APIService: ObservableObject {
                 category: category,
                 maxPrice: maxPrice,
                 size: size,
-                store: store
+                store: store,
+                contextQuery: contextQuery
             ) {
                 smartSearchCache[cacheKey] = (directFallback, Date().addingTimeInterval(600))
                 return directFallback
@@ -227,13 +228,62 @@ class APIService: ObservableObject {
         category: String? = nil,
         maxPrice: Double? = nil,
         size: String? = nil,
-        store: String? = nil
+        store: String? = nil,
+        contextQuery: String? = nil
     ) async -> SmartSearchResponse? {
+        // Extract price constraint if embedded in query (e.g. "Alternative sotto i 300 euro" -> maxPrice = 300)
+        var effectiveMaxPrice = maxPrice
+        let qLower = query.lowercased()
+        if effectiveMaxPrice == nil {
+            if let regex = try? NSRegularExpression(pattern: #"(?:sotto|meno\s*di|max|fino\s*a)\s*i?\s*(\d+(?:[.,]\d+)?)"#, options: .caseInsensitive),
+               let match = regex.firstMatch(in: qLower, options: [], range: NSRange(location: 0, length: qLower.utf16.count)),
+               let range = Range(match.range(at: 1), in: qLower) {
+                let numStr = String(qLower[range]).replacingOccurrences(of: ",", with: ".")
+                effectiveMaxPrice = Double(numStr)
+            }
+        }
+
+        // Determine effective category & keywords
+        var effectiveCategory = category
+        let combined = "\(qLower) \(contextQuery?.lowercased() ?? "")"
+        if effectiveCategory == nil || effectiveCategory == "all" || effectiveCategory == "tutti" {
+            if combined.contains("garmin") || combined.contains("forerunner") || combined.contains("fenix") ||
+               combined.contains("smartwatch") || combined.contains("orologi") || combined.contains("cardio") ||
+               combined.contains("suunto") || combined.contains("coros") || combined.contains("polar") {
+                effectiveCategory = "gps_watch"
+            }
+        }
+
+        // Clean query terms for database text search (strip conversational filler words)
+        let stopwords: Set<String> = [
+            "alternative", "modelli", "funzionalità", "funzionalita", "avanzate",
+            "per", "la", "il", "lo", "i", "gli", "le", "un", "una", "uno", "di",
+            "a", "da", "in", "con", "su", "sotto", "meno", "euro", "corsa", "running",
+            "analisi", "delle", "prestazioni", "confronta", "miglior", "migliori", "prezzo",
+            "smartwatch", "orologi"
+        ]
+        var tokens = qLower.components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count > 2 && !stopwords.contains($0) }
+
+        if tokens.isEmpty, let ctx = contextQuery?.lowercased() {
+            tokens = ctx.components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count > 2 && !stopwords.contains($0) }
+        }
+
+        var keywordsToSearch = tokens
+        if keywordsToSearch.isEmpty {
+            if effectiveCategory == "gps_watch" {
+                keywordsToSearch = ["garmin", "forerunner"]
+            } else {
+                keywordsToSearch = [query]
+            }
+        }
+
         let prods = await SupabaseManager.shared.fetchSmartProductsDirect(
-            category: category,
-            keywords: [query],
+            category: effectiveCategory,
+            keywords: keywordsToSearch,
             brand: nil,
-            maxPrice: maxPrice,
+            maxPrice: effectiveMaxPrice,
             size: size,
             store: store,
             limit: 35
