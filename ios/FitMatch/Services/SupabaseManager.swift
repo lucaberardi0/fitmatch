@@ -1126,6 +1126,69 @@ class SupabaseManager: ObservableObject {
         }
     }
 
+    // MARK: - Direct Size Deals Fetcher (Cross-Store In-Stock Deals)
+
+    func fetchSizeDealsDirect(size: String, minDiscount: Double = 15, limit: Int = 12) async -> [StoreShowcaseProduct] {
+        let cleanSize = size.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanSize.isEmpty else { return [] }
+
+        guard let encodedSize = cleanSize.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
+        let urlStr = "\(restURL)/store_offers?available_sizes=cs.%5B%22\(encodedSize)%22%5D&discount_pct=gte.\(Int(minDiscount))&image_url=not.is.null&order=discount_pct.desc.nullslast&limit=\(limit)&select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier"
+
+        guard let url = URL(string: urlStr) else { return [] }
+        var req = URLRequest(url: url)
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+
+        guard let (data, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+            return []
+        }
+
+        struct SizeOfferRow: Codable {
+            let id: String
+            let product_id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+            let available_sizes: [String]?
+            let shipping_cost: Double?
+            let free_shipping_threshold: Double?
+            let courier: String?
+        }
+
+        guard let rows = try? JSONDecoder().decode([SizeOfferRow].self, from: data) else {
+            return []
+        }
+
+        return rows.map { r in
+            let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.store_name)
+            return StoreShowcaseProduct(
+                id: r.id,
+                title: r.raw_title,
+                brand: extractedBrand,
+                image_url: r.image_url,
+                available_sizes: r.available_sizes,
+                current_price: r.current_price,
+                original_price: r.original_price,
+                discount_pct: r.discount_pct,
+                product_url: r.product_url,
+                canonical_name: r.raw_title,
+                product_id: r.product_id,
+                shipping_cost: r.shipping_cost,
+                total_price: r.current_price + (r.shipping_cost ?? 0.0),
+                is_free_shipping: (r.shipping_cost ?? 0.0) == 0.0,
+                shipping_label: (r.shipping_cost ?? 0.0) == 0.0 ? "Sped. Gratis" : "+ \(String(format: "%.2f", r.shipping_cost ?? 0.0)) €",
+                free_shipping_threshold: r.free_shipping_threshold,
+                courier: r.courier
+            )
+        }
+    }
+
     // MARK: - Direct Store Products Fetcher (For Followed Stores Fallback)
 
     func fetchStoreOffersDirect(storeId: String, limit: Int = 12) async throws -> [StoreShowcaseProduct] {

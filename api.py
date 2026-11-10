@@ -144,6 +144,46 @@ def get_store_showcases(limit: int = Query(6, ge=1, le=20)):
     }
 
 
+@app.get("/api/feed/personalized")
+def get_personalized_home_feed(
+    device_id: Optional[str] = Query(None, description="Persistent anonymous client device ID"),
+    user_id: Optional[str] = Query(None, description="Authenticated Supabase User ID"),
+    shoe_size: Optional[str] = Query(None, description="User preferred shoe size (e.g. '42')"),
+    apparel_size: Optional[str] = Query(None, description="User preferred apparel size (e.g. 'M')"),
+    brands: Optional[str] = Query(None, description="Comma-separated favorite brands (e.g. 'Nike,Asics,Hoka')"),
+    sports: Optional[str] = Query(None, description="Comma-separated sports (e.g. 'corsa,trail')"),
+    min_discount: int = Query(20, ge=0, le=90, description="Minimum discount threshold"),
+    limit_per_store: int = Query(12, ge=3, le=30, description="Products per store showcase")
+):
+    """Generate intelligent personalized home feed: ranked merchant showcases, size-matched deals, and re-ranked products."""
+    brand_list = [b.strip() for b in brands.split(",") if b.strip()] if brands else None
+    sports_list = [s.strip() for s in sports.split(",") if s.strip()] if sports else None
+
+    return db.get_personalized_feed(
+        device_id=device_id,
+        user_id=user_id,
+        shoe_size=shoe_size,
+        apparel_size=apparel_size,
+        brands=brand_list,
+        sports=sports_list,
+        min_discount=min_discount,
+        limit_per_store=limit_per_store
+    )
+
+
+@app.get("/api/feed/size-deals")
+def get_size_deals_endpoint(
+    size: str = Query("42", description="Target EU size for shoes or clothing (e.g. '42', 'M')"),
+    min_discount: int = Query(20, ge=0, le=90, description="Minimum discount threshold"),
+    limit: int = Query(12, ge=1, le=30, description="Maximum deals to return"),
+    brands: Optional[str] = Query(None, description="Optional comma-separated preferred brands")
+):
+    """Retrieve top cross-store discounted offers strictly in-stock in the user's specific size."""
+    brand_list = [b.strip() for b in brands.split(",") if b.strip()] if brands else None
+    deals = db.get_size_deals(size=size, min_discount=min_discount, limit=limit, favorite_brands=brand_list)
+    return {"size": size, "deals": deals, "count": len(deals)}
+
+
 @app.get("/api/stores/{store_id}")
 def get_store_details(
     store_id: str,

@@ -649,6 +649,29 @@ class APIService: ObservableObject {
         return []
     }
 
+    func getSizeDeals(size: String, minDiscount: Double = 15, limit: Int = 12) async -> [StoreShowcaseProduct] {
+        // 1. Direct Supabase query
+        let direct = await SupabaseManager.shared.fetchSizeDealsDirect(size: size, minDiscount: minDiscount, limit: limit)
+        if !direct.isEmpty {
+            return direct
+        }
+
+        // 2. Fallback to backend API
+        struct SizeDealsResponse: Codable {
+            let size: String
+            let deals: [StoreShowcaseProduct]
+            let count: Int
+        }
+        if let encoded = size.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let url = URL(string: "\(baseURL)/api/feed/size-deals?size=\(encoded)&min_discount=\(Int(minDiscount))&limit=\(limit)") {
+            if let data = try? await fetchDataWithRetry(url: url, maxRetries: 1),
+               let decoded = try? JSONDecoder().decode(SizeDealsResponse.self, from: data) {
+                return decoded.deals
+            }
+        }
+        return []
+    }
+
     func getDealsShowcases(category: String? = nil) async throws -> [StoreShowcase] {
         do {
             let direct = try await SupabaseManager.shared.fetchDealsShowcasesDirect(category: category)

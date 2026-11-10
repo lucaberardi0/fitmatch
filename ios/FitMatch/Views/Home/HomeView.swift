@@ -34,8 +34,10 @@ struct HomeView: View {
     @ObservedObject private var followedManager = FollowedStoresManager.shared
     @ObservedObject private var recentManager = RecentActivityManager.shared
     @ObservedObject private var notifManager = NotificationManager.shared
+    @ObservedObject private var prefsManager = UserPreferencesManager.shared
 
     @State private var showcases: [StoreShowcase] = []
+    @State private var sizeDeals: [StoreShowcaseProduct] = []
     @State private var isLoading = true
     @State private var searchText = ""
     @State private var showingAccountSheet = false
@@ -168,7 +170,13 @@ struct HomeView: View {
                 if showcases.isEmpty {
                     await fetchShowcases()
                 }
+                await fetchSizeDeals()
                 await notifManager.checkIntelligentNotifications()
+            }
+            .onChange(of: prefsManager.preferences.preferredShoeSize) { _, _ in
+                Task {
+                    await fetchSizeDeals()
+                }
             }
         }
     }
@@ -357,7 +365,19 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - "Per te" Feed Content (100% Matching Screenshots 1, 2, 3, 4, 5)
+    // MARK: - "Per te" Feed Content (Personalized & Ranked)
+
+    private var personalizedShowcases: [StoreShowcase] {
+        let active = showcases.filter {
+            !$0.products.isEmpty && !followedManager.isStoreHidden(storeId: $0.store_id)
+        }
+        return prefsManager.personalizeShowcases(
+            active,
+            followedStoreIds: Set(followedManager.followedStores.map { $0.store_id.lowercased() }),
+            recentStoreIds: Set(recentManager.activities.compactMap { $0.storeId?.lowercased() }),
+            wishlistStoreNames: Set(wishlist.items.compactMap { $0.bestStore?.lowercased() })
+        )
+    }
 
     private var perTeContent: some View {
         ScrollView(showsIndicators: false) {
@@ -366,12 +386,13 @@ struct HomeView: View {
                 topSummaryCardsCarousel
                     .padding(.top, 4)
 
-                // MARK: 2. Real Database Partner Stores
-                let activeShowcases = showcases.filter {
-                    !$0.products.isEmpty && !followedManager.isStoreHidden(storeId: $0.store_id)
-                }
+                // MARK: 2. Smart Section: "Nella tua taglia EU {size}"
+                sizeDealsSection
 
-                if isLoading && activeShowcases.isEmpty {
+                // MARK: 3. Real Database Partner Stores (Ranked & Personalized)
+                let currentShowcases = personalizedShowcases
+
+                if isLoading && currentShowcases.isEmpty {
                     VStack(spacing: 16) {
                         ShopSkeletonBlock(
                             cornerRadius: 24,
@@ -386,7 +407,7 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 16)
                 } else {
-                    ForEach(Array(activeShowcases.enumerated()), id: \.element.id) { index, sc in
+                    ForEach(Array(currentShowcases.enumerated()), id: \.element.id) { index, sc in
                         if sc.card_theme == "olive" || sc.card_theme == "colored" || (sc.accent_color != nil && sc.card_theme != "grid" && sc.card_theme != "white") || (sc.card_theme == nil && index % 4 == 0) {
                             // Accent / Colored Card (driven by database card_theme or accent_color)
                             oliveShopStoreCard(showcase: sc)
@@ -408,6 +429,7 @@ struct HomeView: View {
         }
         .refreshable {
             await fetchShowcases()
+            await fetchSizeDeals()
         }
     }
 
@@ -657,9 +679,25 @@ struct HomeView: View {
                         ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 46)
 
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(showcase.store_name)
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
-                                .foregroundColor(.white)
+                            HStack(spacing: 6) {
+                                Text(showcase.store_name)
+                                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+
+                                if followedManager.isFollowing(storeId: showcase.store_id) {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 9.5, weight: .bold))
+                                        Text("Segui già")
+                                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                    }
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.white.opacity(0.22))
+                                    .foregroundColor(.white)
+                                    .clipShape(Capsule())
+                                }
+                            }
 
                             Text(showcase.formattedRatingWithReviews)
                                 .font(.system(size: 12.5, weight: .bold, design: .rounded))
@@ -727,9 +765,25 @@ struct HomeView: View {
                         ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 46)
 
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(showcase.store_name)
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
-                                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                            HStack(spacing: 6) {
+                                Text(showcase.store_name)
+                                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                                    .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+
+                                if followedManager.isFollowing(storeId: showcase.store_id) {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 9.5, weight: .bold))
+                                        Text("Segui già")
+                                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                    }
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.shopPurple.opacity(0.12))
+                                    .foregroundColor(.shopPurple)
+                                    .clipShape(Capsule())
+                                }
+                            }
 
                             Text(showcase.formattedRatingWithReviews)
                                 .font(.system(size: 12.5, weight: .bold, design: .rounded))
@@ -801,9 +855,25 @@ struct HomeView: View {
                         ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 46)
 
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(showcase.store_name)
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
-                                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                            HStack(spacing: 6) {
+                                Text(showcase.store_name)
+                                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                                    .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+
+                                if followedManager.isFollowing(storeId: showcase.store_id) {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 9.5, weight: .bold))
+                                        Text("Segui già")
+                                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                    }
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.shopPurple.opacity(0.12))
+                                    .foregroundColor(.shopPurple)
+                                    .clipShape(Capsule())
+                                }
+                            }
 
                             Text(showcase.formattedRatingWithReviews)
                                 .font(.system(size: 12.5, weight: .bold, design: .rounded))
@@ -977,6 +1047,24 @@ struct HomeView: View {
                 .clipShape(Capsule())
                 .padding([.top, .leading], 8)
 
+                // Top-Right Size Match Badge
+                if prefsManager.matchesUserShoeSize(availableSizes: product.available_sizes) {
+                    HStack(spacing: 2.5) {
+                        Circle()
+                            .fill(Color(red: 34/255, green: 197/255, blue: 94/255))
+                            .frame(width: 4.5, height: 4.5)
+                        Text("EU \(prefsManager.preferences.preferredShoeSize)")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 5.5)
+                    .padding(.vertical, 2.5)
+                    .background(Color.black.opacity(0.65))
+                    .clipShape(Capsule())
+                    .frame(maxWidth: .infinity, alignment: .topTrailing)
+                    .padding([.top, .trailing], 8)
+                }
+
                 // Bottom-Right Translucent Heart Button
                 VStack {
                     Spacer()
@@ -1071,6 +1159,24 @@ struct HomeView: View {
                 .clipShape(Capsule())
                 .padding([.top, .leading], 8)
 
+                // Top-Right Size Match Badge
+                if prefsManager.matchesUserShoeSize(availableSizes: product.available_sizes) {
+                    HStack(spacing: 2.5) {
+                        Circle()
+                            .fill(Color(red: 34/255, green: 197/255, blue: 94/255))
+                            .frame(width: 4.5, height: 4.5)
+                        Text("EU \(prefsManager.preferences.preferredShoeSize)")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 5.5)
+                    .padding(.vertical, 2.5)
+                    .background(Color.black.opacity(0.65))
+                    .clipShape(Capsule())
+                    .frame(maxWidth: .infinity, alignment: .topTrailing)
+                    .padding([.top, .trailing], 8)
+                }
+
                 // Bottom-Right Translucent Heart Button
                 VStack {
                     Spacer()
@@ -1156,5 +1262,208 @@ struct HomeView: View {
         } catch {
             print("HomeView fetchShowcases error: \(error)")
         }
+    }
+
+    private func fetchSizeDeals() async {
+        let size = prefsManager.preferences.preferredShoeSize
+        guard !size.isEmpty else { return }
+        let deals = await api.getSizeDeals(size: size, minDiscount: Double(prefsManager.preferences.minDiscountThreshold), limit: 12)
+        await MainActor.run {
+            withAnimation(.easeInOut(duration: 0.28)) {
+                self.sizeDeals = deals
+            }
+        }
+    }
+
+    // MARK: - Smart Section: "Nella tua taglia EU {size}"
+
+    private var sizeDealsSection: some View {
+        let size = prefsManager.preferences.preferredShoeSize
+        guard !sizeDeals.isEmpty else { return AnyView(EmptyView()) }
+
+        return AnyView(
+            VStack(alignment: .leading, spacing: 12) {
+                // Section Header
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text("Nella tua taglia EU \(size)")
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+
+                            Text("Disponibili subito")
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .foregroundColor(Color(red: 22/255, green: 101/255, blue: 52/255))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color(red: 220/255, green: 252/255, blue: 231/255))
+                                .clipShape(Capsule())
+                        }
+
+                        Text("Le migliori occasioni verificate in magazzino nei negozi partner")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(Color(red: 110/255, green: 112/255, blue: 125/255))
+                    }
+
+                    Spacer()
+
+                    Button(action: { showingAccountSheet = true }) {
+                        HStack(spacing: 3) {
+                            Text("Modifica")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundColor(.shopPurple)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.shopPurple)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+
+                // Horizontal Carousel of Size Deals
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(sizeDeals) { prod in
+                            let matched = prod.toMatchedProduct(storeId: prod.brand ?? "store", storeName: prod.brand ?? "FitMatch Partner")
+                            sizeDealCard(product: prod, matchedProduct: matched, shoeSize: size)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 2)
+                }
+            }
+        )
+    }
+
+    private func sizeDealCard(product: StoreShowcaseProduct, matchedProduct: MatchedProduct, shoeSize: String) -> some View {
+        NavigationLink(destination: ProductDetailView(product: matchedProduct)) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Image box with discount pill, size pill, and heart button
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color(red: 246/255, green: 247/255, blue: 250/255))
+                        .frame(width: 154, height: 140)
+
+                    // Product Image Centered
+                    VStack {
+                        Spacer()
+                        if let imgUrl = product.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
+                            ShopCachedAsyncImage(url: url) { phase in
+                                if let img = phase.image {
+                                    img
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 124, height: 110)
+                                } else {
+                                    ShopSkeletonBlock(cornerRadius: 12, width: 124, height: 110)
+                                }
+                            }
+                        } else {
+                            Image(systemName: "tag.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
+                        }
+                        Spacer()
+                    }
+                    .frame(width: 154, height: 140)
+
+                    // Top-Left Discount Pill
+                    if let disc = product.discount_pct, disc > 0 {
+                        Text(String(format: "-%.0f%%", disc))
+                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color(red: 225/255, green: 29/255, blue: 72/255))
+                            .clipShape(Capsule())
+                            .padding([.top, .leading], 8)
+                    }
+
+                    // Top-Right Size Pill
+                    HStack(spacing: 2.5) {
+                        Circle()
+                            .fill(Color(red: 34/255, green: 197/255, blue: 94/255))
+                            .frame(width: 4.5, height: 4.5)
+                        Text("EU \(shoeSize)")
+                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                            .foregroundColor(Color(red: 22/255, green: 101/255, blue: 52/255))
+                    }
+                    .padding(.horizontal, 5.5)
+                    .padding(.vertical, 2.5)
+                    .background(Color.white.opacity(0.92))
+                    .clipShape(Capsule())
+                    .shadow(color: Color.black.opacity(0.04), radius: 3, y: 1)
+                    .frame(maxWidth: .infinity, alignment: .topTrailing)
+                    .padding([.top, .trailing], 8)
+
+                    // Bottom-Right Heart Button
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                let gen = UIImpactFeedbackGenerator(style: .medium)
+                                gen.impactOccurred()
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                                    wishlist.toggleFavorite(product: matchedProduct)
+                                }
+                            }) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.white.opacity(0.92))
+                                        .frame(width: 28, height: 28)
+                                        .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
+
+                                    Image(systemName: wishlist.isFavorite(matchedProduct.canonical_name) ? "heart.fill" : "heart")
+                                        .font(.system(size: 11.5, weight: .bold))
+                                        .foregroundColor(wishlist.isFavorite(matchedProduct.canonical_name) ? Color(red: 239/255, green: 68/255, blue: 68/255) : Color(red: 90/255, green: 90/255, blue: 95/255))
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .padding([.bottom, .trailing], 8)
+                        }
+                    }
+                    .frame(width: 154, height: 140)
+                }
+
+                // Info Box
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 5) {
+                        Text(String(format: "%.2f €", product.current_price).replacingOccurrences(of: ".", with: ","))
+                            .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                            .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+
+                        if let orig = product.original_price, orig > product.current_price {
+                            Text(String(format: "%.2f €", orig).replacingOccurrences(of: ".", with: ","))
+                                .font(.system(size: 10.5, weight: .regular))
+                                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                                .strikethrough()
+                        }
+                    }
+
+                    Text(product.title)
+                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                        .foregroundColor(Color(red: 40/255, green: 40/255, blue: 45/255))
+                        .lineLimit(1)
+
+                    Text(product.effectiveBrand)
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundColor(Color(red: 120/255, green: 122/255, blue: 135/255))
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            }
+            .frame(width: 154)
+            .background(Color.white)
+            .cornerRadius(20)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
     }
 }

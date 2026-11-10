@@ -1203,6 +1203,63 @@ class Database:
 
             return result
 
+    def get_size_deals(
+        self,
+        size: str,
+        min_discount: int = 20,
+        limit: int = 12,
+        favorite_brands: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Return top deals across stores for a specific user size."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_size_deals(size=size, min_discount=min_discount, limit=limit, favorite_brands=favorite_brands)
+            except Exception as e:
+                logger.error(f"[Database] Error get_size_deals from Supabase: {e}")
+        return []
+
+    def get_personalized_feed(
+        self,
+        device_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        shoe_size: Optional[str] = None,
+        apparel_size: Optional[str] = None,
+        brands: Optional[List[str]] = None,
+        sports: Optional[List[str]] = None,
+        min_discount: int = 20,
+        limit_per_store: int = 12
+    ) -> Dict[str, Any]:
+        """Return personalized feed with ranked stores, size-matched deals, and re-ranked products."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_personalized_feed(
+                    device_id=device_id,
+                    user_id=user_id,
+                    shoe_size=shoe_size,
+                    apparel_size=apparel_size,
+                    brands=brands,
+                    sports=sports,
+                    min_discount=min_discount,
+                    limit_per_store=limit_per_store
+                )
+            except Exception as e:
+                logger.error(f"[Database] Error get_personalized_feed from Supabase: {e}")
+
+        # Fallback to standard store showcases
+        base_showcases = self.get_store_showcases(limit_per_store=limit_per_store)
+        return {
+            "user_context": {
+                "shoe_size": shoe_size or "42",
+                "apparel_size": apparel_size or "M",
+                "favorite_brands": brands or [],
+                "selected_sports": sports or [],
+                "min_discount": min_discount,
+                "followed_stores_count": 0
+            },
+            "size_deals": [],
+            "showcases": base_showcases
+        }
+
     def get_store_details(self, store_id: str, query: str = "", sort: str = "discount", limit: int = 100) -> Optional[Dict[str, Any]]:
         """Return full merchant details, trust badges, stats, and indexed catalog for a store."""
         if self.use_supabase and self.supabase:

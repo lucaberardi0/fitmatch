@@ -1831,6 +1831,220 @@ class SupabaseClient:
         # Prioritize official flagship stores first (Nike, Adidas), then by total real offers
         return sorted(result, key=lambda s: (0 if s["store_id"] in ("nike", "adidas") else 1, -s["total_offers"]))
 
+    def get_size_deals(
+        self,
+        size: str,
+        min_discount: int = 20,
+        limit: int = 12,
+        favorite_brands: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Fetch top discounted offers across all partner stores available in user's size."""
+        clean_size = str(size).strip()
+        if not clean_size:
+            return []
+
+        enc_size = urllib.parse.quote(f'["{clean_size}"]')
+        url = (
+            f"store_offers?available_sizes=cs.{enc_size}"
+            f"&discount_pct=gte.{min_discount}"
+            f"&image_url=not.is.null"
+            f"&order=discount_pct.desc.nullslast"
+            f"&limit={limit * 2}"
+            f"&select=id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier,products(id,canonical_name,brand,category)"
+        )
+        resp = self._request(url)
+        rows = resp.get("data") or []
+        if not rows and min_discount > 10:
+            url_fallback = (
+                f"store_offers?available_sizes=cs.{enc_size}"
+                f"&discount_pct=gte.10"
+                f"&image_url=not.is.null"
+                f"&order=discount_pct.desc.nullslast"
+                f"&limit={limit}"
+                f"&select=id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier,products(id,canonical_name,brand,category)"
+            )
+            rows = self._request(url_fallback).get("data") or []
+
+        from fitmatch.matcher.normalizer import ProductNormalizer
+        normalizer = ProductNormalizer()
+
+        deals = []
+        for r in rows:
+            p_obj = r.get("products") or {}
+            brand = normalizer.extract_brand(r.get("raw_title") or "") or p_obj.get("brand") or r.get("store_name")
+            cur_price = float(r.get("current_price") or 0.0)
+            orig_price = float(r.get("original_price") or 0.0) if r.get("original_price") else None
+            disc = float(r.get("discount_pct") or 0.0) if r.get("discount_pct") else None
+            ship_cost = float(r.get("shipping_cost") or 0.0) if r.get("shipping_cost") is not None else 0.0
+
+            deals.append({
+                "id": r.get("id"),
+                "product_id": r.get("product_id") or p_obj.get("id"),
+                "title": r.get("raw_title"),
+                "canonical_name": p_obj.get("canonical_name") or r.get("raw_title"),
+                "brand": brand,
+                "current_price": cur_price,
+                "original_price": orig_price,
+                "discount_pct": disc,
+                "product_url": r.get("product_url"),
+                "image_url": clean_image_url(r.get("image_url")),
+                "available_sizes": normalize_sizes(r.get("available_sizes")),
+                "store_id": r.get("store_id"),
+                "store_name": r.get("store_name"),
+                "shipping_cost": ship_cost,
+                "total_price": round(cur_price + ship_cost, 2),
+                "is_free_shipping": ship_cost == 0.0,
+                "shipping_label": "Sped. Gratis" if ship_cost == 0.0 else f"+ {ship_cost:.2f} €",
+                "free_shipping_threshold": r.get("free_shipping_threshold"),
+                "courier": r.get("courier")
+            })
+            if len(deals) >= limit:
+                break
+        return deals
+
+    def get_personalized_feed(
+        self,
+        device_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        shoe_size: Optional[str] = None,
+        apparel_size: Optional[str] = None,
+        brands: Optional[List[str]] = None,
+        sports: Optional[List[str]] = None,
+        min_discount: int = 20,
+        limit_per_store: int = 12
+    ) -> Dict[str, Any]:
+        """Generate an AI/heuristic personalized home feed: ranked stores, size-matched products, and tailored deals."""
+        user_pref = {}
+        followed_stores = set()
+        hidden_stores = set()
+        recent_brands = set()
+        recent_store_ids = set()
+
+        id_filter = None
+        if user_id:
+            id_filter = f"user_id=eq.{user_id}"
+        elif device_id:
+            id_filter = f"device_id=eq.{device_id}"
+
+        if id_filter:
+            pref_resp = self._request(f"user_preferences?{id_filter}&limit=1")
+            if pref_resp.get("data"):
+                user_pref = pref_resp["data"][0]
+
+            fol_resp = self._request(f"followed_stores?{id_filter}&select=store_id")
+            for f in fol_resp.get("data") or []:
+                if f.get("store_id"):
+                    followed_stores.add(f["store_id"].lower())
+
+            hid_resp = self._request(f"hidden_stores?{id_filter}&select=store_id")
+            for h in hid_resp.get("data") or []:
+                if h.get("store_id"):
+                    hidden_stores.add(h["store_id"].lower())
+
+            act_resp = self._request(f"recent_activity?{id_filter}&order=created_at.desc&limit=25")
+            for a in act_resp.get("data") or []:
+                if a.get("store_id"):
+                    recent_store_ids.add(a["store_id"].lower())
+                if a.get("title"):
+                    from fitmatch.matcher.normalizer import ProductNormalizer
+                    b = ProductNormalizer().extract_brand(a["title"])
+                    if b:
+                        recent_brands.add(b.lower())
+
+        pref_sizes = user_pref.get("preferred_sizes") or []
+        eff_shoe_size = shoe_size or (pref_sizes[0] if len(pref_sizes) > 0 else "42")
+        eff_apparel_size = apparel_size or (pref_sizes[1] if len(pref_sizes) > 1 else "M")
+
+        eff_brands = set([b.lower() for b in brands] if brands else [b.lower() for b in (user_pref.get("favorite_brands") or [])])
+        eff_brands.update(recent_brands)
+
+        eff_sports = [s.lower() for s in sports] if sports else [s.lower() for s in (user_pref.get("selected_sports") or [])]
+
+        size_deals = self.get_size_deals(
+            size=eff_shoe_size,
+            min_discount=min_discount,
+            limit=limit_per_store,
+            favorite_brands=list(eff_brands)
+        )
+
+        base_showcases = self.get_store_showcases(limit_per_store=limit_per_store)
+
+        ranked_showcases = []
+        for sc in base_showcases:
+            sid = sc["store_id"].lower()
+            if sid in hidden_stores:
+                continue
+
+            store_score = 0.0
+            is_followed = sid in followed_stores
+            if is_followed:
+                store_score += 180.0
+            if sid in ("nike", "adidas") and any(b in sid for b in eff_brands):
+                store_score += 80.0
+            if sid in recent_store_ids:
+                store_score += 40.0
+
+            prods = sc.get("products", [])
+            scored_prods = []
+            for p in prods:
+                p_score = 0.0
+                p_sizes = p.get("available_sizes") or []
+                clean_p_sizes = [str(x).strip().lower() for x in p_sizes]
+
+                if eff_shoe_size.lower() in clean_p_sizes:
+                    p_score += 90.0
+                elif eff_apparel_size.lower() in clean_p_sizes:
+                    p_score += 60.0
+
+                p_brand = (p.get("brand") or "").lower()
+                p_title = (p.get("title") or "").lower()
+                if any(b in p_brand or b in p_title for b in eff_brands if b):
+                    p_score += 50.0
+
+                for sp in eff_sports:
+                    if "trail" in sp and "trail" in p_title:
+                        p_score += 35.0
+                    elif ("corsa" in sp or "running" in sp) and ("running" in p_title or "corsa" in p_title or "pegasus" in p_title or "nimbus" in p_title):
+                        p_score += 35.0
+                    elif ("fitness" in sp or "palestra" in sp) and ("training" in p_title or "gym" in p_title or "fitness" in p_title):
+                        p_score += 35.0
+
+                disc = float(p.get("discount_pct") or 0.0)
+                if disc >= min_discount:
+                    p_score += 20.0
+                p_score += disc * 0.5
+
+                scored_prods.append((p_score, p))
+
+            high_rel_count = sum(1 for s, _ in scored_prods if s >= 80.0)
+            store_score += high_rel_count * 10.0
+            store_score += float(sc.get("rating") or 4.8) * 5.0
+            store_score += min(float(sc.get("avg_discount") or 0.0), 50.0) * 0.3
+
+            scored_prods.sort(key=lambda x: (x[0], float(x[1].get("discount_pct") or 0.0)), reverse=True)
+            reordered_products = [item[1] for item in scored_prods]
+
+            sc_copy = dict(sc)
+            sc_copy["products"] = reordered_products
+            sc_copy["is_followed"] = is_followed
+            ranked_showcases.append((store_score, sc_copy))
+
+        ranked_showcases.sort(key=lambda x: (x[0], x[1].get("total_offers", 0)), reverse=True)
+        final_showcases = [x[1] for x in ranked_showcases]
+
+        return {
+            "user_context": {
+                "shoe_size": eff_shoe_size,
+                "apparel_size": eff_apparel_size,
+                "favorite_brands": list(eff_brands),
+                "selected_sports": eff_sports,
+                "min_discount": min_discount,
+                "followed_stores_count": len(followed_stores)
+            },
+            "size_deals": size_deals,
+            "showcases": final_showcases
+        }
+
     # MARK: - Wishlist & Collections
 
     def get_wishlist(self, collection_name: Optional[str] = None) -> List[Dict[str, Any]]:
