@@ -156,7 +156,7 @@ struct Offer: Identifiable, Codable, Hashable {
 
     func normalizedSizes() -> [String] {
         guard let sizes = available_sizes, !sizes.isEmpty else { return [] }
-        return sizes.map { s in
+        return sizes.compactMap { s in
             var clean = s.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
             clean = clean.replacingOccurrences(of: "EU ", with: "")
             clean = clean.replacingOccurrences(of: " EU", with: "")
@@ -164,13 +164,16 @@ struct Offer: Identifiable, Codable, Hashable {
             clean = clean.replacingOccurrences(of: " 1/2", with: ".5")
             clean = clean.replacingOccurrences(of: " 2/3", with: ".5")
             clean = clean.replacingOccurrences(of: " 1/3", with: ".5")
+            clean = clean.replacingOccurrences(of: ".2/3", with: ".5")
+            clean = clean.replacingOccurrences(of: ".1/3", with: ".5")
             if let dashIdx = clean.range(of: "- ")?.upperBound {
                 clean = String(clean[dashIdx...]).trimmingCharacters(in: .whitespaces)
             }
             if let parenIdx = clean.firstIndex(of: "(") {
                 clean = String(clean[..<parenIdx]).trimmingCharacters(in: .whitespaces)
             }
-            return clean.trimmingCharacters(in: .whitespaces)
+            clean = clean.trimmingCharacters(in: .whitespaces)
+            return clean.isEmpty ? nil : clean
         }
     }
 
@@ -183,10 +186,11 @@ struct Offer: Identifiable, Codable, Hashable {
         if normSizes.contains(normTarget) { return true }
 
         let euToUs: [String: String] = [
-            "36": "4.5", "37": "5", "37.5": "5.5", "38": "6", "38.5": "6",
-            "39": "6.5", "40": "7", "40.5": "7.5", "41": "8", "42": "8.5",
-            "42.5": "9", "43": "9.5", "44": "10", "44.5": "10.5", "45": "11",
-            "45.5": "11.5", "46": "12", "47": "12.5", "47.5": "13", "48": "13.5"
+            "36": "4.5", "36.5": "5", "37": "5", "37.5": "5.5", "38": "6", "38.5": "6",
+            "39": "6.5", "39.5": "7", "40": "7", "40.5": "7.5", "41": "8", "41.5": "8.5", "42": "8.5",
+            "42.5": "9", "43": "9.5", "43.5": "10", "44": "10", "44.5": "10.5", "45": "11",
+            "45.5": "11.5", "46": "12", "46.5": "12.5", "47": "12.5", "47.5": "13", "48": "13.5",
+            "48.5": "14", "49": "14.5"
         ]
         let usToEu = Dictionary(euToUs.map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
 
@@ -397,11 +401,8 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
     var allAvailableSizes: [String] {
         var set = Set<String>()
         for offer in offers {
-            if let sizes = offer.available_sizes {
-                for s in sizes {
-                    let cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
-                    if !cleaned.isEmpty { set.insert(cleaned) }
-                }
+            for s in offer.normalizedSizes() {
+                if !s.isEmpty { set.insert(s) }
             }
         }
         if set.isEmpty {

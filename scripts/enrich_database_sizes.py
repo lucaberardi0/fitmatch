@@ -87,17 +87,6 @@ def extract_sizes_for_offer(scraper, store_id: str, purl: str, raw_title: str) -
     except Exception as e:
         logger.debug(f"Error fetching sizes for {purl}: {e}")
 
-    # Fallback if scraper returned empty but it's an in-stock shoe or apparel
-    if not sizes and clean_sid == "nencini" and raw_title:
-        tl = raw_title.lower()
-        if any(w in tl for w in ["shoe", "scarpe", "scarpa", "running", "men", "woman", "uomo", "donna"]):
-            if any(w in tl for w in ["woman", "donna", "women"]):
-                sizes = ["37", "38", "38.5", "39", "40", "40.5", "41"]
-            else:
-                sizes = ["40", "41", "42", "42.5", "43", "44", "44.5", "45"]
-        elif any(w in tl for w in ["pant", "lupetto", "maglia", "t-shirt", "felpa"]):
-            sizes = ["S", "M", "L", "XL"]
-
     if sizes:
         return normalize_sizes(sizes)
     return []

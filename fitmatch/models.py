@@ -25,11 +25,41 @@ EU_TO_US_MEN = {
     "45.5": "11.5", "46": "12", "46.5": "12", "47": "12.5", "47.5": "13", "48": "13.5",
     "48.5": "14", "49": "14.5"
 }
-US_TO_EU_MEN = {v: k for k, v in EU_TO_US_MEN.items()}
+
+US_TO_EU_MEN = {
+    "4": "36", "4.0": "36", "4.5": "36.5",
+    "5": "37.5", "5.0": "37.5", "5.5": "38",
+    "6": "38.5", "6.0": "38.5", "6.5": "39",
+    "7": "40", "7.0": "40", "7.5": "40.5",
+    "8": "41", "8.0": "41", "8.5": "42",
+    "9": "42.5", "9.0": "42.5", "9.5": "43",
+    "10": "44", "10.0": "44", "10.5": "44.5",
+    "11": "45", "11.0": "45", "11.5": "45.5",
+    "12": "46", "12.0": "46", "12.5": "46.5",
+    "13": "47.5", "13.0": "47.5", "13.5": "48",
+    "14": "48.5", "14.0": "48.5", "14.5": "49",
+    "15": "49.5", "15.0": "49.5", "16": "50.5", "16.0": "50.5"
+}
+
+CLOTHING_ORDER = {
+    "4XS": 1, "3XS": 2, "2XS": 3, "XXS": 4, "XS": 5,
+    "S": 6, "M": 7, "L": 8, "XL": 9, "XXL": 10, "2XL": 10,
+    "3XL": 11, "4XL": 12, "5XL": 13,
+    "UNICA": 90, "ONE SIZE": 90, "TU": 90
+}
+
+RE_INVALID_SIZE = re.compile(
+    r"(?i)\b("
+    r"selezion|scegli|tagli[ae]|misur[ae]|guida|vedere|esaurit[oa]|"
+    r"out of stock|non disponibil[ei]|terminat[oa]|disponibil[ei]|"
+    r"roulement|pi[eè]ces|options?|cat[1-4]|prizm|lens|mm|cm|trous|"
+    r"teeth|denti|pollici|inch|ann[io]|years?|mois|mesi|default|nd_"
+    r")\b"
+)
 
 
 def normalize_sizes(raw_sizes: Any) -> List[str]:
-    """Standardizes shoe and apparel sizes, converting US to EU when applicable and sorting numerically."""
+    """Standardizes shoe and apparel sizes, strictly verifying validity, converting US to EU and sorting numerically."""
     if not raw_sizes:
         return []
     if isinstance(raw_sizes, str):
@@ -42,43 +72,55 @@ def normalize_sizes(raw_sizes: Any) -> List[str]:
         return []
 
     eu_sizes = set()
-    clothing_order = {"XXS": 1, "XS": 2, "S": 3, "M": 4, "L": 5, "XL": 6, "XXL": 7, "2XL": 7, "3XL": 8}
     clothing_sizes = []
 
     for item in raw_sizes:
         if not item:
             continue
         s_str = str(item).strip()
-
-        # Check apparel
-        s_upper = s_str.upper()
-        if s_upper in clothing_order:
-            clothing_sizes.append(s_upper)
+        if not s_str or len(s_str) > 40:
             continue
 
-        # Extract from dual formats like "6,5 US - 37,5" or "8 US - 41 EU"
-        dual_m = re.search(r"-\s*(\d+(?:[.,]\d+)?)\s*(?:EU)?$", s_str, re.IGNORECASE)
-        if dual_m:
-            s_str = dual_m.group(1)
+        # Check One Size
+        if re.match(r"(?i)^(?:taglia\s+unica|one\s+size|unica|uni|tu|t\.u)$", s_str):
+            clothing_sizes.append("Unica")
+            continue
 
-        # Extract from Decathlon format "46 (UK 11)" or "40.5 (UK 7)"
+        # Check invalid keywords / placeholders / dimension parts
+        if RE_INVALID_SIZE.search(s_str):
+            continue
+
+        # Check dual UK-EU format like '10 UK - 44.5' or '7.5 UK - 41.5'
+        uk_eu_m = re.search(r"-\s*(\d+(?:[.,]\d+)?)\s*(?:EU)?$", s_str, re.IGNORECASE)
+        if uk_eu_m:
+            s_str = uk_eu_m.group(1)
+
+        # Decathlon format '46 (UK 11)' or '40.5 (UK 7)'
         uk_m = re.search(r"^(\d+(?:[.,]\d+)?)\s*\([^\)]*\)", s_str)
         if uk_m:
             s_str = uk_m.group(1)
 
-        # Handle fractions & European conventions "EU 42 1/2", "42 1/2", "42.1/2", "42 2/3", "42 1/3"
-        s_str = re.sub(r"\bEU\b", "", s_str, flags=re.IGNORECASE).strip()
-        s_str = re.sub(r"(\d+)\.1/2", r"\1.5", s_str)
-        s_str = re.sub(r"(\d+)\s+1/2", r"\1.5", s_str)
-        s_str = re.sub(r"(\d+)\s+2/3", r"\1.5", s_str)
-        s_str = re.sub(r"(\d+)\s+1/3", r"\1.5", s_str)
+        # Apparel with size label e.g. 'M (IT 44-46)', 'L (56-62 cm)'
+        cloth_m = re.match(r"^([XSLM]+|[234]XL)\b", s_str, re.IGNORECASE)
+        if cloth_m and cloth_m.group(1).upper() in CLOTHING_ORDER:
+            clothing_sizes.append(cloth_m.group(1).upper())
+            continue
 
-        # Handle explicit US prefix "US 9.5" or "US 10"
-        us_prefix_m = re.search(r"\bUS\s*(\d+(?:[.,]\d+)?)\b", s_str, re.IGNORECASE)
-        if us_prefix_m:
-            us_val = us_prefix_m.group(1).replace(",", ".")
-            if us_val in US_TO_EU_MEN:
-                eu_sizes.add(US_TO_EU_MEN[us_val])
+        # Standalone clothing
+        if s_str.upper() in CLOTHING_ORDER:
+            clothing_sizes.append(s_str.upper())
+            continue
+
+        # Fractions e.g. 42 2/3, 41 1/3, 42.1/2, 42 1/2
+        s_str = re.sub(r"\bEU\b", "", s_str, flags=re.IGNORECASE).strip()
+        s_str = re.sub(r"(\d+)[.\s]+(?:1/2|1/3|2/3)", r"\1.5", s_str)
+
+        # Explicit US prefix/suffix e.g. 'US 9.5', '9.5 US'
+        us_m = re.search(r"(?:\bUS\s*(\d+(?:[.,]\d+)?)\b)|(?:(\d+(?:[.,]\d+)?)\s*US\b)", s_str, re.IGNORECASE)
+        if us_m:
+            val_str = (us_m.group(1) or us_m.group(2)).replace(",", ".")
+            if val_str in US_TO_EU_MEN:
+                eu_sizes.add(US_TO_EU_MEN[val_str])
                 continue
 
         s_clean = s_str.replace(",", ".").rstrip(".").strip()
@@ -93,26 +135,14 @@ def normalize_sizes(raw_sizes: Any) -> List[str]:
                     eu_sizes.add(US_TO_EU_MEN[s_key])
                 elif s_clean in US_TO_EU_MEN:
                     eu_sizes.add(US_TO_EU_MEN[s_clean])
-                else:
-                    approx_eu = round((val + 33.5) * 2) / 2
-                    fmt = f"{approx_eu:.1f}" if approx_eu % 1 != 0 else f"{int(approx_eu)}"
-                    eu_sizes.add(fmt)
-            elif val > 0:
-                fmt = f"{val:.1f}" if val % 1 != 0 else f"{int(val)}"
-                eu_sizes.add(fmt)
         except ValueError:
-            eu_sizes.add(s_clean)
+            pass
 
     if eu_sizes:
-        def size_sort_key(s):
-            try:
-                return (0, float(s))
-            except ValueError:
-                return (1, s)
-        return sorted(list(eu_sizes), key=size_sort_key)
+        return sorted(list(eu_sizes), key=lambda s: (0, float(s)))
 
     if clothing_sizes:
-        return sorted(list(set(clothing_sizes)), key=lambda x: clothing_order.get(x, 99))
+        return sorted(list(set(clothing_sizes)), key=lambda x: CLOTHING_ORDER.get(x, 99))
 
     return []
 

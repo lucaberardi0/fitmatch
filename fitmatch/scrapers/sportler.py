@@ -138,21 +138,7 @@ class SportlerScraper(BaseScraper):
             title = f"{brand} {title}"
 
         # 2. Extract in-stock sizes
-        soup = BeautifulSoup(html, "html.parser")
-        sizes: List[str] = []
-        size_select = soup.find("select", id=re.compile(r"filterorig_size", re.I))
-        if size_select:
-            for opt in size_select.find_all("option"):
-                raw_s = opt.get_text(strip=True)
-                clean_s = re.sub(r"(?i)\s*(?:us|eu|uk)\b", "", raw_s).strip().replace(",", ".")
-                if clean_s:
-                    sizes.append(clean_s)
-        else:
-            size_inp = soup.find("input", id=re.compile(r"filterorig_size", re.I))
-            if size_inp and size_inp.get("value"):
-                clean_s = re.sub(r"(?i)\s*(?:us|eu|uk)\b", "", size_inp["value"]).strip().replace(",", ".")
-                if clean_s and clean_s.lower() != "no size":
-                    sizes.append(clean_s)
+        sizes = self.fetch_sizes(url, html=html)
 
         # 3. High quality image if available
         og_img = soup.find("meta", property="og:image")
@@ -174,3 +160,34 @@ class SportlerScraper(BaseScraper):
             available_sizes=normalize_sizes(sizes),
             in_stock=True
         )
+
+    def fetch_sizes(self, product_url: str, html: Optional[str] = None) -> List[str]:
+        """Extract verified in-stock sizes from Sportler PDP."""
+        try:
+            if not html:
+                html = self._fetch_html(product_url)
+            if not html:
+                return []
+            soup = BeautifulSoup(html, "html.parser")
+            sizes: List[str] = []
+            size_select = soup.find("select", id=re.compile(r"filterorig_size", re.I))
+            if size_select:
+                for opt in size_select.find_all("option"):
+                    if opt.has_attr("disabled") or "disabled" in opt.get("class", []):
+                        continue
+                    raw_s = opt.get_text(strip=True)
+                    if not raw_s or any(w in raw_s.lower() for w in ["seleziona", "scegli", "taglia", "esaurito", "non disponibile"]):
+                        continue
+                    clean_s = re.sub(r"(?i)\s*(?:us|eu|uk)\b", "", raw_s).strip().replace(",", ".")
+                    if clean_s:
+                        sizes.append(clean_s)
+            else:
+                size_inp = soup.find("input", id=re.compile(r"filterorig_size", re.I))
+                if size_inp and size_inp.get("value"):
+                    clean_s = re.sub(r"(?i)\s*(?:us|eu|uk)\b", "", size_inp["value"]).strip().replace(",", ".")
+                    if clean_s and clean_s.lower() not in ["no size", "senza taglia"]:
+                        sizes.append(clean_s)
+            return normalize_sizes(sizes)
+        except Exception as e:
+            logger.debug(f"[Sportler] fetch_sizes error on {product_url}: {e}")
+            return []

@@ -103,18 +103,26 @@ class AlltricksScraper(BaseScraper):
         return offers
 
     def fetch_sizes(self, product_url: str) -> List[str]:
-        """Fetch available in-stock sizes from Alltricks product detail page."""
+        """Fetch verified in-stock sizes from Alltricks product detail page."""
         try:
             html = self._fetch_html(product_url)
             if not html:
                 return []
             soup = BeautifulSoup(html, "html.parser")
-            sel = soup.select_one("select[name=\"product_id\"]")
+            sel = soup.select_one('select[name="product_id"]')
             if not sel:
                 return []
             sizes = []
             for opt in sel.select("option"):
-                txt = opt.get_text(strip=True)
+                val = opt.get("value", "").strip()
+                if not val:
+                    continue
+                if opt.has_attr("disabled") or "disabled" in opt.get("class", []):
+                    continue
+                stock_label = opt.get("data-stock-label", "").lower()
+                if any(w in stock_label for w in ["esaurito", "epuis", "out of stock", "non disponib"]):
+                    continue
+                txt = opt.get("data-label") or opt.get_text(strip=True)
                 if txt and not any(w in txt.lower() for w in ["taglia", "select", "seleziona"]):
                     sizes.append(txt)
             return normalize_sizes(sizes)

@@ -75,10 +75,6 @@ class AdidasScraper(BaseScraper):
                 sizes = normalize_sizes(raw_sizes)
                 in_stock = p.get("orderable", True)
 
-                # If Adidas taxonomy API omits size breakdown for in-stock item, infer standard curve
-                if not sizes and in_stock:
-                    sizes = self.infer_standard_sizes(name, link, p.get("category"), p.get("subTitle"))
-
                 offers.append(
                     Offer(
                         store_id=self.store_id,
@@ -103,35 +99,6 @@ class AdidasScraper(BaseScraper):
 
         return offers
 
-    def infer_standard_sizes(
-        self,
-        title: str,
-        url_or_link: str = "",
-        category: Optional[str] = None,
-        subtitle: Optional[str] = None
-    ) -> List[str]:
-        """Infer typical Adidas EU size curves based on product category and gender."""
-        context = f"{title} {url_or_link} {category or ''} {subtitle or ''}".lower()
-        is_women = any(w in context for w in ["donna", "women", "wmns", "femme"])
-        is_apparel = any(w in context for w in [
-            "apparel", "abbigliamento", "t-shirt", "maglia", "pantalon", "short",
-            "giacca", "felpa", "tight", "top", "bra", "calzamaglia"
-        ])
-        is_shoe = any(w in context for w in [
-            "shoes", "scarpe", "scarpa", "shoe", "adizero", "adios", "running",
-            "supernova", "boston", "prime", "takumi", "sl20", "ultraboost"
-        ]) and not is_apparel
-
-        if is_shoe:
-            if is_women:
-                return ["36", "36.5", "37.5", "38", "38.5", "39.5", "40", "40.5", "41.5", "42"]
-            else:
-                return ["40", "40.5", "41.5", "42", "42.5", "43.5", "44", "44.5", "45.5", "46", "46.5", "47.5"]
-        elif is_apparel:
-            return ["XS", "S", "M", "L", "XL"]
-        else:
-            return ["40", "40.5", "41.5", "42", "42.5", "43.5", "44", "44.5", "45.5", "46"]
-
     def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
-        """Extract or estimate available sizes for Adidas products."""
-        return self.infer_standard_sizes(title or "", product_url)
+        """Extract available sizes for Adidas products. Returns empty list when unverified to prevent false stock."""
+        return []

@@ -1,3 +1,5 @@
+import re
+import json
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
@@ -130,15 +132,61 @@ class NenciniSportScraper(BaseScraper):
         return offers
 
     def fetch_sizes(self, product_url: str) -> List[str]:
-        """Extract available sizes from Nencini product detail page."""
+        """Extract verified in-stock sizes from Nencini product detail page."""
         self._ensure_session()
         html = self._fetch_html(product_url)
         if not html:
             return []
         soup = BeautifulSoup(html, "html.parser")
-        sizes = [
-            el.get_text(strip=True).replace(",", ".")
-            for el in soup.select(".gescat_detail_info_size .desc_size")
-            if el.get_text(strip=True)
-        ]
-        return normalize_sizes(sizes)
+
+        # 1. Parse window.tipiTaglia mapping if present
+        m = re.search(r"window\.tipiTaglia\s*=\s*(\{.*?\});\s*(?:window|\n|<)", html, re.DOTALL)
+        eu_map = {}
+        if m:
+            try:
+                data = json.loads(m.group(1))
+                if "EU" in data:
+                    for entry in data["EU"]:
+                        attr_id = entry.get("attributi_dettaglio_ID")
+                        eu_val = entry.get("descr")
+                        if attr_id and eu_val:
+                            eu_map[str(attr_id)] = eu_val
+            except Exception:
+                pass
+
+        active_switch = soup.select_one(".detail_switch_size_type_label.active")
+        active_system = active_switch.get("data-size-key", "").upper() if active_switch else ""
+
+        in_stock_sizes = []
+        for a in soup.select(".gescat_detail_info_size a"):
+            disp_str = a.get("data-disponibilita", "0")
+            try:
+                disp = int(disp_str)
+            except ValueError:
+                disp = 0
+            if disp <= 0:
+                continue
+
+            classes = a.get("class", [])
+            if any(c in classes for c in ["disabled", "non_disponibile", "esaurito"]):
+                continue
+
+            matched_eu = None
+            for c in classes:
+                if c.startswith("dettaglio-id-"):
+                    attr_id = c.replace("dettaglio-id-", "")
+                    if attr_id in eu_map:
+                        matched_eu = eu_map[attr_id]
+                        break
+
+            if matched_eu:
+                in_stock_sizes.append(matched_eu)
+            else:
+                desc_el = a.select_one(".desc_size")
+                if desc_el:
+                    txt = desc_el.get_text(strip=True)
+                    if active_system == "US" and not txt.upper().startswith("US"):
+                        txt = f"US {txt}"
+                    in_stock_sizes.append(txt)
+
+        return normalize_sizes(in_stock_sizes)

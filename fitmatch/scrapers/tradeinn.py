@@ -192,14 +192,14 @@ class TradeinnScraper(BaseScraper):
         return offers
 
     def fetch_sizes(self, product_url: str) -> List[str]:
-        """Extract available sizes from Tradeinn product detail page."""
+        """Extract verified in-stock sizes from Tradeinn product detail page."""
         try:
             html = self._fetch_html(product_url)
             if not html:
                 return []
-            matches = re.findall(r"\"size\"\s*:\s*\"([^\"]+)\"[^}]+?\"availability\"\s*:\s*\"https://schema\.org/InStock\"", html, re.DOTALL)
-            if not matches:
-                matches = re.findall(r"\"size\"\s*:\s*\"([^\"]+)\"", html)
+            p1 = r'\"size\"\s*:\s*\"([^\"]+)\"[^}]+?\"availability\"\s*:\s*\"https://schema\.org/InStock\"'
+            p2 = r'\"availability\"\s*:\s*\"https://schema\.org/InStock\"[^}]+?\"size\"\s*:\s*\"([^\"]+)\"'
+            matches = re.findall(p1, html, re.DOTALL) + re.findall(p2, html, re.DOTALL)
             return normalize_sizes(matches)
         except Exception as e:
             logger.debug(f"[Tradeinn] fetch_sizes error on {product_url}: {e}")
