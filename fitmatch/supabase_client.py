@@ -1028,7 +1028,7 @@ class SupabaseClient:
                 "url": o.get("product_url"),
                 "product_url": o.get("product_url"),
                 "image_url": off_img,
-                "gallery_images": off_gallery,
+                "gallery_images": None,
                 "title": o.get("raw_title") or c_name,
                 "raw_title": o.get("raw_title") or c_name,
                 "variant_name": extract_variant_title(o.get("raw_title")),
@@ -1073,14 +1073,14 @@ class SupabaseClient:
             "category": p.get("category"),
             "gender": p.get("gender", "Unisex"),
             "image_url": p_img,
-            "gallery_images": prod_gallery,
+            "gallery_images": prod_gallery[:6],
             "available_sizes": sorted_sizes,
             "offer_count": len(offers),
             "best_price": min_p,
             "max_price": max_p,
             "highest_price": max_p,
             "cross_store_savings": savings,
-            "offers": offers
+            "offers": offers[:10]
         }
 
     def get_embedding(self, text: str) -> Optional[List[float]]:
@@ -1201,7 +1201,9 @@ class SupabaseClient:
             if norm_size in US_TO_EU_MEN:
                 target_size_candidates.add(US_TO_EU_MEN[norm_size])
 
-        keywords_to_query = target_keywords[:12] if target_keywords else [""]
+        keywords_to_query = [k for k in (target_keywords or [""]) if k.strip()][:4]
+        if not keywords_to_query:
+            keywords_to_query = [""]
         from concurrent.futures import ThreadPoolExecutor
 
         def _fetch_kw(kw: str) -> List[Dict[str, Any]]:
@@ -1211,7 +1213,7 @@ class SupabaseClient:
                 prods = self.search_indexed(query=query_term, category=None, limit=limit)
             return prods
 
-        with ThreadPoolExecutor(max_workers=min(6, max(1, len(keywords_to_query)))) as executor:
+        with ThreadPoolExecutor(max_workers=min(4, max(1, len(keywords_to_query)))) as executor:
             kw_batches = list(executor.map(_fetch_kw, keywords_to_query))
 
         for prods in kw_batches:
@@ -1221,9 +1223,9 @@ class SupabaseClient:
                     seen_names.add(p_ident)
                     raw_results.append(p)
 
-        # Vector Semantic candidates via Supabase pgvector (only if lexical results are sparse or to enrich)
-        if target_keywords and len(raw_results) < limit:
-            sem_query = raw_query.strip() if raw_query and raw_query.strip() else " ".join([k for k in target_keywords[:4] if k.strip()])
+        # Vector Semantic candidates via Supabase pgvector (only if lexical results are very sparse < 4)
+        if target_keywords and len(raw_results) < 4:
+            sem_query = raw_query.strip() if raw_query and raw_query.strip() else " ".join([k for k in target_keywords[:2] if k.strip()])
             if sem_query:
                 sem_prods = self.search_semantic(query=sem_query, threshold=0.38, limit=limit)
                 for sp in sem_prods:

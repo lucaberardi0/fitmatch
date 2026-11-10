@@ -339,91 +339,25 @@ def search_smart(
             if QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=q)
         ]
 
-    # Live Multi-Store Federated Search Fallback:
-    # If local indexed DB returns 0 products for this smart query, immediately trigger live scrapers across retailers!
+    # Live Multi-Store Federated Search:
+    # If indexed catalog returns 0 products for this smart query, launch background multi-store scrapers
+    # and return fast recommendations without freezing the HTTP response!
     if not products:
         brand_names = {"nike", "adidas", "puma", "asics", "brooks", "saucony", "hoka", "mizuno", "on", "new balance", "salomon", "garmin"}
         candidate_kws = [k for k in (intent.target_keywords or []) if k.strip().lower() not in brand_names]
         queries_to_crawl = candidate_kws[:2] if len(candidate_kws) >= 2 else ([candidate_kws[0]] if candidate_kws else [q])
-        logger.info(f"[search_smart] 0 local products for '{q}'. Triggering fan-out live multi-store crawler for {queries_to_crawl}")
+        logger.info(f"[search_smart] 0 local products for '{q}'. Triggering asynchronous background crawler for {queries_to_crawl}")
 
-        from concurrent.futures import ThreadPoolExecutor
-        def _crawl_kw(kw: str):
-            eff_kw = f"{intent.brand} {kw}" if intent.brand and intent.brand.lower() not in kw.lower() else kw
-            try:
-                return service.search_and_compare(query=eff_kw, size=eff_size, limit_per_store=6, use_cache=True)
-            except Exception as e:
-                logger.error(f"[search_smart] Live crawl federation error for '{eff_kw}': {e}")
-                return None
+        import threading
+        def _bg_crawl_worker():
+            for kw in queries_to_crawl:
+                eff_kw = f"{intent.brand} {kw}" if intent.brand and intent.brand.lower() not in kw.lower() else kw
+                try:
+                    service.search_and_compare(query=eff_kw, size=eff_size, limit_per_store=4, use_cache=True)
+                except Exception as e:
+                    logger.warning(f"[search_smart] Background crawler warning for '{eff_kw}': {e}")
 
-        with ThreadPoolExecutor(max_workers=min(2, len(queries_to_crawl))) as executor:
-            crawl_results = list(executor.map(_crawl_kw, queries_to_crawl))
-
-        BIKE_HARDWARE = {"cuffie", "cuffia", "serie sterzo", "headset", "attacco manubrio", "supporto manubrio", "movimento centrale"}
-        is_bike_query = any(w in q.lower() for w in ["bici", "ciclismo", "sterzo", "cuffie", "headset", "bike"])
-
-        merged_prods = {}
-        for live_res in crawl_results:
-            if not live_res or not live_res.matched_products:
-                continue
-            for mp in live_res.matched_products:
-                mp_name = (mp.canonical_name or "").lower()
-                mp_brand = (mp.brand or "").lower()
-
-                # Brand strictness
-                if intent.brand:
-                    b_low = intent.brand.lower()
-                    if b_low not in mp_brand and b_low not in mp_name:
-                        continue
-
-                # Bike hardware exclusion
-                if not is_bike_query and any(bh in mp_name for bh in BIKE_HARDWARE):
-                    continue
-
-                if mp.canonical_name not in merged_prods:
-                    merged_prods[mp.canonical_name] = mp
-                    # Index into database so future searches are cached
-                    try:
-                        for off in mp.offers:
-                            cluster_key = ProductNormalizer.extract_cluster_key(off)
-                            brand = ProductNormalizer.extract_brand(off.title) or mp.brand or intent.brand
-                            canon_display = ProductNormalizer.build_canonical_display_name(off.title, brand=brand)
-                            cat = ProductNormalizer.detect_article_type(off.title)
-                            gend = ProductNormalizer.extract_gender(off.title, off.url)
-                            db.upsert_product_and_offer(
-                                cluster_key=cluster_key,
-                                canonical_name=canon_display or mp.canonical_name,
-                                brand=brand,
-                                category=cat,
-                                gender=gend,
-                                offer=off
-                            )
-                    except Exception as save_err:
-                        logger.warning(f"[search_smart] Failed to cache live offers: {save_err}")
-
-        if merged_prods:
-            candidate_live = [
-                {
-                    "id": mp.canonical_name,
-                    "canonical_name": mp.canonical_name,
-                    "brand": mp.brand or intent.brand,
-                    "category": eff_category or "running_shoes",
-                    "gender": intent.gender or "Unisex",
-                    "image_url": mp.image_url,
-                    "gallery_images": mp.gallery_images,
-                    "offer_count": len(mp.offers),
-                    "best_price": mp.best_price,
-                    "max_price": mp.highest_price,
-                    "offers": [o.model_dump() for o in mp.offers],
-                    "highest_price": mp.highest_price,
-                    "cross_store_savings": mp.cross_store_savings
-                }
-                for mp in merged_prods.values()
-            ]
-            products = [
-                p for p in candidate_live
-                if QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=q)
-            ]
+        threading.Thread(target=_bg_crawl_worker, daemon=True).start()
 
     # Helper to check if a section title/subtitle is locked to a specific brand
     SECTION_BRAND_NAMES = [
@@ -797,14 +731,48 @@ def search_smart(
         raw_badge = intent.spotlight.badge_text if intent.spotlight else "Miglior Scelta"
         spotlight_out = _build_truthful_spotlight(best_p, raw_badge, None)
 
+    def _compact_product(p: dict) -> dict:
+        if not p or not isinstance(p, dict):
+            return p
+        cp = dict(p)
+        if cp.get("gallery_images"):
+            cp["gallery_images"] = cp["gallery_images"][:5]
+        if cp.get("offers"):
+            cp["offer_count"] = len(cp["offers"])
+            clean_offers = []
+            for o in cp["offers"][:8]:
+                co = dict(o) if isinstance(o, dict) else o.model_dump() if hasattr(o, "model_dump") else {}
+                co["gallery_images"] = None
+                clean_offers.append(co)
+            cp["offers"] = clean_offers
+        return cp
+
+    compact_results = [_compact_product(p) for p in products]
+    compact_sections = []
+    for sec in curated_sections_out:
+        sec_copy = dict(sec)
+        sec_copy["products"] = [_compact_product(p) for p in sec.get("products", [])]
+        compact_sections.append(sec_copy)
+    compact_cards = []
+    for card in comparative_cards_out:
+        card_copy = dict(card)
+        if "product" in card_copy:
+            card_copy["product"] = _compact_product(card_copy["product"])
+        compact_cards.append(card_copy)
+    compact_spotlight = None
+    if spotlight_out:
+        compact_spotlight = dict(spotlight_out)
+        if "product" in compact_spotlight:
+            compact_spotlight["product"] = _compact_product(compact_spotlight["product"])
+
     result_data = {
         "search_mode": intent.search_mode,
         "is_deep_dive": intent.is_deep_dive,
         "conversational_header": intent.conversational_header,
         "conversational_summary": intent.conversational_summary,
-        "curated_sections": curated_sections_out,
-        "comparative_cards": comparative_cards_out,
-        "spotlight": spotlight_out,
+        "curated_sections": compact_sections,
+        "comparative_cards": compact_cards,
+        "spotlight": compact_spotlight,
         "follow_up_suggestions": intent.follow_up_suggestions,
         "chips": [c.model_dump() for c in intent.chips],
         "intent": {
@@ -823,7 +791,7 @@ def search_smart(
             "source": intent.source
         },
         "total_found": len(products),
-        "results": products
+        "results": compact_results
     }
 
     # Store full curated response into L1 memory & L2 disk cache (20-min TTL)

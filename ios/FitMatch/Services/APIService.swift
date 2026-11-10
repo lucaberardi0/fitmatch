@@ -10,6 +10,10 @@ class APIService: ObservableObject {
 
     private let session: URLSession
 
+    // Client-side instant search cache (10-minute validity)
+    private var smartSearchCache: [String: (response: SmartSearchResponse, expiry: Date)] = [:]
+    private var liveSearchCache: [String: (results: [MatchedProduct], expiry: Date)] = [:]
+
     init() {
         let config = URLSessionConfiguration.default
         // 60-second timeout to handle Render cold-start spins gracefully
@@ -85,7 +89,25 @@ class APIService: ObservableObject {
         throw lastError ?? URLError(.unknown)
     }
 
+    /// High-speed HTTP fetch with tight timeout (4.0s) for user-facing interactive queries.
+    /// If Render backend is sleeping (cold start) or slow, fails fast so the app immediately queries Supabase Cloud directly.
+    private func fetchFastData(url: URL, timeout: TimeInterval = 4.0) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+            return data
+        }
+        throw URLError(.badServerResponse)
+    }
+
     func search(query: String, size: String? = nil) async throws -> [MatchedProduct] {
+        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cacheKey = "\(cleanQuery)_\(size ?? "")"
+        if let cached = liveSearchCache[cacheKey], cached.expiry > Date() {
+            return cached.results
+        }
+
         var components = URLComponents(string: "\(baseURL)/api/search")!
         var queryItems = [URLQueryItem(name: "q", value: query)]
         if let size = size, !size.isEmpty {
@@ -96,8 +118,9 @@ class APIService: ObservableObject {
         guard let url = components.url else { throw URLError(.badURL) }
 
         do {
-            let data = try await fetchDataWithRetry(url: url)
+            let data = try await fetchFastData(url: url, timeout: 4.0)
             let decoded = try JSONDecoder().decode(SearchResponse.self, from: data)
+            liveSearchCache[cacheKey] = (decoded.matched_products, Date().addingTimeInterval(600))
             return decoded.matched_products
         } catch {
             let direct = await SupabaseManager.shared.fetchSmartProductsDirect(
@@ -107,6 +130,7 @@ class APIService: ObservableObject {
                 limit: 30
             )
             if !direct.isEmpty {
+                liveSearchCache[cacheKey] = (direct, Date().addingTimeInterval(600))
                 return direct
             }
             throw error
@@ -138,6 +162,12 @@ class APIService: ObservableObject {
         store: String? = nil,
         contextQuery: String? = nil
     ) async throws -> SmartSearchResponse {
+        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cacheKey = "\(cleanQuery)_\(mode ?? "")_\(maxPrice ?? 0)_\(size ?? "")_\(category ?? "")_\(store ?? "")_\(contextQuery ?? "")"
+        if let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
+            return cached.response
+        }
+
         var components = URLComponents(string: "\(baseURL)/api/search/smart")!
         var queryItems = [URLQueryItem(name: "q", value: query)]
         if let mode = mode {
@@ -162,9 +192,9 @@ class APIService: ObservableObject {
         guard let url = components.url else { throw URLError(.badURL) }
 
         do {
-            let data = try await fetchDataWithRetry(url: url)
+            let data = try await fetchFastData(url: url, timeout: 4.0)
             let decoded = try JSONDecoder().decode(SmartSearchResponse.self, from: data)
-            return await validateAndEnrichSmartSearchResponse(
+            let enriched = await validateAndEnrichSmartSearchResponse(
                 decoded,
                 query: query,
                 contextQuery: contextQuery,
@@ -172,6 +202,8 @@ class APIService: ObservableObject {
                 size: size,
                 store: store
             )
+            smartSearchCache[cacheKey] = (enriched, Date().addingTimeInterval(600))
+            return enriched
         } catch {
             // High-Availability Fallback: if Render backend is sleeping (cold start), deploying, or experiencing high load,
             // query Supabase Cloud directly so user gets instantaneous real products instead of an error view!
@@ -182,6 +214,7 @@ class APIService: ObservableObject {
                 size: size,
                 store: store
             ) {
+                smartSearchCache[cacheKey] = (directFallback, Date().addingTimeInterval(600))
                 return directFallback
             }
             throw error

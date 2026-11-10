@@ -15,7 +15,7 @@ except ImportError:
 logger = logging.getLogger("fitmatch.smart_search")
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct")
 OPENROUTER_BACKUP_MODEL = "meta-llama/llama-3.1-8b-instruct"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -2264,7 +2264,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
                 "model": current_model,
                 "messages": messages,
                 "temperature": 0.1,
-                "max_tokens": 1400
+                "max_tokens": 800
             }
 
             headers = {
@@ -2281,7 +2281,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
                     headers=headers,
                     method="POST"
                 )
-                with urllib.request.urlopen(req, timeout=8.5, context=ctx) as resp:
+                with urllib.request.urlopen(req, timeout=3.5, context=ctx) as resp:
                     if resp.status != 200:
                         logger.warning("OpenRouter API status %s for %s", resp.status, current_model)
                         continue
@@ -2432,12 +2432,39 @@ class SmartSearchEngine:
             except Exception as e:
                 logger.debug("Failed to re-validate cached intent: %s", e)
 
+        # 2. Ultra-Fast Local Athletic NLP Engine (Zero latency: ~3ms)
+        local_intent = LocalHeuristicParser.parse(user_query=user_query, force_mode=force_mode)
+
+        # Determine if local intent is sufficiently decisive to skip slow remote LLM calls
+        has_context = bool(context_query and context_query.strip())
+        is_confident_local = (
+            local_intent.brand is not None or
+            local_intent.max_price is not None or
+            local_intent.min_price is not None or
+            local_intent.size is not None or
+            local_intent.gender is not None or
+            bool(local_intent.features) or
+            local_intent.category != "running_shoes" or
+            bool(re.search(r"\b(hyrox|palestra|maratona|gara|trail|ammortizzat|carbonio|piastra|adizero|dropset|metcon|nano|alphafly|vaporfly|vomero|pegasus|nimbus|clifton|bondi|ghost|speedgoat|forerunner|fenix|novablast|superblast|endorphin|sutro|radar|vertex|hack|at10|long\s*sleeve|antivento|termic|giacc|magli|pantaloncin)\b", user_query.lower()))
+        )
+
         intent = None
-        if self.api_key:
-            intent = OpenRouterParser.parse(user_query=user_query, api_key=self.api_key, model=self.model, force_mode=force_mode, context_query=context_query)
+        if is_confident_local and not has_context:
+            intent = local_intent
+        elif self.api_key:
+            try:
+                intent = OpenRouterParser.parse(
+                    user_query=user_query,
+                    api_key=self.api_key,
+                    model=self.model,
+                    force_mode=force_mode,
+                    context_query=context_query
+                )
+            except Exception as ex:
+                logger.warning(f"OpenRouterParser error: {ex}")
 
         if not intent:
-            intent = LocalHeuristicParser.parse(user_query=user_query, force_mode=force_mode)
+            intent = local_intent
 
         if intent:
             intent = QueryProductGuardrail.sanitize_intent(intent, user_query=user_query, context_query=context_query)
