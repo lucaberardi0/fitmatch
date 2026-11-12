@@ -1,41 +1,6 @@
 import SwiftUI
 import Charts
 
-// MARK: - Store Rating & Review Statistics Helper
-
-struct StoreRatingHelper {
-    static func rating(for storeName: String) -> String {
-        let s = storeName.lowercased()
-        if s.contains("one block") { return "4,8" }
-        if s.contains("top4") { return "4,9" }
-        if s.contains("mister") { return "4,8" }
-        if s.contains("cisalfa") { return "4,7" }
-        if s.contains("maxi") { return "4,8" }
-        if s.contains("nencini") { return "4,6" }
-        if s.contains("end") { return "4,9" }
-        if s.contains("running") || s.contains("warehouse") { return "4,8" }
-        if s.contains("deporvillage") { return "4,7" }
-        if s.contains("alltricks") { return "4,7" }
-        if s.contains("decathlon") { return "4,6" }
-        if s.contains("nike") { return "4,9" }
-        if s.contains("adidas") { return "4,9" }
-        return "4,8"
-    }
-
-    static func reviewCount(for storeName: String) -> String {
-        let s = storeName.lowercased()
-        if s.contains("one block") { return "657" }
-        if s.contains("top4") { return "1.240" }
-        if s.contains("mister") { return "890" }
-        if s.contains("cisalfa") { return "2.150" }
-        if s.contains("maxi") { return "950" }
-        if s.contains("nencini") { return "657" }
-        if s.contains("end") { return "3.420" }
-        if s.contains("running") || s.contains("warehouse") { return "1.120" }
-        return "657"
-    }
-}
-
 // MARK: - Main Product Detail View
 
 struct ProductDetailView: View {
@@ -45,7 +10,6 @@ struct ProductDetailView: View {
     @State private var selectedOfferIndex: Int = 0
     @State private var selectedSize: String? = nil
     @State private var selectedVariant: String? = nil
-    @State private var quantity: Int = 1
     @State private var selectedImageIndex: Int = 0
 
     // Collapsible Accordion States (Shopify Shop Style)
@@ -54,9 +18,6 @@ struct ProductDetailView: View {
     @State private var isDeliveryExpanded: Bool = true
     @State private var isOffersExpanded: Bool = false
 
-    // Delivery location
-    @State private var deliveryZipCode: String = "70123"
-
     // Sheets & Navigation
     @State private var showingAlertSheet: Bool = false
     @State private var showingMoveToCollection: Bool = false
@@ -64,7 +25,6 @@ struct ProductDetailView: View {
     @State private var showingShareSheet: Bool = false
     @State private var showingReturnPolicySheet: Bool = false
     @State private var showingShippingInfoSheet: Bool = false
-    @State private var showingZipPrompt: Bool = false
     @State private var navigateToStore: Bool = false
     @State private var navigateToSearch: Bool = false
 
@@ -134,10 +94,6 @@ struct ProductDetailView: View {
         if let offerSizes = currentOffer?.available_sizes, !offerSizes.isEmpty {
             return currentOffer?.normalizedSizes() ?? offerSizes
         }
-        // Fallback standard sizing for footwear
-        if product.isComparable {
-            return ["7 US", "7.5 US", "8 US", "8.5 US", "9 US", "9.5 US", "10 US", "10.5 US", "11 US", "11.5 US"]
-        }
         return []
     }
 
@@ -153,20 +109,6 @@ struct ProductDetailView: View {
         for off in product.offers {
             if let v = off.displayVariant, !v.isEmpty && !list.contains(v) {
                 list.append(v)
-            }
-        }
-        if list.isEmpty {
-            let titleLower = product.canonical_name.lowercased()
-            if titleLower.contains("grigi") || titleLower.contains("grey") || titleLower.contains("gray") {
-                return ["Grigio"]
-            } else if titleLower.contains("ner") || titleLower.contains("black") {
-                return ["Nero"]
-            } else if titleLower.contains("bianc") || titleLower.contains("white") {
-                return ["Bianco"]
-            } else if titleLower.contains("blu") || titleLower.contains("blue") {
-                return ["Blu"]
-            } else {
-                return ["Grigio"]
             }
         }
         return list
@@ -247,17 +189,14 @@ struct ProductDetailView: View {
                             .padding(.bottom, 20)
                     }
 
-                    // 7. Color Selection (Screenshot 2)
-                    colorSelectionSection
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 20)
+                    // 7. Color Selection (only if real variants exist in database)
+                    if !availableVariants.isEmpty {
+                        colorSelectionSection
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 20)
+                    }
 
-                    // 8. Quantity Selector (Screenshot 2)
-                    quantitySection
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
-
-                    // 9. CTA Buttons: Aggiungi al carrello & Acquista (Screenshot 2)
+                    // 8. CTA Buttons: Acquista & Preferiti
                     ctaButtonsSection
                         .padding(.horizontal, 16)
                         .padding(.bottom, 24)
@@ -351,9 +290,6 @@ struct ProductDetailView: View {
                 offer: currentOffer
             )
         }
-        .sheet(isPresented: $showingZipPrompt) {
-            ZipCodeSheetView(currentZip: $deliveryZipCode)
-        }
         .onAppear {
             RecentActivityManager.shared.recordProductView(product)
         }
@@ -415,12 +351,10 @@ struct ProductDetailView: View {
         .padding(.bottom, 8)
     }
 
-    // MARK: - 2. Store Header Row (Screenshot 1: Store Logo, Name, Rating ★ Reviews, Menu ...)
+    // MARK: - 2. Store Header Row (Store Logo, Name, Verified Partner Badge, Menu ...)
 
     private var storeHeaderRow: some View {
         let storeName = currentOffer?.store_name ?? "Partner Store"
-        let rating = StoreRatingHelper.rating(for: storeName)
-        let reviewCount = StoreRatingHelper.reviewCount(for: storeName)
 
         return HStack(spacing: 10) {
             // Store Avatar
@@ -443,16 +377,12 @@ struct ProductDetailView: View {
                             .lineLimit(1)
 
                         HStack(spacing: 4) {
-                            Text(rating)
-                                .font(.system(size: 12.5, weight: .semibold))
-                                .foregroundColor(.shopDark)
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.shopPurple)
 
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 10.5))
-                                .foregroundColor(Color(red: 24/255, green: 24/255, blue: 27/255))
-
-                            Text("(\(reviewCount))")
-                                .font(.system(size: 12.5, weight: .regular))
+                            Text("Store Partner Ufficiale")
+                                .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -634,19 +564,36 @@ struct ProductDetailView: View {
         }
     }
 
-    // MARK: - 5. Stock Badge Row (Screenshot 1: "Solo 1 disponibile")
+    // MARK: - 5. Stock & Deal Badge Row
 
+    @ViewBuilder
     private var stockBadgeRow: some View {
-        HStack {
-            Text("Solo 1 disponibile")
-                .font(.system(size: 11.5, weight: .bold))
-                .foregroundColor(Color(red: 220/255, green: 38/255, blue: 38/255))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(Color(red: 254/255, green: 242/255, blue: 242/255))
-                .clipShape(Capsule())
+        if let current = currentOffer {
+            if current.in_stock == false {
+                HStack {
+                    Text("Non disponibile")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .foregroundColor(Color(red: 220/255, green: 38/255, blue: 38/255))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Color(red: 254/255, green: 242/255, blue: 242/255))
+                        .clipShape(Capsule())
 
-            Spacer()
+                    Spacer()
+                }
+            } else if let badge = current.discountBadge {
+                HStack {
+                    Text("In offerta \(badge)")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .foregroundColor(Color(red: 220/255, green: 38/255, blue: 38/255))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Color(red: 254/255, green: 242/255, blue: 242/255))
+                        .clipShape(Capsule())
+
+                    Spacer()
+                }
+            }
         }
     }
 
@@ -779,76 +726,11 @@ struct ProductDetailView: View {
         }
     }
 
-    // MARK: - 9. Quantity Section (Screenshot 2: Quantità)
-
-    private var quantitySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Quantità")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundColor(.shopDark)
-
-            // Stepper Capsule [- 1 +]
-            HStack(spacing: 0) {
-                Button(action: {
-                    if quantity > 1 {
-                        quantity -= 1
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
-                }) {
-                    Image(systemName: "minus")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(quantity > 1 ? .shopDark : .secondary.opacity(0.4))
-                        .frame(width: 44, height: 40)
-                }
-                .disabled(quantity <= 1)
-
-                Text("\(quantity)")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundColor(.shopDark)
-                    .frame(minWidth: 36)
-
-                Button(action: {
-                    if quantity < 10 {
-                        quantity += 1
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.shopDark)
-                        .frame(width: 44, height: 40)
-                }
-            }
-            .background(Color.white)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule().stroke(Color(red: 226/255, green: 227/255, blue: 231/255), lineWidth: 1)
-            )
-        }
-    }
-
-    // MARK: - 10. CTA Buttons (Screenshot 2: Aggiungi al carrello & Acquista)
+    // MARK: - 8. CTA Buttons (Acquista su Store & Preferiti)
 
     private var ctaButtonsSection: some View {
         VStack(spacing: 12) {
-            // 1. Primary Vibrant Purple Button: "Aggiungi al carrello"
-            Button(action: {
-                handleAddToCart()
-            }) {
-                HStack(spacing: 8) {
-                    Text("Aggiungi al carrello")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(Color.shopPurple)
-                .clipShape(Capsule())
-                .shadow(color: Color.shopPurple.opacity(0.28), radius: 8, x: 0, y: 4)
-            }
-            .buttonStyle(.plain)
-
-            // 2. Secondary Solid Black Button: "Acquista"
+            // 1. Primary Vibrant Purple Button: "Acquista su [Store]"
             if let offer = currentOffer, let _ = URL(string: offer.url) {
                 let outboundUrl = APIService.shared.outboundRedirectURL(
                     targetUrl: offer.url,
@@ -858,40 +740,55 @@ struct ProductDetailView: View {
                 )
                 Link(destination: outboundUrl) {
                     HStack(spacing: 8) {
-                        Text("Acquista")
+                        Image(systemName: "cart.fill")
+                            .font(.system(size: 15))
+                        Text("Acquista su \(offer.store_name)")
                             .font(.system(size: 16, weight: .bold, design: .rounded))
                     }
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(Color.shopDark)
+                    .background(Color.shopPurple)
                     .clipShape(Capsule())
-                    .shadow(color: Color.black.opacity(0.15), radius: 6, x: 0, y: 3)
+                    .shadow(color: Color.shopPurple.opacity(0.28), radius: 8, x: 0, y: 4)
                 }
                 .buttonStyle(.plain)
             }
-        }
-    }
 
-    private func handleAddToCart() {
-        let notif = UINotificationFeedbackGenerator()
-        notif.notificationOccurred(.success)
-
-        wishlist.toggleFavorite(product: product, selectedSize: selectedSize)
-        cartToastMessage = "Aggiunto al carrello (\(quantity) pz) • \(currentOffer?.store_name ?? "")"
-
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            showCartToast = true
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                showCartToast = false
+            // 2. Secondary Solid Black Button: "Salva nei preferiti"
+            Button(action: {
+                let impact = UIImpactFeedbackGenerator(style: .medium)
+                impact.impactOccurred()
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) {
+                    wishlist.toggleFavorite(product: product, selectedSize: selectedSize)
+                }
+                cartToastMessage = isWishlisted ? "Salvato nei tuoi preferiti" : "Rimosso dai preferiti"
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    showCartToast = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    withAnimation { showCartToast = false }
+                }
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: isWishlisted ? "heart.fill" : "heart")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(isWishlisted ? Color(red: 235/255, green: 40/255, blue: 60/255) : .white)
+                    Text(isWishlisted ? "Salvato nei preferiti" : "Salva nei preferiti")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(Color.shopDark)
+                .clipShape(Capsule())
+                .shadow(color: Color.black.opacity(0.15), radius: 6, x: 0, y: 3)
             }
+            .buttonStyle(.plain)
         }
     }
 
-    // MARK: - 11. Descrizione Accordion (Screenshot 2 & 3)
+    // MARK: - 9. Descrizione Accordion
 
     private var descriptionAccordion: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -917,17 +814,13 @@ struct ProductDetailView: View {
 
             if isDescriptionExpanded {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Composizione: 100% Syntethics")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.shopTextMuted)
-
                     if !product.effectiveBrand.isEmpty {
                         HStack(spacing: 6) {
                             Text("Brand:")
-                                .font(.system(size: 13, weight: .bold))
+                                .font(.system(size: 13.5, weight: .bold))
                                 .foregroundColor(.shopDark)
                             Text(product.effectiveBrand)
-                                .font(.system(size: 13))
+                                .font(.system(size: 13.5))
                                 .foregroundColor(.shopTextMuted)
                         }
                     }
@@ -935,19 +828,47 @@ struct ProductDetailView: View {
                     if let gender = product.gender, !gender.isEmpty {
                         HStack(spacing: 6) {
                             Text("Genere:")
-                                .font(.system(size: 13, weight: .bold))
+                                .font(.system(size: 13.5, weight: .bold))
                                 .foregroundColor(.shopDark)
                             Text(gender.capitalized)
-                                .font(.system(size: 13))
+                                .font(.system(size: 13.5))
                                 .foregroundColor(.shopTextMuted)
                         }
                     }
 
-                    Text("Modello lifestyle e running ad alte prestazioni, dotato di tomaia traspirante a struttura multi-layer, ammortizzazione reattiva e battistrada ad alta aderenza per il massimo comfort quotidiano.")
-                        .font(.system(size: 13.5))
-                        .foregroundColor(.shopTextMuted)
-                        .lineSpacing(3)
-                        .padding(.top, 2)
+                    if let current = currentOffer {
+                        HStack(spacing: 6) {
+                            Text("Store di riferimento:")
+                                .font(.system(size: 13.5, weight: .bold))
+                                .foregroundColor(.shopDark)
+                            Text(current.store_name)
+                                .font(.system(size: 13.5))
+                                .foregroundColor(.shopTextMuted)
+                        }
+
+                        if !current.title.isEmpty && current.title.lowercased() != product.cleanTitle.lowercased() {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Titolo catalogo fornitore:")
+                                    .font(.system(size: 13.5, weight: .bold))
+                                    .foregroundColor(.shopDark)
+                                Text(current.title)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.shopTextMuted)
+                            }
+                        }
+                    }
+
+                    if !allSizes.isEmpty {
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("Taglie a catalogo:")
+                                .font(.system(size: 13.5, weight: .bold))
+                                .foregroundColor(.shopDark)
+                            Text(allSizes.joined(separator: ", "))
+                                .font(.system(size: 13))
+                                .foregroundColor(.shopTextMuted)
+                                .lineLimit(2)
+                        }
+                    }
                 }
                 .padding(.bottom, 18)
             }
@@ -957,7 +878,7 @@ struct ProductDetailView: View {
         }
     }
 
-    // MARK: - 12. Consegna e resi Accordion (Screenshot 3)
+    // MARK: - 10. Consegna e resi Accordion
 
     private var deliveryAccordion: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -983,33 +904,25 @@ struct ProductDetailView: View {
 
             if isDeliveryExpanded {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Location: Spedisci a 70123 v (Screenshot 3)
-                    Button(action: {
-                        showingZipPrompt = true
-                    }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "mappin.circle.fill")
-                                .font(.system(size: 18))
+                    // Location: Spedizione
+                    HStack(spacing: 12) {
+                        Image(systemName: "mappin.circle.fill")
+                            .font(.system(size: 18))
+                            .foregroundColor(.shopDark)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Destinazione:")
+                                .font(.system(size: 12))
+                                .foregroundColor(.shopTextMuted)
+                            Text("Consegna in tutta Italia")
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(.shopDark)
-
-                            HStack(spacing: 4) {
-                                Text("Spedisci a")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.shopDark)
-                                Text(deliveryZipCode)
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(.shopDark)
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.shopDark)
-                            }
-
-                            Spacer()
                         }
-                    }
-                    .buttonStyle(.plain)
 
-                    // Truck: Spedizione calcolata al check-out (Screenshot 3)
+                        Spacer()
+                    }
+
+                    // Truck: Spedizione
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "box.truck.fill")
                             .font(.system(size: 16))
@@ -1021,30 +934,30 @@ struct ProductDetailView: View {
                                 .foregroundColor(.shopDark)
 
                             if let off = currentOffer, !off.isFreeShipping {
-                                Text("Costo stimato: \(off.formattedShipping)")
+                                Text("Costo verificato: \(off.formattedShipping)")
                                     .font(.system(size: 12))
                                     .foregroundColor(.shopTextMuted)
                             }
                         }
                     }
 
-                    // Return Box: Resi accettati entro 14 giorni (Screenshot 3)
+                    // Return Box
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "arrow.uturn.backward.circle.fill")
                             .font(.system(size: 18))
                             .foregroundColor(.shopDark)
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Resi accettati entro 14 giorni")
+                            Text("Diritto di recesso garantito")
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.shopDark)
-                            Text("Potrebbero applicarsi esclusioni. Consulta la politica completa.")
+                            Text("Gestito direttamente da \(currentOffer?.store_name ?? "store partner") secondo i termini del rivenditore.")
                                 .font(.system(size: 12))
                                 .foregroundColor(.shopTextMuted)
                         }
                     }
 
-                    // Action Pill Buttons: Politica di reso & Informativa sulle spedizioni (Screenshot 3)
+                    // Action Pill Buttons: Politica di reso & Informativa sulle spedizioni
                     HStack(spacing: 10) {
                         Button(action: { showingReturnPolicySheet = true }) {
                             Text("Politica di reso")
@@ -1069,7 +982,7 @@ struct ProductDetailView: View {
                         .buttonStyle(.plain)
                     }
 
-                    // Visit Store Pill Button: Visita One Block Down (Screenshot 3)
+                    // Visit Store Pill Button
                     if let offer = currentOffer {
                         Button(action: {
                             navigateToStore = true
@@ -1261,112 +1174,36 @@ struct ProductDetailView: View {
         }
     }
 
-    // MARK: - 14. Recommendations Section (Screenshot 3 & 4: "Potrebbe piacerti anche")
+    // MARK: - 12. Recommendations Section ("Potrebbe piacerti anche")
 
+    @ViewBuilder
     private var recommendationsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Potrebbe piacerti anche")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(.shopDark)
-                .padding(.horizontal, 16)
+        if !relatedProducts.isEmpty || isLoadingRelated {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Potrebbe piacerti anche")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.shopDark)
+                    .padding(.horizontal, 16)
 
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 18) {
-                // Category Promo Tile (Screenshot 4)
-                categoryPromoTile
-
-                // Related Products Grid (Screenshot 4)
-                ForEach(relatedProducts) { item in
-                    NavigationLink(destination: ProductDetailView(product: item)) {
-                        ShopRelatedProductCard(product: item)
+                if isLoadingRelated && relatedProducts.isEmpty {
+                    HStack(spacing: 14) {
+                        ShopSkeletonBlock(cornerRadius: 18, height: 210)
+                        ShopSkeletonBlock(cornerRadius: 18, height: 210)
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                } else {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 18) {
+                        ForEach(relatedProducts) { item in
+                            NavigationLink(destination: ProductDetailView(product: item)) {
+                                ShopRelatedProductCard(product: item)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
                 }
             }
-            .padding(.horizontal, 16)
         }
-    }
-
-    private var categoryPromoTile: some View {
-        Button(action: {
-            navigateToSearch = true
-        }) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Acquista tutto")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.92))
-
-                    Spacer()
-
-                    Circle()
-                        .fill(Color.white.opacity(0.25))
-                        .frame(width: 26, height: 26)
-                        .overlay(
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.white)
-                        )
-                }
-
-                Text("Fitness e\nnutrizione")
-                    .font(.system(size: 19, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .lineSpacing(2)
-
-                Spacer()
-
-                // Mini preview icons
-                HStack(spacing: 6) {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white.opacity(0.9))
-                        .frame(width: 32, height: 38)
-                        .overlay(
-                            Image(systemName: "flame.fill")
-                                .font(.system(size: 13))
-                                .foregroundColor(Color(red: 26/255, green: 110/255, blue: 104/255))
-                        )
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white.opacity(0.9))
-                        .frame(width: 32, height: 38)
-                        .overlay(
-                            Image(systemName: "bolt.heart.fill")
-                                .font(.system(size: 13))
-                                .foregroundColor(Color(red: 26/255, green: 110/255, blue: 104/255))
-                        )
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white.opacity(0.9))
-                        .frame(width: 32, height: 38)
-                        .overlay(
-                            Image(systemName: "figure.run")
-                                .font(.system(size: 13))
-                                .foregroundColor(Color(red: 26/255, green: 110/255, blue: 104/255))
-                        )
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white.opacity(0.9))
-                        .frame(width: 32, height: 38)
-                        .overlay(
-                            Image(systemName: "drop.fill")
-                                .font(.system(size: 13))
-                                .foregroundColor(Color(red: 26/255, green: 110/255, blue: 104/255))
-                        )
-                }
-            }
-            .padding(14)
-            .frame(height: 165)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                LinearGradient(
-                    colors: [
-                        Color(red: 26/255, green: 110/255, blue: 104/255),
-                        Color(red: 18/255, green: 80/255, blue: 76/255)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .cornerRadius(18)
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Data Fetching
@@ -1394,18 +1231,35 @@ struct ProductDetailView: View {
         guard relatedProducts.isEmpty else { return }
         isLoadingRelated = true
         let brand = product.effectiveBrand
-        var keywords = [brand]
-        if let g = product.gender, !g.isEmpty { keywords.append(g) }
-        keywords.append("running")
+        var fetched: [MatchedProduct] = []
 
-        let fetched = await SupabaseManager.shared.fetchSmartProductsDirect(
-            category: nil,
-            keywords: keywords,
-            limit: 10
-        )
+        // 1. Fetch real related products for the same brand from Supabase
+        if !brand.isEmpty {
+            fetched = await SupabaseManager.shared.fetchSmartProductsDirect(
+                category: nil,
+                keywords: [brand],
+                limit: 12
+            )
+        }
+
+        // 2. If fewer than 6 products, enrich with category products
+        if fetched.count < 6 {
+            let catKw = product.isComparable ? ["running"] : ["fitness"]
+            let extra = await SupabaseManager.shared.fetchSmartProductsDirect(
+                category: nil,
+                keywords: catKw,
+                limit: 12
+            )
+            for item in extra {
+                if !fetched.contains(where: { $0.id == item.id || $0.canonical_name == item.canonical_name }) {
+                    fetched.append(item)
+                }
+            }
+        }
+
         let filtered = fetched.filter { $0.id != product.id && $0.canonical_name != product.canonical_name }
         await MainActor.run {
-            self.relatedProducts = Array(filtered.prefix(7))
+            self.relatedProducts = Array(filtered.prefix(8))
             self.isLoadingRelated = false
         }
     }
@@ -1954,63 +1808,6 @@ struct ShippingInfoSheetView: View {
                     Button("Chiudi") { dismiss() }
                         .foregroundColor(.shopDark)
                 }
-            }
-        }
-    }
-}
-
-struct ZipCodeSheetView: View {
-    @Binding var currentZip: String
-    @Environment(\.dismiss) private var dismiss
-    @State private var inputZip: String = ""
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Inserisci il tuo CAP per calcolare con precisione tempi e costi di consegna.")
-                    .font(.system(size: 14))
-                    .foregroundColor(.shopTextMuted)
-
-                HStack {
-                    Image(systemName: "mappin.circle.fill")
-                        .foregroundColor(.shopPurple)
-                    TextField("Es. 70123, 20121, 00100", text: $inputZip)
-                        .keyboardType(.numberPad)
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .padding(14)
-                .background(Color(red: 244/255, green: 244/255, blue: 246/255))
-                .cornerRadius(12)
-
-                Button(action: {
-                    let clean = inputZip.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !clean.isEmpty {
-                        currentZip = clean
-                    }
-                    dismiss()
-                }) {
-                    Text("Salva indirizzo di spedizione")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(Color.shopDark)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-            }
-            .padding(20)
-            .navigationTitle("Indirizzo di Spedizione")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Annulla") { dismiss() }
-                }
-            }
-            .onAppear {
-                inputZip = currentZip
             }
         }
     }
