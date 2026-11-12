@@ -11,7 +11,7 @@ enum HomeSubTab: Int, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .perTe: return "Per te"
-        case .offerte: return "Saldi per le feste"
+        case .offerte: return "Offerte"
         case .seguiGia: return "Segui già"
         case .salvati: return "Salvati"
         }
@@ -65,7 +65,7 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .transition(.opacity)
                     } else {
-                        // MARK: - 2. Sub-Navigation Pills: Per te | Saldi per le feste | Segui già | Salvati
+                        // MARK: - 2. Sub-Navigation Pills: Per te | Offerte | Segui già | Salvati
                         subNavigationPills
                             .padding(.bottom, 12)
 
@@ -254,7 +254,7 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Sub-Navigation Pills (Per te | Saldi per le feste | Segui già | Salvati)
+    // MARK: - Sub-Navigation Pills (Per te | Offerte | Segui già | Salvati)
 
     private var subNavigationPills: some View {
         ScrollViewReader { scrollProxy in

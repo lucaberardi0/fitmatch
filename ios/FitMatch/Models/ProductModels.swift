@@ -166,6 +166,16 @@ struct Offer: Identifiable, Codable, Hashable {
             clean = clean.replacingOccurrences(of: " 1/3", with: ".5")
             clean = clean.replacingOccurrences(of: ".2/3", with: ".5")
             clean = clean.replacingOccurrences(of: ".1/3", with: ".5")
+            // Convert decimal third-sizes from store catalogs (e.g. 42.7 -> 42.5, 43.3 -> 43.5)
+            if clean.hasSuffix(".7") || clean.hasSuffix(".67") || clean.hasSuffix(".66") {
+                if let val = Double(clean) {
+                    clean = String(format: "%.1f", floor(val) + 0.5)
+                }
+            } else if clean.hasSuffix(".3") || clean.hasSuffix(".33") {
+                if let val = Double(clean) {
+                    clean = String(format: "%.1f", floor(val) + 0.5)
+                }
+            }
             if let dashIdx = clean.range(of: "- ")?.upperBound {
                 clean = String(clean[dashIdx...]).trimmingCharacters(in: .whitespaces)
             }
@@ -184,6 +194,21 @@ struct Offer: Identifiable, Codable, Hashable {
         let normSizes = normalizedSizes()
 
         if normSizes.contains(normTarget) { return true }
+
+        // Decimal shoe size proximity tolerance (e.g. 42.5 matches 42.7 or 42.66 within 0.35)
+        if let dTarget = Double(normTarget) {
+            for s in normSizes {
+                if let dSize = Double(s), abs(dTarget - dSize) < 0.35 {
+                    return true
+                }
+            }
+            for raw in sizes {
+                let cleanRaw = raw.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+                if let dRaw = Double(cleanRaw), abs(dTarget - dRaw) < 0.35 {
+                    return true
+                }
+            }
+        }
 
         let euToUs: [String: String] = [
             "36": "4.5", "36.5": "5", "37": "5", "37.5": "5.5", "38": "6", "38.5": "6",

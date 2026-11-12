@@ -72,16 +72,22 @@ class UserPreferencesManager: ObservableObject {
 
     func isSizeAvailable(_ targetSize: String, in availableSizes: [String]?) -> Bool {
         guard let sizes = availableSizes, !sizes.isEmpty else { return false }
-        let cleanTarget = targetSize.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanTarget = targetSize.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".").lowercased()
         if cleanTarget.isEmpty { return false }
 
+        let targetDouble = Double(cleanTarget)
+
         for s in sizes {
-            let clean = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let clean = s.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".").lowercased()
             if clean == cleanTarget { return true }
             // Handle variations like "42.0", "42 eu", "eu 42", "42 (uk 8)"
             let stripped = clean.replacingOccurrences(of: "eu", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
             if stripped == cleanTarget { return true }
             if clean.hasPrefix(cleanTarget + " ") || clean.hasSuffix(" " + cleanTarget) {
+                return true
+            }
+            // Proximity tolerance for decimal fractional sizes (e.g. 42.5 matches 42.7 or 42.66 within 0.35)
+            if let tD = targetDouble, let sD = Double(stripped), abs(tD - sD) < 0.35 {
                 return true
             }
         }

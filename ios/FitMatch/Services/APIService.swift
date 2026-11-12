@@ -1217,4 +1217,41 @@ class APIService: ObservableObject {
         components.queryItems = queryItems
         return components.url ?? (URL(string: clean) ?? URL(string: "https://fitmatch.it")!)
     }
+
+    // MARK: - Affiliate Link Generator for Sharing
+
+    func affiliateShareURL(
+        targetUrl: String,
+        storeId: String? = nil,
+        offerId: String? = nil
+    ) -> URL {
+        let clean = targetUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else {
+            return URL(string: "https://fitmatch.it")!
+        }
+
+        // Sovrn //Commerce (VigLink) API Key configured in FitMatch
+        let sovrnKey = "bc9e0db8eb869194e60dcb42219bf689"
+
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+
+        if !sovrnKey.isEmpty, let encodedTarget = clean.addingPercentEncoding(withAllowedCharacters: allowed) {
+            let cleanStore = (storeId ?? "gen").lowercased().filter { $0.isLetter || $0.isNumber }
+            let randomHash = UUID().uuidString.prefix(8).lowercased()
+            let cuid = "fm_\(cleanStore.prefix(10))_\(randomHash)"
+            let viglinkString = "https://redirect.viglink.com?key=\(sovrnKey)&u=\(encodedTarget)&cuid=\(cuid)"
+            if let vigUrl = URL(string: viglinkString) {
+                return vigUrl
+            }
+        }
+
+        // Fallback to FitMatch Outbound Redirect Gateway
+        return outboundRedirectURL(
+            targetUrl: clean,
+            storeId: storeId,
+            offerId: offerId,
+            source: "product_share"
+        )
+    }
 }

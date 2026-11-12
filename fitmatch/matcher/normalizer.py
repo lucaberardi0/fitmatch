@@ -350,11 +350,14 @@ class ProductNormalizer:
         base = parts[0]
         colorway = parts[-1].strip() if len(parts) > 1 else None
 
-        # Check if parts[0] is just a generic category breadcrumb (e.g. Decathlon: "ASICS Scarpe da Running – Novablast 5")
+        # Check if parts[0] is an internal SKU/MPN code (e.g. Decathlon "NIKE FQ0912-400 — Scarpe da running uomo Nike Pegasus 41"),
+        # a store name, or a generic category breadcrumb
         if len(parts) > 1:
+            is_sku_code = bool(re.search(r"\b[A-Za-z0-9]{4,10}[-_][A-Za-z0-9]{2,6}\b", parts[0]))
+            is_store_name = any(s in parts[0].lower() for s in ("decathlon", "cisalfa", "maxisport", "nencini", "top4running", "misterrunning"))
             generic_words = STOPWORDS.union({"running", "corsa", "trail", "asics", "nike", "adidas", "mizuno", "brooks", "hoka", "altra", "new", "balance", "saucony", "on"})
             tokens_0 = set(re.findall(r"\b[a-zA-Z0-9]+\b", parts[0].lower()))
-            if tokens_0.issubset(generic_words):
+            if is_sku_code or is_store_name or tokens_0.issubset(generic_words):
                 best_part = None
                 for p in parts[1:]:
                     p_toks = set(re.findall(r"\b[a-zA-Z0-9]+\b", p.lower()))

@@ -105,11 +105,21 @@ struct ProductDetailView: View {
     }
 
     var currentOffer: Offer? {
+        if let sz = selectedSize {
+            // If the user's selected store currently has this size in stock, keep that store
+            if product.offers.indices.contains(selectedOfferIndex) {
+                let off = product.offers[selectedOfferIndex]
+                if off.hasSize(sz) {
+                    return off
+                }
+            }
+            // Otherwise, dynamically auto-select the best store offer that actually HAS the size
+            if let bestForSize = product.bestOffer(for: sz), bestForSize.hasSize(sz) {
+                return bestForSize
+            }
+        }
         if product.offers.indices.contains(selectedOfferIndex) {
             return product.offers[selectedOfferIndex]
-        }
-        if let sz = selectedSize {
-            return product.bestOffer(for: sz)
         }
         return product.bestOffer
     }
@@ -168,10 +178,27 @@ struct ProductDetailView: View {
         return list.sorted { $0.offer.price < $1.offer.price }
     }
 
+    private var shareAffiliateURL: URL {
+        if let offer = currentOffer {
+            return APIService.shared.affiliateShareURL(
+                targetUrl: offer.url,
+                storeId: offer.store_id,
+                offerId: nil
+            )
+        } else if let first = product.offers.first {
+            return APIService.shared.affiliateShareURL(
+                targetUrl: first.url,
+                storeId: first.store_id,
+                offerId: nil
+            )
+        }
+        return URL(string: "https://fitmatch.it")!
+    }
+
     // MARK: - Body View
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack(alignment: .bottom) {
             // Background Navigation Links (Hidden)
             if let offer = currentOffer {
                 NavigationLink(
@@ -180,87 +207,88 @@ struct ProductDetailView: View {
                 ) { EmptyView() }
             }
 
-            // Main Scrollable Page
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Safe Area Offset for top bar
-                    Color.clear.frame(height: 52)
+            VStack(spacing: 0) {
+                // Top Fixed Navigation Bar
+                topNavigationBar
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 10)
+                    .background(Color.white)
 
-                    // 1. Store Header Profile Row (Screenshot 1)
-                    storeHeaderRow
-                        .padding(.horizontal, 16)
-                        .padding(.top, 4)
-                        .padding(.bottom, 12)
+                Divider()
+                    .background(Color(red: 238/255, green: 239/255, blue: 242/255))
 
-                    // 2. Hero Product Image Showcase Card (Screenshot 1)
-                    heroImageCard
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 16)
+                // Main Scrollable Page
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // 1. Store Header Profile Row (Screenshot 1)
+                        storeHeaderRow
+                            .padding(.horizontal, 16)
+                            .padding(.top, 14)
+                            .padding(.bottom, 12)
 
-                    // 3. Product Title, Heart & Share Actions (Screenshot 1)
-                    titleAndActionRow
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
+                        // 2. Hero Product Image Showcase Card (Screenshot 1)
+                        heroImageCard
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 16)
 
-                    // 4. Stock Badge (Screenshot 1)
-                    stockBadgeRow
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 10)
+                        // 3. Product Title, Heart & Share Actions (Screenshot 1)
+                        titleAndActionRow
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
 
-                    // 5. Price & Shipping Subtext (Screenshot 1 & 2)
-                    priceAndShippingSection
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 20)
+                        // 4. Stock Badge (Screenshot 1)
+                        stockBadgeRow
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 10)
 
-                    // 6. Size Selection Pills (Screenshot 1 & 2)
-                    if !allSizes.isEmpty {
-                        sizeSelectionSection
+                        // 5. Price & Shipping Subtext (Screenshot 1 & 2)
+                        priceAndShippingSection
                             .padding(.horizontal, 16)
                             .padding(.bottom, 20)
-                    }
 
-                    // 7. Color Selection (only if real variants exist in database)
-                    if !availableVariants.isEmpty {
-                        colorSelectionSection
+                        // 6. Size Selection Pills (Screenshot 1 & 2)
+                        if !allSizes.isEmpty {
+                            sizeSelectionSection
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 20)
+                        }
+
+                        // 7. Color Selection (only if real variants exist in database)
+                        if !availableVariants.isEmpty {
+                            colorSelectionSection
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 20)
+                        }
+
+                        // 8. CTA Buttons: Acquista & Preferiti
+                        ctaButtonsSection
                             .padding(.horizontal, 16)
-                            .padding(.bottom, 20)
+                            .padding(.bottom, 24)
+
+                        Divider()
+                            .background(Color(red: 235/255, green: 236/255, blue: 240/255))
+                            .padding(.horizontal, 16)
+
+                        // 10. Accordion: Descrizione (Screenshot 2 & 3)
+                        descriptionAccordion
+                            .padding(.horizontal, 16)
+
+                        // 11. Accordion: Consegna e resi (Screenshot 3)
+                        deliveryAccordion
+                            .padding(.horizontal, 16)
+
+                        // 12. Andamento Prezzi e Offerte Partner (Directly visible & non-collapsible)
+                        partnerOffersSection
+                            .padding(.horizontal, 16)
+
+                        // 13. Section: Potrebbe piacerti anche (Screenshot 3 & 4)
+                        recommendationsSection
+                            .padding(.top, 24)
+                            .padding(.bottom, 140) // Space for bottom dock
                     }
-
-                    // 8. CTA Buttons: Acquista & Preferiti
-                    ctaButtonsSection
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
-
-                    Divider()
-                        .background(Color(red: 235/255, green: 236/255, blue: 240/255))
-                        .padding(.horizontal, 16)
-
-                    // 10. Accordion: Descrizione (Screenshot 2 & 3)
-                    descriptionAccordion
-                        .padding(.horizontal, 16)
-
-                    // 11. Accordion: Consegna e resi (Screenshot 3)
-                    deliveryAccordion
-                        .padding(.horizontal, 16)
-
-                    // 12. Andamento Prezzi e Offerte Partner (Directly visible & non-collapsible)
-                    partnerOffersSection
-                        .padding(.horizontal, 16)
-
-                    // 13. Section: Potrebbe piacerti anche (Screenshot 3 & 4)
-                    recommendationsSection
-                        .padding(.top, 24)
-                        .padding(.bottom, 140) // Space for bottom dock
                 }
             }
-
-            // Top Floating Navigation Header (Screenshot 1)
-            topNavigationBar
-                .background(
-                    Color.white
-                        .opacity(0.96)
-                        .shadow(color: Color.black.opacity(0.04), radius: 5, x: 0, y: 2)
-                )
 
             // Floating Cart Success Toast
             if showCartToast {
@@ -304,12 +332,12 @@ struct ProductDetailView: View {
             ModelCompareView(initialModelA: product.cleanTitle)
         }
         .sheet(isPresented: $showingShareSheet) {
-            if let offer = currentOffer, let u = URL(string: offer.url) {
-                ShareSheet(items: [
-                    "Guarda \(product.cleanTitle) su FitMatch a \(offer.formattedPrice):",
-                    u
-                ])
-            }
+            let shareUrl = shareAffiliateURL
+            let priceText = currentOffer?.formattedPrice ?? product.formattedBestPrice
+            ShareSheet(items: [
+                "Guarda \(product.cleanTitle) su FitMatch a \(priceText):",
+                shareUrl
+            ])
         }
         .sheet(isPresented: $showingReturnPolicySheet) {
             ReturnPolicySheetView(storeName: currentOffer?.store_name ?? "Partner Store")
@@ -333,7 +361,7 @@ struct ProductDetailView: View {
         }
     }
 
-    // MARK: - 1. Top Navigation Bar (Screenshot 1: Back Button & Search Pill)
+    // MARK: - 1. Top Navigation Bar (Back Button, Search Pill & Share Button)
 
     private var topNavigationBar: some View {
         HStack(spacing: 12) {
@@ -388,10 +416,27 @@ struct ProductDetailView: View {
                 )
             }
             .buttonStyle(.plain)
+
+            // Quick Share Button
+            Button(action: {
+                let gen = UIImpactFeedbackGenerator(style: .light)
+                gen.impactOccurred()
+                showingShareSheet = true
+            }) {
+                Circle()
+                    .fill(Color(red: 246/255, green: 247/255, blue: 249/255))
+                    .frame(width: 40, height: 40)
+                    .overlay(
+                        Circle().stroke(Color(red: 232/255, green: 233/255, blue: 237/255), lineWidth: 0.8)
+                    )
+                    .overlay(
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.shopDark)
+                    )
+            }
+            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
     }
 
     // MARK: - 2. Store Header Row (Store Logo, Name, Verified Partner Badge, Menu ...)
@@ -694,7 +739,17 @@ struct ProductDetailView: View {
                     Button(action: {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
-                            selectedSize = (selectedSize == sz) ? nil : sz
+                            if selectedSize == sz {
+                                selectedSize = nil
+                            } else {
+                                selectedSize = sz
+                                // Automatically switch selectedOfferIndex to the store that HAS this size in stock
+                                if let bestForSize = product.bestOffer(for: sz), bestForSize.hasSize(sz) {
+                                    if let idx = product.offers.firstIndex(where: { $0.id == bestForSize.id }) {
+                                        selectedOfferIndex = idx
+                                    }
+                                }
+                            }
                         }
                     }) {
                         Text(sz)
@@ -773,29 +828,74 @@ struct ProductDetailView: View {
 
     private var ctaButtonsSection: some View {
         VStack(spacing: 12) {
-            // 1. Primary Vibrant Purple Button: "Acquista su [Store]"
+            // 1. Primary Vibrant CTA Button: "Acquista su [Store]" with size verification
             if let offer = currentOffer, let _ = URL(string: offer.url) {
+                let hasSize = (selectedSize == nil) || offer.hasSize(selectedSize)
                 let outboundUrl = APIService.shared.outboundRedirectURL(
                     targetUrl: offer.url,
                     storeId: offer.store_id,
                     offerId: offer.id,
                     source: "product_detail"
                 )
-                Link(destination: outboundUrl) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "cart.fill")
-                            .font(.system(size: 15))
-                        Text("Acquista su \(offer.store_name)")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
+
+                if hasSize {
+                    Link(destination: outboundUrl) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "cart.fill")
+                                .font(.system(size: 15))
+                            if let sz = selectedSize {
+                                Text("Acquista tg. \(sz) su \(offer.store_name)")
+                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                            } else {
+                                Text("Acquista su \(offer.store_name)")
+                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Color.shopPurple)
+                        .clipShape(Capsule())
+                        .shadow(color: Color.shopPurple.opacity(0.28), radius: 8, x: 0, y: 4)
                     }
-                    .foregroundColor(.white)
+                    .buttonStyle(.plain)
+                } else if let sz = selectedSize, let altOffer = product.offers.first(where: { $0.hasSize(sz) }) {
+                    // Current store does not have size, but partner store has it!
+                    Button(action: {
+                        if let idx = product.offers.firstIndex(where: { $0.id == altOffer.id }) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                selectedOfferIndex = idx
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("Tg. \(sz) disp. su \(altOffer.store_name) (\(altOffer.formattedPrice))")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Color.shopGreen)
+                        .clipShape(Capsule())
+                        .shadow(color: Color.shopGreen.opacity(0.28), radius: 8, x: 0, y: 4)
+                    }
+                    .buttonStyle(.plain)
+                } else if let sz = selectedSize {
+                    // Size is completely sold out across all stores
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 15))
+                        Text("Taglia \(sz) esaurita in tutti gli store")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(Color.secondary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(Color.shopPurple)
+                    .background(Color(red: 240/255, green: 241/255, blue: 245/255))
                     .clipShape(Capsule())
-                    .shadow(color: Color.shopPurple.opacity(0.28), radius: 8, x: 0, y: 4)
                 }
-                .buttonStyle(.plain)
             }
 
             // 2. Secondary Solid Black Button: "Salva nei preferiti"
@@ -1305,8 +1405,13 @@ struct ProductDetailView: View {
                                 Image(systemName: "cart.fill")
                                     .font(.system(size: 13, weight: .semibold))
 
-                                Text("Vedi offerta su \(offer.store_name)")
-                                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                                if let sz = selectedSize, !hasSize {
+                                    Text("Offerta \(offer.store_name) (tg. \(sz) esaurita)")
+                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                } else {
+                                    Text("Vedi offerta su \(offer.store_name)")
+                                        .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                                }
 
                                 Spacer()
 
@@ -1317,13 +1422,13 @@ struct ProductDetailView: View {
                                         .font(.system(size: 11, weight: .bold))
                                 }
                             }
-                            .foregroundColor(isBest ? .white : .shopDark)
+                            .foregroundColor((isBest && hasSize) ? .white : .shopDark)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 11)
-                            .background(isBest ? Color.shopPurple : Color(red: 244/255, green: 245/255, blue: 248/255))
+                            .background((isBest && hasSize) ? Color.shopPurple : Color(red: 244/255, green: 245/255, blue: 248/255))
                             .clipShape(Capsule())
                             .overlay(
-                                Capsule().stroke(isBest ? Color.clear : Color(red: 228/255, green: 229/255, blue: 234/255), lineWidth: 1)
+                                Capsule().stroke((isBest && hasSize) ? Color.clear : Color(red: 228/255, green: 229/255, blue: 234/255), lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)

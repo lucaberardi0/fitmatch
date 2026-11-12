@@ -83,6 +83,7 @@ class SportlerScraper(BaseScraper):
         html = self._fetch_html(url)
         if not html:
             return None
+        soup = BeautifulSoup(html, "html.parser")
 
         # 1. Parse GTM dataLayer for price and discount
         price = None
