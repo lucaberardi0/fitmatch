@@ -1943,6 +1943,8 @@ class FitMatchSportsAdvisor:
             ("forerunner 165", "Garmin Forerunner 165", "forerunner 165", "gps_watch", "Garmin"),
             ("forerunner 265", "Garmin Forerunner 265", "forerunner 265", "gps_watch", "Garmin"),
             ("forerunner 965", "Garmin Forerunner 965", "forerunner 965", "gps_watch", "Garmin"),
+            ("fenix 7", "Garmin Fenix 7", "fenix 7", "gps_watch", "Garmin"),
+            ("fenix 8", "Garmin Fenix 8", "fenix 8", "gps_watch", "Garmin"),
         ]
         for pat, disp, kw, arch, b in models:
             if pat in u_low:
@@ -1950,9 +1952,46 @@ class FitMatchSportsAdvisor:
         for pat, disp, kw, arch, b in models:
             if pat in c_low:
                 return disp, kw, arch, b
+
+        # Apparel & Sportswear domain patterns
+        target_text = f"{u_low} {c_low}"
+        has_ua = bool(re.search(r"\b(under\s*armour|ua)\b", target_text))
+        has_nike = bool(re.search(r"\bnike\b", target_text))
+        has_adidas = bool(re.search(r"\badidas\b", target_text))
+        has_asics = bool(re.search(r"\basics\b", target_text))
+
+        # Shorts / Pantaloncini
+        if re.search(r"\b(shorts?|pantaloncin[oi]|bermuda|ciclisti)\b", target_text):
+            if has_ua:
+                return "Shorts Under Armour", "under armour launch shorts", "running_shorts", "Under Armour"
+            if has_nike:
+                return "Shorts Nike Running", "nike shorts running", "running_shorts", "Nike"
+            if has_adidas:
+                return "Shorts Adidas Running", "adidas shorts running", "running_shorts", "Adidas"
+            if has_asics:
+                return "Shorts Asics Running", "asics shorts running", "running_shorts", "Asics"
+            return "Shorts da Corsa & Allenamento", "shorts running", "running_shorts", None
+
+        # Leggings / Tights
+        if re.search(r"\b(leggings?|tights?|pantacollant|calzamagli[ae])\b", target_text):
+            brand = "Under Armour" if has_ua else "Nike" if has_nike else "Adidas" if has_adidas else None
+            disp = f"Leggings {brand}" if brand else "Leggings da Corsa & Fitness"
+            return disp, f"{(brand or '').lower()} leggings running".strip(), "tights", brand
+
+        # Tops / Maglie / Canotte
+        if re.search(r"\b(magli[ae]|t[\s-]*shirt|canott[ae]|singlet|top)\b", target_text):
+            brand = "Under Armour" if has_ua else "Nike" if has_nike else "Adidas" if has_adidas else None
+            disp = f"Maglia Tecnica {brand}" if brand else "Maglia Tecnica Traspirante"
+            return disp, f"{(brand or '').lower()} maglia running".strip(), "running_top", brand
+
+        # GPS Watch
+        if re.search(r"\b(garmin|forerunner|fenix|epix|smartwatch|cardio|orolog(?:io|i))\b", target_text):
+            return "Garmin Forerunner", "garmin forerunner", "gps_watch", "Garmin"
+
         if context_query:
-            clean = context_query.split(">>")[0].strip().title()
-            return clean, clean.lower(), "daily_trainer", None
+            clean = re.sub(r"\b(di|da|per|il|la|i|gli|le|un|uno|una|della|degli|dei)\b", "", context_query, flags=re.IGNORECASE).strip().title()
+            brand = "Under Armour" if has_ua else "Nike" if has_nike else "Adidas" if has_adidas else None
+            return clean, clean.lower(), "daily_trainer", brand
         return "Questo modello", user_query.strip().lower(), "daily_trainer", None
 
     @classmethod
@@ -1960,8 +1999,83 @@ class FitMatchSportsAdvisor:
         q = user_query.lower()
         sub, subject_kw, arch, brand = cls.extract_subject(user_query, context_query)
         b = brand or ("Nike" if "nike" in sub.lower() else "Asics" if "asics" in sub.lower() else "Saucony" if "saucony" in sub.lower() else None)
+        is_apparel = arch in ("running_shorts", "compression_shorts", "running_top", "tights", "running_apparel") or any(
+            w in sub.lower() for w in ("shorts", "pantaloncin", "magli", "leggings", "tights", "canott", "abbigliamento")
+        )
 
-        # 1. Mezza Maratona / 21 km / Maratona / Distanze
+        # 1. Comfort / Comodità / Morbidezza / Materiali / Sfregamento
+        if re.search(r"\b(comod[oi]|comfort|morbidez|vestibilit[aà]|tessut[oi]|traspiran|sfregament|material[ei])\b", q):
+            if is_apparel:
+                header = f"Comfort & Materiali {sub}"
+                ans = (
+                    f"Sì, i **{sub}** sono rinomati per l'eccellente **comfort, leggerezza e traspirabilità** sia durante la corsa che negli allenamenti intensi.\n\n"
+                    "• **Tessuto Tecnico Ultra-Leggero**: Realizzati in mesh elasticizzato a 4 vie ad alta traspirabilità (come la tecnologia HeatGear / Dri-FIT), allontanano rapidamente il sudore dal corpo, si asciugano in pochissimi minuti e non appesantiscono la falcata.\n"
+                    "• **Zero Sfregamenti**: Le cuciture ergonomiche piatte (*flatlock*) sono studiate per azzerare le frizioni nell'interno coscia anche sui lunghi estivi con elevata sudorazione.\n"
+                    "• **Cintura Elastica Sicura**: La fascia in vita ultra-morbida con coulisse interna piatta mantiene il capo saldo sui fianchi senza pizzicare o scendere durante scatti, ripetute o squat."
+                )
+                follow = ["Hanno le tasche con zip per il telefono?", "Come vestono come taglia?", "Hanno il boxer o liner interno?"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts", "running"], "brand": b, "category": "pants"}
+            else:
+                header = f"Comfort {sub}"
+                ans = (
+                    f"Sì, le **{sub}** offrono un livello di comfort molto elevato per la loro categoria.\n\n"
+                    "• **Ammortizzazione Bilanciata**: L'intersuola assorbe efficacemente le vibrazioni d'impatto con l'asfalto, alleggerendo la pressione su caviglie, ginocchia e tendine rotuleo.\n"
+                    "• **Tomaia Traspirante**: Il mesh tecnico ingegnerizzato assicura ventilazione costante e un alloggiamento avvolgente che non costringe le dita."
+                )
+                follow = ["Come calzano?", "Per quali distanze sono consigliate?", "Qual è il drop e il peso?"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 2. Tasche / Telefono / Smartphone / Portachiavi
+        if re.search(r"\b(tasch[ae]|taschin[oi]|telefono|smartphone|chiav[ei]|gel|porta\s*oggett|speedpocket)\b", q):
+            if is_apparel:
+                header = f"Tasche & Capienza {sub}"
+                ans = (
+                    f"I **{sub}** sono equipaggiati con pratiche soluzioni di carico pensate per correre senza fastidiosi sobbalzi:\n\n"
+                    "• **Tasca per Smartphone Anti-Rimbalzo**: Integrano una tasca di sicurezza (posteriore con zip o centrale impermeabile tipo Speedpocket) ideata per ospitare anche smartphone di grandi dimensioni (fino a 6.7 pollici), mantenendoli stabili contro il bacino senza saltellare.\n"
+                    "• **Tasche Laterali**: Comode tasche per le mani per inserire chiavi di casa, cuffie Bluetooth o barrette/gel energetici.\n"
+                    "• **Tessuti Idrorepellenti**: La tasca posteriore protegge i dispositivi elettronici dal sudore e dall'umidità esterna."
+                )
+                follow = ["Sono comodi per correre?", "Come vestono come taglia?", "Hanno il liner interno?"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts"], "brand": b, "category": "pants"}
+
+        # 3. Palestra / Pesi / Fitness / Workout
+        if re.search(r"\b(palestra|fitness|pesi|workout|crossfit|sala\s*pesi|allenament[oi]|funzionale)\b", q):
+            if is_apparel:
+                header = f"Uso in Palestra {sub}"
+                ans = (
+                    f"Assolutamente sì, i **{sub}** sono straordinariamente versatili e perfetti sia per la **corsa** che per la **palestra e sala pesi**.\n\n"
+                    "• **Massima Libertà nei Movimenti**: Il tessuto elasticizzato a 4 vie garantisce mobilità completa a 360° per squat profondi, stacchi, affondi e salti (*box jumps*).\n"
+                    "• **Traspirabilità & Resistenza**: Il materiale tecnico resiste allo sfregamento contro panche e bilancieri, disperdendo il sudore senza trattenere cattivi odori."
+                )
+                follow = ["Hanno le tasche?", "Sono comodi?", "Come vestono come taglia?"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts"], "brand": b, "category": "pants"}
+
+        # 4. Liner / Boxer Interno / Intimo / 2-in-1
+        if re.search(r"\b(liner|intimo|boxer|mutand[ae]|slip|2-in-1|2\s*in\s*1|doppio\s*strato|antisfregament)\b", q):
+            header = f"Liner & Struttura {sub}"
+            ans = (
+                f"La struttura interna dei **{sub}** dipende dalla variante specifica:\n\n"
+                "• **Modelli 2-in-1**: Presentano un boxer o tight a compressione elasticizzato integrato sotto il pantaloncino esterno, che avvolge i quadricipiti offrendo supporto muscolare e azzerando le frizioni.\n"
+                "• **Modelli Standard (es. Launch)**: Sono dotati di un morbido slip interno in mesh traspirante che sostiene perfettamente senza bisogno di indossare intimo separato.\n"
+                "• **Trattamento Antibatterico**: La fodera interna contrasta i microbi responsabili dei cattivi odori, mantenendo la sensazione di freschezza per tutto l'allenamento."
+            )
+            follow = ["Sono comodi?", "Hanno le tasche per il telefono?", "Come vestono come taglia?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts"], "brand": b, "category": "pants"}
+
+        # 5. Taglia & Vestibilità Abbigliamento
+        if is_apparel and re.search(r"\b(veston[oi]|vestibilit[aà]|tagli[ae]|misur[ae]|lunghezz[ae]|inch|strett[oi]|largh[oi])\b", q):
+            header = f"Taglia & Vestibilità {sub}"
+            ans = (
+                f"La vestibilità dei **{sub}** è di tipo **Fitted** (aerodinamica ed ergonomica senza stringere) e rispetta fedelmente la taglia abituale (*true to size*).\n\n"
+                "• **Guida alla Taglia**: Ordina la taglia che indossi normalmente per i pantaloncini sportivi. Se preferisci una vestibilità più morbida e rilassata sulle cosce, prendi una taglia in più.\n"
+                "• **Lunghezza (Inseam)**:\n"
+                "  - **5 pollici (5'')**: Lunghezza corta preferita dai runner veloci per la massima aerazione e ampiezza di passo.\n"
+                "  - **7 pollici (7'')**: Lunghezza versatile appena sopra il ginocchio, ottima per alternare corsa su strada, tapis roulant e sala attrezzi."
+            )
+            follow = ["Hanno le tasche per il telefono?", "Sono comodi per correre?", "Hanno il liner interno?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts"], "brand": b, "category": "pants"}
+
+        # 6. Mezza Maratona / 21 km / Maratona / Distanze
         if re.search(r"\b(mezza|mezza\s*maratona|21\s*km|21k)\b", q):
             if "zoom fly" in sub.lower():
                 header = f"Risposta per {sub}"
@@ -2178,7 +2292,7 @@ class FitMatchSportsAdvisor:
             return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
 
         # 10. Smartwatch Garmin / GPS
-        if "forerunner" in sub.lower() or archetype == "gps_watch":
+        if "forerunner" in sub.lower() or arch == "gps_watch":
             header = f"Info {sub}"
             if re.search(r"\b(batteria|autonomia|quanto\s*dura)\b", q):
                 ans = (
@@ -2196,6 +2310,16 @@ class FitMatchSportsAdvisor:
             return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": "Garmin", "category": "gps_watch"}
 
         # 11. General Fallback Expert Advice
+        if is_apparel:
+            header = f"Info {sub}"
+            ans = (
+                f"I capi **{sub}** rappresentano uno standard di riferimento per l'abbigliamento sportivo tecnico ad alte prestazioni.\n\n"
+                "• Offrono tessuti traspiranti a rapida asciugatura (come HeatGear o Dri-FIT), eccellente elasticità e cuciture piatte ergonomiche anti-sfregamento.\n"
+                "• Sono ideali sia per sessioni di corsa prolungate sia per allenamenti intensi in palestra, con prezzi e disponibilità verificati in tempo reale tra tutti i partner ufficiali."
+            )
+            follow = ["Sono comodi per correre?", "Hanno le tasche con zip?", "Come vestono come taglia?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts", "running"], "brand": b, "category": "pants"}
+
         header = f"Risposta per {sub}"
         ans = (
             f"Le **{sub}** sono un modello di riferimento per le prestazioni atletiche nella loro categoria.\n\n"

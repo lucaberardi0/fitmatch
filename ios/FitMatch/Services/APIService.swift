@@ -268,9 +268,18 @@ class APIService: ObservableObject {
             "per", "la", "il", "lo", "i", "gli", "le", "un", "una", "uno", "di",
             "a", "da", "in", "con", "su", "sotto", "meno", "euro", "eur", "corsa", "running",
             "analisi", "delle", "prestazioni", "confronta", "miglior", "migliori", "prezzo",
-            "smartwatch", "orologi", "uomo", "donna", "ragazzo", "ragazza", "scarpe", "scarpa"
+            "smartwatch", "orologi", "uomo", "donna", "ragazzo", "ragazza", "scarpe", "scarpa",
+            "sono", "vanno", "bene", "buone", "buoni", "buon", "comodi", "comodo", "comode",
+            "come", "quanto", "quanti", "quante", "ha", "hanno", "ci", "sta", "posso", "puoi",
+            "meglio", "cosa", "quale", "quali", "perche", "perché", "è", "e", "tu", "consigli"
         ]
-        var tokens = qLower.components(separatedBy: CharacterSet.alphanumerics.inverted)
+
+        let isQuestion = qLower.contains("?") || qLower.hasPrefix("sono ") || qLower.hasPrefix("vanno ") || qLower.hasPrefix("come ") || qLower.hasPrefix("quanto ") || qLower.hasPrefix("per che ") || qLower.contains("differenza") || qLower.contains("comodi") || qLower.contains("tasche") || qLower.contains("palestra")
+
+        // If the query is a conversational follow-up question, extract search keywords from the context query!
+        let textForTokenExtraction = (isQuestion && contextQuery != nil && !contextQuery!.isEmpty) ? contextQuery!.lowercased() : qLower
+
+        var tokens = textForTokenExtraction.components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { token in
                 guard token.count > 1 && !stopwords.contains(token) else { return false }
                 if let num = Double(token), let emp = effectiveMaxPrice, (num == emp || num == Double(Int(emp))) {
@@ -301,7 +310,7 @@ class APIService: ObservableObject {
             }
         }
 
-        let prods = await SupabaseManager.shared.fetchSmartProductsDirect(
+        var prods = await SupabaseManager.shared.fetchSmartProductsDirect(
             category: effectiveCategory,
             keywords: keywordsToSearch,
             brand: nil,
@@ -310,6 +319,20 @@ class APIService: ObservableObject {
             store: store,
             limit: 35
         )
+
+        // Resilient fallback: if exact keywords returned 0 products but this is a question, fetch general category products
+        if prods.isEmpty && isQuestion {
+            prods = await SupabaseManager.shared.fetchSmartProductsDirect(
+                category: effectiveCategory,
+                keywords: effectiveCategory == "pants" ? ["shorts"] : ["running"],
+                brand: nil,
+                maxPrice: effectiveMaxPrice,
+                size: size,
+                store: store,
+                limit: 20
+            )
+        }
+
         guard !prods.isEmpty else { return nil }
 
         let topProd = prods.first!
@@ -335,12 +358,29 @@ class APIService: ObservableObject {
             "Filtra per prezzo più basso"
         ]
 
-        let isQuestion = qLower.contains("?") || qLower.hasPrefix("sono ") || qLower.hasPrefix("vanno ") || qLower.hasPrefix("come ") || qLower.hasPrefix("quanto ") || qLower.hasPrefix("per che ") || qLower.contains("differenza")
         if isQuestion {
             isAdvice = true
             let sub = topProd.canonical_name
             headerTitle = "Risposta per \(sub)"
-            if qLower.contains("mezza") || qLower.contains("21") {
+            if effectiveCategory == "pants" || combined.contains("shorts") || combined.contains("pantaloncin") {
+                if qLower.contains("comod") || qLower.contains("comfort") || qLower.contains("tessut") {
+                    headerTitle = "Comfort & Materiali \(sub)"
+                    summaryText = "Sì, i **\(sub)** sono rinomati per l'eccellente comfort e traspirabilità: il tessuto tecnico elasticizzato a 4 vie espelle rapidamente il sudore, le cuciture piatte ergonomiche azzerano gli sfregamenti nell'interno coscia e la vita con coulisse piatta garantisce totale stabilità."
+                    followUps = ["Hanno le tasche con zip per il telefono?", "Come vestono come taglia?", "Hanno il boxer o liner interno?"]
+                } else if qLower.contains("tasch") || qLower.contains("telefon") || qLower.contains("smartphon") {
+                    headerTitle = "Tasche & Smartphone \(sub)"
+                    summaryText = "I **\(sub)** offrono tasche per le mani e una tasca di sicurezza anti-rimbalzo (posteriore con zip o Speedpocket centrale impermeabile) studiata appositamente per ospitare smartphone fino a 6.7 pollici senza fastidiosi sobbalzi."
+                    followUps = ["Sono comodi per correre?", "Come vestono come taglia?", "Hanno il liner interno?"]
+                } else if qLower.contains("palestr") || qLower.contains("fitness") || qLower.contains("pesi") {
+                    headerTitle = "Uso in Palestra \(sub)"
+                    summaryText = "Assolutamente sì: i **\(sub)** sono perfetti sia per la corsa che per la palestra e la sala pesi, garantendo mobilità completa a 360° per squat, affondi e functional training."
+                    followUps = ["Hanno le tasche?", "Sono comodi?", "Come vestono come taglia?"]
+                } else {
+                    headerTitle = "Info \(sub)"
+                    summaryText = "I capi **\(sub)** rappresentano uno standard di riferimento per abbigliamento sportivo tecnico ad asciugatura rapida e zero sfregamenti."
+                    followUps = ["Sono comodi per correre?", "Hanno le tasche con zip?", "Come vestono come taglia?"]
+                }
+            } else if qLower.contains("mezza") || qLower.contains("21") {
                 summaryText = "Sì, le **\(sub)** sono un'ottima scelta per la **mezza maratona** (21 km). Offrono reattività e comfort muscolare sui ritmi prolungati, garantendo protezione sui 21 km."
                 followUps = ["Come calzano?", "Qual è il drop e il peso?", "Vanno bene per pronatori?"]
             } else if qLower.contains("pronat") || qLower.contains("stabilit") {

@@ -69,6 +69,34 @@ def test_smart_search_conversational_advice_vaporfly_diff():
     assert "vaporfly" in summary
 
 
+def test_smart_search_conversational_advice_shorts_comfort():
+    client = TestClient(app)
+    resp = client.get("/api/search/smart", params={
+        "q": "Sono comodi?",
+        "context_query": "Shorts di under armour"
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("is_conversational_advice") is True
+    assert "Shorts Under Armour" in data.get("conversational_header", "")
+    summary = data.get("conversational_summary", "").lower()
+    assert "comfort" in summary or "traspirabilità" in summary or "heatgear" in summary
+    assert len(data.get("follow_up_suggestions", [])) == 3
+
+
+def test_smart_search_conversational_advice_shorts_pockets():
+    client = TestClient(app)
+    resp = client.get("/api/search/smart", params={
+        "q": "Hanno le tasche per il telefono?",
+        "context_query": "Shorts di under armour"
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("is_conversational_advice") is True
+    summary = data.get("conversational_summary", "").lower()
+    assert "tasca" in summary or "smartphone" in summary
+
+
 def test_catalog_refinement_still_runs_search():
     client = TestClient(app)
     resp = client.get("/api/search/smart", params={
