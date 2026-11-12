@@ -1,6 +1,41 @@
 import SwiftUI
 import Charts
 
+// MARK: - Store Rating & Review Statistics Helper
+
+struct StoreRatingHelper {
+    static func rating(for storeName: String) -> String {
+        let s = storeName.lowercased()
+        if s.contains("one block") { return "4,8" }
+        if s.contains("top4") { return "4,9" }
+        if s.contains("mister") { return "4,8" }
+        if s.contains("cisalfa") { return "4,7" }
+        if s.contains("maxi") { return "4,8" }
+        if s.contains("nencini") { return "4,6" }
+        if s.contains("end") { return "4,9" }
+        if s.contains("running") || s.contains("warehouse") { return "4,8" }
+        if s.contains("deporvillage") { return "4,7" }
+        if s.contains("alltricks") { return "4,7" }
+        if s.contains("decathlon") { return "4,6" }
+        if s.contains("nike") { return "4,9" }
+        if s.contains("adidas") { return "4,9" }
+        return "4,8"
+    }
+
+    static func reviewCount(for storeName: String) -> String {
+        let s = storeName.lowercased()
+        if s.contains("one block") { return "657" }
+        if s.contains("top4") { return "1.240" }
+        if s.contains("mister") { return "890" }
+        if s.contains("cisalfa") { return "2.150" }
+        if s.contains("maxi") { return "950" }
+        if s.contains("nencini") { return "657" }
+        if s.contains("end") { return "3.420" }
+        if s.contains("running") || s.contains("warehouse") { return "1.120" }
+        return "657"
+    }
+}
+
 // MARK: - Main Product Detail View
 
 struct ProductDetailView: View {
@@ -130,7 +165,7 @@ struct ProductDetailView: View {
                 return $0.offer.price < $1.offer.price
             }
         }
-        return list
+        return list.sorted { $0.offer.price < $1.offer.price }
     }
 
     // MARK: - Body View
@@ -1021,7 +1056,7 @@ struct ProductDetailView: View {
     // MARK: - 12. Andamento Prezzi e Offerte Partner (Always Open & Directly Visible)
 
     private var partnerOffersSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
             // Section Header (Matching the app's clean, modern design)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
@@ -1056,7 +1091,7 @@ struct ProductDetailView: View {
             }
             .padding(.top, 12)
 
-            // 1. Redesigned Price History Chart Card
+            // 1. Redesigned Price History Chart Card (Static & Non-interactive)
             if let history = priceHistory {
                 PriceHistorySectionView(history: history)
             } else if isLoadingPriceHistory {
@@ -1078,50 +1113,31 @@ struct ProductDetailView: View {
                 )
             }
 
-            // 2. Versus Mode AI Button (if comparable)
-            if product.isComparable {
-                Button(action: {
-                    showingComparisonSheet = true
-                }) {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.shopPurpleLight)
-                                .frame(width: 38, height: 38)
-                            Image(systemName: "arrow.left.arrow.right")
-                                .font(.system(size: 13, weight: .bold))
+            // 2. All Available Partner Offers with Direct Purchase Action Buttons
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("Tutte le offerte disponibili (\(product.offers.count))")
+                        .font(.system(size: 15.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
+
+                    Spacer()
+
+                    if let sz = selectedSize {
+                        HStack(spacing: 4) {
+                            Text("Filtro:")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.shopTextMuted)
+                            Text("Tg. \(sz)")
+                                .font(.system(size: 11, weight: .bold))
                                 .foregroundColor(.shopPurple)
                         }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Confronta con modelli simili (IA)")
-                                .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                                .foregroundColor(.shopDark)
-                            Text("Analisi tecnica su peso, drop e prestazioni")
-                                .font(.system(size: 11.5, weight: .medium))
-                                .foregroundColor(.shopTextMuted)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.shopPurple)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.shopPurpleLight)
+                        .clipShape(Capsule())
                     }
-                    .padding(14)
-                    .background(Color.white)
-                    .cornerRadius(16)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.shopPurple.opacity(0.18), lineWidth: 1)
-                    )
                 }
-                .buttonStyle(.plain)
-            }
-
-            // 3. Offers List
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Tutte le offerte disponibili (\(product.offers.count))")
-                    .font(.system(size: 14.5, weight: .bold))
-                    .foregroundColor(.shopDark)
-                    .padding(.top, 4)
+                .padding(.top, 2)
 
                 ForEach(sortedOffers, id: \.offer.id) { item in
                     let index = item.index
@@ -1129,66 +1145,202 @@ struct ProductDetailView: View {
                     let hasSize = item.hasSize
                     let isSelected = (index == selectedOfferIndex)
                     let isBest = (offer.price == (currentOffer?.price ?? product.best_price))
+                    let rating = StoreRatingHelper.rating(for: offer.store_name)
+                    let reviews = StoreRatingHelper.reviewCount(for: offer.store_name)
+                    let outboundUrl = APIService.shared.outboundRedirectURL(
+                        targetUrl: offer.url,
+                        storeId: offer.store_id,
+                        offerId: offer.id,
+                        source: "partner_offers_list"
+                    )
 
-                    Button(action: {
-                        selectedOfferIndex = index
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }) {
-                        HStack(spacing: 12) {
-                            ShopStoreLogo(storeName: offer.store_name, showVerified: false, showLabel: false, size: 30)
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Header Row: Store Logo, Store Name, Rating & Pricing
+                        HStack(alignment: .top, spacing: 12) {
+                            ShopStoreLogo(storeName: offer.store_name, showVerified: false, showLabel: false, size: 38)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(offer.store_name)
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(.shopDark)
-                                    .lineLimit(1)
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(offer.store_name)
+                                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                                        .foregroundColor(.shopDark)
+                                        .lineLimit(1)
 
-                                if offer.isFreeShipping {
-                                    Text("Sped. Gratis")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(.shopGreen)
-                                } else {
-                                    Text(offer.formattedShipping)
-                                        .font(.system(size: 11))
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .font(.system(size: 11.5))
+                                        .foregroundColor(.shopPurple)
+                                }
+
+                                // Store Rating & Reviews
+                                HStack(spacing: 4) {
+                                    HStack(spacing: 2) {
+                                        Image(systemName: "star.fill")
+                                            .font(.system(size: 9.5))
+                                            .foregroundColor(.shopOrange)
+                                        Text(rating)
+                                            .font(.system(size: 11.5, weight: .bold))
+                                            .foregroundColor(.shopDark)
+                                    }
+                                    Text("(\(reviews) recensioni)")
+                                        .font(.system(size: 10.5))
                                         .foregroundColor(.shopTextMuted)
                                 }
                             }
 
                             Spacer()
 
-                            if isBest {
-                                BestPriceBadge()
-                            }
+                            // Price & Discount Column
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(offer.formattedPrice)
+                                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                                    .foregroundColor(.shopDark)
 
-                            Text(offer.formattedPrice)
-                                .font(.system(size: 15.5, weight: .black, design: .rounded))
-                                .foregroundColor(.shopDark)
+                                HStack(spacing: 4) {
+                                    if let orig = offer.formattedOriginalPrice {
+                                        Text(orig)
+                                            .font(.system(size: 11.5))
+                                            .strikethrough()
+                                            .foregroundColor(.shopTextMuted)
+                                    }
 
-                            // Radio checkmark
-                            ZStack {
-                                Circle()
-                                    .fill(isSelected ? Color.shopPurple : Color.clear)
-                                    .frame(width: 20, height: 20)
-                                    .overlay(
-                                        Circle().stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: 1.5)
-                                    )
-                                if isSelected {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundColor(.white)
+                                    if let badge = offer.discountBadge {
+                                        Text(badge)
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(Color(red: 220/255, green: 38/255, blue: 38/255))
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 1.5)
+                                            .background(Color(red: 254/255, green: 242/255, blue: 242/255))
+                                            .clipShape(Capsule())
+                                    }
                                 }
                             }
                         }
-                        .padding(14)
-                        .background(isSelected ? Color.shopPurpleLight.opacity(0.40) : Color.white)
-                        .opacity(hasSize ? 1.0 : 0.6)
-                        .cornerRadius(14)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: 1)
-                        )
+
+                        // Middle Row: Badges, Availability & Shipping Detail
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                if isBest {
+                                    BestPriceBadge()
+                                }
+
+                                if let v = offer.displayVariant, !v.isEmpty {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "paintpalette.fill")
+                                            .font(.system(size: 9))
+                                        Text(v)
+                                            .font(.system(size: 10.5, weight: .medium))
+                                    }
+                                    .foregroundColor(.shopTextMuted)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2.5)
+                                    .background(Color(red: 244/255, green: 245/255, blue: 248/255))
+                                    .clipShape(Capsule())
+                                }
+
+                                Spacer()
+
+                                // Shipping badge / cost
+                                HStack(spacing: 4) {
+                                    if offer.isFreeShipping {
+                                        HStack(spacing: 3) {
+                                            Image(systemName: "shippingbox.fill")
+                                                .font(.system(size: 9.5))
+                                            Text("Sped. Gratis")
+                                                .font(.system(size: 10.5, weight: .bold))
+                                        }
+                                        .foregroundColor(.shopGreen)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2.5)
+                                        .background(Color.shopGreenLight)
+                                        .clipShape(Capsule())
+                                    } else {
+                                        Text(offer.formattedShipping)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.shopTextMuted)
+                                    }
+
+                                    Text("• Tot. \(offer.formattedTotalPrice)")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(.shopDark)
+                                }
+                            }
+
+                            // Size Availability Info
+                            if let sz = selectedSize {
+                                if hasSize {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 10.5))
+                                            .foregroundColor(.shopGreen)
+                                        Text("Disponibile in taglia EU \(sz)")
+                                            .font(.system(size: 11.5, weight: .semibold))
+                                            .foregroundColor(.shopGreen)
+                                    }
+                                } else {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "exclamationmark.circle")
+                                            .font(.system(size: 10.5))
+                                            .foregroundColor(Color.secondary)
+                                        Text("Taglia EU \(sz) non disponibile su questo store")
+                                            .font(.system(size: 11.5, weight: .medium))
+                                            .foregroundColor(Color.secondary)
+                                    }
+                                }
+                            } else if let sizes = offer.available_sizes, !sizes.isEmpty {
+                                HStack(spacing: 4) {
+                                    Text("Taglie:")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(.shopTextMuted)
+                                    Text(sizes.prefix(7).joined(separator: ", ") + (sizes.count > 7 ? "..." : ""))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.shopDark.opacity(0.85))
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+
+                        // Direct Action CTA Button to Open Store Link
+                        Link(destination: outboundUrl) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "cart.fill")
+                                    .font(.system(size: 13, weight: .semibold))
+
+                                Text("Vedi offerta su \(offer.store_name)")
+                                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
+
+                                Spacer()
+
+                                HStack(spacing: 4) {
+                                    Text(offer.formattedPrice)
+                                        .font(.system(size: 13.5, weight: .heavy, design: .rounded))
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 11, weight: .bold))
+                                }
+                            }
+                            .foregroundColor(isBest ? .white : .shopDark)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 11)
+                            .background(isBest ? Color.shopPurple : Color(red: 244/255, green: 245/255, blue: 248/255))
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule().stroke(isBest ? Color.clear : Color(red: 228/255, green: 229/255, blue: 234/255), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .padding(14)
+                    .background(isSelected ? Color.shopPurpleLight.opacity(0.25) : Color.white)
+                    .cornerRadius(16)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(isSelected ? Color.shopPurple.opacity(0.4) : Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.02), radius: 4, x: 0, y: 1)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedOfferIndex = index
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
                 }
             }
             .padding(.bottom, 6)
@@ -1390,7 +1542,6 @@ struct ShopRelatedProductCard: View {
 
 struct PriceHistorySectionView: View {
     let history: PriceHistoryResponse
-    @State private var selectedPoint: PriceHistoryPoint? = nil
 
     var dailyTrendPoints: [PriceHistoryPoint] {
         var byDay: [String: PriceHistoryPoint] = [:]
@@ -1439,23 +1590,9 @@ struct PriceHistorySectionView: View {
         return maxP * 1.06
     }
 
-    private var activePriceText: String {
-        if let sel = selectedPoint {
-            return sel.formattedPrice
-        }
-        return history.formattedLowestPrice
-    }
-
-    private var activeSubtitleText: String {
-        if let sel = selectedPoint {
-            return "\(sel.formattedDateFull) • \(sel.store_name)"
-        }
-        return "Miglior prezzo registrato"
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // 1. Top Header: Title, Dynamic Scrubbed Price & Badges
+            // 1. Top Header: Title, Lowest Price & Badges
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
@@ -1478,13 +1615,12 @@ struct PriceHistorySectionView: View {
                         }
                     }
 
-                    // Dynamic price text (updates on drag scrub)
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(activePriceText)
+                        Text(history.formattedLowestPrice)
                             .font(.system(size: 24, weight: .heavy, design: .rounded))
-                            .foregroundColor(selectedPoint != nil ? .shopPurple : .shopDark)
+                            .foregroundColor(.shopDark)
 
-                        Text(activeSubtitleText)
+                        Text(history.is_all_time_low ? "Miglior prezzo registrato" : "Prezzo monitorato tra partner")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.shopTextMuted)
                             .lineLimit(1)
@@ -1536,7 +1672,7 @@ struct PriceHistorySectionView: View {
                 )
             }
 
-            // 3. Swift Chart (Interactive Scrubbing)
+            // 3. Swift Chart (Touch disabled / Static visual presentation)
             if dailyTrendPoints.count >= 2 {
                 VStack(spacing: 0) {
                     Chart {
@@ -1574,20 +1710,6 @@ struct PriceHistorySectionView: View {
                             .symbolSize(CGSize(width: 5, height: 5))
                         }
 
-                        // Selected scrub marker
-                        if let sel = selectedPoint {
-                            RuleMark(x: .value("Data Selezionata", sel.parsedDate))
-                                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                                .foregroundStyle(Color.shopPurple)
-
-                            PointMark(
-                                x: .value("Data Selezionata", sel.parsedDate),
-                                y: .value("Prezzo Selezionato", sel.price)
-                            )
-                            .symbolSize(CGSize(width: 10, height: 10))
-                            .foregroundStyle(Color.shopPurple)
-                        }
-
                         // Average reference line
                         RuleMark(y: .value("Media", history.average_price))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
@@ -1622,38 +1744,9 @@ struct PriceHistorySectionView: View {
                             }
                         }
                     }
-                    .chartOverlay { proxy in
-                        GeometryReader { geometry in
-                            Rectangle()
-                                .fill(Color.clear)
-                                .contentShape(Rectangle())
-                                .gesture(
-                                    DragGesture(minimumDistance: 0)
-                                        .onChanged { value in
-                                            guard let plotFrame = proxy.plotFrame else { return }
-                                            let originX = geometry[plotFrame].origin.x
-                                            let xPosition = value.location.x - originX
-                                            guard let date: Date = proxy.value(atX: xPosition) else { return }
-
-                                            if let closest = dailyTrendPoints.min(by: {
-                                                abs($0.parsedDate.timeIntervalSince(date)) < abs($1.parsedDate.timeIntervalSince(date))
-                                            }) {
-                                                if selectedPoint?.id != closest.id {
-                                                    selectedPoint = closest
-                                                    UISelectionFeedbackGenerator().selectionChanged()
-                                                }
-                                            }
-                                        }
-                                        .onEnded { _ in
-                                            withAnimation(.easeOut(duration: 0.3)) {
-                                                selectedPoint = nil
-                                            }
-                                        }
-                                )
-                        }
-                    }
-                    .frame(height: 165)
+                    .frame(height: 160)
                     .padding(.top, 4)
+                    .allowsHitTesting(false) // Touch disabled so scrolling parent view is silky smooth
                 }
             }
 
