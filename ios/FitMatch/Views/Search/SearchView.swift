@@ -10,6 +10,7 @@ struct SearchView: View {
     @StateObject private var api = APIService.shared
     @StateObject private var keyboardObserver = KeyboardObserver.shared
     @ObservedObject private var tabVisibility = TabBarVisibilityManager.shared
+    @ObservedObject private var tabCoordinator = TabCoordinator.shared
     @State private var searchText: String = ""
     @FocusState private var isSearchFieldFocused: Bool
     @FocusState private var isFollowUpFieldFocused: Bool
@@ -174,7 +175,7 @@ struct SearchView: View {
                 }
             }
             .navigationDestination(item: $selectedRecentProduct) { prod in
-                ProductDetailView(product: prod)
+                ProductDetailView(product: prod, openedFromSearch: true)
             }
             .sheet(isPresented: $showComparisonSheet) {
                 if let pair = comparisonModels {
@@ -221,11 +222,16 @@ struct SearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarHidden(true)
             .onAppear {
-                if !hasAutoFocused && !hasSearched {
+                if tabCoordinator.selectedTab == 1 && !hasAutoFocused && !hasSearched {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
                         isSearchFieldFocused = true
                         hasAutoFocused = true
                     }
+                }
+            }
+            .onChange(of: tabCoordinator.selectedTab) { newTab in
+                if newTab != 1 {
+                    hideAllKeyboards()
                 }
             }
             .onChange(of: isSearchFieldFocused) { _ in
@@ -257,11 +263,31 @@ struct SearchView: View {
         ZStack(alignment: .bottom) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 26) {
-                    // Header Title: Cerca
-                    HStack {
+                    // Header Title: Cerca (with back button if navigated from Home/Product)
+                    HStack(spacing: 12) {
+                        if tabCoordinator.previousTab != nil {
+                            Button(action: {
+                                tabCoordinator.returnToPreviousTab()
+                            }) {
+                                Circle()
+                                    .fill(Color(red: 246/255, green: 247/255, blue: 249/255))
+                                    .frame(width: 40, height: 40)
+                                    .overlay(
+                                        Circle().stroke(Color(red: 232/255, green: 233/255, blue: 237/255), lineWidth: 0.8)
+                                    )
+                                    .overlay(
+                                        Image(systemName: "chevron.left")
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundColor(.shopDark)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+
                         Text("Cerca")
                             .font(.system(size: 28, weight: .bold, design: .rounded))
                             .foregroundColor(.shopDark)
+
                         Spacer()
                     }
                     .padding(.horizontal, 20)
@@ -3212,7 +3238,7 @@ struct ShopOfficialProductCard: View {
     }
 
     var body: some View {
-        NavigationLink(destination: ProductDetailView(product: product)) {
+        NavigationLink(destination: ProductDetailView(product: product, openedFromSearch: true)) {
             HStack(alignment: .top, spacing: 14) {
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 18)

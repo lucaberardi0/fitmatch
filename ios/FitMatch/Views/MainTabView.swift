@@ -38,36 +38,76 @@ final class TabBarVisibilityManager: ObservableObject {
     }
 }
 
+// MARK: - Tab Coordinator (Preserves tab state and manages seamless cross-tab navigation)
+
+@MainActor
+final class TabCoordinator: ObservableObject {
+    static let shared = TabCoordinator()
+
+    @Published var selectedTab: Int = 0
+    @Published var previousTab: Int? = nil
+    @Published var searchSource: String? = nil
+
+    func selectTab(_ index: Int, focusSearch: Bool = false, fromSource: String? = nil) {
+        if selectedTab != index {
+            previousTab = selectedTab
+            searchSource = fromSource
+            let gen = UIImpactFeedbackGenerator(style: .light)
+            gen.impactOccurred()
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                selectedTab = index
+            }
+        }
+        if index == 1 && focusSearch {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                NotificationCenter.default.post(name: NSNotification.Name("FitMatchFocusSearch"), object: nil)
+            }
+        }
+    }
+
+    func returnToPreviousTab() {
+        let target = previousTab ?? 0
+        let gen = UIImpactFeedbackGenerator(style: .light)
+        gen.impactOccurred()
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+            selectedTab = target
+        }
+        previousTab = nil
+        searchSource = nil
+    }
+}
+
 struct MainTabView: View {
-    @State private var selectedTab: Int
+    @ObservedObject private var coordinator = TabCoordinator.shared
     @ObservedObject private var wishlist = WishlistManager.shared
     @ObservedObject private var tabVisibility = TabBarVisibilityManager.shared
     @ObservedObject private var notifManager = NotificationManager.shared
 
     init(initialTab: Int = 0) {
-        _selectedTab = State(initialValue: initialTab)
+        TabCoordinator.shared.selectedTab = initialTab
     }
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Main Tab Screen (3 Tabs: Home, Cerca, Salvati)
-            Group {
-                switch selectedTab {
-                case 0:
-                    HomeView(selectedTab: $selectedTab)
-                case 1:
-                    SearchView()
-                case 2:
-                    WishlistView(selectedTab: $selectedTab)
-                default:
-                    HomeView(selectedTab: $selectedTab)
-                }
+            // Main Tab Screens (Kept alive in a ZStack so navigation stack & scroll position are never destroyed)
+            ZStack {
+                HomeView(selectedTab: $coordinator.selectedTab)
+                    .opacity(coordinator.selectedTab == 0 ? 1 : 0)
+                    .allowsHitTesting(coordinator.selectedTab == 0)
+
+                SearchView()
+                    .opacity(coordinator.selectedTab == 1 ? 1 : 0)
+                    .allowsHitTesting(coordinator.selectedTab == 1)
+
+                WishlistView(selectedTab: $coordinator.selectedTab)
+                    .opacity(coordinator.selectedTab == 2 ? 1 : 0)
+                    .allowsHitTesting(coordinator.selectedTab == 2)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Floating Island Dock (Hidden when entering Detail pages or when typing in search)
             if !tabVisibility.isHidden {
-                ShopFloatingIslandDock(selectedTab: $selectedTab)
+                ShopFloatingIslandDock(selectedTab: $coordinator.selectedTab)
                     .padding(.bottom, 16)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -166,16 +206,10 @@ struct ShopFloatingIslandDock: View {
 
     private func dockButton(index: Int, content: AnyView) -> some View {
         Button(action: {
-            let gen = UIImpactFeedbackGenerator(style: .light)
-            gen.impactOccurred()
             let isSwitchingToSearch = (index == 1)
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
-                selectedTab = index
-            }
-            if isSwitchingToSearch {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                    NotificationCenter.default.post(name: NSNotification.Name("FitMatchFocusSearch"), object: nil)
-                }
+            TabCoordinator.shared.selectTab(index, focusSearch: isSwitchingToSearch, fromSource: "dock")
+            if !isSwitchingToSearch {
+                TabCoordinator.shared.previousTab = nil
             }
         }) {
             ZStack {

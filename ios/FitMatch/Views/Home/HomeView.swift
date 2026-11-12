@@ -194,14 +194,7 @@ struct HomeView: View {
 
             // Search Bar Capsule ("Cerca")
             Button(action: {
-                let gen = UIImpactFeedbackGenerator(style: .light)
-                gen.impactOccurred()
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
-                    selectedTab = 1
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                    NotificationCenter.default.post(name: NSNotification.Name("FitMatchFocusSearch"), object: nil)
-                }
+                TabCoordinator.shared.selectTab(1, focusSearch: true, fromSource: "home")
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")

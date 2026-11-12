@@ -211,6 +211,37 @@ struct FitMatchApp: App {
                 SearchView(initialSearchQuery: "Maison margiela scarpe nere")
             } else if ProcessInfo.processInfo.arguments.contains("-testSalvatiHome") {
                 MainTabView(initialTab: 2)
+            } else if ProcessInfo.processInfo.arguments.contains("-testChartDirect") {
+                NavigationStack {
+                    ScrollView {
+                        PriceHistorySectionView(
+                            history: PriceHistoryResponse(
+                                canonical_name: "Nike Zoom Fly 6",
+                                product_id: "zoomfly6",
+                                current_price: 105.75,
+                                lowest_price: 105.75,
+                                highest_price: 169.99,
+                                average_price: 132.50,
+                                is_all_time_low: true,
+                                price_drop_percentage: 20.2,
+                                price_drop_amount: 26.75,
+                                history_points: [
+                                    PriceHistoryPoint(date: "2026-10-15T10:00:00Z", price: 169.99, store_name: "Nike Official", offer_id: nil),
+                                    PriceHistoryPoint(date: "2026-10-22T10:00:00Z", price: 152.00, store_name: "Top4Running", offer_id: nil),
+                                    PriceHistoryPoint(date: "2026-10-29T10:00:00Z", price: 139.90, store_name: "Alltricks", offer_id: nil),
+                                    PriceHistoryPoint(date: "2026-11-05T10:00:00Z", price: 119.90, store_name: "Maxi Sport", offer_id: nil),
+                                    PriceHistoryPoint(date: "2026-11-12T10:00:00Z", price: 105.75, store_name: "Mister Running", offer_id: nil)
+                                ],
+                                total_data_points: 5,
+                                first_recorded_date: "2026-10-15",
+                                last_recorded_date: "2026-11-12"
+                            )
+                        )
+                        .padding(16)
+                    }
+                    .background(Color(red: 247/255, green: 248/255, blue: 250/255).ignoresSafeArea())
+                    .navigationTitle("Andamento Prezzi")
+                }
             } else if ProcessInfo.processInfo.arguments.contains("-testZoomFly") {
                 NavigationStack {
                     ProductDetailView(
