@@ -51,6 +51,7 @@ class SmartSearchIntent(BaseModel):
     raw_query: str
     search_mode: str = "deep_dive"  # "deep_dive" | "classic"
     is_deep_dive: bool = True
+    is_conversational_advice: bool = False
     conversational_header: str = "Ho cercato prodotti"
     conversational_summary: str = ""
     target_keywords: List[str] = Field(default_factory=list)
@@ -196,7 +197,7 @@ SPORTS_KNOWLEDGE = {
                 "id": "sec_carbon_race",
                 "title": "Super scarpe da gara",
                 "subtitle": "Massima propulsione e ritorno di energia per il giorno della gara.",
-                "keywords": ["adizero", "adios", "vaporfly", "alphafly", "metaspeed", "vanish", "fuelcell", "cielo"]
+                "keywords": ["adizero", "adios", "vaporfly", "alphafly", "zoom fly", "zoomfly", "endorphin", "metaspeed", "vanish", "fuelcell", "cielo"]
             },
             {
                 "id": "sec_adizero_marathon",
@@ -642,6 +643,110 @@ SPORTS_KNOWLEDGE = {
             "Mostrami long sleeve da corsa",
             "Mostrami giacche antivento da running",
             "Filtra abbigliamento running sotto 50 euro"
+        ]
+    },
+    "running_shorts": {
+        "models": ["nike stride shorts", "nike challenger", "adidas adizero shorts", "under armour launch", "pantaloncini running", "shorts compression", "salomon cross shorts", "asics road shorts"],
+        "label": "Shorts & Pantaloncini da Corsa",
+        "category": "pants",
+        "description": "Shorts da running traspiranti, ciclisti a compressione muscolare e pantaloncini tecnici per corsa su strada e trail.",
+        "conversational_summary": "Per la corsa e l'allenamento sceglierei tra **shorts leggeri e traspiranti** con slip interno e **pantaloncini o ciclisti a compressione** per il massimo supporto muscolare. Ecco i migliori modelli a confronto:",
+        "sections": [
+            {
+                "id": "sec_compression_shorts",
+                "title": "Shorts a Compressione & Ciclisti",
+                "subtitle": "Supporto muscolare attivo, fit ergonomico e prevenzione degli sfregamenti.",
+                "keywords": ["compression", "ciclisti", "sprinter", "tight", "fuseaux"]
+            },
+            {
+                "id": "sec_lightweight_shorts",
+                "title": "Shorts Tecnici & Pantaloncini Running",
+                "subtitle": "Massima leggerezza, libertà di movimento e tessuti ad asciugatura rapida.",
+                "keywords": ["shorts", "pantaloncini", "stride", "challenger", "launch", "adizero", "bermuda"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Nike Stride / Challenger Shorts",
+                "ideal_for": "Allenamenti quotidiani su strada e leggerezza",
+                "strengths": "Tessuto Dri-FIT traspirante, tasca posteriore per smartphone",
+                "target_keyword": "stride"
+            },
+            {
+                "model_name": "Under Armour Compression Shorts",
+                "ideal_for": "Sostegno muscolare e corse ad alta intensità",
+                "strengths": "Taglio a compressione HeatGear e cuciture ergonomiche piatte",
+                "target_keyword": "compression"
+            },
+            {
+                "model_name": "Adidas Adizero Running Shorts",
+                "ideal_for": "Gara e ritmi veloci in mezza maratona",
+                "strengths": "Tessuto AEROREADY piuma e spacchi laterali profondi",
+                "target_keyword": "adizero"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "shorts",
+            "badge_text": "Miglior Scelta",
+            "highlights": [
+                "Tessuto tecnico ultra-traspirante ad asciugatura rapida",
+                "Design ergonomico anti-sfregamento con tasca sicura",
+                "Miglior prezzo garantito tra i negozi partner"
+            ]
+        },
+        "follow_ups": [
+            "Mostrami modelli a compressione",
+            "Filtra shorts sotto 30 euro",
+            "Mostrami pantaloncini con tasca con zip"
+        ]
+    },
+    "running_pants": {
+        "models": ["nike phenom", "adidas adizero tights", "leggings running", "tights compression", "odlo tights", "salomon cross run pants", "pantaloni running"],
+        "label": "Pantaloni Lunghi & Leggings da Corsa",
+        "category": "pants",
+        "description": "Leggings, tights compressivi e pantaloni lunghi tecnici per correre con clima fresco o invernale.",
+        "conversational_summary": "Per correre con il fresco o in inverno punta su **tights tecnici e leggings traspiranti** con fit anatomico e dettagli riflettenti. Ecco le opzioni più confortevoli a confronto:",
+        "sections": [
+            {
+                "id": "sec_tights_leggings",
+                "title": "Tights & Leggings da Running",
+                "subtitle": "Aderenza perfetta, isolamento termico e sostegno muscolare.",
+                "keywords": ["tights", "leggings", "fuseaux", "tight", "pantacollant"]
+            },
+            {
+                "id": "sec_track_pants",
+                "title": "Pantaloni Lunghi Tecnici",
+                "subtitle": "Taglio affusolato con zip alle caviglie per riscaldamento e corse facili.",
+                "keywords": ["pantaloni", "pants", "phenom", "track"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Nike Dri-FIT Phenom / Swift Pants",
+                "ideal_for": "Corsa invernale e riscaldamento",
+                "strengths": "Tessuto elasticizzato affusolato con tasche con zip",
+                "target_keyword": "phenom"
+            },
+            {
+                "model_name": "Adidas Adizero / Run Tights",
+                "ideal_for": "Allenamenti veloci con basse temperature",
+                "strengths": "Compressione moderata e dettagli riflettenti a 360 gradi",
+                "target_keyword": "tights"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "tights",
+            "badge_text": "Top Termico",
+            "highlights": [
+                "Isolamento termico e traspirabilità per clima fresco",
+                "Cintura elastica regolabile con cordino interno",
+                "Prezzo confrontato tra i migliori negozi specializzati"
+            ]
+        },
+        "follow_ups": [
+            "Mostrami leggings termici invernali",
+            "Filtra pantaloni sotto 50 euro",
+            "Mostrami modelli con tasca per smartphone"
         ]
     },
     "gym_training": {
@@ -1135,7 +1240,7 @@ class QueryProductGuardrail:
                 return "short_sleeve_top"
             if re.search(r"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way|gilet\s*antivento|guscio)\b", t):
                 return "jacket"
-            if re.search(r"\b(pantaloncin[oi]|shorts?|leggings?|tights?|fuseaux|pantalon[ie]|corsar[oi]|ciclisti|sprinter)\b", t):
+            if re.search(r"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|tights?|fuseaux|pantalon[ie]|corsar[oi]|ciclisti|sprinter|bermuda)\b", t) and not re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b", t):
                 return "pants_shorts"
             if re.search(r"\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b", t):
                 return "socks"
@@ -1276,9 +1381,9 @@ class QueryProductGuardrail:
         if product_type == "pants_shorts":
             if cat in {"running_shoes", "shoes", "gps_watch", "eyewear", "hydration", "nutrition", "top", "jacket", "socks", "strap", "mount"}:
                 return False
-            if re.search(r"\b(scarp[ae]|shoe|sneaker|magli[ae]|t[\s-]*shirt|giacc(?:a|he)|jacket|calz[ae]|calzin[oi]|orologi[o]?|zain[oi]|cappellin[oi])\b", full_text):
+            if re.search(r"\b(scarp[ae]|shoe|sneaker|magli[ae]|t[\s-]*shirt|shirt\b|tee\b|top\b|short[\s-]*sleeve|manic(?:a|he)|canott[ae]|singlet|giacc(?:a|he)|jacket|calz[ae]|calzin[oi]|orologi[o]?|zain[oi]|cappellin[oi])\b", full_text):
                 return False
-            return bool(re.search(r"\b(pantaloncin[oi]|shorts?|leggings?|tights?|fuseaux|pantalon[ie]|corsar[oi]|sprinter|ciclisti)\b", full_text))
+            return bool(re.search(r"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|tights?|fuseaux|pantalon[ie]|corsar[oi]|sprinter|ciclisti|bermuda)\b", full_text))
 
         if product_type == "socks":
             if cat in {"running_shoes", "shoes", "top", "jacket", "pants", "gps_watch", "eyewear", "padel", "cycling", "hydration", "nutrition", "strap", "mount"}:
@@ -1767,6 +1872,340 @@ class QueryProductGuardrail:
         return intent
 
 
+class FitMatchSportsAdvisor:
+    """Expert athletic sports and running gear knowledge engine for ChatGPT-style Q&A."""
+
+    @staticmethod
+    def is_conversational_query(text: str, has_context: bool) -> bool:
+        t = text.strip().lower()
+        # Exclude plain shopping catalog commands unless they ask an advisory question
+        if re.search(r"^(?:mostrami|filtra|cerca|trova|ordina|seleziona|solo)\b", t):
+            if "?" not in t and not re.search(r"\b(buon|bene|consigl|opinione|parere|differenz|passo|drop)\b", t):
+                return False
+        starters = r"^(?:sono|vanno|posso|si\s+possono|quanto|quanti|quante|come|perch[eé]|quale|qual\s|cosa|chi|a\s+cosa|in\s+cosa|per\s+che|per\s+quale|meglio\b|conviene\b|dovrei\b|ha\s+la|hanno\s+la|hanno\s+il|ha\s+il|è\s+buon|sono\s+buon)"
+        if re.search(starters, t):
+            return True
+        phrases = r"\b(?:sono\s+(?:buon[ae]|adatt[ae]|consigliat[ae]|comod[ae]|stabili|pesanti|leggere)|vanno\s+bene|adatt[ae]\s+(?:a|per)|posso\s+usarl[ae]|per\s+che\s+passo|per\s+quali\s+distanze|come\s+calzan[oi]|come\s+calza|quanto\s+duran[oi]|quanto\s+dura|quanti\s+km|hanno\s+la\s+piastra|ha\s+la\s+piastra|che\s+drop|qual\s+è\s+il\s+drop|differenz[ae]\s+(?:con|tra)|meglio\s+\w+\s+o|per\s+pronator[ei]|per\s+supinator[ei]|proteggono\s+le\s+ginocchia)\b"
+        if re.search(phrases, t):
+            return True
+        if "?" in t and (has_context or re.search(r"\b(buon|bene|adatt|consigli|consigl|opinione|parere|differenz|maratona|passo|drop|peso|taglia|km)\b", t)):
+            return True
+        return False
+
+    @staticmethod
+    def extract_subject(user_query: str, context_query: str = "") -> tuple[str, str, str, Optional[str]]:
+        u_low = user_query.lower()
+        c_low = context_query.lower()
+        models = [
+            ("zoom fly 6", "Nike Zoom Fly 6", "nike zoom fly 6", "speed_race", "Nike"),
+            ("zoom fly", "Nike Zoom Fly 6", "nike zoom fly 6", "speed_race", "Nike"),
+            ("vaporfly 3", "Nike Vaporfly 3", "nike vaporfly", "speed_race", "Nike"),
+            ("vaporfly", "Nike Vaporfly 3", "nike vaporfly", "speed_race", "Nike"),
+            ("alphafly 3", "Nike Alphafly 3", "nike alphafly", "speed_race", "Nike"),
+            ("alphafly", "Nike Alphafly 3", "nike alphafly", "speed_race", "Nike"),
+            ("streakfly", "Nike Streakfly", "nike streakfly", "speed_race", "Nike"),
+            ("pegasus plus", "Nike Pegasus Plus", "pegasus plus", "daily_trainer", "Nike"),
+            ("pegasus 41", "Nike Pegasus 41", "pegasus 41", "daily_trainer", "Nike"),
+            ("pegasus", "Nike Pegasus 41", "pegasus", "daily_trainer", "Nike"),
+            ("vomero 18", "Nike Vomero 18", "vomero 18", "max_cushion", "Nike"),
+            ("vomero", "Nike Vomero", "vomero", "max_cushion", "Nike"),
+            ("invincible", "Nike Invincible 3", "invincible", "max_cushion", "Nike"),
+            ("endorphin speed", "Saucony Endorphin Speed 4", "endorphin speed", "speed_race", "Saucony"),
+            ("endorphin pro", "Saucony Endorphin Pro 4", "endorphin pro", "speed_race", "Saucony"),
+            ("endorphin", "Saucony Endorphin", "endorphin", "speed_race", "Saucony"),
+            ("triumph", "Saucony Triumph 22", "saucony triumph", "max_cushion", "Saucony"),
+            ("ride", "Saucony Ride 17", "saucony ride", "daily_trainer", "Saucony"),
+            ("guide", "Saucony Guide 17", "saucony guide", "daily_trainer", "Saucony"),
+            ("novablast 4", "Asics Novablast 4", "novablast", "daily_trainer", "Asics"),
+            ("novablast", "Asics Novablast 4", "novablast", "daily_trainer", "Asics"),
+            ("superblast", "Asics Superblast 2", "superblast", "speed_race", "Asics"),
+            ("nimbus 26", "Asics Gel-Nimbus 26", "nimbus 26", "max_cushion", "Asics"),
+            ("nimbus", "Asics Gel-Nimbus 26", "nimbus", "max_cushion", "Asics"),
+            ("kayano 31", "Asics Gel-Kayano 31", "kayano 31", "max_cushion", "Asics"),
+            ("kayano", "Asics Gel-Kayano 31", "kayano", "max_cushion", "Asics"),
+            ("clifton 9", "Hoka Clifton 9", "clifton 9", "max_cushion", "Hoka"),
+            ("clifton", "Hoka Clifton 9", "clifton", "max_cushion", "Hoka"),
+            ("bondi 8", "Hoka Bondi 8", "bondi 8", "max_cushion", "Hoka"),
+            ("bondi", "Hoka Bondi 8", "bondi", "max_cushion", "Hoka"),
+            ("speedgoat", "Hoka Speedgoat 5", "speedgoat", "trail_running", "Hoka"),
+            ("ghost 16", "Brooks Ghost 16", "ghost 16", "daily_trainer", "Brooks"),
+            ("ghost", "Brooks Ghost 16", "ghost", "daily_trainer", "Brooks"),
+            ("glycerin 21", "Brooks Glycerin 21", "glycerin 21", "max_cushion", "Brooks"),
+            ("glycerin", "Brooks Glycerin 21", "glycerin", "max_cushion", "Brooks"),
+            ("adrenaline", "Brooks Adrenaline GTS", "adrenaline", "daily_trainer", "Brooks"),
+            ("adios pro", "Adidas Adizero Adios Pro 3", "adios pro", "speed_race", "Adidas"),
+            ("boston 12", "Adidas Adizero Boston 12", "boston 12", "speed_race", "Adidas"),
+            ("boston", "Adidas Adizero Boston 12", "boston", "speed_race", "Adidas"),
+            ("dropset", "Adidas Adizero Dropset 3", "dropset", "gym_training", "Adidas"),
+            ("metcon", "Nike Metcon 9", "metcon 9", "gym_training", "Nike"),
+            ("deviate nitro", "Puma Deviate Nitro 3", "deviate nitro", "hyrox", "Puma"),
+            ("velocity nitro", "Puma Velocity Nitro 3", "velocity nitro", "daily_trainer", "Puma"),
+            ("forerunner 165", "Garmin Forerunner 165", "forerunner 165", "gps_watch", "Garmin"),
+            ("forerunner 265", "Garmin Forerunner 265", "forerunner 265", "gps_watch", "Garmin"),
+            ("forerunner 965", "Garmin Forerunner 965", "forerunner 965", "gps_watch", "Garmin"),
+        ]
+        for pat, disp, kw, arch, b in models:
+            if pat in u_low:
+                return disp, kw, arch, b
+        for pat, disp, kw, arch, b in models:
+            if pat in c_low:
+                return disp, kw, arch, b
+        if context_query:
+            clean = context_query.split(">>")[0].strip().title()
+            return clean, clean.lower(), "daily_trainer", None
+        return "Questo modello", user_query.strip().lower(), "daily_trainer", None
+
+    @classmethod
+    def answer(cls, user_query: str, context_query: str = "") -> dict:
+        q = user_query.lower()
+        sub, subject_kw, arch, brand = cls.extract_subject(user_query, context_query)
+        b = brand or ("Nike" if "nike" in sub.lower() else "Asics" if "asics" in sub.lower() else "Saucony" if "saucony" in sub.lower() else None)
+
+        # 1. Mezza Maratona / 21 km / Maratona / Distanze
+        if re.search(r"\b(mezza|mezza\s*maratona|21\s*km|21k)\b", q):
+            if "zoom fly" in sub.lower():
+                header = f"Risposta per {sub}"
+                ans = (
+                    f"Sì, le **{sub}** sono una scelta eccellente per la **mezza maratona** (21 km).\n\n"
+                    "• **Propulsione & Reattività**: La combinazione della schiuma **ZoomX** e della **piastra Flyplate a tutta lunghezza in fibra di carbonio** garantisce una spinta continua in avanti a ogni falcata, aiutando a conservare energia preziosa.\n"
+                    "• **Comfort sui 21 km**: Rispetto alle scarpe da gara estreme come le *Vaporfly*, le Zoom Fly 6 hanno una base d'appoggio più ampia e un'intersuola leggermente più solida e ammortizzata, offrendo maggiore stabilità e comfort muscolare quando sopraggiunge la stanchezza nella seconda metà di gara.\n"
+                    "• **Passo Ideale**: Danno il massimo per ritmi tra **3:45 min/km e 5:15 min/km**, perfette sia per cercare il proprio personal best sia per medi e progressivi di preparazione."
+                )
+                follow = ["Qual è la differenza con le Vaporfly 3?", "Come calzano le Zoom Fly 6?", "Vanno bene per runner pronatori?"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "zoom fly 6"], "brand": b, "category": "running_shoes"}
+            elif "endorphin" in sub.lower():
+                header = f"Risposta per {sub}"
+                ans = (
+                    f"Assolutamente sì, le **{sub}** sono tra le migliori scarpe sul mercato per la **mezza maratona** (21 km).\n\n"
+                    "• **Geometria SPEEDROLL**: Facilita una rullata rapida e naturale del piede che fa risparmiare preziosa energia sui chilometri finali.\n"
+                    "• **Schiuma PWRRUN PB**: Leggera, morbida e con ritorno elastico al vertice della categoria.\n"
+                    "• **Speed vs Pro**: La versione *Speed* (con piastra in nylon) offre comfort e versatilità elevatissimi; la *Pro* (con piastra in carbonio) massimizza la rigidità e la velocità di punta in gara."
+                )
+                follow = ["Qual è la differenza tra Endorphin Speed e Pro?", "Come calzano le Saucony Endorphin?", "Che drop hanno?"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+            elif "nimbus" in sub.lower() or "bondi" in sub.lower() or "glycerin" in sub.lower():
+                header = f"Risposta per {sub}"
+                ans = (
+                    f"Sì, le **{sub}** sono ottime per correre una **mezza maratona**, soprattutto se il tuo obiettivo primario è il **massimo comfort, la morbidezza e la protezione articolare**.\n\n"
+                    "• Non hanno una piastra propulsiva in carbonio, ma l'ammortizzazione protegge ginocchia, anche e schiena dagli impatti prolungati sull'asfalto.\n"
+                    "• Sono consigliate per ritmi tranquilli o moderati (sopra i **5:15 - 5:30 min/km**) e per runner di peso medio o alto che prediligono la comodità al crono spinto."
+                )
+                follow = ["Proteggono bene le ginocchia?", "Vanno bene per pronatori?", "Come calzano?"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+            elif "pegasus" in sub.lower() or "ghost" in sub.lower() or "novablast" in sub.lower():
+                header = f"Risposta per {sub}"
+                ans = (
+                    f"Le **{sub}** possono certamente affrontare una **mezza maratona**, ma nascono principalmente come **daily trainer polivalenti** per gli allenamenti quotidiani.\n\n"
+                    "• Offrono grande affidabilità, durata e ammortizzazione equilibrata per completare la distanza a ritmi da 4:45 a 6:00 min/km.\n"
+                    "• Se cerchi il massimo della prestazione e della spinta elastica in gara, una scarpa con piastra (come le Zoom Fly o le Endorphin Speed) risulterà sensibilmente più reattiva."
+                )
+                follow = ["Qual è la differenza con le Zoom Fly 6?", "Quanto durano le Pegasus?", "Come calzano?"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 2. Maratona (42 km) / Lunghi
+        if re.search(r"\b(maratona|42\s*km|42k|lunghissim[oi]|lunghi)\b", q):
+            header = f"Risposta per {sub}"
+            if "zoom fly" in sub.lower():
+                ans = (
+                    f"Sì, le **{sub}** possono essere impiegate con successo anche in **maratona** (42 km).\n\n"
+                    "• Rispetto alle Vaporfly, offrono una calzata più strutturata e una base d'appoggio più accogliente, che aiuta i runner con passo tra **3:45 e 5:00 min/km** a mantenere una biomeccanica solida anche dopo il 30° km.\n"
+                    "• Se invece il tuo passo è superiore ai 5:30 min/km, una scarpa con massimo ammortizzamento e senza piastra rigida (come Nimbus o Vomero) potrebbe risultare più confortevole per oltre 4 ore di corsa."
+                )
+            elif "nimbus" in sub.lower() or "kayano" in sub.lower() or "glycerin" in sub.lower():
+                ans = (
+                    f"Assolutamente sì, le **{sub}** sono storicamente tra le scarpe più usate per completare i **42 km della maratona**.\n\n"
+                    "• Il punto di forza è l'assorbimento continuo degli urti: mantengono le articolazioni protette e i muscoli meno indolenziti lungo tutti i 42 chilometri.\n"
+                    "• Perfette per ritmi sopra i 5:15 min/km e per chi punta ad arrivare al traguardo con la massima protezione."
+                )
+            else:
+                ans = (
+                    f"Le **{sub}** hanno le caratteristiche adatte a coprire la distanza della maratona, garantendo buon supporto e protezione.\n\n"
+                    "• Se punti alla massima velocità di gara considera modelli con piastra in carbonio (come Zoom Fly o Vaporfly); per maratone incentrate sul comfort e sul ritmo costante questo modello è un'ottima scelta."
+                )
+            follow = ["Come calzano sulle lunghe distanze?", "Vanno bene per pronatori?", "Qual è il drop e il peso?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 3. Pronatori / Stabilità / Appoggio
+        if re.search(r"\b(pronator[ei]|pronazione|iperpronat|stabilit[aà]|stabili|appoggio\s*neutro|supinator[ei])\b", q):
+            header = f"Risposta per {sub}"
+            if "kayano" in sub.lower() or "guide" in sub.lower() or "adrenaline" in sub.lower() or "gt-2000" in sub.lower():
+                ans = (
+                    f"Sì, le **{sub}** sono nate appositamente per runner **pronatori** (iperpronazione).\n\n"
+                    "• Integrano sistemi di supporto guidato sul lato mediale dell'intersuola che contrastano il cedimento verso l'interno della caviglia durante la fase di appoggio.\n"
+                    "• Aiutano a mantenere il corretto allineamento di caviglia, ginocchio e anca, prevenendo fastidi a tendini e articolazioni."
+                )
+                follow = ["Qual è il drop e il peso?", "Come calzano?", "Proteggono bene le ginocchia?"]
+            else:
+                ans = (
+                    f"Le **{sub}** sono scarpe a **supporto neutro**.\n\n"
+                    "• **Nessun supporto antipronazione strutturato**: Non dispongono di inserti mediali rigidi o guide rail dedicati alla correzione dell'iperpronazione.\n"
+                    "• **Consiglio**: Se hai una lieve pronazione fisiologica o un appoggio neutro vanno benissimo; se invece hai una pronazione marcata o cedi visibilmente verso l'interno con la stanchezza, ti consigliamo modelli stabili di riferimento come **Asics Gel-Kayano 31**, **Saucony Guide 17** o **Brooks Adrenaline GTS**."
+                )
+                follow = ["Mostrami modelli stabili per pronatori", "Proteggono bene le ginocchia?", "Come calzano?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 4. Differenza tra Modelli / Vaporfly / Pegasus / ecc.
+        if re.search(r"\b(differenz|confront|vaporfly|pegasus|rispetto\s+a|meglio\b|perch[eé]\s+costan)\b", q):
+            header = f"Confronto per {sub}"
+            if "zoom fly" in sub.lower() and ("vaporfly" in q or "differenz" in q or "meglio" in q):
+                ans = (
+                    "Ecco le differenze principali tra **Nike Zoom Fly 6** e **Nike Vaporfly 3**:\n\n"
+                    "• **Destinazione d'Uso**:\n"
+                    "  - **Vaporfly 3**: Scarpa super-gara pura per il giorno della competizione, studiata per massimizzare la velocità e limare ogni secondo.\n"
+                    "  - **Zoom Fly 6**: Trainer da ritmo veloce e mezza maratona, progettata sia per gareggiare sia per sopportare frequenti carichi d'allenamento.\n"
+                    "• **Peso & Intersuola**:\n"
+                    "  - Vaporfly 3 pesa solo ~185g con il 100% di schiuma ZoomX ultra-morbida.\n"
+                    "  - Zoom Fly 6 pesa ~252g e combina ZoomX con una schiuma protettiva più stabile e consistente.\n"
+                    "• **Durata & Chilometraggio**:\n"
+                    "  - Vaporfly 3 dura circa **250 - 350 km** prima di perdere la massima efficienza.\n"
+                    "  - Zoom Fly 6 dura tranquillamente **500 - 700 km** grazie alla suola con battistrada rinforzato.\n"
+                    "• **Prezzo**: Zoom Fly 6 costa circa 170€ di listino contro i ~260€ delle Vaporfly 3."
+                )
+                follow = ["Come calzano le Zoom Fly 6?", "Quanto durano le Zoom Fly 6?", "Che drop hanno?"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "vaporfly"], "brand": b, "category": "running_shoes"}
+            else:
+                ans = (
+                    f"Il confronto evidenzia che le **{sub}** offrono un equilibrio ideale tra prestazioni, durabilità e prezzo rispetto ai modelli da gara estrema, garantendo maggiore stabilità sotto carico."
+                )
+                follow = ["Qual è il drop e il peso?", "Quanto durano?", "Come calzano?"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 5. Calzata / Taglia / Come Calzano / Strette o Larghe
+        if re.search(r"\b(calzan[oi]|calzata|tagli[ae]|misur[ae]|strett[ae]|largh[ae]|pianta\s*larga|mezzo\s*numero)\b", q):
+            header = f"Calzata & Taglia {sub}"
+            if "zoom fly" in sub.lower() or "vaporfly" in sub.lower():
+                ans = (
+                    f"Le **{sub}** hanno una calzata sportiva e aderente (*race fit*), tipica dei modelli veloci di casa Nike.\n\n"
+                    "• **Pianta standard o stretta**: Risultano fedeli alla taglia (*true to size* sul collo del piede e mesopiede).\n"
+                    "• **Pianta larga o mezze maratone / maratone**: È vivamente consigliato acquistare **mezza taglia in più (0.5 US o mezzo numero EU)**. Nelle corse lunghe il piede tende a gonfiarsi fisiologicamente e la tomaia fasciante lascia poco margine in punta."
+                )
+            elif "hoka" in sub.lower():
+                ans = (
+                    f"Le scarpe **{sub}** hanno una calzata leggermente aderente nell'avampiede. Se hai la pianta del piede larga, valuta la versione **Wide (EE)** o scegli **mezza taglia in più** rispetto alle normali scarpe da ginnastica."
+                )
+            else:
+                ans = (
+                    f"Le **{sub}** hanno una calzata generalmente regolare (*true to size*). Come per tutte le scarpe da corsa, è buona norma lasciare circa **1 cm di spazio** tra la punta dell'alluce e la punta della scarpa per evitare traumi alle unghie nelle discese e sui lunghi."
+                )
+            follow = ["Qual è il drop e il peso?", "Quanto durano?", "Vanno bene per mezza maratona?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 6. Piastra in Carbonio / Tecnologia / Schiuma
+        if re.search(r"\b(piastr[ae]|carbonio|flyplate|carbitex|nylon|schiuma|zoomx)\b", q):
+            header = f"Tecnologia {sub}"
+            if "zoom fly" in sub.lower():
+                ans = (
+                    f"Sì, le **{sub}** contengono una **piastra Flyplate a tutta lunghezza in fibra di carbonio**, alloggiata tra lo strato di schiuma ZoomX e la mescola di supporto.\n\n"
+                    "• La piastra aumenta la rigidità torsionale e crea un forte effetto leva propulsivo a ogni passo, ottimizzando la cadenza e la spinta in avanti a ritmi brillanti."
+                )
+            elif "endorphin speed" in sub.lower():
+                ans = (
+                    f"Le **{sub}** montano una **piastra con alette in nylon semi-rigida**, non in carbonio. Questo le rende più elastiche, confortevoli e tolleranti negli allenamenti quotidiani rispetto a una piastra in carbonio pura, mantenendo comunque un'ottima spinta grazie alla geometria SPEEDROLL."
+                )
+            elif "endorphin pro" in sub.lower():
+                ans = (
+                    f"Sì, le **{sub}** integrano una **piastra in fibra di carbonio a tutta lunghezza**, studiata per offrire la massima rigidità ed efficienza propulsiva in gara."
+                )
+            else:
+                ans = (
+                    f"Questo modello non monta una piastra in carbonio: privilegia un'intersuola in schiuma ammortizzante per offrire flessibilità naturale, massimo comfort e durata prolungata nel tempo."
+                )
+            follow = ["Qual è il drop e il peso?", "Per che passo sono adatte?", "Come calzano?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 7. Drop & Peso / Specifiche Tecniche
+        if re.search(r"\b(drop|peso|quanto\s*pesan|grammi|differenziale|stack)\b", q):
+            header = f"Specifiche {sub}"
+            if "zoom fly" in sub.lower():
+                ans = (
+                    f"Le caratteristiche tecniche delle **{sub}** sono:\n\n"
+                    "• **Drop**: **8 mm** (altezza tallone ~42 mm, avampiede ~34 mm).\n"
+                    "• **Peso**: circa **252 grammi** (taglia 42.5 EU uomo), circa 25g più leggere rispetto alle Zoom Fly 5 precedenti.\n"
+                    "• **Intersuola**: Schiuma reattiva ZoomX con piastra Flyplate in fibra di carbonio."
+                )
+            elif "nimbus" in sub.lower():
+                ans = (
+                    f"Le caratteristiche tecniche delle **{sub}** sono:\n\n"
+                    "• **Drop**: **8 mm** (tallone ~41.5 mm, avampiede ~33.5 mm).\n"
+                    "• **Peso**: circa **304 grammi** (taglia 42.5 EU uomo).\n"
+                    "• **Tecnologie**: Cuscinetto PureGEL nel tallone e schiuma FF BLAST+ ECO ad alto assorbimento d'urto."
+                )
+            else:
+                ans = (
+                    f"Le **{sub}** presentano un differenziale studiato per favorire una transizione fluida e naturale tra tallone e avampiede, con un peso ben bilanciato per la categoria."
+                )
+            follow = ["Come calzano?", "Quanto durano?", "Vanno bene per mezza maratona?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 8. Durata / Quanti KM / Chilometraggio
+        if re.search(r"\b(duran[oi]|durata|quanti\s*km|chilometraggio|resistenza|vita\s*utile)\b", q):
+            header = f"Durata & Chilometri {sub}"
+            if "zoom fly" in sub.lower():
+                ans = (
+                    f"Le **{sub}** hanno una durata stimata di **500 - 700 km**.\n\n"
+                    "• A differenza delle super-scarpe da gara pura (come Vaporfly e Alphafly che perdono gran parte della reattività dopo 250-350 km), le Zoom Fly sono costruite come scarpe d'allenamento veloce (*tempo trainer*).\n"
+                    "• La gomma anti-abrasione posizionata strategicamente sul battistrada protegge la schiuma ZoomX dall'usura, garantendo ottime prestazioni per molti mesi d'uso."
+                )
+            elif "pegasus" in sub.lower() or "ghost" in sub.lower() or "nimbus" in sub.lower():
+                ans = (
+                    f"Le **{sub}** sono note per la loro eccezionale longevità: possono percorrere tranquillamente tra gli **800 e i 1.000 km** mantenendo una buona protezione ammortizzante grazie alla robustezza dell'intersuola e del battistrada."
+                )
+            else:
+                ans = (
+                    f"La durata media delle **{sub}** è di circa **600 - 800 km**, a seconda del peso del runner, del tipo di asfalto e della frequenza d'allenamento."
+                )
+            follow = ["Vanno bene per mezza maratona?", "Qual è il drop e il peso?", "Come calzano?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 9. Passo Ideale / Ritmo / Velocità
+        if re.search(r"\b(passo|ritm[oi]|velocit[aà]|min/km|lenti|veloci)\b", q):
+            header = f"Passo Ideale {sub}"
+            if "zoom fly" in sub.lower():
+                ans = (
+                    f"Il passo ideale per le **{sub}** è compreso tra **3:45 min/km e 5:15 min/km**.\n\n"
+                    "• La piastra in carbonio e la schiuma ZoomX richiedono un certo livello di forza e cadenza per comprimersi e restituire la spinta elastica.\n"
+                    "• A ritmi molto lenti o rigeneranti (sopra 5:45 - 6:00 min/km) la piastra può dare una sensazione di rigidità sotto l'arco plantare."
+                )
+            elif "nimbus" in sub.lower() or "bondi" in sub.lower():
+                ans = (
+                    f"Il passo ideale per le **{sub}** è per ritmi medi o rilassati (dai **5:15 min/km a 6:30+ min/km**), dove il massimo ammortizzamento e la comodità d'impatto fanno la differenza."
+                )
+            else:
+                ans = (
+                    f"Le **{sub}** sono estremamente versatili e si adattano bene a ritmi da daily training compresi tra 4:30 e 5:45 min/km."
+                )
+            follow = ["Vanno bene per mezza maratona?", "Che drop hanno?", "Come calzano?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 10. Smartwatch Garmin / GPS
+        if "forerunner" in sub.lower() or archetype == "gps_watch":
+            header = f"Info {sub}"
+            if re.search(r"\b(batteria|autonomia|quanto\s*dura)\b", q):
+                ans = (
+                    f"Il **{sub}** offre un'autonomia fino a **11-13 giorni** in modalità smartwatch e fino a **19 ore** di registrazione GPS continua con cardio al polso."
+                )
+            elif re.search(r"\b(amoled|display|schermo)\b", q):
+                ans = (
+                    f"Sì, il **{sub}** è dotato di un luminoso display a colori touchscreen **AMOLED** da 1.2 pollici, ultra nitido e perfettamente visibile anche sotto la luce diretta del sole."
+                )
+            else:
+                ans = (
+                    f"Il **{sub}** è uno smartwatch GPS completo per la corsa: include piani adattivi Garmin Coach, stima del VO2 Max, monitoraggio del sonno e della variabilità cardiaca HRV."
+                )
+            follow = ["Ha il display AMOLED?", "Quanto dura la batteria?", "Supporta la musica offline?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": "Garmin", "category": "gps_watch"}
+
+        # 11. General Fallback Expert Advice
+        header = f"Risposta per {sub}"
+        ans = (
+            f"Le **{sub}** sono un modello di riferimento per le prestazioni atletiche nella loro categoria.\n\n"
+            "• Offrono materiali tecnici avanzati, ottima ergonomia e ammortizzazione equilibrata per la preparazione e gli allenamenti sportivi.\n"
+            "• Rappresentano una scelta solida e affidabile con un eccellente rapporto qualità/prezzo verificato tra i negozi partner ufficiali."
+        )
+        follow = ["Per quali distanze sono consigliate?", "Come calzano?", "Qual è il drop e il peso?"]
+        return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+
 class LocalHeuristicParser:
     """High-precision local NLP rule engine specialized for athletic gear and fashion e-commerce.
 
@@ -1849,6 +2288,46 @@ class LocalHeuristicParser:
         ctx_text = LocalHeuristicParser.normalize_typos(context_query.strip().lower()) if context_query else ""
         has_context = bool(ctx_text)
 
+        # 0. Conversational Advice & Sports Q&A Detection (ChatGPT style directly in search)
+        if FitMatchSportsAdvisor.is_conversational_query(text, has_context=has_context):
+            advice = FitMatchSportsAdvisor.answer(user_query=user_query, context_query=ctx_text)
+            clean_sub = advice.get("subject_name") or "Modello Selezionato"
+            target_kws = advice.get("target_keywords") or [clean_sub.lower()]
+            curated_sec = [
+                CuratedSectionDef(
+                    id="sec_advice_subject",
+                    title=f"Offerte {clean_sub}",
+                    subtitle="Prezzi verificati in tempo reale tra tutti i negozi partner.",
+                    keywords=target_kws[:2]
+                )
+            ]
+            return SmartSearchIntent(
+                raw_query=user_query,
+                search_mode="deep_dive",
+                is_deep_dive=True,
+                is_conversational_advice=True,
+                conversational_header=advice.get("header", f"Risposta per {clean_sub}"),
+                conversational_summary=advice.get("answer", ""),
+                target_keywords=target_kws,
+                brand=advice.get("brand"),
+                category=advice.get("category", "running_shoes"),
+                explanation=advice.get("answer", ""),
+                chips=[],
+                curated_sections=curated_sec,
+                spotlight=SpotlightDef(
+                    target_keyword=target_kws[0] if target_kws else clean_sub.lower(),
+                    badge_text="Modello di Riferimento",
+                    highlights=[
+                        f"Modello di riferimento per la tua domanda",
+                        "Materiali tecnici e ammortizzazione verificata",
+                        "Prezzo confrontato in tempo reale tra i partner"
+                    ]
+                ),
+                spec_comparisons=[],
+                follow_up_suggestions=advice.get("follow_ups", []),
+                source="local_sports_advisor"
+            )
+
         # 1. Price Bounds
         max_price = None
         min_price = None
@@ -1893,9 +2372,18 @@ class LocalHeuristicParser:
         if is_waterproof:
             features.append("waterproof")
 
-        if re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|1/2\s*zip|half[\s-]*zip|mezza\s*zip)\b", text):
+        # Check shorts & pants BEFORE other apparel, ensuring short-sleeve does NOT trigger shorts
+        is_short_sleeve = bool(re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b", text))
+        is_shorts = bool(re.search(r"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|ciclisti|sprinter|bermuda|2-in-1|boxer\s*(?:corsa|running))\b", text)) and not is_short_sleeve
+        is_pants = bool(re.search(r"\b(leggings?|tights?|fuseaux|pantaloni\s*lunghi|pantacollant|pantaloni)\b", text)) and not is_shorts
+
+        if is_shorts:
+            archetype_key = "running_shorts"
+        elif is_pants:
+            archetype_key = "running_pants"
+        elif re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|1/2\s*zip|half[\s-]*zip|mezza\s*zip)\b", text):
             archetype_key = "running_apparel_long_sleeve"
-        elif re.search(r"\b(t[\s-]*shirt|magliett[ae]|magli[ae]\s*(?:da\s*)?(?:running|corsa|trail)|canott[ae]|singlet|abbigliamento\s*(?:running|corsa))\b", text):
+        elif re.search(r"\b(t[\s-]*shirt|magliett[ae]|magli[ae]\s*(?:da\s*)?(?:running|corsa|trail)|canott[ae]|singlet|abbigliamento\s*(?:running|corsa))\b", text) or is_short_sleeve:
             archetype_key = "running_apparel"
         elif re.search(r"\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*(?:bici|gps)?|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|wahoo\s*elemnt|bryton|igpsport)\b", text):
             archetype_key = "bike_computer"
@@ -1935,11 +2423,13 @@ class LocalHeuristicParser:
                     detected_brand = "Reebok"
                 elif "tribase" in text:
                     detected_brand = "Under Armour"
-        elif re.search(r"\b(alphafly|vaporfly|streakfly|metaspeed|adizero|endorphin|veloc[ei]|reattiv[ae]|gara|maratona|mezza|ripetute|piastra|carbonio)\b", text):
+        elif re.search(r"\b(alphafly|vaporfly|streakfly|zoom\s*fly|zoomfly|metaspeed|adizero|endorphin|veloc[ei]|reattiv[ae]|gara|maratona|mezza|ripetute|piastra|carbonio)\b", text):
             archetype_key = "speed_race"
             features.append("racing")
-            if not detected_brand and re.search(r"\b(alphafly|vaporfly|streakfly)\b", text):
+            if not detected_brand and re.search(r"\b(alphafly|vaporfly|streakfly|zoom\s*fly|zoomfly)\b", text):
                 detected_brand = "Nike"
+            elif not detected_brand and re.search(r"\bendorphin\b", text):
+                detected_brand = "Saucony"
         elif re.search(r"\b(ammortizzat[ae]|morbida?|comod[ae]|protettiv[ae]|ginocchi[ao]|schiena|pesant[ei]|peso|\d{2,3}\s*kg)\b", text):
             archetype_key = "max_cushion"
             features.append("cushioning")
@@ -1985,10 +2475,34 @@ class LocalHeuristicParser:
             else:
                 target_keywords = [exact_val]
         else:
-            stopwords = {"per", "la", "il", "lo", "i", "gli", "le", "un", "una", "uno", "di", "a", "da", "in", "con", "su", "scarpe", "scarpa", "modello", "sotto", "fino", "euro", "max", "taglia", "misura", "porto", "cerco", "voglio", "trova", "della", "running", "corsa", "ammortizzate", "comode", "veloci", "nere", "bianche"}
-            tokens = [w for w in re.findall(r"\b[a-zA-Z0-9]+\b", text) if w not in stopwords and len(w) > 1]
-            if tokens and len(tokens) >= 2 and archetype_key == "daily_trainer" and not detected_brand:
-                target_keywords = [" ".join(tokens)]
+            numeric_filter_values = set()
+            if max_price:
+                numeric_filter_values.add(str(int(max_price)))
+                numeric_filter_values.add(str(max_price))
+            if min_price:
+                numeric_filter_values.add(str(int(min_price)))
+                numeric_filter_values.add(str(min_price))
+            if size:
+                numeric_filter_values.add(str(size).lower())
+
+            stopwords = {
+                "per", "la", "il", "lo", "i", "gli", "le", "un", "una", "uno", "di", "a", "da", "in", "con", "su",
+                "scarpe", "scarpa", "modello", "modelli", "sotto", "fino", "euro", "eur", "max", "taglia", "misura",
+                "porto", "cerco", "voglio", "trova", "della", "delle", "dei", "del", "running", "corsa", "ammortizzate",
+                "comode", "veloci", "nere", "bianche", "uomo", "donna", "ragazzo", "ragazza", "migliori", "miglior"
+            }
+            tokens = [
+                w for w in re.findall(r"\b[a-zA-Z0-9]+\b", text)
+                if w not in stopwords and w not in numeric_filter_values and len(w) > 1
+            ]
+            if tokens and len(tokens) >= 2 and archetype_key in ("daily_trainer", "running_shorts", "running_pants", "running_apparel") and not detected_brand:
+                target_keywords = [" ".join(tokens), tokens[0]]
+            elif tokens and detected_brand:
+                non_brand_tokens = [t for t in tokens if t != detected_brand.lower()]
+                if non_brand_tokens:
+                    target_keywords = [f"{detected_brand.lower()} {' '.join(non_brand_tokens)}", " ".join(non_brand_tokens)]
+                else:
+                    target_keywords = [detected_brand.lower()]
             else:
                 candidate_models = arch["models"]
                 if detected_brand:
@@ -2035,25 +2549,46 @@ class LocalHeuristicParser:
             brand_prefix = f"{detected_brand} " if detected_brand and detected_brand.lower() not in exact_val.lower() else ""
             clean_subject = f"{brand_prefix}{exact_val.title()}"
             conversational_header = f"Ho cercato {clean_subject}"
-            conversational_summary = arch.get("conversational_summary") or f"Ecco i migliori prezzi e offerte per **{clean_subject}**, confrontati in tempo reale tra tutti i negozi partner ufficiali."
+            conversational_summary = f"Ecco i migliori prezzi e offerte per **{clean_subject}**, confrontati in tempo reale tra tutti i negozi partner ufficiali:"
+            curated_sections = [
+                CuratedSectionDef(
+                    id="sec_exact_model",
+                    title=f"Offerte {clean_subject}",
+                    subtitle="Tutte le colorazioni e versioni trovate al miglior prezzo verificato.",
+                    keywords=[clean_subject.lower(), exact_val.lower()]
+                )
+            ]
+            for s in arch.get("sections", []):
+                sec_full_text = f"{s['title']} {s['subtitle']} {' '.join(s.get('keywords', []))}".lower()
+                names_competing_brand = False
+                if detected_brand:
+                    for b in KNOWN_BRANDS:
+                        if b != detected_brand.lower() and re.search(rf"\b{re.escape(b)}\b", sec_full_text):
+                            names_competing_brand = True
+                            break
+                if not names_competing_brand:
+                    curated_sections.append(CuratedSectionDef(
+                        id=s["id"],
+                        title=s["title"],
+                        subtitle=s["subtitle"],
+                        keywords=s.get("keywords", target_keywords[:2])
+                    ))
         else:
             clean_subject = detected_brand or arch["label"]
             if detected_brand and "scarpe" in text:
                 clean_subject = f"scarpe {detected_brand}"
             conversational_header = "Ho cercato prodotti"
             conversational_summary = arch.get("conversational_summary") or f"Ho trovato diverse **{clean_subject}**: dai modelli più versatili a quelli più performanti e ricercati, con prezzi e stili molto diversi."
-
-        # 10. Thematic Curated Sections & Spotlight
-        curated_sections_raw = arch.get("sections", [])
-        curated_sections = [
-            CuratedSectionDef(
-                id=s["id"],
-                title=s["title"],
-                subtitle=s["subtitle"],
-                keywords=s.get("keywords", target_keywords[:2])
-            )
-            for s in curated_sections_raw
-        ]
+            curated_sections_raw = arch.get("sections", [])
+            curated_sections = [
+                CuratedSectionDef(
+                    id=s["id"],
+                    title=s["title"],
+                    subtitle=s["subtitle"],
+                    keywords=s.get("keywords", target_keywords[:2])
+                )
+                for s in curated_sections_raw
+            ]
 
         # 11. Structured Comparative Spec Cards ("Come orientarsi" - Exact Shopify Shop style)
         spec_comparisons_raw = arch.get("spec_comparisons", [])
@@ -2446,20 +2981,29 @@ class LocalHeuristicParser:
             ]
         else:
             spotlight_raw = arch.get("spotlight", {})
-            default_spot_kw = (
-                target_keywords[0]
-                if exact_model_match and target_keywords
-                else spotlight_raw.get("target_keyword", target_keywords[0] if target_keywords else "modello")
-            )
-            spotlight_def = SpotlightDef(
-                target_keyword=default_spot_kw,
-                badge_text=spotlight_raw.get("badge_text", "Miglior Scelta"),
-                highlights=spotlight_raw.get("highlights", [
-                    "Modello di riferimento per comfort e affidabilità",
-                    "Ottimo rapporto qualità/prezzo e materiali tecnici",
-                    "Prezzo confrontato in tempo reale tra negozi verificati"
-                ])
-            )
+            if exact_model_match:
+                exact_val = exact_model_match.group(1).strip()
+                default_spot_kw = exact_val.lower()
+                spotlight_def = SpotlightDef(
+                    target_keyword=default_spot_kw,
+                    badge_text="Miglior Scelta",
+                    highlights=[
+                        f"Modello di riferimento {clean_subject} per massime prestazioni",
+                        "Materiali tecnici avanzati e ammortizzazione performante",
+                        "Miglior offerta verificata in tempo reale tra i partner"
+                    ]
+                )
+            else:
+                default_spot_kw = spotlight_raw.get("target_keyword", target_keywords[0] if target_keywords else "modello")
+                spotlight_def = SpotlightDef(
+                    target_keyword=default_spot_kw,
+                    badge_text=spotlight_raw.get("badge_text", "Miglior Scelta"),
+                    highlights=spotlight_raw.get("highlights", [
+                        "Modello di riferimento per comfort e affidabilità",
+                        "Ottimo rapporto qualità/prezzo e materiali tecnici",
+                        "Prezzo confrontato in tempo reale tra negozi verificati"
+                    ])
+                )
             follow_ups = arch.get("follow_ups", [
                 f"Mostrami solo opzioni sotto {max_price or 150} euro",
                 f"Confronta i modelli più apprezzati",
@@ -2556,10 +3100,19 @@ REGOLE RIGIDE DI PERTINENZA E SICUREZZA (GUARDRAILS & DEFENSE-IN-DEPTH):
      "follow_up_suggestions": ["Scarpe da running ammortizzate", "Abbigliamento termico da corsa", "Smartwatch GPS Garmin", "Scarpe trail running"]
 4. NON RESTITUIRE MAI PRODOTTI O KEYWORDS quando la richiesta è fuori tema (non cercare 'pasta' per una ricetta di carbonara, non cercare 'tempo' per il meteo!).
 
+5. DOMANDE DI FOLLOW-UP E CONSULENZA TECNICA (es. 'sono buone per mezza maratona?', 'vanno bene per pronatori?', 'come calzano?', 'quanto durano?', 'qual è la differenza con le vaporfly?'):
+   - Se l'utente pone una domanda informativa, dubbi su distanze, biomeccanica, calzata o confronto su un modello:
+     * Imposta SEMPRE "is_conversational_advice": true.
+     * In "conversational_summary": fornisci una risposta DIRETTA, CHIARA ed ESPERTA in stile ChatGPT in italiano (spiegando reattività, schiuma, piastra in carbonio, stabilità, passo ideale, calzata, ecc., con concetti chiave in **grassetto**).
+     * In "conversational_header": usa un'intestazione esplicita come "Risposta per [Nome Modello]".
+     * In "target_keywords": mantieni il modello cercato nel contesto (es. ["nike zoom fly 6"]), NON inserire parole della domanda come "mezza maratona" o "buone"!
+     * In "follow_up_suggestions": 3 domande di approfondimento coerenti.
+
 Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
 {
   "search_mode": "deep_dive | classic",
   "is_deep_dive": true,
+  "is_conversational_advice": false,
   "is_off_topic": false,
   "is_unsafe": false,
   "conversational_header": "Ho cercato prodotti",
@@ -2766,6 +3319,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
                         raw_query=user_query,
                         search_mode=search_mode,
                         is_deep_dive=is_deep_dive,
+                        is_conversational_advice=bool(parsed.get("is_conversational_advice", False)),
                         conversational_header=header_text,
                         conversational_summary=summary_text,
                         target_keywords=target_kws,
@@ -2823,12 +3377,14 @@ class SmartSearchEngine:
         # Determine if local intent is sufficiently decisive to skip slow remote LLM calls
         has_context = bool(context_query and context_query.strip())
         is_confident_context = has_context and (
+            local_intent.is_conversational_advice or
             local_intent.max_price is not None or
             local_intent.category in ("gps_watch", "cycling", "top", "jacket", "pants", "fitness") or
             bool(re.search(r"\b(alternative|modelli|prestazioni|funzionalit|funzioni|sotto|econom|confronta|miglior|scelta|smartwatch|orologi)\b", user_query.lower()))
         )
 
         is_confident_local = (
+            local_intent.is_conversational_advice or
             local_intent.brand is not None or
             local_intent.max_price is not None or
             local_intent.min_price is not None or

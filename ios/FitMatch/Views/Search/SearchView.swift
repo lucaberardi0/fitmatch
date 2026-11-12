@@ -865,7 +865,11 @@ struct SearchView: View {
                 .padding(.bottom, 2)
             }
 
-            // 1. Header: "Ho cercato ... >" (or Shield / Alert for Off-topic/Security)
+            if turn.isConversationalAdvice {
+                // MARK: - Dedicated ChatGPT-style AI Advice Card
+                conversationalAdviceCard(for: turn)
+            } else {
+                // 1. Header: "Ho cercato ... >" (or Shield / Alert for Off-topic/Security)
             if turn.isOffTopic || turn.isUnsafe || turn.conversationalHeader.contains("non pertinente") || turn.conversationalHeader.contains("non consentita") {
                 HStack(spacing: 6) {
                     Image(systemName: turn.isUnsafe ? "shield.slash.fill" : "exclamationmark.triangle.fill")
@@ -1041,6 +1045,7 @@ struct SearchView: View {
                 }
                 .id(turn.id == conversationTurns.first?.id ? "spotlight_section" : "spotlight_section_\(turn.id)")
             }
+            }
 
             // 6. Follow-Up Suggestion Pills (Shown for the latest turn when not loading)
             if turn.id == conversationTurns.last?.id && !isFollowUpLoading && !turn.followUpSuggestions.isEmpty {
@@ -1067,6 +1072,115 @@ struct SearchView: View {
                     .padding(.top, 12)
             }
         }
+    }
+
+    // MARK: - Conversational Advice Card (ChatGPT-style advice in search)
+    @ViewBuilder
+    private func conversationalAdviceCard(for turn: SearchConversationTurn) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header with AI sparkle icon + Title + Category/Subject context
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.shopPurple, Color(red: 110/255, green: 65/255, blue: 240/255)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 30, height: 30)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.white)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Consulente Tecnico FitMatch")
+                        .font(.system(size: 14.5, weight: .bold))
+                        .foregroundColor(.shopDark)
+                    Text(turn.conversationalHeader)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 125/255))
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+
+            // Narrative Body: Rich ChatGPT-style Markdown answer
+            Text(LocalizedStringKey(turn.conversationalSummary))
+                .font(.system(size: 15, weight: .regular))
+                .foregroundColor(.shopDark)
+                .lineSpacing(4.5)
+                .padding(.horizontal, 16)
+                .padding(.bottom, (turn.searchResults.first != nil || turn.spotlight != nil) ? 4 : 14)
+
+            // Reference Subject Product Preview Pill / Card
+            if let refProd = turn.searchResults.first ?? turn.spotlight?.product {
+                Button(action: {
+                    selectedRecentProduct = refProd
+                }) {
+                    HStack(spacing: 12) {
+                        if let imgUrl = refProd.image_url, let url = URL(string: imgUrl) {
+                            AsyncImage(url: url) { phase in
+                                if let img = phase.image {
+                                    img.resizable().scaledToFit()
+                                } else {
+                                    Color(red: 242/255, green: 242/255, blue: 245/255)
+                                }
+                            }
+                            .frame(width: 46, height: 46)
+                            .cornerRadius(10)
+                        }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(refProd.canonical_name)
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .foregroundColor(.shopDark)
+                                .lineLimit(1)
+                            if let p = refProd.best_price {
+                                Text(String(format: "Miglior offerta da € %.2f", p))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.shopPurple)
+                            }
+                        }
+
+                        Spacer()
+
+                        HStack(spacing: 4) {
+                            Text("Vedi offerte")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.shopPurple)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.shopPurple)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.white)
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(.horizontal, 14)
+                .padding(.bottom, 14)
+            }
+        }
+        .background(Color(red: 250/255, green: 250/255, blue: 253/255))
+        .cornerRadius(20)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
+        .padding(.horizontal, 18)
+        .padding(.top, 4)
     }
 
     // MARK: - Follow-Up Loading Section
@@ -2190,11 +2304,13 @@ struct SearchView: View {
 
                     let isOff = smartRes.is_off_topic ?? (smartRes.intent?.is_off_topic ?? false)
                     let isUnsafe = smartRes.is_unsafe ?? (smartRes.intent?.is_unsafe ?? false)
+                    let isAdvice = smartRes.is_conversational_advice ?? (smartRes.intent?.is_conversational_advice ?? false)
 
                     let newTurn = SearchConversationTurn(
                         id: UUID().uuidString,
                         query: query,
                         isFollowUp: isFollowUp,
+                        isConversationalAdvice: isAdvice,
                         conversationalHeader: self.conversationalHeader,
                         conversationalSummary: self.conversationalSummary,
                         smartIntent: smartRes.intent,
@@ -2404,19 +2520,19 @@ struct ShopThemedCarouselCard: View {
     let onTap: () -> Void
 
     var bestOffer: Offer? {
-        product.offers.min(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+        product.offers.min(by: { $0.price < $1.price })
     }
 
     var maxOffer: Offer? {
-        product.offers.max(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+        product.offers.max(by: { $0.price < $1.price })
     }
 
     var referenceOriginalPrice: Double? {
-        if let best = bestOffer, let orig = best.original_price, orig > best.calculatedTotalPrice + 1 {
+        if let best = bestOffer, let orig = best.original_price, orig > best.price + 1 {
             return orig
         }
-        if let max = maxOffer, let best = bestOffer, max.calculatedTotalPrice > best.calculatedTotalPrice + 2 {
-            return max.calculatedTotalPrice
+        if let max = maxOffer, let best = bestOffer, max.price > best.price + 2 {
+            return max.price
         }
         return nil
     }
@@ -2426,8 +2542,8 @@ struct ShopThemedCarouselCard: View {
             if let disc = best.discount_pct, disc >= 5 {
                 return "\(disc)% di sconto"
             }
-            if let orig = best.original_price, orig > best.calculatedTotalPrice + 1 {
-                let pct = Int(round((orig - best.calculatedTotalPrice) / orig * 100))
+            if let orig = best.original_price, orig > best.price + 1 {
+                let pct = Int(round((orig - best.price) / orig * 100))
                 if pct >= 5 {
                     return "\(pct)% di sconto"
                 }
@@ -2501,7 +2617,7 @@ struct ShopThemedCarouselCard: View {
 
                 HStack(spacing: 5) {
                     if let best = bestOffer {
-                        Text(String(format: "€ %.2f", best.calculatedTotalPrice))
+                        Text(String(format: "€ %.2f", best.price))
                             .font(.system(size: 13.5, weight: .heavy))
                             .foregroundColor(.shopDark)
 
@@ -2526,19 +2642,19 @@ struct ShopComparativeCard: View {
     let onTap: () -> Void
 
     var bestOffer: Offer? {
-        card.product.offers.min(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+        card.product.offers.min(by: { $0.price < $1.price })
     }
 
     var maxOffer: Offer? {
-        card.product.offers.max(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+        card.product.offers.max(by: { $0.price < $1.price })
     }
 
     var referenceOriginalPrice: Double? {
-        if let best = bestOffer, let orig = best.original_price, orig > best.calculatedTotalPrice + 1 {
+        if let best = bestOffer, let orig = best.original_price, orig > best.price + 1 {
             return orig
         }
-        if let max = maxOffer, let best = bestOffer, max.calculatedTotalPrice > best.calculatedTotalPrice + 2 {
-            return max.calculatedTotalPrice
+        if let max = maxOffer, let best = bestOffer, max.price > best.price + 2 {
+            return max.price
         }
         return nil
     }
@@ -2548,8 +2664,8 @@ struct ShopComparativeCard: View {
             if let disc = best.discount_pct, disc >= 5 {
                 return "\(disc)% di sconto"
             }
-            if let orig = best.original_price, orig > best.calculatedTotalPrice + 1 {
-                let pct = Int(round((orig - best.calculatedTotalPrice) / orig * 100))
+            if let orig = best.original_price, orig > best.price + 1 {
+                let pct = Int(round((orig - best.price) / orig * 100))
                 if pct >= 5 {
                     return "\(pct)% di sconto"
                 }
@@ -2634,7 +2750,7 @@ struct ShopComparativeCard: View {
 
                     if let best = bestOffer {
                         HStack(spacing: 6) {
-                            Text(String(format: "€ %.2f", best.calculatedTotalPrice))
+                            Text(String(format: "€ %.2f", best.price))
                                 .font(.system(size: 13.5, weight: .heavy))
                                 .foregroundColor(.shopDark)
 
@@ -2707,19 +2823,19 @@ struct ShopSpotlightCardView: View {
     let onTap: () -> Void
 
     var bestOffer: Offer? {
-        spotlight.product.offers.min(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+        spotlight.product.offers.min(by: { $0.price < $1.price })
     }
 
     var maxOffer: Offer? {
-        spotlight.product.offers.max(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
+        spotlight.product.offers.max(by: { $0.price < $1.price })
     }
 
     var referenceOriginalPrice: Double? {
-        if let best = bestOffer, let orig = best.original_price, orig > best.calculatedTotalPrice + 1 {
+        if let best = bestOffer, let orig = best.original_price, orig > best.price + 1 {
             return orig
         }
-        if let max = maxOffer, let best = bestOffer, max.calculatedTotalPrice > best.calculatedTotalPrice + 2 {
-            return max.calculatedTotalPrice
+        if let max = maxOffer, let best = bestOffer, max.price > best.price + 2 {
+            return max.price
         }
         return nil
     }
@@ -2808,7 +2924,7 @@ struct ShopSpotlightCardView: View {
 
                         if let best = bestOffer {
                             HStack(spacing: 6) {
-                                Text(String(format: "€ %.2f", best.calculatedTotalPrice))
+                                Text(String(format: "€ %.2f", best.price))
                                     .font(.system(size: 14.5, weight: .heavy))
                                     .foregroundColor(.shopDark)
 
@@ -3082,17 +3198,17 @@ struct ShopOfficialProductCard: View {
     let product: MatchedProduct
 
     var sortedOffers: [Offer] {
-        product.offers.sorted { $0.calculatedTotalPrice < $1.calculatedTotalPrice }
+        product.offers.sorted { $0.price < $1.price }
     }
 
     var bestOffer: Offer? { sortedOffers.first }
     var maxOffer: Offer? { sortedOffers.last }
 
     var savingsAmount: Double {
-        guard let best = bestOffer, let max = maxOffer, max.calculatedTotalPrice > best.calculatedTotalPrice else {
+        guard let best = bestOffer, let max = maxOffer, max.price > best.price else {
             return product.cross_store_savings ?? 0.0
         }
-        return max.calculatedTotalPrice - best.calculatedTotalPrice
+        return max.price - best.price
     }
 
     var body: some View {
@@ -3165,12 +3281,12 @@ struct ShopOfficialProductCard: View {
 
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if let best = bestOffer {
-                            Text(String(format: "%.2f €", best.calculatedTotalPrice).replacingOccurrences(of: ".", with: ","))
+                            Text(String(format: "%.2f €", best.price).replacingOccurrences(of: ".", with: ","))
                                 .font(.system(size: 15, weight: .heavy))
                                 .foregroundColor(.shopDark)
 
-                            if let max = maxOffer, max.calculatedTotalPrice > best.calculatedTotalPrice {
-                                Text(String(format: "%.2f €", max.calculatedTotalPrice).replacingOccurrences(of: ".", with: ","))
+                            if let max = maxOffer, max.price > best.price {
+                                Text(String(format: "%.2f €", max.price).replacingOccurrences(of: ".", with: ","))
                                     .font(.system(size: 12))
                                     .strikethrough()
                                     .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))

@@ -339,6 +339,46 @@ def search_smart(
             if QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=q)
         ]
 
+    # Strict Price Guardrail: ensure every offer and product strictly respects eff_max_price
+    if products and eff_max_price is not None:
+        filtered_by_price = []
+        for p in products:
+            valid_offers = [o for o in (p.get("offers") or []) if float(o.get("price") or 0.0) <= float(eff_max_price)]
+            if valid_offers:
+                p["offers"] = valid_offers
+                prices = [float(o["price"]) for o in valid_offers]
+                p["best_price"] = min(prices)
+                p["highest_price"] = max(prices)
+                p["cross_store_savings"] = round(p["highest_price"] - p["best_price"], 2) if len(prices) > 1 else 0.0
+                if p["best_price"] <= float(eff_max_price):
+                    filtered_by_price.append(p)
+        products = filtered_by_price
+
+    # Strict Gender Guardrail
+    if products and intent.gender in ("Uomo", "Donna"):
+        req_g = intent.gender.lower()
+        filtered_by_gender = []
+        for p in products:
+            p_g = (p.get("gender") or "unisex").lower()
+            cname = (p.get("canonical_name") or "").lower()
+            if req_g == "uomo" and (p_g == "donna" or "(donna)" in cname or " wmns " in cname or "women" in cname):
+                continue
+            if req_g == "donna" and (p_g == "uomo" or "(uomo)" in cname or " men " in cname or " mens " in cname):
+                continue
+            filtered_by_gender.append(p)
+        products = filtered_by_gender
+
+    # Model relevance re-ranking: prioritize products matching the specific requested model
+    if products and intent.target_keywords:
+        primary_kws = [k.lower().strip() for k in intent.target_keywords[:2] if k.strip()]
+        def _relevance_sort_key(p):
+            pname = (p.get("canonical_name") or "").lower()
+            for rank, kw in enumerate(primary_kws):
+                if kw in pname:
+                    return (rank, p.get("best_price") or 0.0)
+            return (99, p.get("best_price") or 0.0)
+        products.sort(key=_relevance_sort_key)
+
     # Live Multi-Store Federated Search:
     # If indexed catalog returns 0 products for this smart query, launch background multi-store scrapers
     # and return fast recommendations without freezing the HTTP response!
@@ -478,11 +518,12 @@ def search_smart(
             "products": products[:10]
         })
     elif len(curated_sections_out) == 1 and unused_products:
-        if len(curated_sections_out[0]["products"]) < 6:
+        is_exact_sec = curated_sections_out[0].get("id") == "sec_exact_model"
+        if not is_exact_sec and len(curated_sections_out[0]["products"]) < 6:
             need = 8 - len(curated_sections_out[0]["products"])
             curated_sections_out[0]["products"].extend(unused_products[:need])
             unused_products = unused_products[need:]
-        if len(unused_products) >= 2:
+        if unused_products:
             curated_sections_out.append({
                 "id": "sec_more_options",
                 "title": "Altre Opzioni Consigliate",
@@ -768,6 +809,7 @@ def search_smart(
     result_data = {
         "search_mode": intent.search_mode,
         "is_deep_dive": intent.is_deep_dive,
+        "is_conversational_advice": getattr(intent, "is_conversational_advice", False),
         "conversational_header": intent.conversational_header,
         "conversational_summary": intent.conversational_summary,
         "curated_sections": compact_sections,
@@ -779,6 +821,7 @@ def search_smart(
             "raw_query": intent.raw_query,
             "search_mode": intent.search_mode,
             "is_deep_dive": intent.is_deep_dive,
+            "is_conversational_advice": getattr(intent, "is_conversational_advice", False),
             "target_keywords": intent.target_keywords,
             "brand": intent.brand,
             "category": eff_category,

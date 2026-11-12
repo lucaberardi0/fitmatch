@@ -873,11 +873,13 @@ struct SmartSearchIntent: Codable, Hashable {
     let source: String?
     let is_off_topic: Bool?
     let is_unsafe: Bool?
+    let is_conversational_advice: Bool?
 }
 
 struct SmartSearchResponse: Codable {
     let search_mode: String?
     let is_deep_dive: Bool?
+    let is_conversational_advice: Bool?
     let conversational_header: String?
     let conversational_summary: String?
     let curated_sections: [CuratedProductSection]?
@@ -897,6 +899,7 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
     let id: String
     let query: String
     let isFollowUp: Bool
+    var isConversationalAdvice: Bool
     var conversationalHeader: String
     var conversationalSummary: String
     var smartIntent: SmartSearchIntent?
@@ -917,6 +920,7 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
         id: String = UUID().uuidString,
         query: String,
         isFollowUp: Bool,
+        isConversationalAdvice: Bool = false,
         conversationalHeader: String,
         conversationalSummary: String,
         smartIntent: SmartSearchIntent? = nil,
@@ -936,6 +940,7 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
         self.id = id
         self.query = query
         self.isFollowUp = isFollowUp
+        self.isConversationalAdvice = isConversationalAdvice
         self.conversationalHeader = conversationalHeader
         self.conversationalSummary = conversationalSummary
         self.smartIntent = smartIntent
