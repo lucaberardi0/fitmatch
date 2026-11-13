@@ -943,6 +943,10 @@ class Database:
 
             from fitmatch.models import STORE_SHIPPING_RULES
 
+            if exclude_ids:
+                excluded = {str(x) for x in exclude_ids if x}
+                products = [p for p in products if str(p.get("id") or "") not in excluded]
+
             for prod in products:
                 offer_cur = conn.execute("""
                     SELECT store_id, store_name, current_price, original_price, discount_pct, product_url, image_url, raw_title
@@ -994,6 +998,7 @@ class Database:
         raw_query: Optional[str] = None,
         preferred_size: Optional[str] = None,
         favorite_brands: Optional[List[str]] = None,
+        exclude_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Smart AI-powered SQL retrieval matching multiple candidate models, price bounds and filters."""
         if self.use_supabase and self.supabase:
@@ -1011,6 +1016,7 @@ class Database:
                     raw_query=raw_query,
                     preferred_size=preferred_size,
                     favorite_brands=favorite_brands,
+                    exclude_ids=exclude_ids,
                 )
             except Exception as e:
                 import traceback
@@ -1125,6 +1131,10 @@ class Database:
                     fb_params.append(limit)
                     cur = conn.execute(fb_sql, fb_params)
                     products = [dict(r) for r in cur.fetchall()]
+
+            if exclude_ids:
+                excluded = {str(x) for x in exclude_ids if x}
+                products = [p for p in products if str(p.get("id") or "") not in excluded]
 
             for prod in products:
                 offer_cur = conn.execute("""

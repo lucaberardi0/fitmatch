@@ -810,6 +810,8 @@ class SupabaseClient:
         "shoes": ["running_shoes", "shoes", "fitness", "trail_running"],
         "trail_running": ["trail_running", "running_shoes", "shoes"],
         "fitness": ["fitness", "running_shoes", "shoes", "gear"],
+        "football_boots": ["football_boots", "shoes"],
+        "swim": ["swim", "gear"],
         "top": ["top", "apparel"],
         "apparel": ["apparel", "top", "pants", "jacket", "socks"],
         "jacket": ["jacket", "apparel", "top"],
@@ -821,6 +823,7 @@ class SupabaseClient:
         "padel": ["padel", "racket", "shoes", "gear"],
         "cycling": ["cycling", "trainer", "helmet", "gear", "mount", "apparel", "shoes"],
         "nutrition": ["nutrition", "gear"],
+        "gear": ["gear", "hydration", "pack"],
     }
 
     @classmethod
@@ -849,6 +852,8 @@ class SupabaseClient:
         cat_filter = self._build_category_filter(category)
         if cat_filter:
             params.append(cat_filter)
+        else:
+            params.append("category=neq.non_sport")
 
         # SQL-level brand pre-filter so generic keyword expansion doesn't drown out requested brand
         if brand and brand.strip():
@@ -1190,12 +1195,14 @@ class SupabaseClient:
         raw_query: Optional[str] = None,
         preferred_size: Optional[str] = None,
         favorite_brands: Optional[List[str]] = None,
+        exclude_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Shopify Shop-style intelligent query on Supabase Cloud PostgreSQL with multi-store offers."""
         from fitmatch.smart_search import QueryProductGuardrail
 
         raw_results = []
         seen_names = set()
+        excluded_id_set = {str(x) for x in (exclude_ids or []) if x}
 
         eff_query_str = (raw_query or " ".join(target_keywords or [])).strip()
         detected_product_type = QueryProductGuardrail.detect_product_type(eff_query_str)
@@ -1299,6 +1306,11 @@ class SupabaseClient:
 
         filtered = []
         for p in raw_results:
+            pid_str = str(p.get("id") or "")
+            if pid_str and pid_str in excluded_id_set:
+                continue
+            if (p.get("category") or "").lower() == "non_sport":
+                continue
             p_brand = (p.get("brand") or "").lower()
             p_name = (p.get("canonical_name") or "").lower()
 
@@ -1449,6 +1461,23 @@ class SupabaseClient:
             elif detected_product_type == "eyewear":
                 if re.search(r"\b(sutro|radar\s*ev|radar|jawbreaker|encoder|sphaera|bisphaera)\b", combined_text):
                     score += 90.0
+            elif detected_product_type == "football_boots":
+                if pcat == "football_boots":
+                    score += 110.0
+                if re.search(r"\b(mercurial|superfly|vapor|tiempo|phantom|predator|copa|future|magnetico|f50|top\s*sala|top\s*flex|king)\b", combined_text):
+                    score += 90.0
+                if re.search(r"\b(calcio\s*a\s*[57]|calcetto|sintetico|tf|turf|ag)\b", q_str_low) and re.search(r"\b(ag|tf|turf|mg|calcetto|top\s*sala|top\s*flex|multiground)\b", combined_text):
+                    score += 65.0
+                if re.search(r"\b(maglia|pantaloncin|calzetton|parastinchi|borsone|guanti)\b", pname):
+                    score -= 180.0
+            elif detected_product_type == "swim":
+                if pcat == "swim":
+                    score += 110.0
+                if "occhialin" in q_str_low or "goggles" in q_str_low:
+                    if re.search(r"\b(occhialin|goggles|cobra|biofuse|futura|swipe|vengeance|aquapulse|python|tracks|air\s*speed|hydro)\b", combined_text):
+                        score += 130.0
+                    elif re.search(r"\b(costume|boxer|slip|muta|cuffia|pinne|tavoletta)\b", pname):
+                        score -= 150.0
             elif "hyrox" in q_str_low:
                 if "hyrox" in combined_text:
                     score += 140.0

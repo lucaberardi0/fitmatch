@@ -57,71 +57,40 @@ class CategoryCrawler:
         return count
 
     def _detect_category(self, title: str) -> str:
-        """Categorize product by title keywords into appropriate sports gear category."""
-        tl = title.lower()
-        if any(w in tl for w in [
-            "garmin", "polar", "suunto", "coros", "smartwatch", "orologio", "gps", "cardio",
-            "ciclocomputer", "fascia cardio", "edge", "fenix", "forerunner", "vantage", "grit x", "instinct"
-        ]):
-            return "gps_watch"
-        if any(w in tl for w in [
-            "oakley", "occhiali", "lenti", "prizm", "bliz", "rudy", "maschera", "sunglasses",
-            "sutro", "radar", "jawbreaker", "evzero", "flight jacket"
-        ]):
-            return "eyewear"
-        if any(w in tl for w in [
-            "zaino", "gilet", "adv skin", "active skin", "flask", "borraccia", "idratazione",
-            "camelbak", "cintura", "soft flask", "running vest"
-        ]):
-            return "hydration"
+        """Categorize product by title keywords using ProductNormalizer as single source of truth."""
+        tl = (title or "").lower()
+        art_type = ProductNormalizer.detect_article_type(title)
+        if art_type == "non_sport":
+            return "non_sport"
+        if art_type in ("swim", "football_boots", "gps_watch", "eyewear", "hydration", "nutrition", "cycling", "case", "mount", "strap", "pack", "sensor", "socks", "top", "pants", "jacket"):
+            return art_type
+        if art_type == "racket":
+            return "padel"
+        if art_type == "trainer":
+            return "cycling"
         if any(w in tl for w in [
             "theragun", "hyperice", "massaggiante", "recupero", "loop band", "elastico", "elastici",
             "manubri", "kettlebell", "foam roller", "tappetino", "pesi", "corda saltare", "compex",
-            "gun", "percussione"
+            "dropset", "metcon", "tribase", "nano"
         ]):
             return "fitness"
-        if any(w in tl for w in [
-            "gel", "enervit", "isocarb", "barretta", "barrette", "proteine", "whey", "creatina",
-            "integratore", "maltodestrine", "sali minerali", "sis", "maurten", "energetico",
-            "hydrogel", "bcaa"
-        ]):
-            return "nutrition"
-        if any(w in tl for w in [
-            "padel", "racchetta", "pala", "overgrip", "tubo palline", "bullpadel", "nox", "starvie",
-            "siux", "kuikma", "babolat technical", "head speed", "head gravity", "wilson blade"
-        ]):
-            return "padel"
-        if any(w in tl for w in [
-            "ciclismo", "bici", "ciclocomputer", "rullo", "smart trainer", "kickr", "flux", "tacx",
-            "wahoo", "favero", "assioma", "kask", "poc ", "castelli", "sportful", "santini",
-            "salopette", "shimano", "sram", "campagnolo", "copertone", "casco bici", "gravel"
-        ]):
-            return "cycling"
-        if any(w in tl for w in [
-            "casco", "pompa", "luce", "bici",
-            "kask", "poc ", "copertone", "salopette", "shimano"
-        ]):
-            return "gear"
-        if any(w in tl for w in [
-            "trail", "speedcross", "peregrine", "mafate", "cascadia", "caldera", "trabuco",
-            "fujitrail", "bushido", "mutant", "catamount", "ultra raptor", "wildhorse",
-            "pegasus trail", "terrex agravic", "terrex speed", "sense ride", "lone peak",
-            "speedgoat", "challenger atr", "stinson", "hierro", "norvan"
-        ]):
-            return "trail_running"
-        if any(w in tl for w in [
-            "trekking", "outdoor", "scarpon", "escursionismo", "puez", "salewa", "meindl",
-            "tx4", "tx5", "lowa", "moab", "merrell", "columbia", "mojito", "ribelle",
-            "hardshell", "gore-tex paclite", "3l", "impermeabile", "antipioggia"
-        ]):
-            return "outdoor"
-        if any(w in tl for w in [
-            "maglia", "t-shirt", "pantaloncini", "shorts", "giacca", "leggings", "calze",
-            "canotta", "antivento", "felpa", "tight", "windstopper", "thermo", "intimo",
-            "compressione", "bra", "reggiseno", "boxer", "calzamaglia"
-        ]):
-            return "apparel"
-        return "running_shoes"
+        if art_type == "shoes":
+            if any(w in tl for w in [
+                "trail", "speedcross", "peregrine", "mafate", "cascadia", "caldera", "trabuco",
+                "fujitrail", "bushido", "mutant", "catamount", "ultra raptor", "wildhorse",
+                "pegasus trail", "terrex agravic", "terrex speed", "sense ride", "lone peak",
+                "speedgoat", "challenger atr", "stinson", "hierro", "norvan"
+            ]):
+                return "trail_running"
+            if any(w in tl for w in [
+                "trekking", "outdoor", "scarpon", "escursionismo", "puez", "salewa", "meindl",
+                "tx4", "tx5", "lowa", "moab", "merrell", "mojito", "ribelle"
+            ]):
+                return "outdoor"
+            if any(w in tl for w in ["running", "corsa", "maratona", "pegasus", "vomero", "nimbus", "cumulus", "novablast", "clifton", "bondi", "ghost", "glycerin", "adizero", "endorphin"]):
+                return "running_shoes"
+            return "shoes"
+        return art_type or "gear"
 
     def crawl_cisalfa(self, max_items: int = 500) -> int:
         """Crawl Cisalfa multi-department sports catalog with deep pagination."""
@@ -1082,7 +1051,7 @@ class CategoryCrawler:
         logger.info(f"[Alltricks] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
-    def crawl_decathlon(self, max_items: int = 500) -> int:
+    def crawl_decathlon(self, max_items: int = 500, cat_urls_override: Optional[List[str]] = None) -> int:
         """Crawl Decathlon Italy catalog across top sports, running gear, padel & cycling."""
         start_time = time.time()
         logger.info(f"[Decathlon] Starting catalog crawl (target: {max_items} items)...")
@@ -1090,13 +1059,17 @@ class CategoryCrawler:
         batch: List[Dict[str, Any]] = []
 
         # Category pages + search terms for maximum catalog coverage
-        cat_urls = [
+        cat_urls = cat_urls_override or [
             "https://www.decathlon.it/tutti-gli-sport/running/scarpe-running",
             "https://www.decathlon.it/tutti-gli-sport/running/abbigliamento-running",
             "https://www.decathlon.it/tutti-gli-sport/trail-running",
             "https://www.decathlon.it/tutti-gli-sport/ciclismo/accessori-bici",
             "https://www.decathlon.it/tutti-gli-sport/fitness-palestra",
-            "https://www.decathlon.it/tutti-gli-sport/padel"
+            "https://www.decathlon.it/tutti-gli-sport/padel",
+            "https://www.decathlon.it/tutti-gli-sport/calcio/scarpe-calcio",
+            "https://www.decathlon.it/search?Ntt=scarpe+calcetto",
+            "https://www.decathlon.it/tutti-gli-sport/nuoto",
+            "https://www.decathlon.it/search?Ntt=occhialini+nuoto",
         ]
 
         for cat_url in cat_urls:

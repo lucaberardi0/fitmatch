@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 import time
 from dotenv import load_dotenv
 load_dotenv()
@@ -77,22 +78,98 @@ def on_startup():
             discovery_interval_seconds=int(discovery_h * 3600)
         )
 
-    # Autonomous background vector embedding backfill (ensures 100% vector coverage for catalog)
-    import threading
-    def _startup_embedding_worker():
-        try:
-            from scripts.generate_embeddings import EmbeddingGenerator
-            generator = EmbeddingGenerator()
-            generator.run(batch_size=50, active_only=True)
-        except Exception as emb_e:
-            logger.warning(f"[Startup] Background embedding backfill note: {emb_e}")
-
-    threading.Thread(target=_startup_embedding_worker, daemon=True, name="Startup-Embedding-Worker").start()
+    # Autonomous background vector embedding backfill (ensures coverage for newly indexed products)
+    startup_limit = int(os.getenv("FITMATCH_STARTUP_EMBEDDING_LIMIT", "200"))
+    if startup_limit > 0:
+        _start_embedding_job(batch_size=25, limit=startup_limit, category=None, trigger_source="startup", standalone=False)
 
 
 @app.on_event("shutdown")
 def on_shutdown():
+    _embedding_stop_event.set()
     scheduler.stop()
+
+
+# --- Embedding Job State & Admin Controls ---
+
+_embedding_lock = threading.Lock()
+_embedding_stop_event = threading.Event()
+_embedding_state = {
+    "is_running": False,
+    "category": None,
+    "batch_size": 25,
+    "limit": None,
+    "processed_count": 0,
+    "started_at": None,
+    "last_finished_at": None,
+    "last_status": "idle",
+    "last_error": None,
+}
+
+
+def _start_embedding_job(
+    batch_size: int = 25,
+    limit: Optional[int] = None,
+    category: Optional[str] = None,
+    trigger_source: str = "manual_admin_api",
+    standalone: bool = True,
+) -> dict:
+    clean_cat = (category or "").strip()
+    if clean_cat.lower() in ("", "all", "tutte"):
+        clean_cat = None
+
+    with _embedding_lock:
+        if _embedding_state["is_running"]:
+            return {
+                "status": "busy",
+                "message": f"Embedding già in corso ({_embedding_state.get('category') or 'tutte le categorie'}, processati: {_embedding_state.get('processed_count', 0)}).",
+            }
+        _embedding_stop_event.clear()
+        _embedding_state.update({
+            "is_running": True,
+            "category": clean_cat,
+            "batch_size": batch_size,
+            "limit": limit,
+            "processed_count": 0,
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "last_status": "running",
+            "last_error": None,
+        })
+
+    def _progress(count: int):
+        with _embedding_lock:
+            _embedding_state["processed_count"] = count
+
+    def _worker():
+        res = {"status": "error", "error": "unknown"}
+        try:
+            res = scheduler.run_embedding_task(
+                batch_size=batch_size,
+                limit=limit,
+                standalone=standalone,
+                trigger_source=trigger_source,
+                category=clean_cat,
+                stop_event=_embedding_stop_event,
+                progress_callback=_progress,
+            )
+        except Exception as exc:
+            res = {"status": "error", "error": str(exc)}
+        finally:
+            with _embedding_lock:
+                _embedding_state["is_running"] = False
+                _embedding_state["last_finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                _embedding_state["last_status"] = res.get("status", "completed")
+                _embedding_state["last_error"] = res.get("error")
+                if "processed" in res:
+                    _embedding_state["processed_count"] = int(res.get("processed") or _embedding_state["processed_count"])
+
+    threading.Thread(target=_worker, daemon=True, name="FitMatch-Embedding-Worker").start()
+    target_label = clean_cat or "tutte le categorie"
+    limit_label = f" (max {limit})" if limit else ""
+    return {
+        "status": "accepted",
+        "message": f"Generazione embedding avviata per {target_label}{limit_label}.",
+    }
 
 
 @app.get("/health")
@@ -113,13 +190,65 @@ def get_admin_overview_api():
     return get_admin_overview(db=db, scheduler=scheduler)
 
 
+@app.get("/api/admin/embeddings/status")
+def get_embeddings_status():
+    """Return real-time embedding job state and active-catalog coverage by category."""
+    rows = []
+    try:
+        if getattr(db, "supabase", None) and getattr(db.supabase, "api_key", None):
+            res = db.supabase._request("rpc/get_embedding_coverage", method="POST", data={})
+            if isinstance(res, dict) and isinstance(res.get("data"), list):
+                rows = res["data"]
+    except Exception as e:
+        logger.warning(f"[AdminEmbeddings] Coverage RPC warning: {e}")
+
+    total_active = sum(int(r.get("active_count") or 0) for r in rows)
+    total_embedded = sum(int(r.get("embedded_count") or 0) for r in rows)
+    total_missing = sum(int(r.get("missing_count") or 0) for r in rows)
+    coverage_pct = round((total_embedded / total_active) * 100, 1) if total_active > 0 else (100.0 if rows else 0.0)
+
+    with _embedding_lock:
+        job_snapshot = dict(_embedding_state)
+        job_snapshot["stop_requested"] = _embedding_stop_event.is_set()
+
+    return {
+        "job": job_snapshot,
+        "coverage": {
+            "total_active": total_active,
+            "total_embedded": total_embedded,
+            "total_missing": total_missing,
+            "coverage_pct": coverage_pct,
+            "by_category": rows,
+        },
+    }
+
+
 @app.post("/api/admin/embeddings/sync")
-def trigger_embedding_sync(background_tasks: BackgroundTasks):
-    """Trigger autonomous background vector embedding generation for any unindexed products."""
-    def _run():
-        scheduler.run_embedding_task(batch_size=50, limit=None, standalone=True, trigger_source="manual_admin_api")
-    background_tasks.add_task(_run)
-    return {"status": "accepted", "message": "Vector embedding sync running in background"}
+def trigger_embedding_sync(
+    category: Optional[str] = Query(None, description="Specific product category or 'all'"),
+    limit: Optional[int] = Query(None, ge=1, le=20000, description="Max products to embed in this run"),
+    batch_size: int = Query(25, ge=5, le=50, description="Products per batch"),
+):
+    """Trigger autonomous background vector embedding generation for unindexed products."""
+    return _start_embedding_job(
+        batch_size=batch_size,
+        limit=limit,
+        category=category,
+        trigger_source="manual_admin_api",
+        standalone=True,
+    )
+
+
+@app.post("/api/admin/embeddings/stop")
+def stop_embedding_sync():
+    """Gracefully stop an active vector embedding backfill job after the current batch."""
+    with _embedding_lock:
+        was_running = _embedding_state["is_running"]
+    _embedding_stop_event.set()
+    return {
+        "status": "stopping" if was_running else "idle",
+        "message": "Arresto richiesto: il job terminerà al termine del batch corrente." if was_running else "Nessun job di embedding in esecuzione.",
+    }
 
 
 @app.get("/api/stores")
@@ -303,22 +432,35 @@ def _persist_smart_search_turn(
     device_id: Optional[str],
     user_id: Optional[str],
     is_follow_up: bool,
+    prev_session_context: Optional[dict] = None,
 ) -> dict:
     """Persist a Smart Search turn to DB if tracking identifiers are supplied and return a shallow copy with IDs."""
     if not (session_id or device_id or user_id):
         return result_data
     try:
         intent_dict = result_data.get("intent") or {}
+        q_clean = query.strip()
+        is_more = smart_engine.is_more_examples_query(q_clean)
+        prev_search_q = (prev_session_context or {}).get("last_search_query") or (prev_session_context or {}).get("last_query")
+        effective_topic_q = prev_search_q if (is_more and prev_search_q) else q_clean
+
+        prev_shown = list((prev_session_context or {}).get("shown_ids") or [])
+        cur_shown = [str(p.get("id")) for p in (result_data.get("results") or [])[:15] if p.get("id")]
+        merged_shown = list(dict.fromkeys(prev_shown + cur_shown))[-50:]
+
         saved = db.save_chat_turn(
             session_id=session_id,
             device_id=device_id or "default_device",
             user_id=user_id,
             chat_type="smart_search",
-            query=query.strip(),
+            query=q_clean,
             is_follow_up=is_follow_up,
             response_payload=result_data,
             context_state={
-                "last_query": query.strip(),
+                "last_query": q_clean,
+                "last_search_query": effective_topic_q,
+                "last_keywords": intent_dict.get("target_keywords") or (prev_session_context or {}).get("last_keywords") or [],
+                "shown_ids": merged_shown,
                 "brand": intent_dict.get("brand"),
                 "category": intent_dict.get("category"),
                 "gender": intent_dict.get("gender"),
@@ -367,19 +509,30 @@ def search_smart(
     eff_pref_size = preferred_size.strip() if isinstance(preferred_size, str) and preferred_size.strip() else None
 
     session_context = None
+    conversation_history = []
     if eff_session_id:
         try:
             sess_detail = db.get_chat_session_detail(eff_session_id)
-            if sess_detail and isinstance(sess_detail.get("context_state"), dict):
-                session_context = sess_detail.get("context_state")
+            if sess_detail:
+                if isinstance(sess_detail.get("context_state"), dict):
+                    session_context = sess_detail.get("context_state")
+                for msg in (sess_detail.get("messages") or [])[-8:]:
+                    if not isinstance(msg, dict):
+                        continue
+                    q_m = (msg.get("query") or msg.get("user_query") or "").strip()
+                    rp = msg.get("response_payload") or {}
+                    a_m = (rp.get("conversational_summary") or msg.get("assistant_summary") or "").strip()
+                    if q_m or a_m:
+                        conversation_history.append({"query": q_m, "summary": a_m})
         except Exception as e:
             logger.warning(f"[search_smart] Failed to load session context for {eff_session_id}: {e}")
 
+    is_more_examples = smart_engine.is_more_examples_query(q)
     effective_q = f"{eff_context} >> {q.strip()}" if eff_context else q
     if eff_pref_size:
         effective_q = f"{effective_q} [pref_size:{eff_pref_size}]"
 
-    # 1. Tier-2 Response Cache Check (Fast-path < 5ms)
+    # 1. Tier-2 Response Cache Check (skip cache on follow-up pagination / active chat history so fresh products & replies serve)
     cache_key = cache_manager.make_response_key(
         query=effective_q,
         mode=eff_mode,
@@ -389,7 +542,7 @@ def search_smart(
         store=eff_store,
         limit=limit
     )
-    cached_resp = cache_manager.get_search_response(cache_key)
+    cached_resp = None if (is_more_examples or conversation_history) else cache_manager.get_search_response(cache_key)
     if cached_resp is not None:
         return _persist_smart_search_turn(
             cached_resp,
@@ -398,6 +551,7 @@ def search_smart(
             device_id=eff_device_id,
             user_id=eff_user_id,
             is_follow_up=bool(eff_context or (session_context is not None)),
+            prev_session_context=session_context,
         )
 
     intent = smart_engine.parse_query(
@@ -405,6 +559,7 @@ def search_smart(
         force_mode=eff_mode,
         context_query=eff_context,
         session_context=session_context,
+        conversation_history=conversation_history or None,
     )
 
     # 1. Guardrail Safety & Relevance Check: Strictly block off-topic and unsafe queries!
@@ -438,6 +593,8 @@ def search_smart(
     eff_size = eff_size_param if eff_size_param is not None else intent.size
     eff_category = eff_category_param if eff_category_param is not None else intent.category
 
+    shown_ids_to_exclude = list((session_context or {}).get("shown_ids") or []) if is_more_examples else None
+
     products = db.search_smart(
         target_keywords=intent.target_keywords,
         category=eff_category,
@@ -450,7 +607,23 @@ def search_smart(
         limit=limit,
         raw_query=q,
         preferred_size=eff_pref_size,
+        exclude_ids=shown_ids_to_exclude,
     )
+
+    if not products and is_more_examples and shown_ids_to_exclude:
+        products = db.search_smart(
+            target_keywords=intent.target_keywords,
+            category=eff_category,
+            brand=intent.brand,
+            gender=intent.gender,
+            max_price=eff_max_price,
+            min_price=intent.min_price,
+            size=eff_size,
+            store_id=eff_store,
+            limit=limit,
+            raw_query=q,
+            preferred_size=eff_pref_size,
+        )
 
     # Extra safety filter: ensure every returned product satisfies product-type guardrails
     if products and detected_product_type:
@@ -498,6 +671,75 @@ def search_smart(
                     return (rank, p.get("best_price") or 0.0)
             return (99, p.get("best_price") or 0.0)
         products.sort(key=_relevance_sort_key)
+
+    # Stage-2 Grounded RAG Synthesis: when query is conversational/discovery/follow-up and LLM key is available,
+    # synthesize an intelligent response grounded strictly in the retrieved real Supabase products.
+    if smart_engine.should_synthesize_grounded(q, intent, context_query=eff_context):
+        try:
+            from fitmatch.smart_search import (
+                OpenRouterParser,
+                CuratedSectionDef,
+                SpecComparisonDef,
+                SpotlightDef,
+            )
+            grounded = OpenRouterParser.synthesize_grounded_response(
+                user_query=q,
+                intent=intent,
+                products=products,
+                api_key=smart_engine.api_key,
+                model=smart_engine.model,
+                conversation_history=conversation_history or None,
+                context_query=eff_context,
+            )
+            if isinstance(grounded, dict):
+                if grounded.get("conversational_header"):
+                    intent.conversational_header = str(grounded["conversational_header"]).strip()
+                if grounded.get("conversational_summary"):
+                    intent.conversational_summary = str(grounded["conversational_summary"]).strip()
+                    intent.explanation = intent.conversational_summary
+                raw_secs = grounded.get("curated_sections")
+                if isinstance(raw_secs, list) and raw_secs:
+                    parsed_secs = [
+                        CuratedSectionDef(
+                            id=str(s.get("id") or f"sec_rag_{i}"),
+                            title=str(s.get("title") or "").strip(),
+                            subtitle=str(s.get("subtitle") or "").strip(),
+                            keywords=[str(k).strip() for k in (s.get("keywords") or []) if k],
+                        )
+                        for i, s in enumerate(raw_secs)
+                        if isinstance(s, dict) and s.get("title")
+                    ]
+                    if parsed_secs:
+                        intent.curated_sections = parsed_secs
+                raw_specs = grounded.get("spec_comparisons")
+                if isinstance(raw_specs, list) and raw_specs:
+                    parsed_specs = [
+                        SpecComparisonDef(
+                            model_name=str(sc.get("model_name") or "").strip(),
+                            ideal_for=str(sc.get("ideal_for") or "").strip(),
+                            strengths=str(sc.get("strengths") or "").strip(),
+                            target_keyword=str(sc.get("target_keyword") or "").strip() or None,
+                        )
+                        for sc in raw_specs
+                        if isinstance(sc, dict) and sc.get("model_name")
+                    ]
+                    if parsed_specs:
+                        intent.spec_comparisons = parsed_specs
+                raw_spot = grounded.get("spotlight")
+                if isinstance(raw_spot, dict) and raw_spot.get("target_keyword"):
+                    intent.spotlight = SpotlightDef(
+                        target_keyword=str(raw_spot["target_keyword"]).strip(),
+                        badge_text=str(raw_spot.get("badge_text") or "Consigliato").strip(),
+                        highlights=[str(h).strip() for h in (raw_spot.get("highlights") or []) if h],
+                    )
+                raw_fups = grounded.get("follow_up_suggestions")
+                if isinstance(raw_fups, list) and raw_fups:
+                    clean_fups = [str(f).strip() for f in raw_fups if str(f).strip()]
+                    if clean_fups:
+                        intent.follow_up_suggestions = clean_fups[:3]
+                intent.source = "openrouter_grounded"
+        except Exception as e:
+            logger.warning(f"[search_smart] Stage-2 grounded synthesis warning: {e}")
 
     # Live Multi-Store Federated Search:
     # If indexed catalog returns 0 products for this smart query, launch background multi-store scrapers
@@ -783,6 +1025,16 @@ def search_smart(
                 "Vestibilità ergonomica stabile senza rimbalzi in corsa",
                 "Scomparti rapidi per borracce morbide e accessori"
             ]
+        if pcat == "football_boots" or re.search(r"\b(mercurial|predator|phantom|tiempo|copa|future|top\s*sala|top\s*flex|scarpin[oi]|calcetto)\b", pname):
+            return [
+                "Tacchettatura progettata per trazione, cambi di direzione e stabilità",
+                "Tomaia aderente per controllo preciso e sensibilità sul pallone"
+            ]
+        if pcat == "swim" or re.search(r"\b(occhialin|biofuse|cobra\s*ultra|fastskin|nuoto|arena|speedo|tyr)\b", pname):
+            return [
+                "Guarnizioni ergonomiche morbide per tenuta confortevole in vasca",
+                "Lenti trattate anti-appannamento e protezione UV"
+            ]
         if pcat in ("top", "jacket", "pants", "socks", "apparel"):
             return [
                 "Tessuto tecnico traspirante ad asciugatura rapida",
@@ -957,8 +1209,9 @@ def search_smart(
         "results": compact_results
     }
 
-    # Store full curated response into L1 memory & L2 disk cache (20-min TTL)
-    cache_manager.set_search_response(cache_key, result_data)
+    # Store full curated response into L1 memory & L2 disk cache (20-min TTL) for non-paginated queries
+    if not is_more_examples and not conversation_history:
+        cache_manager.set_search_response(cache_key, result_data)
     return _persist_smart_search_turn(
         result_data,
         query=q,
@@ -966,6 +1219,7 @@ def search_smart(
         device_id=eff_device_id,
         user_id=eff_user_id,
         is_follow_up=bool(eff_context or (session_context is not None)),
+        prev_session_context=session_context,
     )
 
 

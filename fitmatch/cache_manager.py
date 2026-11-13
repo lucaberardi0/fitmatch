@@ -139,7 +139,7 @@ class SearchCacheManager:
         q = re.sub(r"[?!.,;]+$", "", q).strip()
         return q
 
-    CACHE_SCHEMA_VERSION = "v9"
+    CACHE_SCHEMA_VERSION = "v10"
 
     def make_intent_key(self, query: str, force_mode: Optional[str] = None) -> str:
         norm_q = self.normalize_query(query)

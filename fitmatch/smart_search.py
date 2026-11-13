@@ -15,8 +15,8 @@ except ImportError:
 logger = logging.getLogger("fitmatch.smart_search")
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct")
-OPENROUTER_BACKUP_MODEL = "meta-llama/llama-3.1-8b-instruct"
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_BACKUP_MODEL = "meta-llama/llama-3.3-70b-instruct"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
@@ -1099,6 +1099,72 @@ SPORTS_KNOWLEDGE = {
             "Cerco nella mia taglia",
             "Scarpe max cushioning per correre"
         ]
+    },
+    "football_boots": {
+        "models": ["mercurial", "predator", "phantom", "tiempo", "copa", "future", "top sala", "top flex"],
+        "label": "Scarpe & Scarpini da Calcio / Calcetto",
+        "category": "football_boots",
+        "description": "Scarpini per calcio a 7, erba sintetica (AG/MG/TF) e calcio a 11.",
+        "conversational_summary": "Per il **calcio a 7 ed erba sintetica**, servono suole **AG, MG o TF (Turf)** con molti tacchetti bassi per proteggere ginocchia e caviglie e offrire grip costante nei cambi di direzione:",
+        "sections": [
+            {
+                "id": "sec_football_ag_tf",
+                "title": "Scarpini per Erba Sintetica & Calcio a 7 (AG / TF / MG)",
+                "subtitle": "Tacchetti distribuiti o suola Turf specifica per campi sintetici.",
+                "keywords": ["ag", "tf", "turf", "mg", "top sala", "top flex", "calcetto", "predator", "mercurial"]
+            },
+            {
+                "id": "sec_football_all",
+                "title": "Tutti gli Scarpini da Calcio Disponibili",
+                "subtitle": "Confronto prezzi in tempo reale tra i rivenditori partner.",
+                "keywords": ["mercurial", "predator", "phantom", "tiempo", "copa", "future", "magnetico", "calcio"]
+            }
+        ],
+        "spec_comparisons": [],
+        "spotlight": {
+            "target_keyword": "predator",
+            "badge_text": "Top Scarpino",
+            "highlights": [
+                "Tomaia tecnica per controllo e sensibilità sul pallone",
+                "Tacchettatura studiata per trazione e stabilità nei cambi di direzione",
+                "Miglior offerta verificata in catalogo"
+            ]
+        },
+        "follow_ups": [
+            "Mostrami modelli con suola TF/Turf per sintetico",
+            "Alternative sotto i 100 euro",
+            "Fammi vedere più esempi"
+        ]
+    },
+    "swim": {
+        "models": ["occhialini", "arena", "speedo", "biofuse", "cobra ultra", "futura"],
+        "label": "Occhialini & Attrezzatura Nuoto",
+        "category": "swim",
+        "description": "Occhialini anti-appannamento e attrezzatura essenziale per piscina e allenamento.",
+        "conversational_summary": "Per **iniziare a nuotare in piscina**, scegli occhialini con **guarnizione morbida in silicone**, trattamento **anti-fog** e lenti chiare o leggermente fumé per garantire comfort e visibilità in corsia:",
+        "sections": [
+            {
+                "id": "sec_swim_goggles",
+                "title": "Occhialini da Nuoto Comfort & Piscina",
+                "subtitle": "Ideali per principianti e allenamenti regolari senza segni attorno agli occhi.",
+                "keywords": ["occhialini", "biofuse", "futura", "arena", "speedo", "cobra"]
+            }
+        ],
+        "spec_comparisons": [],
+        "spotlight": {
+            "target_keyword": "occhialini",
+            "badge_text": "Consigliato Principianti",
+            "highlights": [
+                "Guarnizioni ergonomiche morbide per evitare fastidi in piscina",
+                "Lenti anti-appannamento e protezione UV",
+                "Miglior prezzo verificato tra i negozi sportivi"
+            ]
+        },
+        "follow_ups": [
+            "Occhialini con lenti specchiate o trasparenti?",
+            "Aggiungi cuffia e costume per iniziare",
+            "Alternative sotto i 25 euro"
+        ]
     }
 }
 
@@ -1406,6 +1472,8 @@ class QueryProductGuardrail:
                 return "gps_watch"
             if re.search(r"\bgps\b", t) and not re.search(r"\b(bici|ciclismo|mtb|gravel|manubrio|ciclocomputer|edge)\b", t):
                 return "gps_watch"
+            if re.search(r"\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|nuot[ao]|nuotare|piscina|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno)|pinn[ae]\s*(?:da\s*)?nuoto)\b", t):
+                return "swim"
             if re.search(r"\b(occhial[ie]|oakley|sutro|radar\s*ev|jawbreaker)\b", t):
                 return "eyewear"
             if re.search(r"\b(gilet\s*(?:idratazione|trail)|zain[oi]|soft\s*flask|borracc(?:ia|e|ie)|sacca\s*idrica|active\s*skin|adv\s*skin|camelbak)\b", t):
@@ -1416,6 +1484,12 @@ class QueryProductGuardrail:
                 return "smart_trainer"
             if re.search(r"\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis)|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali|enervit|maurten)\b", t):
                 return "nutrition"
+            # Football / calcetto boots before generic running shoes
+            if re.search(
+                r"\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|scarpin[oi]|calcetto|futsal|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b",
+                t,
+            ) or (re.search(r"\bcalcio\s*a\s*[57]\b", t) and not re.search(r"\b(magli[ae]|kit|pantaloncin[oi]|pallon[ei]|guant[oi])\b", t)):
+                return "football_boots"
             # 3. Shoes (explicit word or known shoe model/query)
             if re.search(
                 r"\b(scarp[ae]|sneakers?|calzatur[ae]|dropset|metcon|pegasus|vomero|alphafly|vaporfly|streakfly|invincible|nimbus|kayano|cumulus|novablast|superblast|metaspeed|clifton|bondi|speedgoat|mach|cielo|glycerin|ghost|hyperion|cascadia|endorphin|triumph|ride|peregrine|deviate|velocity|fast[\s-]*r|magmax|adizero\s*(?:adios|boston|takumi|sl|evo|prime)|ultraboost|supernova|cloudmonster|cloudsurfer|cloudboom|cloudrunner|cloudstratus|wave\s*rider|wave\s*rebellion|wave\s*sky|fresh\s*foam|fuelcell|1080|rebel|hyrox)\b",
@@ -1458,8 +1532,10 @@ class QueryProductGuardrail:
         except (TypeError, ValueError):
             best_price = 0.0
 
-        # Global junk/accessory/kids guardrails across all searches unless explicitly requested
-        if re.search(r"\b(panzerglass|vetro\s*temp[ea]?rato|pellicol[ae]|idrogel|hydrogel|screen\s*protector|protezion[ei]\s*(?:lo\s*)?schermo|sportenzia|second\s*hand|ricondizionat[ao])\b", full_text):
+        # Global junk/non-sport/accessory/kids guardrails across all searches unless explicitly requested
+        if cat == "non_sport":
+            return False
+        if re.search(r"\b(furygan|dainese|alpinestars|d3o\s*ghost|protezion[ei]\s+gomit|vetus|scambiatore\s+calore|garlando|calciobalilla|biliardino|barbie|bambol[ae]|panzerglass|vetro\s*temp[ea]?rato|pellicol[ae]|idrogel|hydrogel|screen\s*protector|protezion[ei]\s*(?:lo\s*)?schermo|sportenzia|second\s*hand|ricondizionat[ao])\b", full_text):
             return False
         if not re.search(r"\b(junior|jr\b|bambin[oi]|kids?|ragazz[oi])\b", q_lower):
             if re.search(r"\b(junior|\bjr\b|bambin[oi]|kids?)\b", cname):
@@ -1472,16 +1548,18 @@ class QueryProductGuardrail:
             # Block clearly non-shoe categories
             non_shoe_cats = {
                 "gps_watch", "eyewear", "hydration", "nutrition", "cycling",
-                "top", "jacket", "pants", "socks", "underwear", "swim",
+                "top", "jacket", "pants", "socks", "underwear", "swim", "football_boots",
                 "bag", "case", "gloves", "apparel", "strap", "mount", "sensor", "racket"
             }
             if cat in non_shoe_cats:
                 return False
-            # Block non-shoe items by title/offer tokens (e.g., Amazfit T-Rex watch, bike computers, towels, shirts, caps)
+            # Block non-shoe items, cycling MTB shoes, and football boots on running/general shoe queries
             if re.search(
-                r"\b(t[\s-]*rex|smartwatch|orologi[o]?|garmin|amazfit|polar|suunto|coros|igpsport|bsc100|bsc200|bsc300|ciclocomputer|bike\s*computer|contatore|contachilometri|telo\s*microfibra|asciugamano|towel|borracc(?:ia|e)|soft\s*flask|zain[oi]|backpack|calz[ae]|calzin[oi]|socks?|t[\s-]*shirt|magli[ae]|magliett[ae]|long\s*sleeve|manic(?:a|he)\s*lung(?:a|he)|canott[ae]|singlet|felp[ae]|hoodie|giacc(?:a|he)|jacket|piumino|pantaloncin[oi]|shorts?|leggings|tights|pantalon[ie]|cappellin[oi]|\bcap\b|berrett[oi]|visier[ae]|scaldacollo|guant[oi]|gloves|occhial[ie]|gel\s*energetico|barrett[ae]|rull[oi]|casc(?:o|hi)|helmet|racchett[ae]|pala\s*padel|kettlebell|manubri|corda\s*per\s*saltare|reggiseno|\bbra\b|slip|boxer)\b",
+                r"\b(t[\s-]*rex|smartwatch|orologi[o]?|garmin|amazfit|polar|suunto|coros|igpsport|bsc100|bsc200|bsc300|ciclocomputer|bike\s*computer|contatore|contachilometri|telo\s*microfibra|asciugaman[oi]|towel|borracc(?:ia|e)|soft\s*flask|zain[oi]|backpack|calz[ae]|calzin[oi]|socks?|t[\s-]*shirt|magli[ae]|magliett[ae]|long\s*sleeve|manic(?:a|he)\s*lung(?:a|he)|canott[ae]|singlet|felp[ae]|hoodie|giacc(?:a|he)|jacket|piumin[oi]|pantaloncin[oi]|shorts?|leggings|tights|pantalon[ie]|cappellin[oi]|\bcap\b|berrett[oi]|visier[ae]|scaldacollo|guant[oi]|gloves|occhial[ie]|gel\s*energetico|barrett[ae]|rull[oi]|casc(?:o|hi)|helmet|racchett[ae]|pala\s*padel|kettlebell|manubri|corda\s*per\s*saltare|reggisen[oi]|\bbra\b|slip|boxer|crankbrothers|scarpin[oi]|calcio|calcetto|futsal|mercurial|predator)\b",
                 full_text
             ):
+                return False
+            if "mtb" in full_text and "mtb" not in q_lower and "bici" not in q_lower and "ciclismo" not in q_lower:
                 return False
             # If query is specifically for Hyrox shoes, require hyrox or known hybrid/training/running shoe models
             if "hyrox" in q_lower:
@@ -1623,6 +1701,24 @@ class QueryProductGuardrail:
 
         if product_type == "nutrition":
             return bool(re.search(r"\b(gel\b|enervit|maurten|sis\b|226ers|namedsport|maltodestrin|isocarb|barrett[ae]|elettrolit|sali\s*minerali|isotonic)\b", full_text))
+
+        if product_type == "football_boots":
+            if cat in {"top", "jacket", "pants", "socks", "underwear", "eyewear", "swim", "gps_watch", "running_shoes", "trail_running", "cycling", "racket", "padel", "nutrition", "hydration"}:
+                return False
+            if re.search(r"\b(magli[ae]|jersey|t[\s-]*shirt|pantaloncin[oi]|shorts?|calz[ae]|calzetton[ei]|socks?|parastinchi|guant[oi]|pallon[ei]|borson[ei]|zain[oi]|giacc(?:a|he)|felp[ae]|tuta)\b", full_text):
+                return False
+            if cat == "football_boots":
+                return True
+            return bool(re.search(r"\b(scarpin[oi]|calcio|calcetto|futsal|mercurial|superfly|vapor|tiempo|phantom|predator|copa|future|magnetico|f50|king|top\s*sala|top\s*flex|\b(?:fg|ag|tf|mg|sg)\b)\b", full_text))
+
+        if product_type == "swim":
+            if cat in {"running_shoes", "trail_running", "shoes", "football_boots", "top", "jacket", "pants", "socks", "gps_watch", "cycling", "racket", "padel", "nutrition"}:
+                return False
+            if re.search(r"\b(scarp[ae]|oakley|sutro|radar|jawbreaker|magli[ae]|pantaloncin[oi]|calz[ae]|ciclocomputer|orologi[o]?)\b", full_text):
+                return False
+            if "occhialin" in q_lower or "goggles" in q_lower:
+                return bool(re.search(r"\b(occhialin[oi]|goggles|cobra\s*ultra|biofuse|futura|swipe|vengeance|aquapulse|python|tracks|air\s*speed|hydro|speedo|arena|tyr|nabaiji)\b", full_text)) and not re.search(r"\b(costum[ei]|boxer|slip|muta)\b", cname)
+            return cat == "swim" or bool(re.search(r"\b(nuot[ao]|occhialin[oi]|cuffi[ae]\s*nuoto|costum[ei]\s*(?:bagno|nuoto)|arena|speedo|tyr|nabaiji|fastskin|biofuse|cobra)\b", full_text))
 
         return True
 
@@ -1776,6 +1872,25 @@ class QueryProductGuardrail:
             ]
         elif product_type == "smart_trainer":
             archetype_models = ["wahoo kickr", "tacx flux", "tacx neo", "elite suito", "elite direto"]
+        elif product_type == "football_boots":
+            if re.search(r"\b(calcio\s*a\s*[57]|calcetto|sintetico|futsal|tf|turf|indoor)\b", q_low):
+                archetype_models = [
+                    "top sala", "top flex", "mercurial", "predator", "phantom",
+                    "tiempo", "copa", "future", "calcetto", "joma"
+                ]
+            else:
+                archetype_models = [
+                    "mercurial", "predator", "phantom", "tiempo", "copa",
+                    "future", "magnetico", "f50", "king", "calcio"
+                ]
+        elif product_type == "swim":
+            if "occhialin" in q_low:
+                archetype_models = [
+                    "occhialini", "arena", "speedo", "biofuse", "cobra ultra",
+                    "futura", "swipe", "tyr", "nabaiji"
+                ]
+            else:
+                archetype_models = ["occhialini", "arena", "speedo", "costume", "cuffia", "nuoto"]
         elif product_type == "shoes":
             if "hyrox" in q_low:
                 archetype_models = [
@@ -1828,6 +1943,14 @@ class QueryProductGuardrail:
         combined_q = f"{q_low} {ctx_low}".strip()
         product_type = cls.detect_product_type(user_query, context_query)
 
+        # Defense-in-depth: never allow LLM false off-topic classification when deterministic guardrail recognized sports gear
+        if getattr(intent, "is_off_topic", False) and not getattr(intent, "is_unsafe", False) and product_type is not None:
+            intent.is_off_topic = False
+            if intent.conversational_header == "Richiesta non pertinente":
+                intent.conversational_header = f"Ho cercato {user_query}"
+            if "Non posso rispondere" in (intent.conversational_summary or ""):
+                intent.conversational_summary = f"Ecco le migliori opzioni disponibili per **{user_query}**."
+
         # 0. Prevent LLM from hallucinating a brand filter when the user didn't mention a brand or brand-specific model
         if intent.brand:
             b_low = intent.brand.strip().lower()
@@ -1863,6 +1986,10 @@ class QueryProductGuardrail:
             intent.category = "cycling"
         elif product_type == "eyewear":
             intent.category = "eyewear"
+        elif product_type == "swim":
+            intent.category = "swim"
+        elif product_type == "football_boots":
+            intent.category = "football_boots"
         elif product_type == "hydration":
             intent.category = "hydration"
         elif product_type == "padel_racket":
@@ -2031,10 +2158,21 @@ class FitMatchSportsAdvisor:
     @staticmethod
     def is_conversational_query(text: str, has_context: bool) -> bool:
         t = text.strip().lower()
+        # Exclude pagination / more-examples requests ("Fammi vedere più esempi", "altri modelli")
+        if re.search(r"\b(pi[uù]\s*esempi|altri\s*esempi|altri\s*modelli|altr[ae]\s*(?:alternative|opzioni|prodott[oi])|mostramene\s*altr[ioe]|fammi\s*vedere\s*(?:pi[uù]|altr[ioe])|ancora\s*esempi)\b", t):
+            return False
         # Exclude plain shopping catalog commands unless they ask an advisory question
         if re.search(r"^(?:mostrami|filtra|cerca|trova|ordina|seleziona|solo)\b", t):
             if "?" not in t and not re.search(r"\b(buon|bene|consigl|opinione|parere|differenz|passo|drop)\b", t):
                 return False
+        # Require either prior context OR an explicit product/brand/model mention;
+        # open-ended discovery ("Cosa mi consigli come scarpe per iniziare a correre?") should run full product search + RAG!
+        has_specific_subject = has_context or bool(re.search(
+            r"\b(pegasus|vomero|alphafly|vaporfly|zoom\s*fly|streakfly|invincible|nimbus|kayano|cumulus|novablast|superblast|clifton|bondi|speedgoat|mach|ghost|glycerin|adrenaline|cascadia|endorphin|triumph|ride|guide|boston|adios|dropset|metcon|nano|deviate|velocity|forerunner|fenix|instinct|epix|venu|vivoactive|coros|suunto|polar)\b",
+            t
+        ))
+        if not has_specific_subject:
+            return False
         starters = r"^(?:sono|vanno|posso|si\s+possono|quanto|quanti|quante|come|perch[eé]|quale|qual\s|cosa|chi|a\s+cosa|in\s+cosa|per\s+che|per\s+quale|meglio\b|conviene\b|dovrei\b|ha\s+la|hanno\s+la|hanno\s+il|ha\s+il|è\s+buon|sono\s+buon)"
         if re.search(starters, t):
             return True
@@ -2710,6 +2848,10 @@ class LocalHeuristicParser:
             archetype_key = "gps_watch"
             if not detected_brand and re.search(r"\b(forerunner|fenix|instinct|epix|venu|vivoactive)\b", text):
                 detected_brand = "Garmin"
+        elif re.search(r"\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|nuot[ao]|nuotare|piscina|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno))\b", text):
+            archetype_key = "swim"
+        elif re.search(r"\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|scarpin[oi]|calcetto|futsal|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b", text) or (re.search(r"\bcalcio\s*a\s*[57]\b", text) and not re.search(r"\b(magli[ae]|pantaloncin[oi]|pallon[ei])\b", text)):
+            archetype_key = "football_boots"
         elif re.search(r"\b(occhial[ie]|lenti|oakley|prizm|sole)\b", text):
             archetype_key = "eyewear"
         elif re.search(r"\b(zain[oi]|gilet|flask|borracci[ae]|idratazione|camelbak)\b", text):
@@ -2783,9 +2925,13 @@ class LocalHeuristicParser:
                 if not re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", text):
                     size = inherited["size"]
 
-            is_relative = bool(re.search(r"\b(alternative|modelli|prestazioni|funzionalit|funzioni|sotto|meno|max|confronta|altri|altre|economici|economiche|miglior|scelta|smartwatch|taglia|numero|misura|uomo|donna|pioggia|gtx)\b", text))
+            is_relative = bool(re.search(r"\b(alternative|modelli|esempi|prestazioni|funzionalit|funzioni|sotto|meno|max|confronta|altri|altre|economici|economiche|miglior|scelta|smartwatch|taglia|numero|misura|uomo|donna|pioggia|gtx)\b", text))
             if is_relative or archetype_key == "daily_trainer":
-                if re.search(r"\b(garmin|forerunner|fenix|instinct|epix|venu|smartwatch|orologi|sportwatch|gps|cardio|polar|suunto|coros)\b", ctx_text):
+                if re.search(r"\b(occhialin[oi]|nuoto|nuotare|piscina)\b", ctx_text):
+                    archetype_key = "swim"
+                elif re.search(r"\b(scarpin[oi]|calcetto|calcio\s*a\s*[57]|mercurial|predator|phantom|tiempo)\b", ctx_text):
+                    archetype_key = "football_boots"
+                elif re.search(r"\b(garmin|forerunner|fenix|instinct|epix|venu|smartwatch|orologi|sportwatch|gps|cardio|polar|suunto|coros)\b", ctx_text):
                     archetype_key = "gps_watch"
                     if not detected_brand and "garmin" in ctx_text:
                         detected_brand = "Garmin"
@@ -2842,7 +2988,10 @@ class LocalHeuristicParser:
                 "per", "la", "il", "lo", "i", "gli", "le", "un", "una", "uno", "di", "a", "da", "in", "con", "su",
                 "scarpe", "scarpa", "modello", "modelli", "sotto", "fino", "euro", "eur", "max", "taglia", "misura",
                 "porto", "cerco", "voglio", "trova", "della", "delle", "dei", "del", "running", "corsa", "ammortizzate",
-                "comode", "veloci", "nere", "bianche", "uomo", "donna", "ragazzo", "ragazza", "migliori", "miglior"
+                "comode", "veloci", "nere", "bianche", "uomo", "donna", "ragazzo", "ragazza", "migliori", "miglior",
+                "cosa", "mi", "consigli", "consigliami", "come", "iniziare", "correre", "nuotare", "principiante", "principianti",
+                "fammi", "vedere", "piu", "più", "esempi", "altri", "altre", "opzioni", "alternative", "vorrei", "quale", "quali",
+                "scarpini", "calcio", "occhialini", "nuoto", "piscina"
             }
             tokens = [
                 w for w in re.findall(r"\b[a-zA-Z0-9]+\b", text)
@@ -3403,7 +3552,7 @@ class OpenRouterParser:
     """
 
     SYSTEM_PROMPT = """Sei l'assistente IA di ricerca intelligente per l'app e-commerce 'FitMatch' (ispirata alla ricerca dell'app Shop di Shopify).
-FitMatch è un comparatore di prezzi e cataloghi specializzato in scarpe (running, fitness, sneakers, lifestyle), abbigliamento sportivo e tecnologia (GPS, cardio, ciclismo).
+FitMatch è un comparatore di prezzi e cataloghi specializzato in attrezzatura multi-sport: scarpe (running, trail, calcio, calcetto, tennis, padel, fitness, sneakers), nuoto (occhialini, costumi, cuffie), abbigliamento sportivo, tecnologia (smartwatch GPS, cardio, ciclismo) e outdoor.
 
 Il tuo obiettivo è analizzare la ricerca dell'utente e restituire una risposta d'eccellenza in stile Shop di Shopify:
 1. MODALITÀ DI RICERCA:
@@ -3416,6 +3565,8 @@ Il tuo obiettivo è analizzare la ricerca dell'utente e restituire una risposta 
    - "Garmin Forerunner" (es. Forerunner 165, 265, 965) è uno SMARTWATCH GPS DA CORSA. "Garmin Edge" (es. Edge 840) è un CICLOCOMPUTER DA MANUBRIO BICI: non confonderli MAI! Imposta 'category': 'gps_watch'.
    - Scarpe da corsa (running_shoes): Pegasus, Vomero, Nimbus, Clifton, Bondi, Ghost, Speedgoat, Novablast, Endorphin, Adizero Adios / Boston, Deviate Nitro, Velocity Nitro.
    - Scarpe da training/palestra (fitness): Dropset, Metcon, Nano, Tribase, Fuse.
+   - Calcio & Calcetto (football_boots): scarpini calcio a 11, calcio a 7, calcetto, futsal (Mercurial, Predator, Phantom, Tiempo, Copa, Future, Top Flex, Top Sala, Magnetico). Usa 'category': 'football_boots' e MAI maglie/calze.
+   - Nuoto & Piscina (swim): occhialini da nuoto, costumi, cuffie (Arena, Speedo, Biofuse, Cobra Ultra, Futura, Nabaiji). Usa 'category': 'swim' e MAI occhiali da sole Oakley o scarpe da corsa.
 
 3. STRUTTURA DELLE SEZIONI & SPEC COMPARISONS ("Confronto Rapido"):
    - conversational_header: Intestazione pulita e specifica (es. "Ho cercato Garmin Forerunner 165" o "Ho cercato Scarpe Hyrox").
@@ -3437,7 +3588,7 @@ REGOLE CRITICHE SUI FILTRI:
 - STRINGHE DI TESTO: 'conversational_header' deve essere una stringa breve (es. 'Ho cercato Nike Vomero Plus') e 'conversational_summary' una breve frase descrittiva; non impostarli MAI a null anche se search_mode è classic.
 
 REGOLE RIGIDE DI PERTINENZA E SICUREZZA (GUARDRAILS & DEFENSE-IN-DEPTH):
-1. FitMatch è un assistente specializzato ESCLUSIVAMENTE in attrezzatura sportiva: scarpe (running, trail, fitness, sneakers), abbigliamento per l'allenamento, tecnologia sportiva (smartwatch GPS, cardio, rulli, ciclocomputer), accessori e nutrizione sportiva.
+1. FitMatch è un assistente specializzato in TUTTA l'attrezzatura sportiva: corsa/running, trail, calcio, calcetto, nuoto, piscina, padel, tennis, ciclismo, palestra/fitness, outdoor, smartwatch GPS, abbigliamento tecnico e nutrizione sportiva. TUTTI gli sport e relativi accessori (scarpini calcio a 7, occhialini nuoto, racchette padel, ecc.) SONO PERTINENTI: non marcarli MAI come off-topic!
 2. Se la ricerca dell'utente NON È PERTINENTE (es. cibo, ricette, carbonara, pasta, pizza, ristoranti, meteo generico, previsioni del tempo, notizie, politica, compiti, codice/programmazione, compiti di scuola, gossip, auto/moto, smartphone, tv, animali domestici):
    - Imposta SEMPRE:
      "is_off_topic": true,
@@ -3479,7 +3630,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
   "conversational_summary": "Testo con **parole chiave in grassetto**",
   "target_keywords": ["termine 1", "termine 2"],
   "brand": "Nome Brand o null",
-  "category": "running_shoes | gps_watch | eyewear | hydration | fitness | nutrition | gear",
+  "category": "running_shoes | trail_running | football_boots | swim | gps_watch | eyewear | hydration | fitness | nutrition | cycling | padel | top | jacket | pants | socks | gear",
   "gender": "Uomo | Donna | null",
   "max_price": float o null,
   "min_price": float o null,
@@ -3522,7 +3673,15 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
 """
 
     @classmethod
-    def parse(cls, user_query: str, api_key: str, model: str = OPENROUTER_MODEL, force_mode: Optional[str] = None, context_query: Optional[str] = None) -> Optional[SmartSearchIntent]:
+    def parse(
+        cls,
+        user_query: str,
+        api_key: str,
+        model: str = OPENROUTER_MODEL,
+        force_mode: Optional[str] = None,
+        context_query: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[SmartSearchIntent]:
         if not api_key:
             return None
 
@@ -3550,10 +3709,22 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
         messages = [
             {"role": "system", "content": cls.SYSTEM_PROMPT + mode_instruction}
         ]
-        if context_query and context_query.strip():
+        if conversation_history:
+            for turn in conversation_history[-6:]:
+                if not isinstance(turn, dict):
+                    continue
+                q_hist = (turn.get("query") or turn.get("user_query") or "").strip()
+                a_hist = (turn.get("summary") or turn.get("conversational_summary") or "").strip()
+                if q_hist:
+                    messages.append({"role": "user", "content": q_hist})
+                if a_hist:
+                    messages.append({"role": "assistant", "content": a_hist[:400]})
+        elif context_query and context_query.strip():
             messages.append({"role": "user", "content": f"Ricerca precedente nel catalogo: {context_query.strip()}"})
             messages.append({"role": "assistant", "content": f"Ho compreso e mostrato i migliori modelli per {context_query.strip()}."})
-            messages.append({"role": "user", "content": f"Domanda di follow-up o approfondimento: {user_query.strip()}"})
+
+        if conversation_history or (context_query and context_query.strip()):
+            messages.append({"role": "user", "content": f"Richiesta attuale (follow-up): {user_query.strip()}"})
         else:
             messages.append({"role": "user", "content": user_query.strip()})
 
@@ -3562,7 +3733,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
                 "model": current_model,
                 "messages": messages,
                 "temperature": 0.1,
-                "max_tokens": 800
+                "max_tokens": 900
             }
 
             headers = {
@@ -3579,7 +3750,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
                     headers=headers,
                     method="POST"
                 )
-                with urllib.request.urlopen(req, timeout=3.5, context=ctx) as resp:
+                with urllib.request.urlopen(req, timeout=7.5, context=ctx) as resp:
                     if resp.status != 200:
                         logger.warning("OpenRouter API status %s for %s", resp.status, current_model)
                         continue
@@ -3706,6 +3877,128 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
 
         return None
 
+    @classmethod
+    def synthesize_grounded_response(
+        cls,
+        user_query: str,
+        intent: SmartSearchIntent,
+        products: List[Dict[str, Any]],
+        api_key: str,
+        model: str = OPENROUTER_MODEL,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        context_query: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Stage-2 RAG synthesis: write intelligent Italian guidance strictly grounded in retrieved Supabase products."""
+        if not api_key:
+            return None
+
+        import urllib.request
+        import ssl
+
+        try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+        catalog_lines = []
+        for idx, p in enumerate(products[:8], 1):
+            cname = str(p.get("canonical_name") or "").strip()
+            brand = str(p.get("brand") or "").strip()
+            cat = str(p.get("category") or "").strip()
+            price = p.get("best_price")
+            offers = p.get("offers") or []
+            stores = ", ".join(dict.fromkeys(str(o.get("store_name") or "") for o in offers if o.get("store_name")))
+            price_str = f"€{float(price):.2f}" if price else "prezzo n/d"
+            catalog_lines.append(f"{idx}. {cname} (Brand: {brand or 'n/d'}, Cat: {cat}, Miglior prezzo: {price_str}, Negozi: {stores or 'n/d'})")
+
+        catalog_block = "\n".join(catalog_lines) if catalog_lines else "NESSUN PRODOTTO COMPATIBILE DISPONIBILE IN CATALOGO."
+
+        rag_system = """Sei il consulente tecnico sportivo AI di FitMatch.
+Scrivi risposte naturali, esperte, concise e su misura in ITALIANO basandoti SOLO sui PRODOTTI REALI recuperati dal database qui sotto.
+REGOLE TASSATIVE:
+1. NON usare frasi generiche o pre-impostate ("Ho cercato prodotti", "un modello di riferimento per prestazioni"). Adattati esattamente allo sport, al livello (es. principiante, intermedio, gara), alla superficie (es. erba sintetica calcio a 7, asfalto, piscina) e alle domande poste.
+2. Cita ESCLUSIVAMENTE modelli presenti nella lista PRODOTTI REALI con il loro nome esatto e prezzo reale! NON inventare mai modelli assenti dalla lista.
+3. Se la lista è vuota o povera per la richiesta specifica, dillo in modo onesto e chiaro in 2 frasi spiegando cosa manca in catalogo e suggerisci una ricerca alternativa valida.
+4. Per `curated_sections`, usa keyword presenti davvero nei nomi dei prodotti elencati.
+5. Per `spec_comparisons` (max 3), usa i primi 2-3 modelli distinti dalla lista reale: `model_name` esatto dal catalogo, `target_keyword` (2-3 parole prese dal `model_name`), `ideal_for` e `strengths` tecnici reali SENZA markdown asterischi (**).
+6. In `conversational_summary` usa **grassetto** solo sui concetti tecnici chiave e nomi modello (max 3-4 frasi ben strutturate).
+Rispondi SOLO con JSON valido:
+{
+  "conversational_header": "Titolo breve specifico",
+  "conversational_summary": "Risposta esperta grounded...",
+  "curated_sections": [{"id": "sec_1", "title": "...", "subtitle": "...", "keywords": ["..."]}],
+  "spec_comparisons": [{"model_name": "...", "ideal_for": "...", "strengths": "...", "target_keyword": "..."}],
+  "spotlight": {"target_keyword": "...", "badge_text": "Consigliato", "highlights": ["...", "...", "..."]},
+  "follow_up_suggestions": ["...", "...", "..."]
+}"""
+
+        messages = [{"role": "system", "content": rag_system}]
+        if conversation_history:
+            for turn in conversation_history[-4:]:
+                if not isinstance(turn, dict):
+                    continue
+                qh = (turn.get("query") or turn.get("user_query") or "").strip()
+                ah = (turn.get("summary") or turn.get("conversational_summary") or "").strip()
+                if qh:
+                    messages.append({"role": "user", "content": qh})
+                if ah:
+                    messages.append({"role": "assistant", "content": ah[:350]})
+        elif context_query and context_query.strip():
+            messages.append({"role": "user", "content": f"Ricerca precedente: {context_query.strip()}"})
+
+        messages.append({
+            "role": "user",
+            "content": f"Richiesta utente attuale: {user_query.strip()}\nCategoria stimata: {intent.category}\n\nPRODOTTI REALI DISPONIBILI:\n{catalog_block}"
+        })
+
+        models_to_try = [model]
+        if OPENROUTER_BACKUP_MODEL and OPENROUTER_BACKUP_MODEL != model:
+            models_to_try.append(OPENROUTER_BACKUP_MODEL)
+
+        for current_model in models_to_try:
+            payload = {
+                "model": current_model,
+                "messages": messages,
+                "temperature": 0.2,
+                "max_tokens": 900,
+            }
+            headers = {
+                "Authorization": f"Bearer {api_key.strip()}",
+                "HTTP-Referer": "https://fitmatch.it",
+                "X-Title": "FitMatch Price Comparator",
+                "Content-Type": "application/json",
+            }
+            try:
+                req = urllib.request.Request(
+                    OPENROUTER_URL,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers=headers,
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=7.5, context=ctx) as resp:
+                    if resp.status != 200:
+                        continue
+                    data = json.loads(resp.read().decode("utf-8"))
+                    content = data["choices"][0]["message"]["content"]
+                    json_match = re.search(r"(\{.*\})", content, flags=re.DOTALL)
+                    clean_json = json_match.group(1).strip() if json_match else content.strip()
+                    if clean_json.startswith("```json"):
+                        clean_json = clean_json[7:]
+                    if clean_json.startswith("```"):
+                        clean_json = clean_json[3:]
+                    if clean_json.endswith("```"):
+                        clean_json = clean_json[:-3]
+                    parsed = json.loads(clean_json.strip())
+                    if isinstance(parsed, dict) and parsed.get("conversational_summary"):
+                        return parsed
+            except Exception as e:
+                logger.warning("OpenRouter synthesize_grounded_response failed (%s): %s", current_model, e)
+                continue
+        return None
+
 
 class ConversationContextMerger:
     """Extracts and merges structured constraints across multi-turn chat queries and stored session state."""
@@ -3824,18 +4117,46 @@ class SmartSearchEngine:
         self.cache_manager = cache_manager or SearchCacheManager.get_instance()
 
     @staticmethod
+    def is_more_examples_query(user_query: str) -> bool:
+        """Detect follow-up requests asking for additional examples/models."""
+        q = (user_query or "").strip().lower()
+        return bool(re.search(
+            r"\b(pi[uù]\s*esempi|altri\s*esempi|altri\s*modelli|altr[ae]\s*(?:alternative|opzioni|scarp[ae]|prodott[oi])|mostramene\s*altr[ioe]|fammi\s*vedere\s*(?:pi[uù]\s*esempi|altr[ioe]|di\s*pi[uù])|vederne\s*altr[ioe]|ancora\s*(?:qualche|altri))\b",
+            q,
+        ))
+
+    @staticmethod
     def is_complex_natural_query(user_query: str) -> bool:
-        """Detect nuanced, biomechanical, or multi-constraint natural language queries that benefit from LLM."""
+        """Detect nuanced, open-ended discovery, biomechanical, or multi-constraint natural language queries that benefit from LLM."""
         q = user_query.strip().lower()
+        # Open-ended recommendation / beginner / advice / multi-word discovery questions should always use the LLM
+        if re.search(
+            r"\b(cosa\s*mi\s*consigli|mi\s*consigli|consigliami|per\s*iniziare|principiant[ei]|quale\s*scegliere|perch[eé]\s*scegliere|indecis[oa]|come\s*scegliere|calcio\s*a\s*[57]|occhialin[oi])\b",
+            q,
+        ):
+            return True
         words = q.split()
-        if len(words) < 7:
+        if len(words) < 6:
             return False
         complex_markers = (
             r"\b(\d{2,3}\s*kg|chili|mal\s*di\s*schiena|ginocchi[oa]|fascite|tendinite|periostite|"
             r"passo\s*(?:di|da|al)?\s*\d|min/km|sterrato\s*e\s*asfalto|asfalto\s*e\s*sterrato|"
-            r"misto\s*asfalto|indecis[oa]|cosa\s*mi\s*consigli|consigliami\s*tra|perch[eé]\s*scegliere)\b"
+            r"misto\s*asfalto|iniziare|nuotare|calcetto|scarpin[oi])\b"
         )
         return bool(re.search(complex_markers, q))
+
+    def should_synthesize_grounded(self, user_query: str, intent: SmartSearchIntent, context_query: Optional[str] = None) -> bool:
+        """Return True when Stage-2 LLM grounded synthesis should tailor the answer to actual retrieved DB items."""
+        if not self.api_key:
+            return False
+        if intent.source == "local_sports_advisor":
+            return False
+        q = (user_query or "").strip().lower()
+        if self.is_more_examples_query(q) or self.is_complex_natural_query(q) or intent.source == "openrouter":
+            return True
+        if context_query and len(q.split()) >= 3:
+            return True
+        return "?" in q
 
     def parse_query(
         self,
@@ -3843,14 +4164,24 @@ class SmartSearchEngine:
         force_mode: Optional[str] = None,
         context_query: Optional[str] = None,
         session_context: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
     ) -> SmartSearchIntent:
         # 0. Deterministic Security & Relevance Guardrail Pre-Check (Zero latency, full defense)
         security_eval = QuerySecurityGuardrail.evaluate(user_query, context=context_query)
         if security_eval and security_eval.get("is_blocked"):
             return QuerySecurityGuardrail.build_rejection_intent(user_query, security_eval)
 
-        # 1. Check Multi-Tier Cache (L1 Memory LRU / L2 Disk Persistence)
-        cache_lookup_query = f"{context_query.strip()} >> {user_query.strip()}" if context_query and context_query.strip() else user_query
+        # Resolve effective previous query when client sent only session_id or vague pagination
+        eff_context = context_query
+        if (not eff_context or not eff_context.strip()) and session_context:
+            prev_q = session_context.get("last_search_query") or session_context.get("last_query")
+            if prev_q and str(prev_q).strip():
+                eff_context = str(prev_q).strip()
+
+        is_more_req = self.is_more_examples_query(user_query)
+
+        # 1. Check Multi-Tier Cache (skip intent cache on pagination or rich multi-turn follow-ups so freshness holds)
+        cache_lookup_query = f"{eff_context.strip()} >> {user_query.strip()}" if eff_context and eff_context.strip() else user_query
         if session_context:
             ctx_sig = json.dumps(
                 {k: session_context.get(k) for k in ("brand", "gender", "max_price", "min_price", "size", "category") if session_context.get(k) is not None},
@@ -3858,38 +4189,48 @@ class SmartSearchEngine:
             )
             cache_lookup_query = f"{cache_lookup_query} || {ctx_sig}"
 
-        cached_data = self.cache_manager.get_intent(cache_lookup_query, force_mode=force_mode)
+        cached_data = None if (is_more_req or conversation_history) else self.cache_manager.get_intent(cache_lookup_query, force_mode=force_mode)
         if cached_data:
             try:
                 cached_intent = SmartSearchIntent.model_validate(cached_data)
                 cached_intent = ConversationContextMerger.apply_to_intent(
-                    cached_intent, user_query=user_query, context_query=context_query, session_context=session_context
+                    cached_intent, user_query=user_query, context_query=eff_context, session_context=session_context
                 )
-                return QueryProductGuardrail.sanitize_intent(cached_intent, user_query=user_query, context_query=context_query)
+                return QueryProductGuardrail.sanitize_intent(cached_intent, user_query=user_query, context_query=eff_context)
             except Exception as e:
                 logger.debug("Failed to re-validate cached intent: %s", e)
 
         # 2. Ultra-Fast Local Athletic NLP Engine (Zero latency: ~3ms)
-        local_intent = LocalHeuristicParser.parse(user_query=user_query, force_mode=force_mode, context_query=context_query)
+        local_intent = LocalHeuristicParser.parse(user_query=user_query, force_mode=force_mode, context_query=eff_context)
         local_intent = ConversationContextMerger.apply_to_intent(
-            local_intent, user_query=user_query, context_query=context_query, session_context=session_context
+            local_intent, user_query=user_query, context_query=eff_context, session_context=session_context
         )
 
-        # Determine if local intent is sufficiently decisive to skip remote LLM calls
-        has_context = bool((context_query and context_query.strip()) or session_context)
+        if is_more_req and session_context:
+            prev_kws = session_context.get("last_keywords") or []
+            if prev_kws and isinstance(prev_kws, list):
+                merged_kws = list(dict.fromkeys([str(k) for k in prev_kws if k] + list(local_intent.target_keywords or [])))
+                local_intent.target_keywords = merged_kws[:12]
+            if session_context.get("category") and local_intent.category == "running_shoes":
+                local_intent.category = str(session_context["category"])
+            local_intent.search_mode = "deep_dive"
+            local_intent.is_deep_dive = True
+            local_intent.conversational_header = f"Altri esempi: {eff_context or 'Modelli consigliati'}"
+
+        # Determine if local intent is sufficiently decisive to skip Stage-1 remote LLM parsing
+        has_context = bool((eff_context and eff_context.strip()) or session_context or conversation_history)
         is_complex_nl = self.is_complex_natural_query(user_query)
 
-        is_confident_context = has_context and (
+        is_confident_context = has_context and not is_complex_nl and not is_more_req and (
             local_intent.is_conversational_advice or
             local_intent.max_price is not None or
             local_intent.size is not None or
             local_intent.gender is not None or
-            local_intent.category in ("gps_watch", "cycling", "top", "jacket", "pants", "fitness") or
-            bool(re.search(r"\b(alternative|modelli|prestazioni|funzionalit|funzioni|sotto|econom|confronta|miglior|scelta|smartwatch|orologi|taglia|numero|uomo|donna)\b", user_query.lower()))
+            local_intent.category in ("gps_watch", "cycling", "top", "jacket", "pants", "fitness")
         )
 
         is_confident_local = (
-            not is_complex_nl and (
+            not is_complex_nl and not is_more_req and (
                 local_intent.is_conversational_advice or
                 local_intent.brand is not None or
                 local_intent.max_price is not None or
@@ -3897,13 +4238,13 @@ class SmartSearchEngine:
                 local_intent.size is not None or
                 local_intent.gender is not None or
                 bool(local_intent.features) or
-                local_intent.category != "running_shoes" or
+                local_intent.category not in ("running_shoes",) or
                 bool(re.search(r"\b(hyrox|palestra|maratona|gara|trail|trekking|pronazion|pronator|ammortizzat|carbonio|piastra|adizero|dropset|metcon|nano|alphafly|vaporfly|vomero|pegasus|nimbus|kayano|adrenaline|arahi|clifton|bondi|ghost|speedgoat|forerunner|fenix|instinct|novablast|superblast|endorphin|sutro|radar|vertex|hack|at10|long\s*sleeve|antivento|termic|giacc|magli|pantaloncin|garmin|coros|polar|suunto|smartwatch|orologi)\b", user_query.lower()))
             )
         )
 
         intent = None
-        if is_confident_local and (not has_context or is_confident_context):
+        if local_intent.source == "local_sports_advisor" or (is_confident_local and (not has_context or is_confident_context)):
             intent = local_intent
         elif self.api_key:
             try:
@@ -3912,7 +4253,8 @@ class SmartSearchEngine:
                     api_key=self.api_key,
                     model=self.model,
                     force_mode=force_mode,
-                    context_query=context_query
+                    context_query=eff_context,
+                    conversation_history=conversation_history,
                 )
                 if intent:
                     # Fuse deterministic hard constraints extracted locally so LLM never drops explicit brand/price/size/gender
@@ -3926,8 +4268,11 @@ class SmartSearchEngine:
                         intent.min_price = local_intent.min_price
                     if local_intent.size and not intent.size:
                         intent.size = local_intent.size
+                    if is_more_req and session_context and session_context.get("last_keywords"):
+                        prev_kws = [str(k) for k in session_context.get("last_keywords") if k]
+                        intent.target_keywords = list(dict.fromkeys(prev_kws + list(intent.target_keywords or [])))[:12]
                     intent = ConversationContextMerger.apply_to_intent(
-                        intent, user_query=user_query, context_query=context_query, session_context=session_context
+                        intent, user_query=user_query, context_query=eff_context, session_context=session_context
                     )
             except Exception as ex:
                 logger.warning(f"OpenRouterParser error: {ex}")
@@ -3936,9 +4281,9 @@ class SmartSearchEngine:
             intent = local_intent
 
         if intent:
-            intent = QueryProductGuardrail.sanitize_intent(intent, user_query=user_query, context_query=context_query)
-            # Store in Multi-Tier Cache with 7-day TTL (only if not off-topic/unsafe)
-            if not intent.is_off_topic and not intent.is_unsafe:
+            intent = QueryProductGuardrail.sanitize_intent(intent, user_query=user_query, context_query=eff_context)
+            # Store in Multi-Tier Cache with 7-day TTL (only if single-turn and not off-topic/unsafe)
+            if not intent.is_off_topic and not intent.is_unsafe and not is_more_req and not conversation_history:
                 self.cache_manager.set_intent(cache_lookup_query, force_mode=force_mode, intent_data=intent)
 
         return intent

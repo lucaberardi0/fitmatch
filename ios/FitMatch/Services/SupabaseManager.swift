@@ -1704,6 +1704,10 @@ class SupabaseManager: ObservableObject {
                     params.append("category=eq.gps_watch")
                 case "running_shoes", "shoes":
                     params.append("category=in.(running_shoes,shoes,fitness)")
+                case "football_boots":
+                    params.append("category=in.(football_boots,shoes)")
+                case "swim":
+                    params.append("category=in.(swim,gear)")
                 case "padel":
                     params.append("category=in.(padel,racket)")
                 case "hydration":
@@ -1713,6 +1717,8 @@ class SupabaseManager: ObservableObject {
                         params.append("category=eq.\(encCat)")
                     }
                 }
+            } else {
+                params.append("category=neq.non_sport")
             }
             if !term.isEmpty {
                 let allWords = term.components(separatedBy: CharacterSet.alphanumerics.inverted)

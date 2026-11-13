@@ -289,4 +289,102 @@ public class AdminNetworkService: ObservableObject {
         }
         return nil
     }
+
+    // MARK: - Vector Embeddings Coverage & Control
+
+    public func fetchEmbeddingCoverageDirect() async -> [EmbeddingCategoryCoverage] {
+        guard let url = URL(string: "\(supabaseBaseURL)/rpc/get_embedding_coverage") else { return [] }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.httpBody = Data("{}".utf8)
+        for (k, v) in makeSupabaseHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+
+        do {
+            let (data, resp) = try await session.data(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+            let rows = try JSONDecoder().decode([EmbeddingCategoryCoverage].self, from: data)
+            self.isSupabaseOnline = true
+            return rows
+        } catch {
+            print("[AdminNetwork] Error fetching embedding coverage from Supabase: \(error)")
+            return []
+        }
+    }
+
+    public func fetchEmbeddingStatus() async -> EmbeddingAdminStatusResponse? {
+        if let url = URL(string: "\(backendURL)/api/admin/embeddings/status") {
+            var req = URLRequest(url: url)
+            req.httpMethod = "GET"
+            req.timeoutInterval = 12
+            if let (data, resp) = try? await session.data(for: req),
+               (resp as? HTTPURLResponse)?.statusCode == 200,
+               let decoded = try? JSONDecoder().decode(EmbeddingAdminStatusResponse.self, from: data) {
+                self.isBackendOnline = true
+                return decoded
+            }
+        }
+
+        // Direct Supabase fallback when backend is sleeping or unreachable
+        let rows = await fetchEmbeddingCoverageDirect()
+        guard !rows.isEmpty else { return nil }
+        let totalActive = rows.reduce(0) { $0 + $1.activeCount }
+        let totalEmbedded = rows.reduce(0) { $0 + $1.embeddedCount }
+        let totalMissing = rows.reduce(0) { $0 + $1.missingCount }
+        let pct = totalActive > 0 ? (Double(totalEmbedded) / Double(totalActive) * 100.0) : 100.0
+        let summary = EmbeddingCoverageSummary(
+            totalActive: totalActive,
+            totalEmbedded: totalEmbedded,
+            totalMissing: totalMissing,
+            coveragePct: (pct * 10).rounded() / 10,
+            byCategory: rows
+        )
+        return EmbeddingAdminStatusResponse(job: .idle, coverage: summary)
+    }
+
+    public func triggerEmbeddingSync(category: String?, limit: Int?, batchSize: Int = 25) async throws -> (ok: Bool, message: String) {
+        var comps = URLComponents(string: "\(backendURL)/api/admin/embeddings/sync")
+        var items = [URLQueryItem(name: "batch_size", value: "\(batchSize)")]
+        if let cat = category, !cat.isEmpty, cat != "all" {
+            items.append(URLQueryItem(name: "category", value: cat))
+        }
+        if let lim = limit, lim > 0 {
+            items.append(URLQueryItem(name: "limit", value: "\(lim)"))
+        }
+        comps?.queryItems = items
+        guard let url = comps?.url else { return (false, "URL non valido") }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        let (data, resp) = try await session.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard status >= 200 && status < 300 else {
+            return (false, "HTTP \(status) dal backend")
+        }
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let apiStatus = (json["status"] as? String) ?? ""
+            let msg = (json["message"] as? String) ?? "Sync avviato"
+            return (apiStatus == "accepted", msg)
+        }
+        return (true, "Generazione embedding avviata")
+    }
+
+    public func stopEmbeddingSync() async throws -> (ok: Bool, message: String) {
+        guard let url = URL(string: "\(backendURL)/api/admin/embeddings/stop") else {
+            return (false, "URL non valido")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        let (data, resp) = try await session.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard status >= 200 && status < 300 else {
+            return (false, "HTTP \(status) dal backend")
+        }
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let msg = (json["message"] as? String) ?? "Arresto richiesto"
+            return (true, msg)
+        }
+        return (true, "Arresto richiesto")
+    }
 }

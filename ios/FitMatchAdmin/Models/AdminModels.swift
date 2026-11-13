@@ -41,6 +41,7 @@ public struct SyncSessionItem: Identifiable, Codable, Equatable {
         case "price_refresh": return "Monitor Prezzi"
         case "size_enrichment": return "Arricchimento Taglie"
         case "manual_crawl": return "Crawl Manuale"
+        case "embedding_sync": return "Embedding Vettoriali"
         default: return sessionType.capitalized
         }
     }
@@ -51,6 +52,7 @@ public struct SyncSessionItem: Identifiable, Codable, Equatable {
         case "price_refresh": return "tag.fill"
         case "size_enrichment": return "ruler"
         case "manual_crawl": return "arrow.triangle.2.circlepath"
+        case "embedding_sync": return "brain.head.profile"
         default: return "gearshape.2.fill"
         }
     }
@@ -237,4 +239,118 @@ public struct SearchFeedbackItem: Identifiable, Codable, Equatable {
         }
         return created
     }
+}
+
+// MARK: - Embedding Coverage & Job Models
+
+public struct EmbeddingCategoryCoverage: Identifiable, Codable, Equatable {
+    public var id: String { category }
+    public let category: String
+    public let activeCount: Int
+    public let embeddedCount: Int
+    public let missingCount: Int
+    public let coveragePct: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case category
+        case activeCount = "active_count"
+        case embeddedCount = "embedded_count"
+        case missingCount = "missing_count"
+        case coveragePct = "coverage_pct"
+    }
+
+    public var effectiveCoveragePct: Double {
+        if let pct = coveragePct { return pct }
+        guard activeCount > 0 else { return 100.0 }
+        return Double(embeddedCount) / Double(activeCount) * 100.0
+    }
+
+    public var displayName: String {
+        switch category.lowercased() {
+        case "running_shoes": return "Scarpe Running"
+        case "trail_running": return "Trail Running"
+        case "football_boots": return "Scarpini Calcio"
+        case "swim": return "Nuoto & Piscina"
+        case "gps_watch": return "Smartwatch GPS"
+        case "cycling": return "Ciclismo"
+        case "padel": return "Padel & Tennis"
+        case "fitness": return "Fitness & Palestra"
+        case "shoes": return "Scarpe Generiche"
+        case "top": return "Maglie & Top"
+        case "pants": return "Pantaloni & Shorts"
+        case "jacket": return "Giacche"
+        case "socks": return "Calze"
+        case "gear": return "Accessori & Gear"
+        case "outdoor": return "Outdoor & Trekking"
+        case "hydration": return "Idratazione"
+        case "pack": return "Zaini & Marsupi"
+        case "eyewear": return "Occhiali Sportivi"
+        case "nutrition": return "Nutrizione"
+        case "mount": return "Supporti & Attacchi"
+        case "strap": return "Cinturini"
+        case "case": return "Custodie"
+        case "sensor": return "Sensori"
+        default: return category.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+}
+
+public struct EmbeddingJobStatus: Codable, Equatable {
+    public let isRunning: Bool
+    public let category: String?
+    public let batchSize: Int
+    public let limit: Int?
+    public let processedCount: Int
+    public let startedAt: String?
+    public let lastFinishedAt: String?
+    public let lastStatus: String?
+    public let lastError: String?
+    public let stopRequested: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case isRunning = "is_running"
+        case category
+        case batchSize = "batch_size"
+        case limit
+        case processedCount = "processed_count"
+        case startedAt = "started_at"
+        case lastFinishedAt = "last_finished_at"
+        case lastStatus = "last_status"
+        case lastError = "last_error"
+        case stopRequested = "stop_requested"
+    }
+
+    public static let idle = EmbeddingJobStatus(
+        isRunning: false,
+        category: nil,
+        batchSize: 25,
+        limit: nil,
+        processedCount: 0,
+        startedAt: nil,
+        lastFinishedAt: nil,
+        lastStatus: "idle",
+        lastError: nil,
+        stopRequested: false
+    )
+}
+
+public struct EmbeddingCoverageSummary: Codable, Equatable {
+    public let totalActive: Int
+    public let totalEmbedded: Int
+    public let totalMissing: Int
+    public let coveragePct: Double
+    public let byCategory: [EmbeddingCategoryCoverage]
+
+    enum CodingKeys: String, CodingKey {
+        case totalActive = "total_active"
+        case totalEmbedded = "total_embedded"
+        case totalMissing = "total_missing"
+        case coveragePct = "coverage_pct"
+        case byCategory = "by_category"
+    }
+}
+
+public struct EmbeddingAdminStatusResponse: Codable, Equatable {
+    public let job: EmbeddingJobStatus
+    public let coverage: EmbeddingCoverageSummary
 }

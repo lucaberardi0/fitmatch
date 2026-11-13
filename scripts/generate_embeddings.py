@@ -14,7 +14,7 @@ import logging
 import ssl
 import certifi
 import urllib.request
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from dotenv import load_dotenv
 
 # Ensure fitmatch root is in path
@@ -49,6 +49,29 @@ DOMAIN_HINTS = {
     "ghost": "scarpe running asfalto neutra ammortizzata allenamento",
     "speedgoat": "scarpe trail running montagna sterrato aderenza vibram",
     "cascadia": "scarpe trail running fango sentieri montagna",
+    "mercurial": "scarpini scarpe calcio velocita fg ag calcetto",
+    "predator": "scarpini scarpe calcio controllo fg ag erba sintetica",
+    "tiempo": "scarpini scarpe calcio pelle comfort fg ag",
+    "phantom": "scarpini scarpe calcio precisione tiro fg ag",
+    "copa": "scarpini scarpe calcio pelle tocco fg ag",
+    "future": "scarpini scarpe calcio agilita fg ag",
+    "top flex": "scarpe calcetto indoor futsal sala",
+    "top sala": "scarpe calcetto indoor futsal",
+    "magnetico": "scarpini scarpe calcio fg ag",
+    "cobra ultra": "occhialini nuoto gara piscina antifog",
+    "biofuse": "occhialini nuoto piscina comfort principianti",
+    "fastskin": "nuoto piscina costume occhialini gara",
+    "occhialini": "nuoto piscina allenamento principianti acqua",
+}
+
+CATEGORY_HINTS = {
+    "football_boots": "scarpini scarpe da calcio calcetto erba naturale sintetica ag fg tf",
+    "swim": "nuoto piscina occhialini costume cuffia allenamento acquatico",
+    "running_shoes": "scarpe da corsa running asfalto allenamento ammortizzazione",
+    "trail_running": "scarpe trail running montagna sentieri sterrato grip",
+    "padel": "padel racchetta pala scarpe padel",
+    "cycling": "ciclismo bici strada mtb allenamento",
+    "gps_watch": "orologio smartwatch gps sport cardio corsa",
 }
 
 
@@ -72,6 +95,8 @@ def build_embedding_text(product: Dict[str, Any]) -> str:
         tokens.append(name)
     if category:
         tokens.append(f"categoria: {category}")
+        if category in CATEGORY_HINTS:
+            hints.append(CATEGORY_HINTS[category])
     if gender and gender.lower() != "unisex":
         tokens.append(f"genere: {gender}")
     if hints:
@@ -134,18 +159,63 @@ class EmbeddingGenerator:
             time.sleep(1.5 * (attempt + 1))
         return False
 
-    def run(self, batch_size: int = 50, limit: Optional[int] = None, active_only: bool = True):
-        logger.info(f"Starting vector embedding backfill (batch_size={batch_size}, active_only={active_only})...")
+    def get_coverage_summary(self) -> Dict[str, Any]:
+        """Fetch active-catalog embedding coverage grouped by category via Supabase RPC."""
+        res = self.sb._request("rpc/get_embedding_coverage", method="POST", data={})
+        rows = res.get("data") if isinstance(res, dict) else []
+        if not isinstance(rows, list):
+            rows = []
+        total_active = sum(int(r.get("active_count") or 0) for r in rows)
+        total_embedded = sum(int(r.get("embedded_count") or 0) for r in rows)
+        total_missing = sum(int(r.get("missing_count") or 0) for r in rows)
+        pct = round((total_embedded / total_active) * 100, 1) if total_active > 0 else 100.0
+        return {
+            "total_active": total_active,
+            "total_embedded": total_embedded,
+            "total_missing": total_missing,
+            "coverage_pct": pct,
+            "by_category": rows,
+        }
+
+    def run(
+        self,
+        batch_size: int = 25,
+        limit: Optional[int] = None,
+        active_only: bool = True,
+        category: Optional[str] = None,
+        stop_event: Any = None,
+        progress_callback: Optional[Callable[[int], None]] = None,
+    ) -> Dict[str, Any]:
+        clean_cat = (category or "").strip()
+        if clean_cat.lower() in ("", "all", "tutte"):
+            clean_cat = ""
+        logger.info(
+            f"Starting vector embedding backfill (batch_size={batch_size}, active_only={active_only}, category={clean_cat or 'all'})..."
+        )
 
         total_processed = 0
         start_time = time.time()
+        stopped = False
+        error_msg = None
 
         while True:
-            # Fetch products needing embeddings
+            if stop_event is not None and stop_event.is_set():
+                stopped = True
+                logger.info("Embedding backfill stopped by request.")
+                break
+
+            effective_batch = batch_size
+            if limit is not None:
+                remaining = limit - total_processed
+                if remaining <= 0:
+                    break
+                effective_batch = min(batch_size, remaining)
+
+            cat_filter = f"&category=eq.{clean_cat}" if clean_cat else "&category=neq.non_sport"
             endpoint = (
                 f"products?select=id,canonical_name,brand,category,gender"
                 f"{',store_offers!inner(id)' if active_only else ''}"
-                f"&embedding=is.null&limit={batch_size}"
+                f"{cat_filter}&embedding=is.null&limit={effective_batch}"
             )
             resp = self.sb._request(endpoint, method="GET")
             batch = resp.get("data") or []
@@ -160,7 +230,8 @@ class EmbeddingGenerator:
             try:
                 embeddings = self.get_embeddings_batch(texts)
                 if len(embeddings) != len(batch):
-                    logger.error(f"Mismatch: got {len(embeddings)} embeddings for {len(batch)} items. Skipping batch.")
+                    error_msg = f"Mismatch: got {len(embeddings)} embeddings for {len(batch)} items."
+                    logger.error(error_msg + " Skipping batch.")
                     break
 
                 save_items = [
@@ -169,10 +240,17 @@ class EmbeddingGenerator:
                 ]
                 ok = self.save_batch_embeddings(save_items)
                 if not ok:
-                    logger.error("Failed to save embeddings batch to Supabase. Aborting.")
+                    error_msg = "Failed to save embeddings batch to Supabase."
+                    logger.error(error_msg + " Aborting.")
                     break
 
                 total_processed += len(batch)
+                if progress_callback is not None:
+                    try:
+                        progress_callback(total_processed)
+                    except Exception:
+                        pass
+
                 elapsed = time.time() - start_time
                 rate = total_processed / elapsed if elapsed > 0 else 0
                 logger.info(f"Saved {total_processed} products so far ({rate:.1f} prods/sec).")
@@ -185,10 +263,18 @@ class EmbeddingGenerator:
                 time.sleep(0.3)
 
             except Exception as e:
+                error_msg = str(e)
                 logger.error(f"Error processing batch: {e}")
                 break
 
-        logger.info(f"Finished embedding backfill: {total_processed} products embedded in {time.time() - start_time:.2f}s.")
+        elapsed_total = round(time.time() - start_time, 2)
+        logger.info(f"Finished embedding backfill: {total_processed} products embedded in {elapsed_total:.2f}s.")
+        return {
+            "processed": total_processed,
+            "duration_seconds": elapsed_total,
+            "stopped": stopped,
+            "error": error_msg,
+        }
 
 
 def main():

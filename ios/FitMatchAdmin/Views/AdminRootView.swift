@@ -8,6 +8,10 @@ public struct AdminRootView: View {
     @State private var storeHealth: [StoreHealthMetric] = []
     @State private var feedbacks: [SearchFeedbackItem] = []
     @State private var affiliateStats: [String: Any]? = nil
+    @State private var embeddingStatus: EmbeddingAdminStatusResponse? = nil
+    @State private var selectedEmbeddingCategory: String = "all"
+    @State private var selectedEmbeddingLimit: Int = 250
+    @State private var showAllEmbeddingCategories: Bool = false
     @State private var isLoading: Bool = true
     @State private var selectedSession: SyncSessionItem? = nil
     @State private var statusToast: String? = nil
@@ -239,6 +243,9 @@ public struct AdminRootView: View {
 
                 // Key metrics 2x2 grid
                 metricsOverviewSection
+
+                // Vector Embeddings Coverage & Control Card
+                embeddingsControlCard
 
                 // Sovrn Affiliate Outbound Monetization Card
                 affiliateMonetizationCard
@@ -489,6 +496,249 @@ public struct AdminRootView: View {
         .background(Color.white)
         .cornerRadius(18)
         .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
+    }
+
+    private var embeddingsControlCard: some View {
+        let coverage = embeddingStatus?.coverage
+        let job = embeddingStatus?.job ?? .idle
+        let totalActive = coverage?.totalActive ?? 0
+        let totalEmbedded = coverage?.totalEmbedded ?? 0
+        let totalMissing = coverage?.totalMissing ?? 0
+        let pct = coverage?.coveragePct ?? 0.0
+        let categories = coverage?.byCategory ?? []
+        let missingCategories = categories.filter { $0.missingCount > 0 }
+        let displayedCategories = showAllEmbeddingCategories
+            ? categories
+            : Array((missingCategories.isEmpty ? categories : missingCategories).prefix(6))
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                HStack(spacing: 7) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.indigo)
+                    Text("EMBEDDING VETTORIALI (PGVECTOR)")
+                        .font(.system(size: 11.5, weight: .black))
+                        .foregroundColor(.secondary)
+                        .tracking(0.6)
+                }
+
+                Spacer()
+
+                if job.isRunning {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .tint(.indigo)
+                        Text("IN CORSO")
+                            .font(.system(size: 10, weight: .black))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.indigo.opacity(0.15))
+                    .foregroundColor(.indigo)
+                    .clipShape(Capsule())
+                } else {
+                    Text(totalMissing == 0 && totalActive > 0 ? "100% COPERTO" : "MANCANTI: \(totalMissing)")
+                        .font(.system(size: 10, weight: .black))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background((totalMissing == 0 ? Color.green : Color.orange).opacity(0.15))
+                        .foregroundColor(totalMissing == 0 ? .green : .orange)
+                        .clipShape(Capsule())
+                }
+            }
+
+            // Global Coverage Progress
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(String(format: "%.1f%%", pct))
+                        .font(.system(size: 24, weight: .black, design: .rounded))
+                        .foregroundColor(.primary)
+                    Text("(\(totalEmbedded) / \(totalActive) prodotti attivi)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.indigo.opacity(0.12))
+                            .frame(height: 8)
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(totalMissing == 0 ? Color.green : Color.indigo)
+                            .frame(
+                                width: max(6, geo.size.width * CGFloat(min(100.0, max(0.0, pct)) / 100.0)),
+                                height: 8
+                            )
+                    }
+                }
+                .frame(height: 8)
+            }
+
+            if job.isRunning {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Processati in questo job: +\(job.processedCount)")
+                            .font(.system(size: 12.5, weight: .bold))
+                            .foregroundColor(.indigo)
+                        Text("Target: \(job.category ?? "Tutte le categorie")\(job.limit != nil ? " • max \(job.limit!)" : "")")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button(action: {
+                        Task { await stopEmbeddingJob() }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 10))
+                            Text("Ferma")
+                                .font(.system(size: 12, weight: .bold))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.red.opacity(0.14))
+                        .foregroundColor(.red)
+                        .cornerRadius(10)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(10)
+                .background(Color.indigo.opacity(0.07))
+                .cornerRadius(12)
+            } else {
+                // Category & Limit Controls
+                VStack(spacing: 10) {
+                    HStack {
+                        Text("Categoria")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Menu {
+                            Button("Tutte le categorie (\(totalMissing) mancanti)") {
+                                selectedEmbeddingCategory = "all"
+                            }
+                            Divider()
+                            ForEach(categories) { cat in
+                                Button("\(cat.displayName) (\(cat.missingCount) mancanti)") {
+                                    selectedEmbeddingCategory = cat.category
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text(selectedCategoryLabel(categories: categories, totalMissing: totalMissing))
+                                    .font(.system(size: 12, weight: .bold))
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 10, weight: .bold))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(red: 243/255, green: 244/255, blue: 246/255))
+                            .foregroundColor(.primary)
+                            .cornerRadius(9)
+                        }
+                    }
+
+                    Picker("Limite Batch", selection: $selectedEmbeddingLimit) {
+                        Text("100").tag(100)
+                        Text("250").tag(250)
+                        Text("500").tag(500)
+                        Text("Tutti").tag(0)
+                    }
+                    .pickerStyle(.segmented)
+
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            let gen = UIImpactFeedbackGenerator(style: .medium)
+                            gen.impactOccurred()
+                            Task { await startEmbeddingJob() }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                Text(selectedEmbeddingLimit == 0 ? "Avvia Tutti i Mancanti" : "Avvia Batch (\(selectedEmbeddingLimit))")
+                                    .font(.system(size: 12.5, weight: .bold))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.indigo)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isRunningAction || !net.isBackendOnline || totalMissing == 0)
+                        .opacity((!net.isBackendOnline || totalMissing == 0) ? 0.55 : 1.0)
+                    }
+
+                    if !net.isBackendOnline {
+                        Text("Nota: avvio comandi richiede il backend Render/locale online; le statistiche sopra sono lette live da Supabase.")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            if let err = job.lastError, !err.isEmpty {
+                Text("Ultimo avviso: \(err)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.red)
+            }
+
+            // Per-category breakdown (tap any row to target it)
+            if !displayedCategories.isEmpty {
+                Divider()
+                VStack(spacing: 8) {
+                    ForEach(displayedCategories) { item in
+                        Button(action: {
+                            selectedEmbeddingCategory = item.category
+                        }) {
+                            HStack(spacing: 8) {
+                                Text(item.displayName)
+                                    .font(.system(size: 12, weight: selectedEmbeddingCategory == item.category ? .black : .semibold))
+                                    .foregroundColor(selectedEmbeddingCategory == item.category ? .indigo : .primary)
+                                Spacer()
+                                Text("\(item.embeddedCount)/\(item.activeCount)")
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                Text(String(format: "%.0f%%", item.effectiveCoveragePct))
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    .foregroundColor(item.missingCount == 0 ? .green : .orange)
+                                    .frame(width: 38, alignment: .trailing)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if categories.count > 6 {
+                        Button(action: {
+                            withAnimation { showAllEmbeddingCategories.toggle() }
+                        }) {
+                            Text(showAllEmbeddingCategories ? "Mostra meno categorie" : "Mostra tutte le \(categories.count) categorie")
+                                .font(.system(size: 11.5, weight: .bold))
+                                .foregroundColor(.indigo)
+                                .padding(.top, 2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(Color.white)
+        .cornerRadius(18)
+        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
+    }
+
+    private func selectedCategoryLabel(categories: [EmbeddingCategoryCoverage], totalMissing: Int) -> String {
+        if selectedEmbeddingCategory == "all" {
+            return "Tutte (\(totalMissing) mancanti)"
+        }
+        if let found = categories.first(where: { $0.category == selectedEmbeddingCategory }) {
+            return "\(found.displayName) (\(found.missingCount))"
+        }
+        return selectedEmbeddingCategory
     }
 
     private func metricBox(title: String, value: String, caption: String, icon: String, color: Color) -> some View {
@@ -1438,13 +1688,61 @@ public struct AdminRootView: View {
         async let healthFetch = net.fetchStoreHealthMetrics()
         async let feedbackFetch = net.fetchSearchFeedbacks(limit: 100)
         async let affFetch = net.fetchAffiliateStats()
+        async let embFetch = net.fetchEmbeddingStatus()
 
-        let (s, h, fb, aff) = await (sessFetch, healthFetch, feedbackFetch, affFetch)
+        let (s, h, fb, aff, emb) = await (sessFetch, healthFetch, feedbackFetch, affFetch, embFetch)
         self.sessions = s
         self.storeHealth = h
         self.feedbacks = fb
         self.affiliateStats = aff
+        self.embeddingStatus = emb
         self.isLoading = false
+        if emb?.job.isRunning == true {
+            Task { await pollEmbeddingsWhileRunning() }
+        }
+    }
+
+    private func startEmbeddingJob() async {
+        isRunningAction = true
+        let targetCat = selectedEmbeddingCategory == "all" ? nil : selectedEmbeddingCategory
+        let targetLim = selectedEmbeddingLimit > 0 ? selectedEmbeddingLimit : nil
+        do {
+            let res = try await net.triggerEmbeddingSync(category: targetCat, limit: targetLim, batchSize: 25)
+            statusToast = res.message
+            if let fresh = await net.fetchEmbeddingStatus() {
+                self.embeddingStatus = fresh
+            }
+            if res.ok {
+                Task { await pollEmbeddingsWhileRunning() }
+            }
+        } catch {
+            statusToast = "Errore avvio embedding: \(error.localizedDescription)"
+        }
+        isRunningAction = false
+    }
+
+    private func stopEmbeddingJob() async {
+        do {
+            let res = try await net.stopEmbeddingSync()
+            statusToast = res.message
+            if let fresh = await net.fetchEmbeddingStatus() {
+                self.embeddingStatus = fresh
+            }
+        } catch {
+            statusToast = "Errore arresto embedding: \(error.localizedDescription)"
+        }
+    }
+
+    private func pollEmbeddingsWhileRunning() async {
+        for _ in 0..<80 {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard let fresh = await net.fetchEmbeddingStatus() else { break }
+            self.embeddingStatus = fresh
+            if !fresh.job.isRunning {
+                self.sessions = await net.fetchSyncSessions(limit: 50)
+                break
+            }
+        }
     }
 
     private func executeAction(_ startMsg: String, action: @escaping () async throws -> Bool) async {

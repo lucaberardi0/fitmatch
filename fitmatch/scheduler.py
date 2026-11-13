@@ -383,10 +383,13 @@ class SyncScheduler:
 
     def run_embedding_task(
         self,
-        batch_size: int = 50,
+        batch_size: int = 25,
         limit: Optional[int] = None,
         standalone: bool = True,
-        trigger_source: str = "scheduler"
+        trigger_source: str = "scheduler",
+        category: Optional[str] = None,
+        stop_event: Any = None,
+        progress_callback: Any = None,
     ) -> Dict[str, Any]:
         """Automatically generates vector embeddings for products with active offers missing embeddings."""
         session_id = None
@@ -394,7 +397,7 @@ class SyncScheduler:
             session_id = self.db.create_sync_session(
                 session_type="embedding_sync",
                 trigger_source=trigger_source,
-                metadata={"batch_size": batch_size, "limit": limit}
+                metadata={"batch_size": batch_size, "limit": limit, "category": category or "all"}
             )
             logger.info(f"[SyncScheduler] Created embedding_sync session {session_id}")
 
@@ -402,15 +405,33 @@ class SyncScheduler:
         try:
             from scripts.generate_embeddings import EmbeddingGenerator
             generator = EmbeddingGenerator()
-            generator.run(batch_size=batch_size, limit=limit, active_only=True)
+            result = generator.run(
+                batch_size=batch_size,
+                limit=limit,
+                active_only=True,
+                category=category,
+                stop_event=stop_event,
+                progress_callback=progress_callback,
+            )
             elapsed = round(time.time() - start_time, 2)
+            processed = int(result.get("processed", 0)) if isinstance(result, dict) else 0
+            err_msg = result.get("error") if isinstance(result, dict) else None
+            stopped = bool(result.get("stopped")) if isinstance(result, dict) else False
             if standalone and session_id:
                 self.db.update_sync_session(
                     session_id=session_id,
-                    status="completed",
-                    duration_seconds=elapsed
+                    status="completed" if not err_msg else "failed",
+                    duration_seconds=elapsed,
+                    total_items_processed=processed,
+                    total_items_updated=processed,
+                    error_message=err_msg,
                 )
-            return {"status": "success", "duration_seconds": elapsed}
+            return {
+                "status": "error" if err_msg else ("stopped" if stopped else "success"),
+                "processed": processed,
+                "duration_seconds": elapsed,
+                "error": err_msg,
+            }
         except Exception as e:
             elapsed = round(time.time() - start_time, 2)
             logger.error(f"[SyncScheduler] Embedding task error: {e}")
