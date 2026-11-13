@@ -276,3 +276,159 @@ def test_smart_search_stream_sse_emits_real_steps_and_result():
     payload = result_events[0]["data"]
     assert payload.get("intent", {}).get("brand") == "Nike"
     assert isinstance(payload.get("results"), list)
+
+
+def test_adizero_dropset_hyrox_keywords_and_guardrail():
+    q = "Adidas adizero dropset sono valide per hyrox?"
+    intent = LocalHeuristicParser.parse(q)
+    joined_kws = " | ".join(intent.target_keywords).lower()
+    assert "dropset sono" not in joined_kws
+    assert "sono" not in (intent.conversational_header or "").lower()
+    assert "dropset" in joined_kws
+    assert intent.category in ("fitness", "shoes", "running_shoes")
+    sanitized = SmartSearchEngine(api_key="").parse_query(q)
+    assert sanitized.category in ("fitness", "shoes", "running_shoes")
+
+    cap = {
+        "id": "p_cap",
+        "canonical_name": "Adidas Cappellino Visiera Hybrid 5 Panel",
+        "brand": "Adidas",
+        "category": "accessories",
+        "best_price": 21.99,
+        "offers": [{"raw_title": "Adidas Cappellino Visiera Hybrid 5 Panel"}],
+    }
+    dropset = {
+        "id": "p_dropset",
+        "canonical_name": "Adidas Dropset 3 Trainer",
+        "brand": "Adidas",
+        "category": "shoes",
+        "best_price": 109.99,
+        "offers": [{"raw_title": "Adidas Dropset 3 Scarpe Training"}],
+    }
+    ptype = QueryProductGuardrail.detect_product_type(q)
+    assert ptype == "shoes"
+    assert QueryProductGuardrail.is_product_compatible(cap, ptype, raw_query=q) is False
+    assert QueryProductGuardrail.is_product_compatible(dropset, ptype, raw_query=q) is True
+
+
+def test_padel_racket_blocks_marsupio_bags_and_tubes():
+    q = "Racchetta padel per livello intermedio sotto 150 euro"
+    ptype = QueryProductGuardrail.detect_product_type(q)
+    assert ptype == "padel_racket"
+
+    marsupio = {
+        "id": "p_marsupio",
+        "canonical_name": "Bullpadel Cube Marsupio Vertex 3",
+        "brand": "Bullpadel",
+        "category": "padel",
+        "best_price": 45.0,
+        "offers": [{"raw_title": "Bullpadel Cube Marsupio Vertex 3"}],
+    }
+    sacca = {
+        "id": "p_sacca",
+        "canonical_name": "Bullpadel Portaracchette BPP",
+        "brand": "Bullpadel",
+        "category": "padel",
+        "best_price": 69.0,
+        "offers": [{"raw_title": "Bullpadel Sacca Portaracchette"}],
+    }
+    racket = {
+        "id": "p_racket",
+        "canonical_name": "Bullpadel Vertex 04 Hybrid",
+        "brand": "Bullpadel",
+        "category": "padel",
+        "best_price": 139.0,
+        "offers": [{"raw_title": "Racchetta Padel Bullpadel Vertex 04"}],
+    }
+    assert QueryProductGuardrail.is_product_compatible(marsupio, ptype, raw_query=q) is False
+    assert QueryProductGuardrail.is_product_compatible(sacca, ptype, raw_query=q) is False
+    assert QueryProductGuardrail.is_product_compatible(racket, ptype, raw_query=q) is True
+
+
+def test_court_shoes_basketball_tennis_volleyball_guardrails_and_keywords():
+    q_basket = "Scarpe da basket alte ammortizzate"
+    assert QueryProductGuardrail.detect_product_type(q_basket) == "basketball_shoes"
+    intent_basket = LocalHeuristicParser.parse(q_basket)
+    basket_kws = " ".join(intent_basket.target_keywords).lower()
+    for bad in ("nimbus", "bondi", "clifton", "novablast", "pegasus"):
+        assert bad not in basket_kws
+
+    running_shoe = {
+        "id": "p_nimbus",
+        "canonical_name": "Asics Gel Nimbus 26",
+        "brand": "Asics",
+        "category": "running_shoes",
+        "best_price": 139.0,
+        "offers": [{"raw_title": "Asics Gel Nimbus 26 Scarpe Running"}],
+    }
+    basket_shoe = {
+        "id": "p_luka",
+        "canonical_name": "Jordan Luka 77 Basket",
+        "brand": "Jordan",
+        "category": "shoes",
+        "best_price": 119.0,
+        "offers": [{"raw_title": "Jordan Luka 77 Scarpe Basket"}],
+    }
+    assert QueryProductGuardrail.is_product_compatible(running_shoe, "basketball_shoes", raw_query=q_basket) is False
+    assert QueryProductGuardrail.is_product_compatible(basket_shoe, "basketball_shoes", raw_query=q_basket) is True
+
+    q_tennis = "Scarpe da tennis terra battuta uomo"
+    assert QueryProductGuardrail.detect_product_type(q_tennis) == "tennis_shoes"
+    kws_tennis = " ".join(QueryProductGuardrail.expand_keywords(q_tennis, "tennis_shoes", None, [])).lower()
+    for bad in ("pegasus", "ghost", "novablast", "nimbus", "clifton"):
+        assert bad not in kws_tennis
+    tennis_shoe = {
+        "id": "p_res",
+        "canonical_name": "Asics Tennis Resolution X Terra Battuta",
+        "brand": "Asics",
+        "category": "shoes",
+        "best_price": 119.0,
+        "offers": [{"raw_title": "Asics Gel Resolution X Clay Terra Battuta"}],
+    }
+    assert QueryProductGuardrail.is_product_compatible(running_shoe, "tennis_shoes", raw_query=q_tennis) is False
+    assert QueryProductGuardrail.is_product_compatible(tennis_shoe, "tennis_shoes", raw_query=q_tennis) is True
+
+    q_volley = "Scarpe da pallavolo uomo"
+    assert QueryProductGuardrail.detect_product_type(q_volley) == "volleyball_shoes"
+    volley_shoe = {
+        "id": "p_spike",
+        "canonical_name": "Asics Pallavolo Adulto Spike",
+        "brand": "Asics",
+        "category": "shoes",
+        "best_price": 89.0,
+        "offers": [{"raw_title": "Asics Pallavolo Adulto Spike"}],
+    }
+    assert QueryProductGuardrail.is_product_compatible(running_shoe, "volleyball_shoes", raw_query=q_volley) is False
+    assert QueryProductGuardrail.is_product_compatible(volley_shoe, "volleyball_shoes", raw_query=q_volley) is True
+
+
+def test_multi_model_comparison_keeps_both_models_and_skips_single_advisor():
+    q = "Meglio Pegasus 41 o Novablast 4 per iniziare?"
+    assert FitMatchSportsAdvisor.is_conversational_query(q, has_context=False) is False
+
+    intent = LocalHeuristicParser.parse(q)
+    joined_kws = " | ".join(intent.target_keywords).lower()
+    assert "pegasus" in joined_kws
+    assert "novablast" in joined_kws
+    assert intent.brand is None
+    assert "pegasus" in (intent.conversational_header or "").lower()
+    assert "novablast" in (intent.conversational_header or "").lower()
+
+
+def test_short_sleeve_running_apparel_blocks_long_sleeve_and_generic_header():
+    q = "Maglia running manica corta uomo"
+    intent = LocalHeuristicParser.parse(q)
+    joined_kws = " | ".join(intent.target_keywords).lower()
+    assert "long sleeve" not in joined_kws
+    assert "manica lunga" not in joined_kws
+    assert (intent.conversational_header or "").strip().lower() != "ho cercato prodotti"
+    for sec in intent.curated_sections:
+        sec_text = f"{sec.title} {sec.subtitle} {' '.join(sec.keywords)}".lower()
+        assert "long sleeve" not in sec_text
+        assert "manica lunga" not in sec_text
+
+
+def test_hydration_capacity_keyword_preservation():
+    q = "Zaino trail 12L"
+    kws = " | ".join(QueryProductGuardrail.expand_keywords(q, "hydration", None, ["12l"])).lower()
+    assert "12l" in kws or "12" in kws

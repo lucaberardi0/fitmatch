@@ -1478,6 +1478,37 @@ class SupabaseClient:
                         score += 130.0
                     elif re.search(r"\b(costume|boxer|slip|muta|cuffia|pinne|tavoletta)\b", pname):
                         score -= 150.0
+            elif detected_product_type == "basketball_shoes":
+                if re.search(r"\b(basket|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame|curry|jordan|kyrie)\b", combined_text):
+                    score += 135.0
+                if "alt" in q_str_low and re.search(r"\b(high|mid|alte)\b", pname):
+                    score += 35.0
+                if re.search(r"\b(nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|speedgoat|trabuco)\b", pname):
+                    score -= 180.0
+            elif detected_product_type == "tennis_shoes":
+                if re.search(r"\b(tennis|terra\s*battuta|clay|resolution|court\s*ff|dedicate|nikecourt|barricade|vapor|challenger|rush\s*pro|jet\s*mach)\b", combined_text):
+                    score += 135.0
+                if re.search(r"terra\s*battuta|clay", q_str_low) and re.search(r"\b(terra\s*battuta|clay)\b", combined_text):
+                    score += 60.0
+                if re.search(r"\b(nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|pegasus|speedgoat)\b", pname):
+                    score -= 180.0
+            elif detected_product_type == "volleyball_shoes":
+                if re.search(r"\b(pallavolo|volley|spike|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner|upcourt|gel[\s-]*task)\b", combined_text):
+                    score += 135.0
+                if re.search(r"\b(nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|pegasus|speedgoat)\b", pname):
+                    score -= 180.0
+            elif detected_product_type == "hydration":
+                if re.search(r"\b(zain|gilet|vest|adv\s*skin|active\s*skin|sense\s*pro|flask|borracci)\b", combined_text):
+                    score += 80.0
+                cap_match = re.search(r"\b(\d{1,2})\s*l\b", q_str_low)
+                if cap_match:
+                    req_cap = cap_match.group(1)
+                    if re.search(rf"\b{re.escape(req_cap)}\s*l?\b", pname):
+                        score += 120.0
+                    elif re.search(r"\b(\d{1,2})\s*l?\b", pname):
+                        other_cap = re.search(r"\b(\d{1,2})\s*l?\b", pname)
+                        if other_cap and other_cap.group(1) != req_cap and int(other_cap.group(1)) in (2, 4, 5, 8, 10, 12, 15, 20):
+                            score -= 55.0
             elif "hyrox" in q_str_low:
                 if "hyrox" in combined_text:
                     score += 140.0

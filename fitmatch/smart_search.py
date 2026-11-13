@@ -597,17 +597,17 @@ SPORTS_KNOWLEDGE = {
         ]
     },
     "running_apparel": {
-        "models": ["maglia running", "t-shirt running", "canotta running", "pantaloncini running", "giacca running", "adizero", "kiprun", "odlo", "salomon"],
-        "label": "Abbigliamento Tecnico da Corsa",
+        "models": ["maglia running", "t-shirt running", "canotta running", "manica corta", "adizero", "kiprun", "odlo", "salomon"],
+        "label": "Maglie & T-Shirt Running",
         "category": "top",
         "description": "Capi tecnici traspiranti, ultraleggeri e anti-sfregamento per corsa su strada e trail.",
         "conversational_summary": "Per l'abbigliamento tecnico da corsa punta su **tessuti traspiranti ad asciugatura rapida** e cuciture piatte anti-sfregamento. Ecco i migliori capi tecnici confrontati:",
         "sections": [
             {
                 "id": "sec_running_tops",
-                "title": "Maglie Tecniche & Primo Strato",
+                "title": "Maglie Tecniche & T-Shirt Traspiranti",
                 "subtitle": "Massima traspirabilità e leggerezza per allenamenti e gare.",
-                "keywords": ["adizero", "maglia", "t-shirt", "long sleeve", "manica lunga", "canotta"]
+                "keywords": ["adizero", "maglia", "t-shirt", "manica corta", "canotta"]
             },
             {
                 "id": "sec_weather_protection",
@@ -1100,6 +1100,129 @@ SPORTS_KNOWLEDGE = {
             "Scarpe max cushioning per correre"
         ]
     },
+    "basketball_shoes": {
+        "models": ["basket", "nike basketball", "jordan", "lebron", "luka", "caitlin", "sabrina", "kd"],
+        "label": "Scarpe da Basket",
+        "category": "shoes",
+        "description": "Scarpe da pallacanestro con ammortizzazione reattiva agli impatti e grip multidirezionale per parquet e playground.",
+        "conversational_summary": "Per il **basket** servono scarpe ad alto **contenimento laterale**, ammortizzazione reattiva per atterraggi ripetuti e trazione affidabile sui cambi di direzione. Ecco i modelli disponibili confrontati:",
+        "sections": [
+            {
+                "id": "sec_basket_shoes",
+                "title": "Scarpe da Basket & Parquet",
+                "subtitle": "Supporto alla caviglia, ammortizzazione Zoom/Nitro e grip reattivo.",
+                "keywords": ["basket", "luka", "caitlin", "jordan", "lebron"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Jordan Luka",
+                "ideal_for": "Controllo passo, step-back e stabilità laterale",
+                "strengths": "Telaio laterale rinforzato e ammortizzazione reattiva",
+                "target_keyword": "luka"
+            },
+            {
+                "model_name": "Nike Basketball / Caitlin",
+                "ideal_for": "Rapidità sul parquet e tagli ad alta velocità",
+                "strengths": "Leggerezza e trazione multidirezionale",
+                "target_keyword": "basket"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "basket",
+            "badge_text": "Top Basket",
+            "highlights": [
+                "Contenimento laterale specifico per parquet e cambi di direzione",
+                "Ammortizzazione reattiva agli atterraggi",
+                "Prezzi confrontati tra store sportivi specializzati"
+            ]
+        },
+        "follow_ups": [
+            "Scarpe da basket sotto 120 euro",
+            "Modelli con più supporto alla caviglia",
+            "Filtra per la mia taglia"
+        ]
+    },
+    "tennis_shoes": {
+        "models": ["tennis", "asics resolution", "asics dedicate", "nikecourt", "barricade", "vapor pro"],
+        "label": "Scarpe da Tennis",
+        "category": "shoes",
+        "description": "Scarpe specifiche per tennis su terra battuta (Clay) e superfici veloci (All Court).",
+        "conversational_summary": "Per il **tennis** (in particolare su terra battuta o cemento) servono suole dedicate (spina di pesce / all-court) e tomaia rinforzata per scivolate e spostamenti laterali. Ecco i modelli confrontati:",
+        "sections": [
+            {
+                "id": "sec_tennis_clay",
+                "title": "Scarpe da Tennis & Terra Battuta",
+                "subtitle": "Stabilità laterale e trazione specifica per il campo.",
+                "keywords": ["tennis", "terra battuta", "dedicate", "resolution", "nikecourt"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Asics Gel-Resolution / Dedicate",
+                "ideal_for": "Gioco da fondocampo e scivolate su terra battuta",
+                "strengths": "Stabilità torsionale Dynawall e suola specifica Clay",
+                "target_keyword": "tennis"
+            },
+            {
+                "model_name": "NikeCourt Lite / Vapor",
+                "ideal_for": "Agilità e comfort sotto rete su tutte le superfici",
+                "strengths": "Tomaia traspirante con rinforzi in punta",
+                "target_keyword": "nikecourt"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "tennis",
+            "badge_text": "Top Tennis",
+            "highlights": [
+                "Suola progettata per aderenza su terra battuta e cemento",
+                "Rinforzi mediali anti-abrasione per spostamenti laterali",
+                "Confronto prezzi in tempo reale tra i negozi partner"
+            ]
+        },
+        "follow_ups": [
+            "Scarpe da tennis sotto 100 euro",
+            "Modelli specifici per terra battuta",
+            "Filtra per la mia taglia"
+        ]
+    },
+    "volleyball_shoes": {
+        "models": ["pallavolo", "volley", "asics spike", "sky elite", "wave lightning", "netburner"],
+        "label": "Scarpe da Pallavolo & Indoor",
+        "category": "shoes",
+        "description": "Scarpe indoor per pallavolo con suola antitraccia, ammortizzazione negli atterraggi e agilità sotto rete.",
+        "conversational_summary": "Per la **pallavolo e gli sport indoor** servono suole in gomma antitraccia ad alto grip e intersuola capace di assorbire gli impatti di salti e muri:",
+        "sections": [
+            {
+                "id": "sec_volley_shoes",
+                "title": "Scarpe da Pallavolo & Indoor",
+                "subtitle": "Grip su parquet/taraflex e ammortizzazione nei salti.",
+                "keywords": ["pallavolo", "volley", "spike", "sky elite", "wave lightning"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Asics Pallavolo Spike / Sky Elite",
+                "ideal_for": "Salti esplosivi, muri e atterraggi protetti",
+                "strengths": "Ammortizzazione reattiva e stabilità nel mesopiede",
+                "target_keyword": "pallavolo"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "pallavolo",
+            "badge_text": "Top Indoor",
+            "highlights": [
+                "Suola antitraccia con grip immediato su campo indoor",
+                "Assorbimento urti ottimizzato per salti ripetuti",
+                "Miglior prezzo verificato tra i partner"
+            ]
+        },
+        "follow_ups": [
+            "Scarpe da pallavolo sotto 100 euro",
+            "Ginocchiere da pallavolo",
+            "Filtra per la mia taglia"
+        ]
+    },
     "football_boots": {
         "models": ["mercurial", "predator", "phantom", "tiempo", "copa", "future", "top sala", "top flex"],
         "label": "Scarpe & Scarpini da Calcio / Calcetto",
@@ -1484,12 +1607,18 @@ class QueryProductGuardrail:
                 return "smart_trainer"
             if re.search(r"\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis)|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali|enervit|maurten)\b", t):
                 return "nutrition"
-            # Football / calcetto boots before generic running shoes
+            # Sport-specific footwear BEFORE generic running shoes
             if re.search(
                 r"\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|scarpin[oi]|calcetto|futsal|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b",
                 t,
             ) or (re.search(r"\bcalcio\s*a\s*[57]\b", t) and not re.search(r"\b(magli[ae]|kit|pantaloncin[oi]|pallon[ei]|guant[oi])\b", t)):
                 return "football_boots"
+            if re.search(r"\b(basket|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b", t) and not re.search(r"\b(magli[ae]|canott[ae]|pantaloncin[oi]|calz[ae]|pallon[ei]|canestro)\b", t):
+                return "basketball_shoes"
+            if re.search(r"\b(tennis|terra\s*battuta|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b", t) and not re.search(r"\b(racchett[ae]|pallin[ae]|abbigliamento|pantaloncin[oi]|magli[ae])\b", t):
+                return "tennis_shoes"
+            if re.search(r"\b(pallavolo|volley|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b", t) and not re.search(r"\b(ginocchier[ae]|pallon[ei]|magli[ae]|pantaloncin[oi]|manicotti)\b", t):
+                return "volleyball_shoes"
             # 3. Shoes (explicit word or known shoe model/query)
             if re.search(
                 r"\b(scarp[ae]|sneakers?|calzatur[ae]|dropset|metcon|pegasus|vomero|alphafly|vaporfly|streakfly|invincible|nimbus|kayano|cumulus|novablast|superblast|metaspeed|clifton|bondi|speedgoat|mach|cielo|glycerin|ghost|hyperion|cascadia|endorphin|triumph|ride|peregrine|deviate|velocity|fast[\s-]*r|magmax|adizero\s*(?:adios|boston|takumi|sl|evo|prime)|ultraboost|supernova|cloudmonster|cloudsurfer|cloudboom|cloudrunner|cloudstratus|wave\s*rider|wave\s*rebellion|wave\s*sky|fresh\s*foam|fuelcell|1080|rebel|hyrox)\b",
@@ -1539,6 +1668,9 @@ class QueryProductGuardrail:
                 "shoes": "shoes",
                 "fitness": "shoes",
                 "football_boots": "football_boots",
+                "basketball_shoes": "basketball_shoes",
+                "tennis_shoes": "tennis_shoes",
+                "volleyball_shoes": "volleyball_shoes",
                 "swim": "swim",
                 "top": "top",
                 "pants": "pants_shorts",
@@ -1750,7 +1882,7 @@ class QueryProductGuardrail:
         if product_type == "padel_racket":
             if cat in {"running_shoes", "shoes", "top", "jacket", "pants", "socks", "eyewear", "gps_watch", "nutrition", "hydration", "bag", "balls"}:
                 return False
-            if re.search(r"\b(scarp[ae]|shoe|sneaker|magli[ae]|t[\s-]*shirt|polo\b|felp[ae]|pantaloncin[oi]|shorts?|gonn[ae]|calz[ae]|pallin[ae]|tubo\b|overgrip|\bgrip\b|hesacore|ammortizzator[ei]|antivibrazion[ei]|\bvibe\b|bors[ae]|zain[oi]|paletero|custodi[ae]|occhial[ie]|pit\s*viper|skysurfer|sunglasses|polarized|cappellin[oi]|polsin[oi]|fascia)\b", full_text):
+            if re.search(r"\b(scarp[ae]|shoe|sneaker|magli[ae]|t[\s-]*shirt|polo\b|felp[ae]|pantaloncin[oi]|shorts?|gonn[ae]|calz[ae]|pallin[ae]|tubo\b|tubi\b|scatol[ae]|overgrip|\bgrip\b|hesacore|ammortizzator[ei]|antivibrazion[ei]|\bvibe\b|bors[ae]|borson[ei]|marsupi[oi]|cube\b|sacc[ae]|portaracchett[ae]|zain[oi]|paletero|custodi[ae]|occhial[ie]|pit\s*viper|skysurfer|sunglasses|polarized|cappellin[oi]|polsin[oi]|fascia|telo\b)\b", full_text):
                 return False
             if not re.search(r"\b(junior|jr\b|bambin[oi]|kid)\b", q_lower):
                 if re.search(r"\b(junior|\bjr\b|bambin[oi]|kid)\b", full_text):
@@ -1773,6 +1905,27 @@ class QueryProductGuardrail:
             if cat == "football_boots":
                 return True
             return bool(re.search(r"\b(scarpin[oi]|calcio|calcetto|futsal|mercurial|superfly|vapor|tiempo|phantom|predator|copa|future|magnetico|f50|king|top\s*sala|top\s*flex|\b(?:fg|ag|tf|mg|sg)\b)\b", full_text))
+
+        if product_type == "basketball_shoes":
+            if cat in {"top", "jacket", "pants", "socks", "underwear", "eyewear", "swim", "gps_watch", "cycling", "racket", "padel", "nutrition", "hydration", "gear", "pack", "bag", "football_boots", "trail_running"}:
+                return False
+            if re.search(r"\b(pantalon[ie]|shorts?|t[\s-]*shirt|magli[ae]|canott[ae]|felp[ae]|calz[ae]|calzin[oi]|pallon[ei]|bors[ae]|zain[oi]|cappellin[oi]|pegasus|nimbus|bondi|clifton|novablast|ghost|glycerin|speedgoat|trail|calcio|calcetto)\b", full_text):
+                return False
+            return bool(re.search(r"\b(basket|basketball|jordan|lebron|kobe|luka|caitlin|sabrina|giannis|tatum|curry|harden|dame|\bkd\b)\b", full_text))
+
+        if product_type == "tennis_shoes":
+            if cat in {"top", "jacket", "pants", "socks", "underwear", "eyewear", "swim", "gps_watch", "cycling", "nutrition", "hydration", "gear", "pack", "bag", "football_boots", "trail_running"}:
+                return False
+            if re.search(r"\b(pantalon[ie]|shorts?|t[\s-]*shirt|magli[ae]|gonn[ae]|felp[ae]|calz[ae]|racchett[ae]|pallin[ae]|bors[ae]|zain[oi]|cappellin[oi]|pegasus|nimbus|bondi|clifton|novablast|ghost|glycerin|speedgoat|trail|calcio|calcetto)\b", full_text):
+                return False
+            return bool(re.search(r"\b(tennis|terra\s*battuta|nikecourt|court\s*ff|dedicate|resolution|barricade|vapor\s*pro|vapor\s*cage|propulse|clay)\b", full_text))
+
+        if product_type == "volleyball_shoes":
+            if cat in {"top", "jacket", "pants", "socks", "underwear", "eyewear", "swim", "gps_watch", "cycling", "nutrition", "hydration", "gear", "pack", "bag", "football_boots", "trail_running"}:
+                return False
+            if re.search(r"\b(ginocchier[ae]|manicotti|pantalon[ie]|shorts?|t[\s-]*shirt|magli[ae]|calz[ae]|pallon[ei]|bors[ae]|zain[oi]|pegasus|nimbus|bondi|clifton|novablast|ghost|glycerin|speedgoat|trail)\b", full_text):
+                return False
+            return bool(re.search(r"\b(pallavolo|volley|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner|spike)\b", full_text))
 
         if product_type == "swim":
             if cat in {"running_shoes", "trail_running", "shoes", "football_boots", "top", "jacket", "pants", "socks", "gps_watch", "cycling", "racket", "padel", "nutrition"}:
@@ -1924,8 +2077,12 @@ class QueryProductGuardrail:
                 "rudy project", "bliz", "100%", "koo", "occhiali"
             ]
         elif product_type == "hydration":
+            cap_match = re.search(r"\b(\d{1,2})\s*l\b", q_low)
             if re.search(r"\b(borracc|flask)\b", q_low):
                 archetype_models = ["soft flask", "salomon soft flask", "camelbak", "borraccia", "active skin"]
+            elif cap_match:
+                cap_num = cap_match.group(1)
+                archetype_models = [f"active skin {cap_num}", f"adv skin {cap_num}", f"zaino {cap_num}", "active skin", "adv skin", "sense pro"]
             else:
                 archetype_models = ["active skin", "adv skin", "sense pro", "salomon", "camelbak", "zaino"]
         elif product_type == "padel_racket":
@@ -1954,6 +2111,23 @@ class QueryProductGuardrail:
                 ]
             else:
                 archetype_models = ["occhialini", "arena", "speedo", "costume", "cuffia", "nuoto"]
+        elif product_type == "basketball_shoes":
+            archetype_models = [
+                "basket", "luka", "caitlin", "lebron", "jordan", "sabrina", "nike basketball"
+            ]
+        elif product_type == "tennis_shoes":
+            if "terra battuta" in q_low or "clay" in q_low:
+                archetype_models = [
+                    "tennis terra battuta", "dedicate", "resolution", "nikecourt", "tennis", "barricade"
+                ]
+            else:
+                archetype_models = [
+                    "tennis", "nikecourt", "asics dedicate", "asics resolution", "barricade", "vapor pro"
+                ]
+        elif product_type == "volleyball_shoes":
+            archetype_models = [
+                "pallavolo", "volley", "asics spike", "sky elite", "wave lightning", "netburner"
+            ]
         elif product_type == "shoes":
             if "hyrox" in q_low:
                 archetype_models = [
@@ -1985,11 +2159,17 @@ class QueryProductGuardrail:
                 ]
 
         for m in archetype_models:
-            if brand_low and product_type in ("shoes", "gps_watch", "bike_computer", "padel_racket"):
+            if brand_low and product_type in ("shoes", "gps_watch", "bike_computer", "padel_racket", "basketball_shoes", "tennis_shoes", "volleyball_shoes"):
                 if brand_low in m or any(bv in m for bv in (brand_low.replace("-", " "),)):
                     _add(m)
             else:
                 _add(m)
+
+        if product_type == "short_sleeve_top":
+            result = [k for k in result if "long sleeve" not in k and "manica lunga" not in k]
+        elif product_type in ("basketball_shoes", "tennis_shoes", "volleyball_shoes"):
+            running_leak = {"pegasus", "ghost", "novablast", "nimbus", "bondi", "clifton", "supernova", "wave rider"}
+            result = [k for k in result if not any(rl in k for rl in running_leak)]
 
         # If result is still sparse, append any deferred generic keywords
         if len(result) < 4:
@@ -2075,6 +2255,8 @@ class QueryProductGuardrail:
             intent.category = "cycling"
         elif product_type == "nutrition":
             intent.category = "nutrition"
+        elif product_type in ("basketball_shoes", "tennis_shoes", "volleyball_shoes"):
+            intent.category = "shoes"
         elif product_type == "shoes":
             if intent.category not in ("running_shoes", "trail_running", "shoes", "fitness"):
                 intent.category = "running_shoes"
@@ -2235,6 +2417,79 @@ class QueryProductGuardrail:
 class FitMatchSportsAdvisor:
     """Expert athletic sports and running gear knowledge engine for ChatGPT-style Q&A."""
 
+    _COMPARABLE_MODELS = [
+        ("zoom fly 6", "Nike Zoom Fly 6", "zoom fly 6", "Nike"),
+        ("zoom fly", "Nike Zoom Fly 6", "zoom fly", "Nike"),
+        ("vaporfly 3", "Nike Vaporfly 3", "vaporfly 3", "Nike"),
+        ("vaporfly", "Nike Vaporfly", "vaporfly", "Nike"),
+        ("alphafly 3", "Nike Alphafly 3", "alphafly 3", "Nike"),
+        ("alphafly", "Nike Alphafly", "alphafly", "Nike"),
+        ("streakfly", "Nike Streakfly", "streakfly", "Nike"),
+        ("pegasus plus", "Nike Pegasus Plus", "pegasus plus", "Nike"),
+        ("pegasus 41", "Nike Pegasus 41", "pegasus 41", "Nike"),
+        ("pegasus", "Nike Pegasus", "pegasus", "Nike"),
+        ("vomero 18", "Nike Vomero 18", "vomero 18", "Nike"),
+        ("vomero", "Nike Vomero", "vomero", "Nike"),
+        ("invincible", "Nike Invincible", "invincible", "Nike"),
+        ("endorphin speed", "Saucony Endorphin Speed", "endorphin speed", "Saucony"),
+        ("endorphin pro", "Saucony Endorphin Pro", "endorphin pro", "Saucony"),
+        ("endorphin", "Saucony Endorphin", "endorphin", "Saucony"),
+        ("triumph", "Saucony Triumph", "triumph", "Saucony"),
+        ("ride", "Saucony Ride", "saucony ride", "Saucony"),
+        ("guide", "Saucony Guide", "saucony guide", "Saucony"),
+        ("novablast 5", "Asics Novablast 5", "novablast 5", "Asics"),
+        ("novablast 4", "Asics Novablast 4", "novablast 4", "Asics"),
+        ("novablast", "Asics Novablast", "novablast", "Asics"),
+        ("superblast", "Asics Superblast", "superblast", "Asics"),
+        ("nimbus 27", "Asics Gel-Nimbus 27", "nimbus 27", "Asics"),
+        ("nimbus 26", "Asics Gel-Nimbus 26", "nimbus 26", "Asics"),
+        ("nimbus", "Asics Gel-Nimbus", "nimbus", "Asics"),
+        ("kayano 31", "Asics Gel-Kayano 31", "kayano 31", "Asics"),
+        ("kayano", "Asics Gel-Kayano", "kayano", "Asics"),
+        ("cumulus", "Asics Gel-Cumulus", "cumulus", "Asics"),
+        ("clifton 10", "Hoka Clifton 10", "clifton 10", "Hoka"),
+        ("clifton 9", "Hoka Clifton 9", "clifton 9", "Hoka"),
+        ("clifton", "Hoka Clifton", "clifton", "Hoka"),
+        ("bondi 9", "Hoka Bondi 9", "bondi 9", "Hoka"),
+        ("bondi 8", "Hoka Bondi 8", "bondi 8", "Hoka"),
+        ("bondi", "Hoka Bondi", "bondi", "Hoka"),
+        ("speedgoat", "Hoka Speedgoat", "speedgoat", "Hoka"),
+        ("mach", "Hoka Mach", "hoka mach", "Hoka"),
+        ("ghost 16", "Brooks Ghost 16", "ghost 16", "Brooks"),
+        ("ghost", "Brooks Ghost", "ghost", "Brooks"),
+        ("glycerin", "Brooks Glycerin", "glycerin", "Brooks"),
+        ("adrenaline", "Brooks Adrenaline GTS", "adrenaline", "Brooks"),
+        ("adios pro", "Adidas Adizero Adios Pro", "adios pro", "Adidas"),
+        ("boston 12", "Adidas Adizero Boston 12", "boston 12", "Adidas"),
+        ("boston", "Adidas Adizero Boston", "boston", "Adidas"),
+        ("dropset", "Adidas Dropset", "dropset", "Adidas"),
+        ("metcon", "Nike Metcon", "metcon", "Nike"),
+        ("deviate nitro", "Puma Deviate Nitro", "deviate nitro", "Puma"),
+        ("velocity nitro", "Puma Velocity Nitro", "velocity nitro", "Puma"),
+        ("forerunner 165", "Garmin Forerunner 165", "forerunner 165", "Garmin"),
+        ("forerunner 265", "Garmin Forerunner 265", "forerunner 265", "Garmin"),
+        ("forerunner 965", "Garmin Forerunner 965", "forerunner 965", "Garmin"),
+        ("fenix 7", "Garmin Fenix 7", "fenix 7", "Garmin"),
+        ("fenix 8", "Garmin Fenix 8", "fenix 8", "Garmin"),
+        ("coros pace 3", "Coros Pace 3", "coros pace 3", "Coros"),
+        ("coros pace", "Coros Pace", "coros pace", "Coros"),
+    ]
+
+    @classmethod
+    def extract_mentioned_models(cls, text: str) -> List[tuple[str, str, str]]:
+        """Return distinct [(display_name, search_kw, brand)] for models mentioned in text."""
+        t = (text or "").lower()
+        found: List[tuple[str, str, str]] = []
+        seen_families = set()
+        for pat, disp, kw, brand in cls._COMPARABLE_MODELS:
+            if re.search(rf"\b{re.escape(pat)}\b", t):
+                family = pat.split()[0]
+                if family in seen_families:
+                    continue
+                seen_families.add(family)
+                found.append((disp, kw, brand))
+        return found
+
     @staticmethod
     def is_conversational_query(text: str, has_context: bool) -> bool:
         t = text.strip().lower()
@@ -2245,6 +2500,9 @@ class FitMatchSportsAdvisor:
         if re.search(r"^(?:mostrami|filtra|cerca|trova|ordina|seleziona|solo)\b", t):
             if "?" not in t and not re.search(r"\b(buon|bene|consigl|opinione|parere|differenz|passo|drop)\b", t):
                 return False
+        # Multi-model comparison ("Meglio Pegasus 41 o Novablast 4?") must search BOTH models + run RAG
+        if len(FitMatchSportsAdvisor.extract_mentioned_models(t)) >= 2:
+            return False
         # Require either prior context OR an explicit product/brand/model mention;
         # open-ended discovery ("Cosa mi consigli come scarpe per iniziare a correre?")
         # or category switches ("Mentre delle scarpe da corsa sempre per iniziare?")
@@ -3000,6 +3258,15 @@ class LocalHeuristicParser:
             archetype_key = "cycling"
         elif re.search(r"\b(casco|caschi|kask|poc|abus)\b", text):
             archetype_key = "gear"
+        elif re.search(r"\b(basket|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b", text) and not re.search(r"\b(magli[ae]|canott[ae]|pantaloncin[oi]|calz[ae]|pallon[ei]|canestro)\b", text):
+            archetype_key = "basketball_shoes"
+            features.append("court")
+        elif re.search(r"\b(tennis|terra\s*battuta|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b", text) and not re.search(r"\b(racchett[ae]|pallin[ae]|abbigliamento|pantaloncin[oi]|magli[ae])\b", text):
+            archetype_key = "tennis_shoes"
+            features.append("court")
+        elif re.search(r"\b(pallavolo|volley|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b", text) and not re.search(r"\b(ginocchier[ae]|manicotti|pallon[ei]|magli[ae]|pantaloncin[oi])\b", text):
+            archetype_key = "volleyball_shoes"
+            features.append("court")
         elif re.search(r"\b(recovery\s*slide|ciabatt[ae]\s*(?:recovery|recupero|post)|sandal[oi]\s*(?:recovery|recupero)|ora\s*recovery|reelax)\b", text):
             archetype_key = "recovery_slides"
         elif re.search(r"\b(trekking|escursionism[oa]|hiking|scarpon[ei]|scarponcin[oi]|montagna\s+escurs|via\s*ferrata|avvicinamento|x\s*ultra|ultra\s*raptor|mojito)\b", text):
@@ -3095,16 +3362,28 @@ class LocalHeuristicParser:
         category = arch["category"]
 
         # 6. Generate Target Keywords
+        mentioned_models = FitMatchSportsAdvisor.extract_mentioned_models(text)
+        _MOD_SUF = r"(?:\s+(?:\d+(?:[.,]\d+)?|v\d+|pro|elite|ultra|plus|max|lite|wide|gtx|gore[\s-]*tex|trail|tf|ag|fg|mg|music|solar|se|sl|evo|control|speed|sweep))?"
         exact_model_match = re.search(
-            r"\b(adizero\s+dropset(?:\s*\w+)?|dropset(?:\s*\w+)?|metcon(?:\s*\d+)?|nano(?:\s*\w+)?|alphafly(?:\s*\d+)?|vaporfly(?:\s*\d+)?|zoom\s*fly(?:\s*\d+)?|vomero(?:\s*\d+)?|pegasus(?:\s*\w+)?|nimbus(?:\s*\d+)?|clifton(?:\s*\d+)?|bondi(?:\s*\d+)?|ghost(?:\s*\d+)?|streakfly(?:\s*\d+)?|invincible(?:\s*\d+)?|adizero(?:\s*\w+)?|speedgoat(?:\s*\d+)?|forerunner(?:\s*\d+)?|fenix(?:\s*\d+)?|novablast(?:\s*\d+)?|superblast(?:\s*\d+)?|endorphin(?:\s*\w+)?|deviate(?:\s*\w+)?|radar\s*ev|sutro|hack(?:\s*\d+)?|vertex(?:\s*\d+)?|at10|kickr|flux(?:\s*\w+)?|replica(?:\s*\w+)?|tabi)\b",
+            rf"\b(adizero\s+dropset{_MOD_SUF}|dropset{_MOD_SUF}|metcon{_MOD_SUF}|nano{_MOD_SUF}|alphafly{_MOD_SUF}|vaporfly{_MOD_SUF}|zoom\s*fly{_MOD_SUF}|vomero{_MOD_SUF}|pegasus{_MOD_SUF}|nimbus{_MOD_SUF}|clifton{_MOD_SUF}|bondi{_MOD_SUF}|ghost{_MOD_SUF}|streakfly{_MOD_SUF}|invincible{_MOD_SUF}|adizero{_MOD_SUF}|speedgoat{_MOD_SUF}|forerunner{_MOD_SUF}|fenix{_MOD_SUF}|novablast{_MOD_SUF}|superblast{_MOD_SUF}|endorphin{_MOD_SUF}|deviate{_MOD_SUF}|radar\s*ev|sutro|hack{_MOD_SUF}|vertex{_MOD_SUF}|at10|kickr|flux{_MOD_SUF}|replica{_MOD_SUF}|tabi)\b",
             text
         )
 
         is_exact_sku_only = False
-        if exact_model_match and len(words) <= 3 and not any(kw in text for kw in ["per", "come", "quale", "miglior", "comod", "ammortizz", "sotto", "econom"]):
+        if exact_model_match and len(mentioned_models) < 2 and len(words) <= 3 and not any(kw in text for kw in ["per", "come", "quale", "miglior", "comod", "ammortizz", "sotto", "econom"]):
             is_exact_sku_only = True
 
-        if exact_model_match:
+        is_multi_model_comparison = len(mentioned_models) >= 2
+        if is_multi_model_comparison:
+            # Comparison queries ("Pegasus 41 o Novablast 4") must fetch products for BOTH models without locking brand
+            target_keywords = []
+            for _disp, m_kw, m_brand in mentioned_models:
+                if m_brand.lower() not in m_kw.lower():
+                    target_keywords.append(f"{m_brand.lower()} {m_kw}")
+                if m_kw not in target_keywords:
+                    target_keywords.append(m_kw)
+            detected_brand = None
+        elif exact_model_match:
             exact_val = exact_model_match.group(1).strip()
             if "dropset" in exact_val:
                 target_keywords = ["adidas dropset", "adizero dropset", exact_val]
@@ -3195,7 +3474,25 @@ class LocalHeuristicParser:
             is_deep_dive = True
 
         # 9. Conversational Header & Summary (Exact Shopify Shop style)
-        if exact_model_match:
+        is_short_sleeve = bool(re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b", text))
+        if is_multi_model_comparison:
+            comp_names = [m[0] for m in mentioned_models[:3]]
+            comp_title = " vs ".join(comp_names[:2])
+            clean_subject = comp_title
+            conversational_header = f"Confronto {comp_title}"
+            conversational_summary = (
+                f"Ecco il confronto diretto tra **{'**, **'.join(comp_names)}** tra le migliori offerte disponibili:"
+            )
+            curated_sections = [
+                CuratedSectionDef(
+                    id=f"sec_cmp_{idx}",
+                    title=f"Offerte {disp}",
+                    subtitle=f"Prezzi verificati e varianti disponibili per {disp}.",
+                    keywords=[f"{brand.lower()} {kw}" if brand.lower() not in kw.lower() else kw, kw]
+                )
+                for idx, (disp, kw, brand) in enumerate(mentioned_models[:3])
+            ]
+        elif exact_model_match:
             exact_val = exact_model_match.group(1).strip()
             brand_prefix = f"{detected_brand} " if detected_brand and detected_brand.lower() not in exact_val.lower() else ""
             clean_subject = f"{brand_prefix}{exact_val.title()}"
@@ -3228,18 +3525,23 @@ class LocalHeuristicParser:
             clean_subject = detected_brand or arch["label"]
             if detected_brand and "scarpe" in text:
                 clean_subject = f"scarpe {detected_brand}"
-            conversational_header = "Ho cercato prodotti"
+            elif archetype_key in ("running_apparel", "running_shorts", "running_pants") and detected_brand:
+                clean_subject = f"{arch['label']} {detected_brand}"
+            conversational_header = f"Ho cercato {clean_subject}" if clean_subject else "Ho cercato prodotti"
             conversational_summary = arch.get("conversational_summary") or f"Ho trovato diverse **{clean_subject}**: dai modelli più versatili a quelli più performanti e ricercati, con prezzi e stili molto diversi."
             curated_sections_raw = arch.get("sections", [])
-            curated_sections = [
-                CuratedSectionDef(
+            curated_sections = []
+            for s in curated_sections_raw:
+                sec_kws = list(s.get("keywords", target_keywords[:2]))
+                sec_text = f"{s['title']} {s['subtitle']} {' '.join(sec_kws)}".lower()
+                if is_short_sleeve and re.search(r"\b(long[\s-]*sleeve|manica\s*lunga|termic[oa]|thermal)\b", sec_text):
+                    continue
+                curated_sections.append(CuratedSectionDef(
                     id=s["id"],
                     title=s["title"],
                     subtitle=s["subtitle"],
-                    keywords=s.get("keywords", target_keywords[:2])
-                )
-                for s in curated_sections_raw
-            ]
+                    keywords=sec_kws
+                ))
 
         # 11. Structured Comparative Spec Cards ("Come orientarsi" - Exact Shopify Shop style)
         spec_comparisons_raw = arch.get("spec_comparisons", [])
@@ -3632,7 +3934,18 @@ class LocalHeuristicParser:
             ]
         else:
             spotlight_raw = arch.get("spotlight", {})
-            if exact_model_match:
+            if is_multi_model_comparison:
+                comp_first_kw = mentioned_models[0][1]
+                spotlight_def = SpotlightDef(
+                    target_keyword=comp_first_kw,
+                    badge_text="Confronto Diretto",
+                    highlights=[
+                        f"Confronto tra {' e '.join(m[0] for m in mentioned_models[:2])}",
+                        "Prezzi e disponibilità confrontati in tempo reale tra i partner",
+                        "Valuta ammortizzazione, peso e feeling prima di scegliere"
+                    ]
+                )
+            elif exact_model_match:
                 exact_val = exact_model_match.group(1).strip()
                 default_spot_kw = exact_val.lower()
                 spotlight_def = SpotlightDef(
@@ -4307,6 +4620,8 @@ class SmartSearchEngine:
         if intent.source == "local_sports_advisor":
             return False
         q = (user_query or "").strip().lower()
+        if len(FitMatchSportsAdvisor.extract_mentioned_models(q)) >= 2:
+            return True
         if self.is_more_examples_query(q) or self.is_complex_natural_query(q) or intent.source == "openrouter":
             return True
         if context_query and len(q.split()) >= 3:
