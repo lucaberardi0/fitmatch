@@ -1240,5 +1240,33 @@ struct ChatSessionDetail: Identifiable, Codable {
     let messages: [ChatMessageRecord]?
 }
 
+// MARK: - Live Smart Search Thinking Trace (SSE)
+
+struct SearchThinkingStep: Identifiable, Equatable, Hashable {
+    enum Status: String, Equatable, Hashable {
+        case running
+        case done
+        case skipped
+    }
+
+    let id: String
+    var status: Status
+    var title: String
+    var detail: String?
+    var elapsedMs: Int?
+}
+
+struct SmartSearchStreamEvent: Decodable {
+    let type: String
+    let id: String?
+    let status: String?
+    let title: String?
+    let detail: String?
+    let elapsed_ms: Int?
+    let message: String?
+    let data: SmartSearchResponse?
+}
+
+
 
 

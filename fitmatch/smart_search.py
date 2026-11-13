@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import re
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable
 from pydantic import BaseModel, Field
 from fitmatch.cache_manager import SearchCacheManager
 
@@ -1455,7 +1455,7 @@ class QueryProductGuardrail:
                 return "long_sleeve_top"
             if re.search(r"\b(canott[ae]|canottier[ae]|singlet|tank\s*top|sleeveless|smanicat[aoe])\b", t):
                 return "singlet_top"
-            if re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae]+|t[\s-]*shirt|magliett[ae]|magli[ae]\s*(?:da\s*)?(?:running|corsa|trail|palestra|allenamento|sport))\b", t):
+            if re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae]+|t[\s-]*shirt|magliett[ae]|magli[ae](?!\s*(?:cinturin|orolog)))\b", t):
                 return "short_sleeve_top"
             if re.search(r"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way|gilet\s*antivento|guscio)\b", t):
                 return "jacket"
@@ -1504,7 +1504,70 @@ class QueryProductGuardrail:
         primary = _detect_single(q)
         if primary:
             return primary
-        return _detect_single(ctx)
+        if ctx:
+            for turn in reversed(ctx.split(">>")):
+                turn_ptype = _detect_single(turn.strip())
+                if turn_ptype:
+                    return turn_ptype
+        return None
+
+    @staticmethod
+    def _normalize_ptype_group(ptype: Optional[str]) -> Optional[str]:
+        if ptype in ("long_sleeve_top", "short_sleeve_top", "singlet_top"):
+            return "top"
+        return ptype
+
+    @classmethod
+    def detect_previous_product_type(
+        cls,
+        context_query: Optional[str] = None,
+        session_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        if context_query and context_query.strip():
+            for turn in reversed(context_query.split(">>")):
+                t = turn.strip()
+                if t:
+                    pt = cls.detect_product_type(t, context_query=None)
+                    if pt:
+                        return pt
+        if session_context and session_context.get("category"):
+            cat = str(session_context["category"]).strip().lower()
+            cat_map = {
+                "gps_watch": "gps_watch",
+                "running_shoes": "shoes",
+                "trail_running": "shoes",
+                "shoes": "shoes",
+                "fitness": "shoes",
+                "football_boots": "football_boots",
+                "swim": "swim",
+                "top": "top",
+                "pants": "pants_shorts",
+                "jacket": "jacket",
+                "socks": "socks",
+                "eyewear": "eyewear",
+                "hydration": "hydration",
+                "padel": "padel_racket",
+                "cycling": "bike_computer",
+                "nutrition": "nutrition",
+            }
+            if cat in cat_map:
+                return cat_map[cat]
+        return None
+
+    @classmethod
+    def is_category_switch(
+        cls,
+        query: str,
+        context_query: Optional[str] = None,
+        session_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        cur_ptype = cls.detect_product_type(query, context_query=None)
+        if not cur_ptype:
+            return False
+        prev_ptype = cls.detect_previous_product_type(context_query=context_query, session_context=session_context)
+        if not prev_ptype:
+            return False
+        return cls._normalize_ptype_group(cur_ptype) != cls._normalize_ptype_group(prev_ptype)
 
     @classmethod
     def _product_full_text(cls, product: Dict[str, Any]) -> str:
@@ -1951,16 +2014,30 @@ class QueryProductGuardrail:
             if "Non posso rispondere" in (intent.conversational_summary or ""):
                 intent.conversational_summary = f"Ecco le migliori opzioni disponibili per **{user_query}**."
 
+        # Defense-in-depth: never render single-product Q&A card on a category switch or open-ended discovery search
+        if intent.is_conversational_advice and (
+            cls.is_category_switch(user_query, context_query)
+            or (
+                SmartSearchEngine.is_complex_natural_query(user_query)
+                and not re.search(
+                    r"\b(pegasus|vomero|alphafly|vaporfly|zoom\s*fly|streakfly|invincible|nimbus|kayano|cumulus|novablast|superblast|clifton|bondi|speedgoat|mach|ghost|glycerin|adrenaline|cascadia|endorphin|triumph|ride|guide|boston|adios|dropset|metcon|nano|deviate|velocity|forerunner|fenix|instinct|epix|venu|vivoactive|coros|suunto|polar)\b",
+                    q_low,
+                )
+            )
+        ):
+            intent.is_conversational_advice = False
+
         # 0. Prevent LLM from hallucinating a brand filter when the user didn't mention a brand or brand-specific model
         if intent.brand:
             b_low = intent.brand.strip().lower()
             b_variants = {b_low, b_low.replace("-", " "), b_low.replace(" ", "-")}
-            explicit_brand_in_q = any(re.search(rf"\b{re.escape(bv)}\b", combined_q) for bv in b_variants)
+            brand_check_text = q_low if cls.is_category_switch(user_query, context_query) else combined_q
+            explicit_brand_in_q = any(re.search(rf"\b{re.escape(bv)}\b", brand_check_text) for bv in b_variants)
             if not explicit_brand_in_q:
                 from fitmatch.matcher.normalizer import ICONIC_MODEL_BRANDS
                 implied_brand = None
                 for mod_kw, mod_brand in ICONIC_MODEL_BRANDS.items():
-                    if re.search(rf"\b{re.escape(mod_kw)}\b", combined_q):
+                    if re.search(rf"\b{re.escape(mod_kw)}\b", brand_check_text):
                         implied_brand = mod_brand
                         break
                 if implied_brand and implied_brand.lower() in b_variants:
@@ -1999,8 +2076,10 @@ class QueryProductGuardrail:
         elif product_type == "nutrition":
             intent.category = "nutrition"
         elif product_type == "shoes":
-            if intent.category not in ("running_shoes", "shoes", "fitness"):
+            if intent.category not in ("running_shoes", "trail_running", "shoes", "fitness"):
                 intent.category = "running_shoes"
+            if re.search(r"\b(trail|sterrato|sentier)\b", q_low) and intent.category == "running_shoes":
+                intent.category = "trail_running"
 
         # 2. Override with specialized domain templates when generic/broken
         if "hyrox" in q_low and product_type == "shoes" and not intent.brand:
@@ -2083,11 +2162,12 @@ class QueryProductGuardrail:
         # conversational_summary, spotlight.target_keyword, or top target_keywords!
         user_norm = LocalHeuristicParser.normalize_typos(user_query.lower())
         user_garmin_nums = re.findall(r"\b(165|265|965|55|255|955)\b", user_norm)
-        if not user_garmin_nums and context_query:
-            ctx_norm = LocalHeuristicParser.normalize_typos(context_query.lower())
+        if not user_garmin_nums and context_query and product_type in (None, "gps_watch"):
+            last_ctx = context_query.split(">>")[-1]
+            ctx_norm = LocalHeuristicParser.normalize_typos(last_ctx.lower())
             user_garmin_nums = re.findall(r"\b(165|265|965|55|255|955)\b", ctx_norm)
 
-        if user_garmin_nums and ("garmin" in user_norm or "forerunner" in user_norm or product_type == "gps_watch" or (context_query and ("garmin" in context_query.lower() or "forerunner" in context_query.lower()))):
+        if user_garmin_nums and product_type in (None, "gps_watch") and ("garmin" in user_norm or "forerunner" in user_norm or product_type == "gps_watch"):
             target_num = user_garmin_nums[0]
             conflicting_nums = [n for n in ["165", "265", "965", "55", "255", "955"] if n != target_num]
             # Sanitize conversational_header
@@ -2166,11 +2246,35 @@ class FitMatchSportsAdvisor:
             if "?" not in t and not re.search(r"\b(buon|bene|consigl|opinione|parere|differenz|passo|drop)\b", t):
                 return False
         # Require either prior context OR an explicit product/brand/model mention;
-        # open-ended discovery ("Cosa mi consigli come scarpe per iniziare a correre?") should run full product search + RAG!
-        has_specific_subject = has_context or bool(re.search(
+        # open-ended discovery ("Cosa mi consigli come scarpe per iniziare a correre?")
+        # or category switches ("Mentre delle scarpe da corsa sempre per iniziare?")
+        # should run full product search + RAG instead of canned single-model Q&A!
+        has_specific_model = bool(re.search(
             r"\b(pegasus|vomero|alphafly|vaporfly|zoom\s*fly|streakfly|invincible|nimbus|kayano|cumulus|novablast|superblast|clifton|bondi|speedgoat|mach|ghost|glycerin|adrenaline|cascadia|endorphin|triumph|ride|guide|boston|adios|dropset|metcon|nano|deviate|velocity|forerunner|fenix|instinct|epix|venu|vivoactive|coros|suunto|polar)\b",
             t
         ))
+        has_category_noun = bool(re.search(
+            r"\b(scarp[ae]|scarpin[oi]|orologi[o]?|smartwatch|sportwatch|giacc(?:a|he)|magli[ae]|t[\s-]*shirt|canott[ae]|pantaloncin[oi]|shorts?|leggings?|tights?|calz[ae]|calzin[oi]|zain[oi]|occhialin[oi]|occhial[ie]|racchett[ae]|ciclocomputer|borracc(?:ia|e)|cappellin[oi])\b",
+            t
+        ))
+        has_tech_qa = bool(re.search(
+            r"\b(calzan[oi]|calzata|veston[oi]|vestibilit[aà]|piastr[ae]|carbonio|drop|peso|grammi|duran[oi]|durata|quanti\s*km|batteria|autonomia|amoled|display|schermo|tasch[ae]|taschin[oi]|liner|boxer|intimo|pronator[ei]|supinator[ei]|pronazione|differenz[ae]|confront|ginocchi[ao]|schiena|fascite|tendinit[ei]|periostite|pioggi[ae]|gore[\s-]*tex|gtx|traspirant|comod[oi]|comfort|palestra|mezza\s*maratona|maratona|21\s*km|42\s*km|passo|ritm[oi])\b",
+            t
+        ))
+        is_discovery_or_switch = bool(
+            re.search(r"\b(cosa\s*mi\s*consigli|mi\s*consigli|consigliami|per\s*iniziare|principiant[ei]|quale\s*scegliere|come\s*scegliere|ci\s+sono)\b", t)
+            or re.search(r"^(?:mentre|invece|passando\s+a|e\s+(?:invece|delle|dei|degli|una|un|per\s+le|per\s+i))\b", t)
+        )
+        if not has_specific_model:
+            if is_discovery_or_switch and not has_tech_qa:
+                return False
+            if has_category_noun and not has_tech_qa and not re.search(
+                r"\b(sono\s+(?:buon[ae]|adatt[ae]|consigliat[ae]|comod[ae]|stabili|pesanti|leggere)|vanno\s+bene)\b",
+                t
+            ):
+                return False
+
+        has_specific_subject = has_context or has_specific_model
         if not has_specific_subject:
             return False
         starters = r"^(?:sono|vanno|posso|si\s+possono|quanto|quanti|quante|come|perch[eé]|quale|qual\s|cosa|chi|a\s+cosa|in\s+cosa|per\s+che|per\s+quale|meglio\b|conviene\b|dovrei\b|ha\s+la|hanno\s+la|hanno\s+il|ha\s+il|è\s+buon|sono\s+buon)"
@@ -2237,50 +2341,75 @@ class FitMatchSportsAdvisor:
             ("fenix 7", "Garmin Fenix 7", "fenix 7", "gps_watch", "Garmin"),
             ("fenix 8", "Garmin Fenix 8", "fenix 8", "gps_watch", "Garmin"),
         ]
-        for pat, disp, kw, arch, b in models:
-            if pat in u_low:
-                return disp, kw, arch, b
-        for pat, disp, kw, arch, b in models:
-            if pat in c_low:
-                return disp, kw, arch, b
+        def _extract_from_text(t: str) -> Optional[tuple[str, str, str, Optional[str]]]:
+            if not t:
+                return None
+            for pat, disp, kw, arch, b in models:
+                if pat in t:
+                    return disp, kw, arch, b
 
-        # Apparel & Sportswear domain patterns
-        target_text = f"{u_low} {c_low}"
-        has_ua = bool(re.search(r"\b(under\s*armour|ua)\b", target_text))
-        has_nike = bool(re.search(r"\bnike\b", target_text))
-        has_adidas = bool(re.search(r"\badidas\b", target_text))
-        has_asics = bool(re.search(r"\basics\b", target_text))
+            has_ua = bool(re.search(r"\b(under\s*armour|ua)\b", t))
+            has_nike = bool(re.search(r"\bnike\b", t))
+            has_adidas = bool(re.search(r"\badidas\b", t))
+            has_asics = bool(re.search(r"\basics\b", t))
+            brand_in_t = (
+                "Under Armour" if has_ua else
+                "Nike" if has_nike else
+                "Adidas" if has_adidas else
+                "Asics" if has_asics else None
+            )
 
-        # Shorts / Pantaloncini
-        if re.search(r"\b(shorts?|pantaloncin[oi]|bermuda|ciclisti)\b", target_text):
-            if has_ua:
-                return "Shorts Under Armour", "under armour launch shorts", "running_shorts", "Under Armour"
-            if has_nike:
-                return "Shorts Nike Running", "nike shorts running", "running_shorts", "Nike"
-            if has_adidas:
-                return "Shorts Adidas Running", "adidas shorts running", "running_shorts", "Adidas"
-            if has_asics:
-                return "Shorts Asics Running", "asics shorts running", "running_shorts", "Asics"
-            return "Shorts da Corsa & Allenamento", "shorts running", "running_shorts", None
+            # Shorts / Pantaloncini
+            if re.search(r"\b(shorts?|pantaloncin[oi]|bermuda|ciclisti)\b", t):
+                if has_ua:
+                    return "Shorts Under Armour", "under armour launch shorts", "running_shorts", "Under Armour"
+                if has_nike:
+                    return "Shorts Nike Running", "nike shorts running", "running_shorts", "Nike"
+                if has_adidas:
+                    return "Shorts Adidas Running", "adidas shorts running", "running_shorts", "Adidas"
+                if has_asics:
+                    return "Shorts Asics Running", "asics shorts running", "running_shorts", "Asics"
+                return "Shorts da Corsa & Allenamento", "shorts running", "running_shorts", None
 
-        # Leggings / Tights
-        if re.search(r"\b(leggings?|tights?|pantacollant|calzamagli[ae])\b", target_text):
-            brand = "Under Armour" if has_ua else "Nike" if has_nike else "Adidas" if has_adidas else None
-            disp = f"Leggings {brand}" if brand else "Leggings da Corsa & Fitness"
-            return disp, f"{(brand or '').lower()} leggings running".strip(), "tights", brand
+            # Leggings / Tights
+            if re.search(r"\b(leggings?|tights?|pantacollant|calzamagli[ae])\b", t):
+                disp = f"Leggings {brand_in_t}" if brand_in_t else "Leggings da Corsa & Fitness"
+                return disp, f"{(brand_in_t or '').lower()} leggings running".strip(), "tights", brand_in_t
 
-        # Tops / Maglie / Canotte
-        if re.search(r"\b(magli[ae]|t[\s-]*shirt|canott[ae]|singlet|top)\b", target_text):
-            brand = "Under Armour" if has_ua else "Nike" if has_nike else "Adidas" if has_adidas else None
-            disp = f"Maglia Tecnica {brand}" if brand else "Maglia Tecnica Traspirante"
-            return disp, f"{(brand or '').lower()} maglia running".strip(), "running_top", brand
+            # Tops / Maglie / Canotte
+            if re.search(r"\b(magli[ae]|t[\s-]*shirt|canott[ae]|singlet|top)\b", t):
+                disp = f"Maglia Tecnica {brand_in_t}" if brand_in_t else "Maglia Tecnica Traspirante"
+                return disp, f"{(brand_in_t or '').lower()} maglia running".strip(), "running_top", brand_in_t
 
-        # GPS Watch
-        if re.search(r"\b(garmin|forerunner|fenix|epix|smartwatch|cardio|orolog(?:io|i))\b", target_text):
-            return "Garmin Forerunner", "garmin forerunner", "gps_watch", "Garmin"
+            # Running Shoes (check before generic GPS watch fallback)
+            if re.search(r"\b(scarp[ae]|sneakers?|calzatur[ae])\b", t):
+                disp = f"Scarpe da Corsa {brand_in_t}" if brand_in_t else "Scarpe da Corsa"
+                kw = f"{brand_in_t.lower()} scarpe running" if brand_in_t else "nike pegasus"
+                return disp, kw, "daily_trainer", brand_in_t
 
-        if context_query:
-            clean = re.sub(r"\b(di|da|per|il|la|i|gli|le|un|uno|una|della|degli|dei)\b", "", context_query, flags=re.IGNORECASE).strip().title()
+            # GPS Watch
+            if re.search(r"\b(garmin|forerunner|fenix|epix|smartwatch|cardio|orolog(?:io|i))\b", t):
+                return "Garmin Forerunner", "garmin forerunner", "gps_watch", "Garmin"
+
+            return None
+
+        # 1. Always inspect the current user query first so a new subject/category never leaks from context
+        u_match = _extract_from_text(u_low)
+        if u_match:
+            return u_match
+
+        # 2. Fall back to the most recent context turn when user_query is elliptical (e.g. "Sono comodi?")
+        if c_low:
+            for turn in reversed(c_low.split(">>")):
+                c_match = _extract_from_text(turn.strip())
+                if c_match:
+                    return c_match
+
+            last_turn = c_low.split(">>")[-1].strip()
+            clean = re.sub(r"\b(di|da|per|il|la|i|gli|le|un|uno|una|della|degli|dei)\b", "", last_turn, flags=re.IGNORECASE).strip().title()
+            has_ua = bool(re.search(r"\b(under\s*armour|ua)\b", last_turn))
+            has_nike = bool(re.search(r"\bnike\b", last_turn))
+            has_adidas = bool(re.search(r"\badidas\b", last_turn))
             brand = "Under Armour" if has_ua else "Nike" if has_nike else "Adidas" if has_adidas else None
             return clean, clean.lower(), "daily_trainer", brand
         return "Questo modello", user_query.strip().lower(), "daily_trainer", None
@@ -2739,7 +2868,12 @@ class LocalHeuristicParser:
         return res
 
     @staticmethod
-    def parse(user_query: str, force_mode: Optional[str] = None, context_query: Optional[str] = None) -> SmartSearchIntent:
+    def parse(
+        user_query: str,
+        force_mode: Optional[str] = None,
+        context_query: Optional[str] = None,
+        session_context: Optional[Dict[str, Any]] = None,
+    ) -> SmartSearchIntent:
         text = LocalHeuristicParser.normalize_typos(user_query.strip().lower())
         words = text.split()
         ctx_text = LocalHeuristicParser.normalize_typos(context_query.strip().lower()) if context_query else ""
@@ -2907,45 +3041,52 @@ class LocalHeuristicParser:
         if has_context:
             prev_turns = [part.strip() for part in ctx_text.split(">>") if part.strip()]
             inherited = ConversationContextMerger.extract_cumulative_constraints(prev_turns)
+            is_cat_switch = QueryProductGuardrail.is_category_switch(
+                user_query, context_query=ctx_text, session_context=session_context
+            )
+            cur_explicit_ptype = QueryProductGuardrail.detect_product_type(user_query, context_query=None)
 
             # Inherit filters from earlier turns when omitted in the current follow-up
-            if not detected_brand and inherited.get("brand"):
-                # Don't force a different brand if current turn names a specific model
-                if not re.search(r"\b(pegasus|vomero|nimbus|kayano|clifton|bondi|speedgoat|ghost|glycerin|adrenaline|adizero|forerunner|fenix)\b", text):
-                    detected_brand = inherited["brand"]
+            # (never carry over brand/price/size/category across an explicit product-type switch!)
+            if not is_cat_switch:
+                if not detected_brand and inherited.get("brand"):
+                    # Don't force a different brand if current turn names a specific model
+                    if not re.search(r"\b(pegasus|vomero|nimbus|kayano|clifton|bondi|speedgoat|ghost|glycerin|adrenaline|adizero|forerunner|fenix)\b", text):
+                        detected_brand = inherited["brand"]
+                if max_price is None and inherited.get("max_price") is not None:
+                    # Only keep previous max_price unless current turn removes budget ("senza limiti", "qualsiasi prezzo")
+                    if not re.search(r"\b(senza\s*limiti|qualsiasi\s*prezzo|top\s*di\s*gamma)\b", text):
+                        max_price = inherited["max_price"]
+                if min_price is None and inherited.get("min_price") is not None:
+                    min_price = inherited["min_price"]
+                if size is None and inherited.get("size"):
+                    if not re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", text):
+                        size = inherited["size"]
             if not gender and inherited.get("gender"):
                 gender = inherited["gender"]
-            if max_price is None and inherited.get("max_price") is not None:
-                # Only keep previous max_price unless current turn removes budget ("senza limiti", "qualsiasi prezzo")
-                if not re.search(r"\b(senza\s*limiti|qualsiasi\s*prezzo|top\s*di\s*gamma)\b", text):
-                    max_price = inherited["max_price"]
-            if min_price is None and inherited.get("min_price") is not None:
-                min_price = inherited["min_price"]
-            if size is None and inherited.get("size"):
-                if not re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", text):
-                    size = inherited["size"]
 
+            last_ctx_turn = prev_turns[-1] if prev_turns else ctx_text
             is_relative = bool(re.search(r"\b(alternative|modelli|esempi|prestazioni|funzionalit|funzioni|sotto|meno|max|confronta|altri|altre|economici|economiche|miglior|scelta|smartwatch|taglia|numero|misura|uomo|donna|pioggia|gtx)\b", text))
-            if is_relative or archetype_key == "daily_trainer":
-                if re.search(r"\b(occhialin[oi]|nuoto|nuotare|piscina)\b", ctx_text):
+            if not is_cat_switch and cur_explicit_ptype is None and (is_relative or archetype_key == "daily_trainer"):
+                if re.search(r"\b(occhialin[oi]|nuoto|nuotare|piscina)\b", last_ctx_turn):
                     archetype_key = "swim"
-                elif re.search(r"\b(scarpin[oi]|calcetto|calcio\s*a\s*[57]|mercurial|predator|phantom|tiempo)\b", ctx_text):
+                elif re.search(r"\b(scarpin[oi]|calcetto|calcio\s*a\s*[57]|mercurial|predator|phantom|tiempo)\b", last_ctx_turn):
                     archetype_key = "football_boots"
-                elif re.search(r"\b(garmin|forerunner|fenix|instinct|epix|venu|smartwatch|orologi|sportwatch|gps|cardio|polar|suunto|coros)\b", ctx_text):
+                elif re.search(r"\b(garmin|forerunner|fenix|instinct|epix|venu|smartwatch|orologi|sportwatch|gps|cardio|polar|suunto|coros)\b", last_ctx_turn):
                     archetype_key = "gps_watch"
-                    if not detected_brand and "garmin" in ctx_text:
+                    if not detected_brand and "garmin" in last_ctx_turn:
                         detected_brand = "Garmin"
-                elif re.search(r"\b(ciclocomputer|edge|bike\s*computer|igpsport|bryton|wahoo)\b", ctx_text):
+                elif re.search(r"\b(ciclocomputer|edge|bike\s*computer|igpsport|bryton|wahoo)\b", last_ctx_turn):
                     archetype_key = "bike_computer"
-                elif re.search(r"\b(long[\s-]*sleeve|manica\s*lunga|termic)\b", ctx_text):
+                elif re.search(r"\b(long[\s-]*sleeve|manica\s*lunga|termic)\b", last_ctx_turn):
                     archetype_key = "running_apparel_long_sleeve"
-                elif re.search(r"\bhyrox\b", ctx_text):
+                elif re.search(r"\bhyrox\b", last_ctx_turn):
                     archetype_key = "hyrox"
-                elif re.search(r"\b(trekking|escursionism|hiking|x\s*ultra|ultra\s*raptor)\b", ctx_text):
+                elif re.search(r"\b(trekking|escursionism|hiking|x\s*ultra|ultra\s*raptor)\b", last_ctx_turn):
                     archetype_key = "trekking_hiking"
-                elif re.search(r"\b(trail|sterrato)\b", ctx_text):
+                elif re.search(r"\b(trail|sterrato)\b", last_ctx_turn):
                     archetype_key = "trail_running"
-                elif re.search(r"\b(pronazion|pronator|antipronazion|piedi\s*piatti|kayano|adrenaline|arahi)\b", ctx_text):
+                elif re.search(r"\b(pronazion|pronator|antipronazion|piedi\s*piatti|kayano|adrenaline|arahi)\b", last_ctx_turn):
                     archetype_key = "stability_pronation"
                 elif inherited.get("archetype_key") and archetype_key == "daily_trainer":
                     archetype_key = inherited["archetype_key"]
@@ -2991,7 +3132,8 @@ class LocalHeuristicParser:
                 "comode", "veloci", "nere", "bianche", "uomo", "donna", "ragazzo", "ragazza", "migliori", "miglior",
                 "cosa", "mi", "consigli", "consigliami", "come", "iniziare", "correre", "nuotare", "principiante", "principianti",
                 "fammi", "vedere", "piu", "più", "esempi", "altri", "altre", "opzioni", "alternative", "vorrei", "quale", "quali",
-                "scarpini", "calcio", "occhialini", "nuoto", "piscina"
+                "scarpini", "calcio", "occhialini", "nuoto", "piscina",
+                "mentre", "sempre", "invece", "dopo", "anche", "proprio", "adesso", "magari", "tipo"
             }
             tokens = [
                 w for w in re.findall(r"\b[a-zA-Z0-9]+\b", text)
@@ -4058,7 +4200,16 @@ class ConversationContextMerger:
     def extract_cumulative_constraints(cls, turn_queries: Any, base_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         merged: Dict[str, Any] = dict(base_context or {})
         turns = [p.strip() for p in turn_queries.split(">>") if p.strip()] if isinstance(turn_queries, str) else list(turn_queries or [])
+        active_ptype: Optional[str] = QueryProductGuardrail._normalize_ptype_group(
+            QueryProductGuardrail.detect_previous_product_type(context_query=None, session_context=base_context)
+        )
         for q in turns:
+            q_ptype = QueryProductGuardrail._normalize_ptype_group(QueryProductGuardrail.detect_product_type(q, context_query=None))
+            if q_ptype:
+                if active_ptype and q_ptype != active_ptype:
+                    for reset_k in ("brand", "max_price", "min_price", "size", "archetype_key"):
+                        merged.pop(reset_k, None)
+                active_ptype = q_ptype
             c = cls.extract_turn_constraints(q)
             for k, v in c.items():
                 if v is not None:
@@ -4079,20 +4230,24 @@ class ConversationContextMerger:
 
         inherited = cls.extract_cumulative_constraints(turns, base_context=session_context)
         cur_text = LocalHeuristicParser.normalize_typos(user_query.strip().lower())
+        is_cat_switch = QueryProductGuardrail.is_category_switch(
+            user_query, context_query=context_query, session_context=session_context
+        )
 
-        if not intent.brand and inherited.get("brand"):
-            if not re.search(r"\b(pegasus|vomero|nimbus|kayano|clifton|bondi|speedgoat|ghost|glycerin|adrenaline|adizero|forerunner|fenix)\b", cur_text):
-                intent.brand = inherited["brand"]
+        if not is_cat_switch:
+            if not intent.brand and inherited.get("brand"):
+                if not re.search(r"\b(pegasus|vomero|nimbus|kayano|clifton|bondi|speedgoat|ghost|glycerin|adrenaline|adizero|forerunner|fenix)\b", cur_text):
+                    intent.brand = inherited["brand"]
+            if intent.max_price is None and inherited.get("max_price") is not None:
+                if not re.search(r"\b(senza\s*limiti|qualsiasi\s*prezzo|top\s*di\s*gamma)\b", cur_text):
+                    intent.max_price = float(inherited["max_price"])
+            if intent.min_price is None and inherited.get("min_price") is not None:
+                intent.min_price = float(inherited["min_price"])
+            if not intent.size and inherited.get("size"):
+                if not re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", cur_text):
+                    intent.size = str(inherited["size"])
         if not intent.gender and inherited.get("gender"):
             intent.gender = inherited["gender"]
-        if intent.max_price is None and inherited.get("max_price") is not None:
-            if not re.search(r"\b(senza\s*limiti|qualsiasi\s*prezzo|top\s*di\s*gamma)\b", cur_text):
-                intent.max_price = float(inherited["max_price"])
-        if intent.min_price is None and inherited.get("min_price") is not None:
-            intent.min_price = float(inherited["min_price"])
-        if not intent.size and inherited.get("size"):
-            if not re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", cur_text):
-                intent.size = str(inherited["size"])
 
         # Rebuild chips so UI reflects merged constraints cleanly
         existing_keys = {c.param_key for c in (intent.chips or [])}
@@ -4158,6 +4313,47 @@ class SmartSearchEngine:
             return True
         return "?" in q
 
+    _CATEGORY_IT_LABELS = {
+        "running_shoes": "Scarpe da corsa",
+        "trail_running": "Trail running",
+        "shoes": "Calzature sportive",
+        "gps_watch": "Orologi GPS",
+        "cycling": "Ciclismo",
+        "top": "Abbigliamento top",
+        "jacket": "Giacche tecniche",
+        "pants": "Pantaloni e shorts",
+        "socks": "Calze tecniche",
+        "apparel": "Abbigliamento",
+        "fitness": "Fitness e palestra",
+        "padel": "Padel",
+        "football_boots": "Scarpe da calcio",
+        "swim": "Nuoto",
+        "eyewear": "Occhiali sportivi",
+        "hydration": "Idratazione e zaini",
+        "sports_advice": "Consulenza tecnica",
+    }
+
+    @classmethod
+    def format_intent_thinking_detail(cls, intent: Optional[SmartSearchIntent]) -> str:
+        """Build a concise human-readable summary of what was extracted from the query."""
+        if not intent:
+            return ""
+        parts = []
+        cat_label = cls._CATEGORY_IT_LABELS.get(intent.category or "")
+        if cat_label:
+            parts.append(cat_label)
+        if intent.brand:
+            parts.append(f"Brand {intent.brand}")
+        if intent.gender:
+            parts.append(intent.gender)
+        if intent.max_price is not None:
+            parts.append(f"max €{int(intent.max_price) if float(intent.max_price).is_integer() else intent.max_price}")
+        if intent.size:
+            parts.append(f"Taglia {intent.size}")
+        if not parts and intent.target_keywords:
+            parts.append(", ".join(intent.target_keywords[:3]))
+        return " · ".join(parts)
+
     def parse_query(
         self,
         user_query: str,
@@ -4165,10 +4361,23 @@ class SmartSearchEngine:
         context_query: Optional[str] = None,
         session_context: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
+        progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> SmartSearchIntent:
+        def _emit(step_id: str, status: str, title: str, detail: Optional[str] = None) -> None:
+            if not progress_cb:
+                return
+            try:
+                payload = {"type": "step", "id": step_id, "status": status, "title": title}
+                if detail:
+                    payload["detail"] = detail
+                progress_cb(payload)
+            except Exception:
+                pass
+
         # 0. Deterministic Security & Relevance Guardrail Pre-Check (Zero latency, full defense)
         security_eval = QuerySecurityGuardrail.evaluate(user_query, context=context_query)
         if security_eval and security_eval.get("is_blocked"):
+            _emit("parse", "done", "Verifica pertinenza completata", "Richiesta fuori ambito sportivo")
             return QuerySecurityGuardrail.build_rejection_intent(user_query, security_eval)
 
         # Resolve effective previous query when client sent only session_id or vague pagination
@@ -4196,12 +4405,20 @@ class SmartSearchEngine:
                 cached_intent = ConversationContextMerger.apply_to_intent(
                     cached_intent, user_query=user_query, context_query=eff_context, session_context=session_context
                 )
-                return QueryProductGuardrail.sanitize_intent(cached_intent, user_query=user_query, context_query=eff_context)
+                sanitized_cached = QueryProductGuardrail.sanitize_intent(cached_intent, user_query=user_query, context_query=eff_context)
+                _emit("parse", "done", "Intento della ricerca compreso", self.format_intent_thinking_detail(sanitized_cached))
+                return sanitized_cached
             except Exception as e:
                 logger.debug("Failed to re-validate cached intent: %s", e)
 
         # 2. Ultra-Fast Local Athletic NLP Engine (Zero latency: ~3ms)
-        local_intent = LocalHeuristicParser.parse(user_query=user_query, force_mode=force_mode, context_query=eff_context)
+        _emit("parse", "running", "Analizzo la richiesta…", "Identificazione categoria, brand e vincoli")
+        local_intent = LocalHeuristicParser.parse(
+            user_query=user_query,
+            force_mode=force_mode,
+            context_query=eff_context,
+            session_context=session_context,
+        )
         local_intent = ConversationContextMerger.apply_to_intent(
             local_intent, user_query=user_query, context_query=eff_context, session_context=session_context
         )
@@ -4247,6 +4464,7 @@ class SmartSearchEngine:
         if local_intent.source == "local_sports_advisor" or (is_confident_local and (not has_context or is_confident_context)):
             intent = local_intent
         elif self.api_key:
+            _emit("parse", "running", "Interpreto i dettagli della richiesta…", "Analisi semantica avanzata del bisogno tecnico")
             try:
                 intent = OpenRouterParser.parse(
                     user_query=user_query,
@@ -4282,6 +4500,7 @@ class SmartSearchEngine:
 
         if intent:
             intent = QueryProductGuardrail.sanitize_intent(intent, user_query=user_query, context_query=eff_context)
+            _emit("parse", "done", "Richiesta interpretata", self.format_intent_thinking_detail(intent))
             # Store in Multi-Tier Cache with 7-day TTL (only if single-turn and not off-topic/unsafe)
             if not intent.is_off_topic and not intent.is_unsafe and not is_more_req and not conversation_history:
                 self.cache_manager.set_intent(cache_lookup_query, force_mode=force_mode, intent_data=intent)

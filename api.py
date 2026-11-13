@@ -1,3 +1,5 @@
+import asyncio
+import json
 import logging
 import re
 import threading
@@ -6,9 +8,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, List
+from typing import Optional, List, Callable
 from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.crawler import CategoryCrawler
@@ -479,24 +481,51 @@ def _persist_smart_search_turn(
         return result_data
 
 
-@app.get("/api/search/smart")
-def search_smart(
-    q: str = Query(..., min_length=2, description="Natural language or keywords query (e.g. 'scarpe running ammortizzate sotto 140 euro')"),
-    mode: Optional[str] = Query(None, description="Force search mode: 'deep_dive' or 'classic'"),
-    max_price: Optional[float] = Query(None, description="Explicit max price override from active chip"),
-    size: Optional[str] = Query(None, description="Explicit size filter"),
-    category: Optional[str] = Query(None, description="Category filter override"),
-    store: Optional[str] = Query(None, description="Store filter (e.g. 'cisalfa', 'top4running')"),
-    context_query: Optional[str] = Query(None, description="Previous search query to maintain conversational context"),
-    session_id: Optional[str] = Query(None, description="Persistent chat session UUID"),
-    device_id: Optional[str] = Query(None, description="Client device ID for persistent chat history"),
-    user_id: Optional[str] = Query(None, description="Optional user ID for persistent chat history"),
-    preferred_size: Optional[str] = Query(None, description="Optional soft preference size boost from user profile"),
-    limit: int = Query(35, ge=1, le=100)
-):
-    """Shopify Shop-style intelligent search: interprets user intent, classifies query mode (AI deep dive vs classic),
-    clusters results into curated thematic carousels, provides spotlight recommendation and follow-up prompts.
-    """
+def _execute_smart_search(
+    q: str,
+    mode: Optional[str] = None,
+    max_price: Optional[float] = None,
+    size: Optional[str] = None,
+    category: Optional[str] = None,
+    store: Optional[str] = None,
+    context_query: Optional[str] = None,
+    session_id: Optional[str] = None,
+    device_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    preferred_size: Optional[str] = None,
+    limit: int = 35,
+    progress_cb: Optional[Callable[[dict], None]] = None,
+) -> dict:
+    """Shared smart-search execution pipeline used by both JSON and SSE streaming endpoints."""
+    started_at = time.monotonic()
+
+    def _emit_step(step_id: str, status: str, title: str, detail: Optional[str] = None) -> None:
+        if not progress_cb:
+            return
+        try:
+            evt = {
+                "type": "step",
+                "id": step_id,
+                "status": status,
+                "title": title,
+                "elapsed_ms": int((time.monotonic() - started_at) * 1000),
+            }
+            if detail:
+                evt["detail"] = detail
+            progress_cb(evt)
+        except Exception:
+            pass
+
+    def _emit_child(evt: dict) -> None:
+        if not progress_cb or not isinstance(evt, dict):
+            return
+        try:
+            payload = dict(evt)
+            payload.setdefault("elapsed_ms", int((time.monotonic() - started_at) * 1000))
+            progress_cb(payload)
+        except Exception:
+            pass
+
     eff_mode = mode.strip() if isinstance(mode, str) and mode.strip() else None
     eff_max_price_param = float(max_price) if isinstance(max_price, (int, float)) else None
     eff_size_param = size.strip() if isinstance(size, str) and size.strip() else None
@@ -511,6 +540,7 @@ def search_smart(
     session_context = None
     conversation_history = []
     if eff_session_id:
+        _emit_step("context", "running", "Recupero il contesto della conversazione…")
         try:
             sess_detail = db.get_chat_session_detail(eff_session_id)
             if sess_detail:
@@ -526,6 +556,8 @@ def search_smart(
                         conversation_history.append({"query": q_m, "summary": a_m})
         except Exception as e:
             logger.warning(f"[search_smart] Failed to load session context for {eff_session_id}: {e}")
+        ctx_detail = f"{len(conversation_history)} messaggi precedenti considerati" if conversation_history else "Nuova sessione inizializzata"
+        _emit_step("context", "done", "Contesto conversazione caricato", ctx_detail)
 
     is_more_examples = smart_engine.is_more_examples_query(q)
     effective_q = f"{eff_context} >> {q.strip()}" if eff_context else q
@@ -544,6 +576,8 @@ def search_smart(
     )
     cached_resp = None if (is_more_examples or conversation_history) else cache_manager.get_search_response(cache_key)
     if cached_resp is not None:
+        cached_count = len(cached_resp.get("results") or [])
+        _emit_step("cache", "done", "Risposta rapida dalla cache", f"{cached_count} modelli già verificati pronti")
         return _persist_smart_search_turn(
             cached_resp,
             query=q,
@@ -560,6 +594,7 @@ def search_smart(
         context_query=eff_context,
         session_context=session_context,
         conversation_history=conversation_history or None,
+        progress_cb=_emit_child,
     )
 
     # 1. Guardrail Safety & Relevance Check: Strictly block off-topic and unsafe queries!
@@ -594,6 +629,22 @@ def search_smart(
     eff_category = eff_category_param if eff_category_param is not None else intent.category
 
     shown_ids_to_exclude = list((session_context or {}).get("shown_ids") or []) if is_more_examples else None
+
+    scope_parts = []
+    if intent.target_keywords:
+        scope_parts.append(", ".join(intent.target_keywords[:3]))
+    if eff_max_price is not None:
+        scope_parts.append(f"≤ €{int(eff_max_price) if float(eff_max_price).is_integer() else eff_max_price}")
+    if eff_size:
+        scope_parts.append(f"taglia {eff_size}")
+    if eff_store:
+        scope_parts.append(f"store {eff_store}")
+    _emit_step(
+        "catalog",
+        "running",
+        "Cerco nel catalogo multi-store…",
+        " · ".join(scope_parts) if scope_parts else None,
+    )
 
     products = db.search_smart(
         target_keywords=intent.target_keywords,
@@ -672,9 +723,42 @@ def search_smart(
             return (99, p.get("best_price") or 0.0)
         products.sort(key=_relevance_sort_key)
 
+    if products:
+        unique_stores = {
+            (o.get("store_id") or o.get("store_name"))
+            for p in products
+            for o in (p.get("offers") or [])
+            if (o.get("store_id") or o.get("store_name"))
+        }
+        min_found_price = min((float(p.get("best_price") or 0.0) for p in products if p.get("best_price")), default=0.0)
+        detail_parts = []
+        if unique_stores:
+            detail_parts.append(f"{len(unique_stores)} store confrontati")
+        if min_found_price > 0:
+            detail_parts.append(f"a partire da €{min_found_price:.2f}")
+        _emit_step(
+            "catalog",
+            "done",
+            f"Trovati {len(products)} modelli compatibili",
+            " · ".join(detail_parts) if detail_parts else None,
+        )
+    else:
+        _emit_step(
+            "catalog",
+            "done",
+            "Nessun modello locale immediato",
+            "Avvio aggiornamento prezzi sugli store partner",
+        )
+
     # Stage-2 Grounded RAG Synthesis: when query is conversational/discovery/follow-up and LLM key is available,
     # synthesize an intelligent response grounded strictly in the retrieved real Supabase products.
     if smart_engine.should_synthesize_grounded(q, intent, context_query=eff_context):
+        _emit_step(
+            "synthesis",
+            "running",
+            "Confronto specifiche e prezzi…",
+            f"Valutazione tecnica su {min(len(products), 12)} modelli selezionati" if products else "Preparazione guida tecnica",
+        )
         try:
             from fitmatch.smart_search import (
                 OpenRouterParser,
@@ -738,8 +822,15 @@ def search_smart(
                     if clean_fups:
                         intent.follow_up_suggestions = clean_fups[:3]
                 intent.source = "openrouter_grounded"
+            _emit_step(
+                "synthesis",
+                "done",
+                "Sintesi tecnica completata",
+                intent.conversational_header or "Analisi comparativa pronta",
+            )
         except Exception as e:
             logger.warning(f"[search_smart] Stage-2 grounded synthesis warning: {e}")
+            _emit_step("synthesis", "done", "Analisi tecnica completata")
 
     # Live Multi-Store Federated Search:
     # If indexed catalog returns 0 products for this smart query, launch background multi-store scrapers
@@ -1209,6 +1300,19 @@ def search_smart(
         "results": compact_results
     }
 
+    if compact_sections or compact_cards:
+        curation_parts = []
+        if compact_sections:
+            curation_parts.append(f"{len(compact_sections)} sezioni")
+        if compact_cards:
+            curation_parts.append(f"{len(compact_cards)} confronti")
+        _emit_step(
+            "curation",
+            "done",
+            "Risultati organizzati",
+            " · ".join(curation_parts),
+        )
+
     # Store full curated response into L1 memory & L2 disk cache (20-min TTL) for non-paginated queries
     if not is_more_examples and not conversation_history:
         cache_manager.set_search_response(cache_key, result_data)
@@ -1220,6 +1324,111 @@ def search_smart(
         user_id=eff_user_id,
         is_follow_up=bool(eff_context or (session_context is not None)),
         prev_session_context=session_context,
+    )
+
+
+@app.get("/api/search/smart")
+def search_smart(
+    q: str = Query(..., min_length=2, description="Natural language or keywords query (e.g. 'scarpe running ammortizzate sotto 140 euro')"),
+    mode: Optional[str] = Query(None, description="Force search mode: 'deep_dive' or 'classic'"),
+    max_price: Optional[float] = Query(None, description="Explicit max price override from active chip"),
+    size: Optional[str] = Query(None, description="Explicit size filter"),
+    category: Optional[str] = Query(None, description="Category filter override"),
+    store: Optional[str] = Query(None, description="Store filter (e.g. 'cisalfa', 'top4running')"),
+    context_query: Optional[str] = Query(None, description="Previous search query to maintain conversational context"),
+    session_id: Optional[str] = Query(None, description="Persistent chat session UUID"),
+    device_id: Optional[str] = Query(None, description="Client device ID for persistent chat history"),
+    user_id: Optional[str] = Query(None, description="Optional user ID for persistent chat history"),
+    preferred_size: Optional[str] = Query(None, description="Optional soft preference size boost from user profile"),
+    limit: int = Query(35, ge=1, le=100)
+):
+    """Shopify Shop-style intelligent search: interprets user intent, classifies query mode (AI deep dive vs classic),
+    clusters results into curated thematic carousels, provides spotlight recommendation and follow-up prompts.
+    """
+    return _execute_smart_search(
+        q=q,
+        mode=mode,
+        max_price=max_price,
+        size=size,
+        category=category,
+        store=store,
+        context_query=context_query,
+        session_id=session_id,
+        device_id=device_id,
+        user_id=user_id,
+        preferred_size=preferred_size,
+        limit=limit,
+    )
+
+
+@app.get("/api/search/smart/stream")
+async def search_smart_stream(
+    q: str = Query(..., min_length=2, description="Natural language or keywords query"),
+    mode: Optional[str] = Query(None, description="Force search mode: 'deep_dive' or 'classic'"),
+    max_price: Optional[float] = Query(None, description="Explicit max price override from active chip"),
+    size: Optional[str] = Query(None, description="Explicit size filter"),
+    category: Optional[str] = Query(None, description="Category filter override"),
+    store: Optional[str] = Query(None, description="Store filter"),
+    context_query: Optional[str] = Query(None, description="Previous search query to maintain conversational context"),
+    session_id: Optional[str] = Query(None, description="Persistent chat session UUID"),
+    device_id: Optional[str] = Query(None, description="Client device ID for persistent chat history"),
+    user_id: Optional[str] = Query(None, description="Optional user ID for persistent chat history"),
+    preferred_size: Optional[str] = Query(None, description="Optional soft preference size boost from user profile"),
+    limit: int = Query(35, ge=1, le=100),
+):
+    """Server-Sent Events (SSE) version of /api/search/smart emitting real execution trace events followed by final result."""
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    started = time.monotonic()
+
+    def _push(payload: Optional[dict]) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, payload)
+
+    def _worker() -> None:
+        try:
+            result = _execute_smart_search(
+                q=q,
+                mode=mode,
+                max_price=max_price,
+                size=size,
+                category=category,
+                store=store,
+                context_query=context_query,
+                session_id=session_id,
+                device_id=device_id,
+                user_id=user_id,
+                preferred_size=preferred_size,
+                limit=limit,
+                progress_cb=_push,
+            )
+            _push({
+                "type": "result",
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+                "data": result,
+            })
+        except Exception as exc:
+            logger.exception("[search_smart_stream] Unhandled error during streaming smart search")
+            _push({"type": "error", "message": str(exc)})
+        finally:
+            _push(None)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    async def _event_generator():
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield f"data: {json.dumps(item, default=str)}\n\n"
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

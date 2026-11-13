@@ -373,246 +373,196 @@ struct QueryAnalysis {
     }
 }
 
-// MARK: - Agent Thinking & Operations HUD (Redesigned Antigravity Style)
+// MARK: - Agent Thinking & Operations HUD (Antigravity Live Thinking Style)
 
 struct ShopAgentThinkingCardView: View {
     var query: String
     var isFollowUp: Bool = false
+    var steps: [SearchThinkingStep] = []
+    var startedAt: Date = Date()
 
-    @State private var activeStep: Int = 0
-    @State private var progress: CGFloat = 0.18
+    @State private var isExpanded: Bool = true
     @State private var isPulsing: Bool = false
 
     private var cleanQuery: String {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return q.isEmpty ? "Sport" : q
+        return q.isEmpty ? "la tua ricerca" : q
     }
 
-    private var analysis: QueryAnalysis {
-        QueryAnalysis.analyze(query)
-    }
-
-    private var steps: [(title: String, detail: String)] {
-        if isFollowUp {
-            let detailParams = analysis.summaryText == "Ricerca semantica cataloghi partner"
-                ? "Applicazione criteri per «\(cleanQuery)»"
-                : analysis.summaryText
-            return [
-                ("Integrazione contesto", "Collegamento alla ricerca precedente e storico"),
-                ("Raffinamento parametri", detailParams),
-                ("Aggiornamento offerte", "Ricalcolo modelli e prezzi migliori tra i partner")
-            ]
+    private var displaySteps: [SearchThinkingStep] {
+        if !steps.isEmpty {
+            return steps
+        }
+        let localAnalysis = QueryAnalysis.analyze(query)
+        let localDetail: String
+        if localAnalysis.brand != nil || localAnalysis.budget != nil || localAnalysis.category != nil || localAnalysis.technicalSpec != nil {
+            localDetail = localAnalysis.summaryText
+        } else if isFollowUp {
+            localDetail = "Collegamento al contesto della conversazione per «\(cleanQuery)»"
         } else {
-            let detailIntent = analysis.summaryText == "Ricerca semantica cataloghi partner"
-                ? "Identificazione modelli e caratteristiche per «\(cleanQuery)»"
-                : analysis.summaryText
-            return [
-                ("Analisi richiesta", detailIntent),
-                ("Scansione 14 partner in tempo reale", "Nike, Alltricks, Cisalfa, Deporvillage, Maxi Sport..."),
-                ("Confronto prezzi & sconti", "Calcolo miglior prezzo assoluto e modelli consigliati")
-            ]
+            localDetail = "Interpretazione parametri per «\(cleanQuery)»"
         }
+        return [
+            SearchThinkingStep(
+                id: "init",
+                status: .running,
+                title: isFollowUp ? "Analizzo il follow-up…" : "Analizzo la richiesta…",
+                detail: localDetail,
+                elapsedMs: nil
+            )
+        ]
     }
 
-    private var currentHeadline: String {
-        if isFollowUp {
-            return "Raffino su «\(cleanQuery)»"
-        } else {
-            return "Ricerca intelligente in corso..."
-        }
+    private var activeStepTitle: String? {
+        displaySteps.last(where: { $0.status == .running })?.title ?? displaySteps.last?.title
     }
 
-    private var currentTickerText: String {
-        switch activeStep {
-        case 0:
-            if let b = analysis.brand {
-                return "⚡ Riconosciuto brand \(b) e requisiti tecnici..."
-            }
-            return "⚡ Analisi dell'intento e dei parametri sportivi..."
-        case 1:
-            return "🔍 Verifica prezzi e stock su 14 store partner..."
-        case 2:
-            return "🏷️ Calcolo offerte con sconti fino al 40%..."
-        default:
-            return "✨ Composizione schede e modelli consigliati..."
-        }
+    private func formattedSeconds(from elapsedMs: Int) -> String {
+        let secs = Double(elapsedMs) / 1000.0
+        return String(format: "%.1fs", max(0.1, secs))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Header Bar
-            HStack(alignment: .center, spacing: 12) {
-                // Agent Glowing Avatar
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.shopPurple, Color(red: 130/255, green: 75/255, blue: 255/255)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 38, height: 38)
-                        .shadow(color: Color.shopPurple.opacity(isPulsing ? 0.35 : 0.15), radius: 6, y: 2)
-
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
+        VStack(alignment: .leading, spacing: 12) {
+            // Antigravity-style Collapsible Thinking Header
+            Button(action: {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+                    isExpanded.toggle()
                 }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
+            }) {
+                HStack(alignment: .center, spacing: 11) {
+                    // Subtle Breathing Orb
+                    ZStack {
                         Circle()
-                            .fill(Color(red: 34/255, green: 197/255, blue: 94/255))
-                            .frame(width: 6, height: 6)
-                            .scaleEffect(isPulsing ? 1.25 : 0.8)
+                            .fill(Color.shopPurple.opacity(isPulsing ? 0.18 : 0.08))
+                            .frame(width: 28, height: 28)
+                            .scaleEffect(isPulsing ? 1.12 : 0.94)
 
-                        Text(isFollowUp ? "AGENTE FITMATCH • APPROFONDIMENTO" : "AGENTE FITMATCH • RICERCA AI")
-                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopPurple)
-                            .tracking(0.5)
-                    }
-
-                    Text(currentHeadline)
-                        .font(.system(size: 14.5, weight: .bold))
-                        .foregroundColor(.shopDark)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                // Progress Percentage Pill
-                Text("\(Int(progress * 100))%")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(.shopPurple)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3.5)
-                    .background(Color.shopPurpleLight)
-                    .cornerRadius(10)
-            }
-
-            // Fluid Animated Progress Bar
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.black.opacity(0.06))
-                        .frame(height: 3.5)
-
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.shopPurple, Color(red: 160/255, green: 100/255, blue: 255/255)],
-                                startPoint: .leading,
-                                endPoint: .trailing
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.shopPurple, Color(red: 132/255, green: 84/255, blue: 246/255)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
-                        )
-                        .frame(width: max(16, geo.size.width * progress), height: 3.5)
-                        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: progress)
-                }
-            }
-            .frame(height: 3.5)
+                            .frame(width: 10, height: 10)
+                            .shadow(color: Color.shopPurple.opacity(0.45), radius: 4)
+                    }
 
-            // Step List
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(steps.enumerated()), id: \.offset) { idx, step in
-                    HStack(alignment: .top, spacing: 12) {
-                        // Left step indicator
-                        VStack(spacing: 0) {
-                            if idx < activeStep {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.shopPurple)
-                                    .frame(width: 18, height: 18)
-                            } else if idx == activeStep {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text("Sto pensando…")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.shopDark)
+
+                            TimelineView(.periodic(from: startedAt, by: 0.2)) { ctx in
+                                let sec = max(0.0, ctx.date.timeIntervalSince(startedAt))
+                                Text(String(format: "%.1fs", sec))
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundColor(Color(red: 135/255, green: 135/255, blue: 150/255))
+                            }
+                        }
+
+                        if !isExpanded, let subtitle = activeStepTitle {
+                            Text(subtitle)
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(Color(red: 115/255, green: 115/255, blue: 130/255))
+                                .lineLimit(1)
+                        }
+                    }
+
+                    Spacer()
+
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundColor(Color(red: 150/255, green: 150/255, blue: 165/255))
+                        .frame(width: 24, height: 24)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                // Live Execution Trace
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(displaySteps.enumerated()), id: \.element.id) { idx, step in
+                        let isLast = idx == displaySteps.count - 1
+                        HStack(alignment: .top, spacing: 10) {
+                            // Vertical Rail + Node
+                            VStack(spacing: 0) {
                                 ZStack {
-                                    Circle()
-                                        .fill(Color.shopPurpleLight)
-                                        .frame(width: 18, height: 18)
-                                    ProgressView()
-                                        .tint(Color.shopPurple)
-                                        .scaleEffect(0.65)
+                                    if step.status == .done {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundColor(Color.shopPurple.opacity(0.88))
+                                    } else if step.status == .running {
+                                        ProgressView()
+                                            .tint(Color.shopPurple)
+                                            .scaleEffect(0.65)
+                                    } else {
+                                        Image(systemName: "minus.circle")
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
+                                    }
                                 }
-                                .frame(width: 18, height: 18)
-                            } else {
-                                Circle()
-                                    .stroke(Color.black.opacity(0.12), lineWidth: 1.5)
-                                    .frame(width: 14, height: 14)
-                                    .frame(width: 18, height: 18)
-                            }
+                                .frame(width: 16, height: 18)
 
-                            if idx < steps.count - 1 {
-                                Rectangle()
-                                    .fill(idx < activeStep ? Color.shopPurple.opacity(0.4) : Color.black.opacity(0.06))
-                                    .frame(width: 1.5)
-                                    .frame(maxHeight: .infinity)
-                                    .padding(.vertical, 2)
+                                if !isLast {
+                                    Rectangle()
+                                        .fill(Color.shopPurple.opacity(step.status == .done ? 0.25 : 0.10))
+                                        .frame(width: 1.2)
+                                        .frame(maxHeight: .infinity)
+                                        .padding(.vertical, 2)
+                                }
                             }
+                            .frame(width: 16)
+
+                            // Real Step Text & Backend Detail
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text(step.title)
+                                        .font(.system(size: 13, weight: step.status == .running ? .semibold : .medium))
+                                        .foregroundColor(step.status == .running ? .shopDark : Color(red: 75/255, green: 75/255, blue: 90/255))
+
+                                    Spacer(minLength: 4)
+
+                                    if step.status == .done, let ms = step.elapsedMs, ms > 0 {
+                                        Text(formattedSeconds(from: ms))
+                                            .font(.system(size: 10.5, weight: .regular, design: .monospaced))
+                                            .foregroundColor(Color(red: 160/255, green: 160/255, blue: 172/255))
+                                    }
+                                }
+
+                                if let detail = step.detail, !detail.isEmpty {
+                                    Text(detail)
+                                        .font(.system(size: 11.5, weight: .regular))
+                                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 145/255))
+                                        .lineLimit(2)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .padding(.bottom, isLast ? 2 : 10)
                         }
-                        .frame(width: 18)
-
-                        // Title & Detail
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(step.title)
-                                .font(.system(size: 13, weight: idx == activeStep ? .bold : (idx < activeStep ? .semibold : .regular)))
-                                .foregroundColor(idx <= activeStep ? .shopDark : Color(red: 165/255, green: 165/255, blue: 175/255))
-
-                            if idx <= activeStep {
-                                Text(step.detail)
-                                    .font(.system(size: 11.5, weight: .medium, design: .rounded))
-                                    .foregroundColor(idx == activeStep ? Color.shopPurple : Color(red: 125/255, green: 125/255, blue: 135/255))
-                                    .lineLimit(2)
-                            }
-                        }
-                        .padding(.bottom, idx < steps.count - 1 ? 8 : 0)
-
-                        Spacer()
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
+                .padding(.leading, 5)
+                .padding(.top, 2)
             }
-            .padding(.top, 2)
-
-            // Dynamic Live Activity Ticker Pill
-            HStack(spacing: 8) {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(.shopPurple)
-
-                Text(currentTickerText)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundColor(Color(red: 70/255, green: 70/255, blue: 85/255))
-                    .lineLimit(1)
-
-                Spacer(minLength: 4)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 7)
-            .background(Color(red: 247/255, green: 245/255, blue: 255/255))
-            .cornerRadius(11)
         }
-        .padding(16)
-        .background(Color.white)
-        .cornerRadius(20)
+        .padding(.horizontal, 15)
+        .padding(.vertical, 13)
+        .background(Color(red: 250/255, green: 249/255, blue: 254/255))
+        .cornerRadius(16)
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Color.shopPurple.opacity(0.18), lineWidth: 1.2)
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.shopPurple.opacity(0.14), lineWidth: 1)
         )
-        .shadow(color: Color.shopPurple.opacity(0.06), radius: 12, y: 4)
+        .animation(.easeOut(duration: 0.22), value: steps)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+            withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                 isPulsing = true
-            }
-
-            let timeline: [(delay: Double, step: Int, prog: CGFloat)] = isFollowUp
-                ? [(0.4, 1, 0.55), (1.1, 2, 0.92)]
-                : [(0.4, 1, 0.45), (1.1, 2, 0.78), (1.8, 3, 0.96)]
-
-            for item in timeline {
-                DispatchQueue.main.asyncAfter(deadline: .now() + item.delay) {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                        activeStep = item.step
-                        progress = item.prog
-                    }
-                }
             }
         }
     }
@@ -620,6 +570,8 @@ struct ShopAgentThinkingCardView: View {
 
 struct ShopSearchDeepDiveSkeletonView: View {
     var query: String = ""
+    var thinkingSteps: [SearchThinkingStep] = []
+    var thinkingStartedAt: Date = Date()
     private let columns = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
@@ -628,10 +580,15 @@ struct ShopSearchDeepDiveSkeletonView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
-                // Agent Thinking / Operations HUD Card
-                ShopAgentThinkingCardView(query: query, isFollowUp: false)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
+                // Antigravity Live Thinking Trace Card
+                ShopAgentThinkingCardView(
+                    query: query,
+                    isFollowUp: false,
+                    steps: thinkingSteps,
+                    startedAt: thinkingStartedAt
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
 
                 // Spotlight Card Skeleton
                 VStack(alignment: .leading, spacing: 12) {

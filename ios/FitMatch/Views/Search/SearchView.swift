@@ -46,6 +46,8 @@ struct SearchView: View {
     @State private var isFollowUpLoading: Bool = false
     @State private var pendingFollowUpQuery: String? = nil
     @State private var followUpErrorMessage: String? = nil
+    @State private var thinkingSteps: [SearchThinkingStep] = []
+    @State private var thinkingStartedAt: Date = Date()
 
     // Comparison Navigation State
     @State private var comparisonModels: ComparisonPair? = nil
@@ -301,15 +303,10 @@ struct SearchView: View {
                         recentlyViewedSection
                     }
 
-                    // Section 2: "Conversazioni IA recenti" (Saved multi-turn chats from DB)
+                    // Section 2: "Conversazioni recenti" (Saved multi-turn chats from DB)
                     if !savedChatSessions.isEmpty {
                         savedChatSessionsSection
-                    }
-
-                    // Section 3: "Continua ad acquistare >" (Screenshot 1 & 2 list)
-                    if !recentManager.continueShoppingItems.isEmpty {
-                        continueShoppingSection
-                    } else if recentManager.recentlyViewedProducts.isEmpty && savedChatSessions.isEmpty {
+                    } else if recentManager.recentlyViewedProducts.isEmpty {
                         emptyHistoryPlaceholder
                     }
 
@@ -425,93 +422,21 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - Section 2: Continua ad acquistare >
-    private var continueShoppingSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            NavigationLink(destination: RecentlyViewedView()) {
-                HStack(spacing: 5) {
-                    Text("Continua ad acquistare")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundColor(.shopDark)
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
-
-                    Spacer()
-                }
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 20)
-
-            VStack(spacing: 12) {
-                ForEach(recentManager.continueShoppingItems) { item in
-                    continueShoppingRow(item)
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-
-    private func continueShoppingRow(_ item: RecentActivityItem) -> some View {
-        Button(action: {
-            handleRecentItemTap(item)
-        }) {
-            HStack(spacing: 14) {
-                ShopProductThumbnail(
-                    imageUrl: item.imageUrl,
-                    systemIcon: item.systemIcon,
-                    cornerRadius: 15,
-                    size: CGSize(width: 52, height: 52)
-                )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.shopDark)
-                        .lineLimit(1)
-
-                    Text(item.formattedDate)
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                }
-
-                Spacer()
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PlainButtonStyle())
-        .contextMenu {
-            Button(role: .destructive, action: {
-                withAnimation {
-                    recentManager.removeActivity(item)
-                }
-            }) {
-                Label("Rimuovi dalla cronologia", systemImage: "trash")
-            }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive) {
-                withAnimation {
-                    recentManager.removeActivity(item)
-                }
-            } label: {
-                Label("Elimina", systemImage: "trash")
-            }
-        }
-    }
-
-    // MARK: - Section 2: Conversazioni IA recenti (Persistent DB Chats)
+    // MARK: - Section 2: Conversazioni recenti (Persistent DB Chats)
     private var savedChatSessionsSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.shopPurple)
-
-                Text("Conversazioni IA recenti")
+            HStack(spacing: 8) {
+                Text("Conversazioni recenti")
                     .font(.system(size: 19, weight: .bold))
                     .foregroundColor(.shopDark)
+
+                Text("\(min(savedChatSessions.count, 5))")
+                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                    .foregroundColor(.shopPurple)
+                    .padding(.horizontal, 7.5)
+                    .padding(.vertical, 2.5)
+                    .background(Color.shopPurple.opacity(0.10))
+                    .clipShape(Capsule())
 
                 Spacer()
             }
@@ -527,43 +452,91 @@ struct SearchView: View {
     }
 
     private func savedChatSessionRow(_ session: ChatSessionSummary) -> some View {
-        Button(action: {
+        let turnsCount = max(1, session.turn_count ?? 1)
+        let rawSubtitle = (session.subtitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSubtitle: String? = {
+            guard !rawSubtitle.isEmpty,
+                  rawSubtitle.caseInsensitiveCompare(session.title) != .orderedSame,
+                  rawSubtitle.range(of: #"\b(ai|ia)\b"#, options: [.regularExpression, .caseInsensitive]) == nil
+            else { return nil }
+            return rawSubtitle
+        }()
+
+        return Button(action: {
             restoreChatSession(session)
         }) {
-            HStack(spacing: 14) {
-                ShopProductThumbnail(
-                    imageUrl: session.preview_image_url,
-                    systemIcon: "bubble.left.and.bubble.right.fill",
-                    cornerRadius: 15,
-                    size: CGSize(width: 50, height: 50)
-                )
+            HStack(spacing: 13) {
+                if let imgUrl = session.preview_image_url, !imgUrl.isEmpty {
+                    ShopProductThumbnail(
+                        imageUrl: imgUrl,
+                        systemIcon: "bubble.left.and.bubble.right.fill",
+                        cornerRadius: 13,
+                        size: CGSize(width: 48, height: 48)
+                    )
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.shopPurple.opacity(0.12), Color.shopPurple.opacity(0.05)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 48, height: 48)
 
-                VStack(alignment: .leading, spacing: 3) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.shopPurple)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
                     Text(session.title)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.shopDark)
                         .lineLimit(1)
 
-                    let turnsLabel = (session.turn_count ?? 1) > 1 ? "\(session.turn_count ?? 1) messaggi • " : ""
-                    Text("\(turnsLabel)\(session.formattedUpdatedDate)")
-                        .font(.system(size: 12.5, weight: .regular))
-                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                        .lineLimit(1)
+                    if let sub = cleanSubtitle {
+                        Text(sub)
+                            .font(.system(size: 12.5, weight: .regular))
+                            .foregroundColor(Color(red: 110/255, green: 110/255, blue: 124/255))
+                            .lineLimit(1)
+                    }
+
+                    HStack(spacing: 6) {
+                        if turnsCount > 1 {
+                            Text("\(turnsCount) messaggi")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.shopPurple)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2)
+                                .background(Color.shopPurple.opacity(0.08))
+                                .clipShape(Capsule())
+                        }
+
+                        Text(session.formattedUpdatedDate)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(Color(red: 145/255, green: 145/255, blue: 158/255))
+                            .lineLimit(1)
+                    }
                 }
 
-                Spacer()
+                Spacer(minLength: 6)
 
-                Image(systemName: "arrow.uturn.backward.circle")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.shopPurple.opacity(0.85))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Color(red: 175/255, green: 175/255, blue: 185/255))
             }
-            .padding(10)
-            .background(Color(red: 249/255, green: 249/255, blue: 252/255))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .background(Color.white)
             .cornerRadius(16)
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
             )
+            .shadow(color: Color.black.opacity(0.03), radius: 8, y: 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
@@ -652,16 +625,6 @@ struct SearchView: View {
                     self.executeSearch(isFollowUp: false)
                 }
             }
-        }
-    }
-
-    private func handleRecentItemTap(_ item: RecentActivityItem) {
-        if let prod = item.productData {
-            selectedRecentProduct = prod
-        } else {
-            searchText = item.title
-            isSearchFieldFocused = false
-            executeSearch()
         }
     }
 
@@ -950,8 +913,12 @@ struct SearchView: View {
     private var aiDeepDiveContentView: some View {
         Group {
             if isLoading && conversationTurns.isEmpty {
-                ShopSearchDeepDiveSkeletonView(query: rootQuery.isEmpty ? searchText : rootQuery)
-                    .transition(.opacity)
+                ShopSearchDeepDiveSkeletonView(
+                    query: rootQuery.isEmpty ? searchText : rootQuery,
+                    thinkingSteps: thinkingSteps,
+                    thinkingStartedAt: thinkingStartedAt
+                )
+                .transition(.opacity)
             } else if let error = errorMessage, conversationTurns.isEmpty {
                 aiErrorView(error)
             } else if conversationTurns.isEmpty && curatedSections.isEmpty && searchResults.isEmpty && spotlight == nil {
@@ -1396,10 +1363,12 @@ struct SearchView: View {
                 .padding(.top, 10)
             }
 
-            // Upgraded Agent Thinking HUD for Follow-Up
+            // Antigravity Live Thinking Trace for Follow-Up
             ShopAgentThinkingCardView(
                 query: pendingFollowUpQuery ?? lastFollowUpQuery ?? "",
-                isFollowUp: true
+                isFollowUp: true,
+                steps: thinkingSteps,
+                startedAt: thinkingStartedAt
             )
             .padding(.horizontal, 18)
         }
@@ -2456,6 +2425,8 @@ struct SearchView: View {
 
         hasSearched = true
         errorMessage = nil
+        thinkingSteps = []
+        thinkingStartedAt = Date()
 
         let activeContext: String?
         if isFollowUp {
@@ -2479,7 +2450,7 @@ struct SearchView: View {
 
         Task {
             do {
-                let smartRes = try await api.smartSearch(
+                let smartRes = try await api.smartSearchStream(
                     query: query,
                     mode: requestedMode,
                     maxPrice: overrideMaxPrice,
@@ -2488,7 +2459,16 @@ struct SearchView: View {
                     contextQuery: activeContext,
                     sessionId: activeSid,
                     deviceId: SupabaseManager.shared.deviceId,
-                    preferredSize: prefSize.isEmpty ? nil : prefSize
+                    preferredSize: prefSize.isEmpty ? nil : prefSize,
+                    onStep: { step in
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            if let idx = self.thinkingSteps.firstIndex(where: { $0.id == step.id }) {
+                                self.thinkingSteps[idx] = step
+                            } else {
+                                self.thinkingSteps.append(step)
+                            }
+                        }
+                    }
                 )
                 await MainActor.run {
                     if let returnedSid = smartRes.session_id, !returnedSid.isEmpty {

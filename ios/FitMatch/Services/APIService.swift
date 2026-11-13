@@ -153,36 +153,34 @@ class APIService: ObservableObject {
         return try JSONDecoder().decode(PriceHistoryResponse.self, from: data)
     }
 
-    func smartSearch(
+    private func smartSearchCacheKey(
         query: String,
-        mode: String? = nil,
-        maxPrice: Double? = nil,
-        size: String? = nil,
-        category: String? = nil,
-        store: String? = nil,
-        contextQuery: String? = nil,
-        sessionId: String? = nil,
-        deviceId: String? = nil,
-        preferredSize: String? = nil
-    ) async throws -> SmartSearchResponse {
+        mode: String?,
+        maxPrice: Double?,
+        size: String?,
+        category: String?,
+        store: String?,
+        contextQuery: String?,
+        preferredSize: String?
+    ) -> String {
         let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let cacheKey = "\(cleanQuery)_\(mode ?? "")_\(maxPrice ?? 0)_\(size ?? "")_\(category ?? "")_\(store ?? "")_\(contextQuery ?? "")_\(preferredSize ?? "")"
-        if let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
-            if let sid = sessionId, !sid.isEmpty, let did = deviceId, !did.isEmpty {
-                Task {
-                    await SupabaseManager.shared.saveChatTurnDirect(
-                        sessionId: sid,
-                        deviceId: did,
-                        query: query,
-                        isFollowUp: contextQuery != nil && !(contextQuery?.isEmpty ?? true),
-                        response: cached.response
-                    )
-                }
-            }
-            return cached.response
-        }
+        return "\(cleanQuery)_\(mode ?? "")_\(maxPrice ?? 0)_\(size ?? "")_\(category ?? "")_\(store ?? "")_\(contextQuery ?? "")_\(preferredSize ?? "")"
+    }
 
-        var components = URLComponents(string: "\(baseURL)/api/search/smart")!
+    private func buildSmartSearchURL(
+        path: String,
+        query: String,
+        mode: String?,
+        maxPrice: Double?,
+        size: String?,
+        category: String?,
+        store: String?,
+        contextQuery: String?,
+        sessionId: String?,
+        deviceId: String?,
+        preferredSize: String?
+    ) throws -> URL {
+        var components = URLComponents(string: "\(baseURL)\(path)")!
         var queryItems = [URLQueryItem(name: "q", value: query)]
         if let mode = mode {
             queryItems.append(URLQueryItem(name: "mode", value: mode))
@@ -213,6 +211,59 @@ class APIService: ObservableObject {
         }
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
+        return url
+    }
+
+    func smartSearch(
+        query: String,
+        mode: String? = nil,
+        maxPrice: Double? = nil,
+        size: String? = nil,
+        category: String? = nil,
+        store: String? = nil,
+        contextQuery: String? = nil,
+        sessionId: String? = nil,
+        deviceId: String? = nil,
+        preferredSize: String? = nil
+    ) async throws -> SmartSearchResponse {
+        let cacheKey = smartSearchCacheKey(
+            query: query,
+            mode: mode,
+            maxPrice: maxPrice,
+            size: size,
+            category: category,
+            store: store,
+            contextQuery: contextQuery,
+            preferredSize: preferredSize
+        )
+        if let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
+            if let sid = sessionId, !sid.isEmpty, let did = deviceId, !did.isEmpty {
+                Task {
+                    await SupabaseManager.shared.saveChatTurnDirect(
+                        sessionId: sid,
+                        deviceId: did,
+                        query: query,
+                        isFollowUp: contextQuery != nil && !(contextQuery?.isEmpty ?? true),
+                        response: cached.response
+                    )
+                }
+            }
+            return cached.response
+        }
+
+        let url = try buildSmartSearchURL(
+            path: "/api/search/smart",
+            query: query,
+            mode: mode,
+            maxPrice: maxPrice,
+            size: size,
+            category: category,
+            store: store,
+            contextQuery: contextQuery,
+            sessionId: sessionId,
+            deviceId: deviceId,
+            preferredSize: preferredSize
+        )
 
         do {
             let data = try await fetchFastData(url: url, timeout: 25.0)
@@ -255,6 +306,157 @@ class APIService: ObservableObject {
             }
             throw error
         }
+    }
+
+    /// Streams real-time backend thinking steps via SSE from `/api/search/smart/stream`,
+    /// falling back seamlessly to `smartSearch(...)` if streaming is unavailable.
+    func smartSearchStream(
+        query: String,
+        mode: String? = nil,
+        maxPrice: Double? = nil,
+        size: String? = nil,
+        category: String? = nil,
+        store: String? = nil,
+        contextQuery: String? = nil,
+        sessionId: String? = nil,
+        deviceId: String? = nil,
+        preferredSize: String? = nil,
+        onStep: @escaping @MainActor (SearchThinkingStep) -> Void
+    ) async throws -> SmartSearchResponse {
+        let cacheKey = smartSearchCacheKey(
+            query: query,
+            mode: mode,
+            maxPrice: maxPrice,
+            size: size,
+            category: category,
+            store: store,
+            contextQuery: contextQuery,
+            preferredSize: preferredSize
+        )
+        if let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
+            await onStep(SearchThinkingStep(
+                id: "cache",
+                status: .done,
+                title: "Risultati già pronti in memoria",
+                detail: "\(cached.response.results.count) modelli verificati",
+                elapsedMs: 1
+            ))
+            if let sid = sessionId, !sid.isEmpty, let did = deviceId, !did.isEmpty {
+                Task {
+                    await SupabaseManager.shared.saveChatTurnDirect(
+                        sessionId: sid,
+                        deviceId: did,
+                        query: query,
+                        isFollowUp: contextQuery != nil && !(contextQuery?.isEmpty ?? true),
+                        response: cached.response
+                    )
+                }
+            }
+            return cached.response
+        }
+
+        let streamURL = try buildSmartSearchURL(
+            path: "/api/search/smart/stream",
+            query: query,
+            mode: mode,
+            maxPrice: maxPrice,
+            size: size,
+            category: category,
+            store: store,
+            contextQuery: contextQuery,
+            sessionId: sessionId,
+            deviceId: deviceId,
+            preferredSize: preferredSize
+        )
+
+        var request = URLRequest(url: streamURL, timeoutInterval: 30.0)
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+
+        do {
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            guard let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 else {
+                await onStep(SearchThinkingStep(
+                    id: "catalog",
+                    status: .running,
+                    title: "Interrogo il catalogo multi-store…",
+                    detail: "Ricerca standard in corso",
+                    elapsedMs: nil
+                ))
+                return try await smartSearch(
+                    query: query,
+                    mode: mode,
+                    maxPrice: maxPrice,
+                    size: size,
+                    category: category,
+                    store: store,
+                    contextQuery: contextQuery,
+                    sessionId: sessionId,
+                    deviceId: deviceId,
+                    preferredSize: preferredSize
+                )
+            }
+
+            let decoder = JSONDecoder()
+            for try await line in bytes.lines {
+                if Task.isCancelled { throw CancellationError() }
+                guard line.hasPrefix("data: ") else { continue }
+                let jsonStr = String(line.dropFirst(6))
+                guard let payloadData = jsonStr.data(using: .utf8),
+                      let event = try? decoder.decode(SmartSearchStreamEvent.self, from: payloadData) else {
+                    continue
+                }
+
+                if event.type == "step", let stepId = event.id, let title = event.title {
+                    let mappedStatus = SearchThinkingStep.Status(rawValue: event.status ?? "running") ?? .running
+                    let step = SearchThinkingStep(
+                        id: stepId,
+                        status: mappedStatus,
+                        title: title,
+                        detail: event.detail,
+                        elapsedMs: event.elapsed_ms
+                    )
+                    await onStep(step)
+                } else if event.type == "result", let decoded = event.data {
+                    let enriched = await validateAndEnrichSmartSearchResponse(
+                        decoded,
+                        query: query,
+                        contextQuery: contextQuery,
+                        maxPrice: maxPrice,
+                        size: size,
+                        store: store
+                    )
+                    smartSearchCache[cacheKey] = (enriched, Date().addingTimeInterval(600))
+                    return enriched
+                } else if event.type == "error" {
+                    break
+                }
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // Fall through to standard smartSearch / Supabase cloud fallback
+        }
+
+        await onStep(SearchThinkingStep(
+            id: "catalog",
+            status: .running,
+            title: "Recupero risultati dal catalogo…",
+            detail: "Connessione al database prodotti",
+            elapsedMs: nil
+        ))
+        return try await smartSearch(
+            query: query,
+            mode: mode,
+            maxPrice: maxPrice,
+            size: size,
+            category: category,
+            store: store,
+            contextQuery: contextQuery,
+            sessionId: sessionId,
+            deviceId: deviceId,
+            preferredSize: preferredSize
+        )
     }
 
     /// Autonomous client-side fallback building a rich SmartSearchResponse directly from Supabase Cloud
