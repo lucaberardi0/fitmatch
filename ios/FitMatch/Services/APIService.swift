@@ -160,11 +160,25 @@ class APIService: ObservableObject {
         size: String? = nil,
         category: String? = nil,
         store: String? = nil,
-        contextQuery: String? = nil
+        contextQuery: String? = nil,
+        sessionId: String? = nil,
+        deviceId: String? = nil,
+        preferredSize: String? = nil
     ) async throws -> SmartSearchResponse {
         let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let cacheKey = "\(cleanQuery)_\(mode ?? "")_\(maxPrice ?? 0)_\(size ?? "")_\(category ?? "")_\(store ?? "")_\(contextQuery ?? "")"
+        let cacheKey = "\(cleanQuery)_\(mode ?? "")_\(maxPrice ?? 0)_\(size ?? "")_\(category ?? "")_\(store ?? "")_\(contextQuery ?? "")_\(preferredSize ?? "")"
         if let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
+            if let sid = sessionId, !sid.isEmpty, let did = deviceId, !did.isEmpty {
+                Task {
+                    await SupabaseManager.shared.saveChatTurnDirect(
+                        sessionId: sid,
+                        deviceId: did,
+                        query: query,
+                        isFollowUp: contextQuery != nil && !(contextQuery?.isEmpty ?? true),
+                        response: cached.response
+                    )
+                }
+            }
             return cached.response
         }
 
@@ -187,6 +201,15 @@ class APIService: ObservableObject {
         }
         if let contextQuery = contextQuery, !contextQuery.isEmpty {
             queryItems.append(URLQueryItem(name: "context_query", value: contextQuery))
+        }
+        if let sessionId = sessionId, !sessionId.isEmpty {
+            queryItems.append(URLQueryItem(name: "session_id", value: sessionId))
+        }
+        if let deviceId = deviceId, !deviceId.isEmpty {
+            queryItems.append(URLQueryItem(name: "device_id", value: deviceId))
+        }
+        if let preferredSize = preferredSize, !preferredSize.isEmpty {
+            queryItems.append(URLQueryItem(name: "preferred_size", value: preferredSize))
         }
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
@@ -213,8 +236,20 @@ class APIService: ObservableObject {
                 maxPrice: maxPrice,
                 size: size,
                 store: store,
-                contextQuery: contextQuery
+                contextQuery: contextQuery,
+                sessionId: sessionId
             ) {
+                if let sid = sessionId, !sid.isEmpty, let did = deviceId, !did.isEmpty {
+                    Task {
+                        await SupabaseManager.shared.saveChatTurnDirect(
+                            sessionId: sid,
+                            deviceId: did,
+                            query: query,
+                            isFollowUp: contextQuery != nil && !(contextQuery?.isEmpty ?? true),
+                            response: directFallback
+                        )
+                    }
+                }
                 smartSearchCache[cacheKey] = (directFallback, Date().addingTimeInterval(600))
                 return directFallback
             }
@@ -229,7 +264,8 @@ class APIService: ObservableObject {
         maxPrice: Double? = nil,
         size: String? = nil,
         store: String? = nil,
-        contextQuery: String? = nil
+        contextQuery: String? = nil,
+        sessionId: String? = nil
     ) async -> SmartSearchResponse? {
         // Extract price constraint if embedded in query (e.g. "Alternative sotto i 300 euro" -> maxPrice = 300)
         var effectiveMaxPrice = maxPrice
@@ -466,7 +502,9 @@ class APIService: ObservableObject {
             total_found: prods.count,
             results: prods,
             is_off_topic: false,
-            is_unsafe: false
+            is_unsafe: false,
+            session_id: sessionId,
+            turn_id: nil
         )
     }
 
@@ -808,18 +846,91 @@ class APIService: ObservableObject {
             total_found: finalResults.count,
             results: finalResults,
             is_off_topic: response.is_off_topic,
-            is_unsafe: response.is_unsafe
+            is_unsafe: response.is_unsafe,
+            session_id: response.session_id,
+            turn_id: response.turn_id
         )
     }
 
-    func getAIAdvice(prompt: String) async throws -> AIAdviceResponse {
+    func getAIAdvice(
+        prompt: String,
+        sessionId: String? = nil,
+        deviceId: String? = nil
+    ) async throws -> AIAdviceResponse {
         var components = URLComponents(string: "\(baseURL)/api/ai/advise")!
-        components.queryItems = [URLQueryItem(name: "prompt", value: prompt)]
+        var items = [URLQueryItem(name: "prompt", value: prompt)]
+        if let sid = sessionId, !sid.isEmpty {
+            items.append(URLQueryItem(name: "session_id", value: sid))
+        }
+        if let did = deviceId, !did.isEmpty {
+            items.append(URLQueryItem(name: "device_id", value: did))
+        }
+        components.queryItems = items
 
         guard let url = components.url else { throw URLError(.badURL) }
 
         let data = try await fetchDataWithRetry(url: url)
         return try JSONDecoder().decode(AIAdviceResponse.self, from: data)
+    }
+
+    // MARK: - Persistent Chat History API
+
+    func fetchChatSessions(deviceId: String, limit: Int = 20) async -> [ChatSessionSummary] {
+        var components = URLComponents(string: "\(baseURL)/api/chats")
+        components?.queryItems = [
+            URLQueryItem(name: "device_id", value: deviceId),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ]
+        if let url = components?.url {
+            if let data = try? await fetchFastData(url: url, timeout: 6.0),
+               let decoded = try? JSONDecoder().decode(ChatSessionsListResponse.self, from: data) {
+                return decoded.sessions
+            }
+        }
+        return await SupabaseManager.shared.fetchChatSessionsDirect(deviceId: deviceId, limit: limit)
+    }
+
+    func fetchChatSessionDetail(sessionId: String) async -> ChatSessionDetail? {
+        if let enc = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+           let url = URL(string: "\(baseURL)/api/chats/\(enc)") {
+            if let data = try? await fetchFastData(url: url, timeout: 6.0),
+               let decoded = try? JSONDecoder().decode(ChatSessionDetail.self, from: data) {
+                return decoded
+            }
+        }
+        return await SupabaseManager.shared.fetchChatSessionDetailDirect(sessionId: sessionId)
+    }
+
+    func deleteChatSession(sessionId: String, deviceId: String) async -> Bool {
+        if let enc = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+           var components = URLComponents(string: "\(baseURL)/api/chats/\(enc)") {
+            components.queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
+            if let url = components.url {
+                var req = URLRequest(url: url)
+                req.httpMethod = "DELETE"
+                req.timeoutInterval = 8
+                if let (_, resp) = try? await session.data(for: req),
+                   let http = resp as? HTTPURLResponse, http.statusCode == 200 {
+                    return true
+                }
+            }
+        }
+        return await SupabaseManager.shared.deleteChatSessionDirect(sessionId: sessionId, deviceId: deviceId)
+    }
+
+    func submitChatTurnFeedback(sessionId: String, turnId: String, feedback: Int) async {
+        guard let sidEnc = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let tidEnc = turnId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "\(baseURL)/api/chats/\(sidEnc)/messages/\(tidEnc)/feedback"),
+              let body = try? JSONSerialization.data(withJSONObject: ["feedback": feedback]) else {
+            return
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+        req.timeoutInterval = 6
+        _ = try? await session.data(for: req)
     }
 
     func compareModels(modelA: String, modelB: String) async throws -> ModelComparisonResponse {

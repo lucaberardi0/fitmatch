@@ -917,6 +917,8 @@ struct SmartSearchResponse: Codable {
     let results: [MatchedProduct]
     let is_off_topic: Bool?
     let is_unsafe: Bool?
+    let session_id: String?
+    let turn_id: String?
 }
 
 // MARK: - Conversational Search Turn Model
@@ -1147,6 +1149,95 @@ struct CategoryFilterMatcher {
 
         return t.contains(cat)
     }
+}
+
+// MARK: - Persistent AI Chat Sessions & Messages
+
+struct ChatSessionContextState: Codable, Hashable {
+    let last_query: String?
+    let brand: String?
+    let category: String?
+    let gender: String?
+    let max_price: Double?
+    let min_price: Double?
+    let size: String?
+    let features: [String]?
+}
+
+struct ChatSessionSummary: Identifiable, Codable, Hashable {
+    let id: String
+    let device_id: String
+    let user_id: String?
+    let chat_type: String?
+    let title: String
+    let subtitle: String?
+    let preview_image_url: String?
+    let turn_count: Int?
+    let context_state: ChatSessionContextState?
+    let is_archived: Bool?
+    let created_at: String?
+    let updated_at: String?
+
+    var formattedUpdatedDate: String {
+        guard let raw = updated_at ?? created_at, !raw.isEmpty else { return "Recente" }
+        let isoFrac = ISO8601DateFormatter()
+        isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let isoBasic = ISO8601DateFormatter()
+        isoBasic.formatOptions = [.withInternetDateTime]
+        guard let date = isoFrac.date(from: raw) ?? isoBasic.date(from: raw) else {
+            return "Recente"
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "it_IT")
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+struct ChatSessionsListResponse: Codable {
+    let sessions: [ChatSessionSummary]
+}
+
+struct ChatTurnResultsSnapshot: Codable, Hashable {
+    let results: [MatchedProduct]?
+    let curated_sections: [CuratedProductSection]?
+    let comparative_cards: [ComparativeSpecCard]?
+    let spotlight: SpotlightRecommendation?
+}
+
+struct ChatMessageRecord: Identifiable, Codable, Hashable {
+    let id: String
+    let session_id: String
+    let turn_index: Int
+    let query: String
+    let is_follow_up: Bool?
+    let is_conversational_advice: Bool?
+    let conversational_header: String?
+    let conversational_summary: String?
+    let intent_json: SmartSearchIntent?
+    let chips_json: [SmartSearchChip]?
+    let results_snapshot_json: ChatTurnResultsSnapshot?
+    let follow_up_suggestions_json: [String]?
+    let user_feedback: Int?
+    let is_off_topic: Bool?
+    let is_unsafe: Bool?
+    let created_at: String?
+}
+
+struct ChatSessionDetail: Identifiable, Codable {
+    let id: String
+    let device_id: String
+    let user_id: String?
+    let chat_type: String?
+    let title: String
+    let subtitle: String?
+    let preview_image_url: String?
+    let turn_count: Int?
+    let context_state: ChatSessionContextState?
+    let is_archived: Bool?
+    let created_at: String?
+    let updated_at: String?
+    let messages: [ChatMessageRecord]?
 }
 
 

@@ -272,7 +272,10 @@ struct AIAdvisorView: View {
 
         Task {
             do {
-                let advice = try await api.getAIAdvice(prompt: promptText)
+                let advice = try await api.getAIAdvice(
+                    prompt: promptText,
+                    deviceId: SupabaseManager.shared.deviceId
+                )
                 self.currentAdvice = advice
                 self.isLoading = false
             } catch {

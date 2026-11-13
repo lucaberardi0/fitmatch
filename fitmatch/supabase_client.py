@@ -808,17 +808,18 @@ class SupabaseClient:
     CATEGORY_EQUIVALENTS = {
         "running_shoes": ["running_shoes", "shoes", "fitness", "trail_running"],
         "shoes": ["running_shoes", "shoes", "fitness", "trail_running"],
-        "fitness": ["fitness", "running_shoes", "shoes"],
+        "trail_running": ["trail_running", "running_shoes", "shoes"],
+        "fitness": ["fitness", "running_shoes", "shoes", "gear"],
         "top": ["top", "apparel"],
-        "apparel": ["top", "apparel", "jacket", "pants"],
+        "apparel": ["apparel", "top", "pants", "jacket", "socks"],
         "jacket": ["jacket", "apparel", "top"],
         "pants": ["pants", "apparel"],
         "socks": ["socks", "apparel", "gear"],
         "gps_watch": ["gps_watch", "sensor", "gear"],
         "eyewear": ["eyewear", "gear"],
         "hydration": ["hydration", "pack", "gear", "bag"],
-        "padel": ["padel", "racket", "gear"],
-        "cycling": ["cycling", "trainer", "helmet", "gear"],
+        "padel": ["padel", "racket", "shoes", "gear"],
+        "cycling": ["cycling", "trainer", "helmet", "gear", "mount", "apparel", "shoes"],
         "nutrition": ["nutrition", "gear"],
     }
 
@@ -833,7 +834,14 @@ class SupabaseClient:
         joined = ",".join(urllib.parse.quote(c) for c in eq_cats)
         return f"category=in.({joined})"
 
-    def search_indexed(self, query: str = "", category: Optional[str] = None, limit: int = 25) -> List[Dict[str, Any]]:
+    def search_indexed(
+        self,
+        query: str = "",
+        category: Optional[str] = None,
+        limit: int = 25,
+        brand: Optional[str] = None,
+        gender: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Fast catalog query on Supabase Cloud PostgreSQL with store offers joined."""
         query_clean = query.strip()
         params = ["select=*,store_offers!inner(*)"]
@@ -841,6 +849,19 @@ class SupabaseClient:
         cat_filter = self._build_category_filter(category)
         if cat_filter:
             params.append(cat_filter)
+
+        # SQL-level brand pre-filter so generic keyword expansion doesn't drown out requested brand
+        if brand and brand.strip():
+            b_clean = urllib.parse.quote(brand.strip())
+            params.append(f"or=(brand.ilike.*{b_clean}*,canonical_name.ilike.*{b_clean}*)")
+
+        # SQL-level gender pre-filter preserving Unisex and Uomo | Donna
+        if gender and gender.strip().lower() in ("uomo", "donna"):
+            g_low = gender.strip().lower()
+            if g_low == "uomo":
+                params.append("or=(gender.ilike.*Uomo*,gender.eq.Unisex,gender.is.null)")
+            else:
+                params.append("or=(gender.ilike.*Donna*,gender.eq.Unisex,gender.is.null)")
 
         BASE_STOPWORDS = {
             "scarpe", "scarpa", "modello", "modelli", "per", "la", "il", "lo", "i", "gli", "le",
@@ -1166,7 +1187,9 @@ class SupabaseClient:
         size: Optional[str] = None,
         store_id: Optional[str] = None,
         limit: int = 35,
-        raw_query: Optional[str] = None
+        raw_query: Optional[str] = None,
+        preferred_size: Optional[str] = None,
+        favorite_brands: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Shopify Shop-style intelligent query on Supabase Cloud PostgreSQL with multi-store offers."""
         from fitmatch.smart_search import QueryProductGuardrail
@@ -1201,19 +1224,41 @@ class SupabaseClient:
             if norm_size in US_TO_EU_MEN:
                 target_size_candidates.add(US_TO_EU_MEN[norm_size])
 
-        keywords_to_query = [k for k in (target_keywords or [""]) if k.strip()][:4]
+        norm_pref_size = preferred_size.strip().replace(",", ".") if preferred_size else None
+        pref_size_candidates = set()
+        if norm_pref_size:
+            pref_size_candidates.add(norm_pref_size)
+            from fitmatch.models import EU_TO_US_MEN, US_TO_EU_MEN
+            if norm_pref_size in EU_TO_US_MEN:
+                pref_size_candidates.add(EU_TO_US_MEN[norm_pref_size])
+            if norm_pref_size in US_TO_EU_MEN:
+                pref_size_candidates.add(US_TO_EU_MEN[norm_pref_size])
+
+        keywords_to_query = [k for k in (target_keywords or [""]) if k.strip()][:5]
         if not keywords_to_query:
             keywords_to_query = [""]
         from concurrent.futures import ThreadPoolExecutor
 
         def _fetch_kw(kw: str) -> List[Dict[str, Any]]:
             query_term = kw.strip()
-            prods = self.search_indexed(query=query_term, category=category, limit=limit)
+            prods = self.search_indexed(
+                query=query_term,
+                category=category,
+                limit=limit,
+                brand=brand,
+                gender=gender,
+            )
             if not prods and category:
-                prods = self.search_indexed(query=query_term, category=None, limit=limit)
+                prods = self.search_indexed(
+                    query=query_term,
+                    category=None,
+                    limit=limit,
+                    brand=brand,
+                    gender=gender,
+                )
             return prods
 
-        with ThreadPoolExecutor(max_workers=min(4, max(1, len(keywords_to_query)))) as executor:
+        with ThreadPoolExecutor(max_workers=min(5, max(1, len(keywords_to_query)))) as executor:
             kw_batches = list(executor.map(_fetch_kw, keywords_to_query))
 
         for prods in kw_batches:
@@ -1223,11 +1268,14 @@ class SupabaseClient:
                     seen_names.add(p_ident)
                     raw_results.append(p)
 
-        # Vector Semantic candidates via Supabase pgvector (only if lexical results are very sparse < 4)
-        if target_keywords and len(raw_results) < 4:
+        # True Hybrid Search: run pgvector semantic retrieval both when lexical results are sparse
+        # (< 8) and when query is natural/descriptive (>= 4 words without numeric SKU)
+        raw_words = re.findall(r"\b\w+\b", (raw_query or "").lower())
+        is_descriptive_query = len(raw_words) >= 4 and not any(w.isdigit() and len(w) >= 2 for w in raw_words)
+        if target_keywords and (len(raw_results) < 8 or is_descriptive_query):
             sem_query = raw_query.strip() if raw_query and raw_query.strip() else " ".join([k for k in target_keywords[:2] if k.strip()])
             if sem_query:
-                sem_prods = self.search_semantic(query=sem_query, threshold=0.38, limit=limit)
+                sem_prods = self.search_semantic(query=sem_query, threshold=0.36, limit=max(limit, 25))
                 for sp in sem_prods:
                     p_ident = sp.get("id") or sp.get("canonical_name")
                     if p_ident not in seen_names:
@@ -1273,7 +1321,13 @@ class SupabaseClient:
             if gender and gender.lower() not in ("unisex", "uomo | donna", "uomo/donna", "tutti", "all"):
                 req_g = gender.lower()
                 prod_g = (p.get("gender") or "unisex").lower()
-                if prod_g != "unisex" and req_g not in prod_g and prod_g not in req_g:
+                is_dual_gender = ("uomo" in prod_g and "donna" in prod_g)
+                if prod_g != "unisex" and not is_dual_gender and req_g not in prod_g and prod_g not in req_g:
+                    continue
+                # Even if tagged unisex, exclude explicit opposite-sex title markers (e.g. "Scarpa Donna" when searching "Uomo")
+                if req_g == "uomo" and re.search(r"\b(donna|wmns|women|femme|lady)\b", p_name) and not re.search(r"\b(uomo|men|homme)\b", p_name):
+                    continue
+                if req_g == "donna" and re.search(r"\b(uomo|men|homme)\b", p_name) and not re.search(r"\b(donna|wmns|women|femme|lady)\b", p_name):
                     continue
 
             # If product has explicit available sizes and size filter was requested
@@ -1423,6 +1477,16 @@ class SupabaseClient:
             sem_sim = float(prod.get("semantic_similarity") or 0.0)
             if sem_sim > 0.35:
                 score += sem_sim * 55.0
+
+            # User Preference Soft-Boost (preferred shoe/apparel size in stock & favorite brands)
+            if pref_size_candidates:
+                p_avail_sizes = set(prod.get("available_sizes") or [])
+                if pref_size_candidates.intersection(p_avail_sizes):
+                    score += 18.0
+            if favorite_brands:
+                fav_low = [fb.lower().strip() for fb in favorite_brands if fb and fb.strip()]
+                if any(fb in pbrand or fb in pname for fb in fav_low):
+                    score += 12.0
 
             num_offers = len(prod.get("offers", []))
             if num_offers >= 4:
@@ -2355,5 +2419,261 @@ class SupabaseClient:
             "by_store": by_store,
             "recent_clicks": clicks[:25],
         }
+
+    # MARK: - Chat Sessions & Messages Persistence
+
+    @staticmethod
+    def _build_results_snapshot(results: Optional[List[Dict[str, Any]]], max_items: int = 12) -> List[Dict[str, Any]]:
+        """Build a compact JSON snapshot of top results for instant conversation restoration."""
+        if not results:
+            return []
+        snap: List[Dict[str, Any]] = []
+        for p in results[:max_items]:
+            if not isinstance(p, dict):
+                continue
+            offers_compact = []
+            for o in (p.get("offers") or [])[:4]:
+                if not isinstance(o, dict):
+                    continue
+                offers_compact.append({
+                    "store_id": o.get("store_id", ""),
+                    "store_name": o.get("store_name", ""),
+                    "product_id": o.get("product_id"),
+                    "title": o.get("title") or p.get("canonical_name", ""),
+                    "brand": o.get("brand") or p.get("brand"),
+                    "price": float(o.get("price") or 0.0),
+                    "original_price": o.get("original_price"),
+                    "discount_pct": o.get("discount_pct"),
+                    "url": o.get("url", ""),
+                    "image_url": o.get("image_url") or p.get("image_url"),
+                    "available_sizes": (o.get("available_sizes") or [])[:20],
+                    "in_stock": o.get("in_stock", True),
+                    "shipping_cost": o.get("shipping_cost"),
+                    "total_price": o.get("total_price"),
+                    "is_free_shipping": o.get("is_free_shipping"),
+                })
+            snap.append({
+                "id": p.get("id"),
+                "canonical_name": p.get("canonical_name", ""),
+                "brand": p.get("brand"),
+                "category": p.get("category"),
+                "gender": p.get("gender"),
+                "image_url": p.get("image_url"),
+                "best_price": p.get("best_price"),
+                "highest_price": p.get("highest_price"),
+                "cross_store_savings": p.get("cross_store_savings"),
+                "offers": offers_compact,
+            })
+        return snap
+
+    @staticmethod
+    def normalize_uuid(val: Optional[str]) -> str:
+        """Return a valid UUID string (preserving valid UUIDs, hashing non-UUID strings deterministically)."""
+        raw = val.strip() if isinstance(val, str) and val.strip() else ""
+        if not raw:
+            return str(uuid.uuid4())
+        try:
+            return str(uuid.UUID(raw))
+        except ValueError:
+            return str(uuid.uuid5(uuid.NAMESPACE_URL, raw))
+
+    def save_chat_turn(
+        self,
+        session_id: Optional[str],
+        device_id: str,
+        user_id: Optional[str],
+        chat_type: str,
+        query: str,
+        is_follow_up: bool,
+        response_payload: Dict[str, Any],
+        context_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Create or append a conversation turn to chat_sessions & chat_messages in Supabase."""
+        sid = self.normalize_uuid(session_id)
+        did = (device_id or "default_device").strip()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        results = response_payload.get("results") or []
+        spotlight = response_payload.get("spotlight")
+        preview_img = None
+        if isinstance(spotlight, dict) and isinstance(spotlight.get("product"), dict):
+            preview_img = clean_image_url(spotlight["product"].get("image_url"))
+        if not preview_img and results and isinstance(results[0], dict):
+            preview_img = clean_image_url(results[0].get("image_url"))
+
+        # Check existing session to preserve title and increment turn_count
+        existing_res = self._request(f"chat_sessions?id=eq.{urllib.parse.quote(sid)}&limit=1", method="GET")
+        existing_rows = existing_res.get("data") if existing_res.get("status") == 200 else []
+        existing = existing_rows[0] if existing_rows else None
+
+        next_turn_index = int(existing.get("turn_count", 0)) if existing else 0
+        title = existing.get("title") if existing else query.strip()
+        subtitle = response_payload.get("conversational_header") or query.strip()
+
+        merged_ctx = dict(existing.get("context_state") or {}) if existing else {}
+        if context_state:
+            for k, v in context_state.items():
+                if v is not None:
+                    merged_ctx[k] = v
+
+        session_body: Dict[str, Any] = {
+            "id": sid,
+            "device_id": did,
+            "chat_type": chat_type or "smart_search",
+            "title": title,
+            "subtitle": subtitle,
+            "turn_count": next_turn_index + 1,
+            "context_state": merged_ctx,
+            "updated_at": now_iso,
+        }
+        if preview_img:
+            session_body["preview_image_url"] = preview_img
+        elif existing and existing.get("preview_image_url"):
+            session_body["preview_image_url"] = existing.get("preview_image_url")
+        if user_id and user_id.strip():
+            session_body["user_id"] = user_id.strip()
+        if not existing:
+            session_body["created_at"] = now_iso
+
+        s_res = self._request("chat_sessions?on_conflict=id", method="POST", data=session_body, upsert=True)
+        if s_res.get("status") not in (200, 201):
+            logger.warning(f"[Supabase] Failed upsert chat_sessions ({s_res.get('status')}): {s_res.get('error')}")
+
+        msg_id = str(uuid.uuid4())
+        snapshot = {
+            "results": self._build_results_snapshot(results, max_items=12),
+            "curated_sections": [
+                {
+                    "id": sec.get("id", ""),
+                    "title": sec.get("title", ""),
+                    "subtitle": sec.get("subtitle", ""),
+                    "products": self._build_results_snapshot(sec.get("products"), max_items=8),
+                }
+                for sec in (response_payload.get("curated_sections") or [])[:4]
+                if isinstance(sec, dict)
+            ],
+            "comparative_cards": [
+                {
+                    "product": (self._build_results_snapshot([c.get("product")], max_items=1) or [None])[0],
+                    "model_name": c.get("model_name", ""),
+                    "ideal_for": c.get("ideal_for", ""),
+                    "strengths": c.get("strengths", ""),
+                    "section_title": c.get("section_title"),
+                }
+                for c in (response_payload.get("comparative_cards") or [])[:5]
+                if isinstance(c, dict) and isinstance(c.get("product"), dict)
+            ],
+            "spotlight": (
+                {
+                    "product": (self._build_results_snapshot([spotlight.get("product")], max_items=1) or [None])[0],
+                    "badge_text": spotlight.get("badge_text"),
+                    "highlights": spotlight.get("highlights") or [],
+                }
+                if isinstance(spotlight, dict) and isinstance(spotlight.get("product"), dict)
+                else None
+            ),
+        }
+
+        msg_body: Dict[str, Any] = {
+            "id": msg_id,
+            "session_id": sid,
+            "turn_index": next_turn_index,
+            "query": query.strip(),
+            "is_follow_up": bool(is_follow_up),
+            "is_conversational_advice": bool(response_payload.get("is_conversational_advice", False)),
+            "conversational_header": response_payload.get("conversational_header"),
+            "conversational_summary": response_payload.get("conversational_summary"),
+            "intent_json": response_payload.get("intent") or {},
+            "chips_json": response_payload.get("chips") or [],
+            "results_snapshot_json": snapshot,
+            "follow_up_suggestions_json": response_payload.get("follow_up_suggestions") or [],
+            "is_off_topic": bool(response_payload.get("is_off_topic", False)),
+            "is_unsafe": bool(response_payload.get("is_unsafe", False)),
+            "created_at": now_iso,
+        }
+        m_res = self._request("chat_messages", method="POST", data=msg_body)
+        if m_res.get("status") not in (200, 201):
+            logger.warning(f"[Supabase] Failed insert chat_messages ({m_res.get('status')}): {m_res.get('error')}")
+
+        return {
+            "session_id": sid,
+            "turn_id": msg_id,
+            "turn_index": next_turn_index,
+            "session": session_body,
+            "message": msg_body,
+        }
+
+    def get_chat_sessions(
+        self,
+        device_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        chat_type: Optional[str] = None,
+        limit: int = 30,
+    ) -> List[Dict[str, Any]]:
+        """List saved chat sessions ordered by most recently updated."""
+        params = ["select=*", "is_archived=eq.false", "order=updated_at.desc", f"limit={limit}"]
+        if user_id and user_id.strip():
+            uid = urllib.parse.quote(user_id.strip())
+            if device_id and device_id.strip():
+                did = urllib.parse.quote(device_id.strip())
+                params.append(f"or=(user_id.eq.{uid},device_id.eq.{did})")
+            else:
+                params.append(f"user_id=eq.{uid}")
+        elif device_id and device_id.strip():
+            params.append(f"device_id=eq.{urllib.parse.quote(device_id.strip())}")
+
+        if chat_type and chat_type.strip():
+            params.append(f"chat_type=eq.{urllib.parse.quote(chat_type.strip())}")
+
+        res = self._request(f"chat_sessions?{'&'.join(params)}", method="GET")
+        if res.get("status") == 200 and isinstance(res.get("data"), list):
+            return res["data"]
+        return []
+
+    def get_chat_session_detail(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a chat session along with all its ordered conversation messages."""
+        sid = urllib.parse.quote(self.normalize_uuid(session_id))
+        s_res = self._request(f"chat_sessions?id=eq.{sid}&limit=1", method="GET")
+        s_rows = s_res.get("data") if s_res.get("status") == 200 else None
+        if not s_rows:
+            return None
+        session_obj = dict(s_rows[0])
+
+        m_res = self._request(f"chat_messages?session_id=eq.{sid}&order=turn_index.asc,created_at.asc", method="GET")
+        messages = m_res.get("data") if m_res.get("status") == 200 and isinstance(m_res.get("data"), list) else []
+        session_obj["messages"] = messages
+        return session_obj
+
+    def update_chat_message_feedback(self, session_id: str, turn_id: str, feedback_val: int) -> bool:
+        """Update user feedback (1/-1) on a specific chat turn."""
+        tid = urllib.parse.quote(self.normalize_uuid(turn_id))
+        sid = urllib.parse.quote(self.normalize_uuid(session_id))
+        res = self._request(
+            f"chat_messages?id=eq.{tid}&session_id=eq.{sid}",
+            method="PATCH",
+            data={"user_feedback": int(feedback_val)},
+        )
+        return res.get("status") in (200, 204)
+
+    def delete_chat_session(self, session_id: str, device_id: Optional[str] = None) -> bool:
+        """Delete a single chat session (messages cascade automatically)."""
+        sid = urllib.parse.quote(self.normalize_uuid(session_id))
+        url = f"chat_sessions?id=eq.{sid}"
+        if device_id and device_id.strip():
+            url += f"&device_id=eq.{urllib.parse.quote(device_id.strip())}"
+        res = self._request(url, method="DELETE")
+        return res.get("status") in (200, 204)
+
+    def clear_chat_sessions(self, device_id: Optional[str] = None, user_id: Optional[str] = None) -> bool:
+        """Delete all chat sessions for a device or user."""
+        if user_id and user_id.strip():
+            url = f"chat_sessions?user_id=eq.{urllib.parse.quote(user_id.strip())}"
+        elif device_id and device_id.strip():
+            url = f"chat_sessions?device_id=eq.{urllib.parse.quote(device_id.strip())}"
+        else:
+            return False
+        res = self._request(url, method="DELETE")
+        return res.get("status") in (200, 204)
+
 
 

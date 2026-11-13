@@ -235,10 +235,51 @@ def get_product_price_history(
 
 @app.get("/api/ai/advise")
 def ai_advise(
-    prompt: str = Query(..., min_length=4, description="Natural language shopper needs (e.g. 'peso 85kg corro su asfalto sotto i 140 euro')")
+    prompt: str = Query(..., min_length=4, description="Natural language shopper needs (e.g. 'peso 85kg corro su asfalto sotto i 140 euro')"),
+    session_id: Optional[str] = Query(None, description="Optional chat session ID for persistence"),
+    device_id: Optional[str] = Query(None, description="Client device ID for chat history"),
+    user_id: Optional[str] = Query(None, description="Optional authenticated user ID")
 ):
     """AI Shopper: translates natural language runner profiles into optimal models and live bargains."""
-    return advisor.advise(prompt)
+    res = advisor.advise(prompt)
+    eff_sid = session_id.strip() if isinstance(session_id, str) and session_id.strip() else None
+    eff_did = device_id.strip() if isinstance(device_id, str) and device_id.strip() else None
+    eff_uid = user_id.strip() if isinstance(user_id, str) and user_id.strip() else None
+    if eff_sid or eff_did or eff_uid:
+        try:
+            saved = db.save_chat_turn(
+                session_id=eff_sid,
+                device_id=eff_did or "default_device",
+                user_id=eff_uid,
+                chat_type="ai_advisor",
+                query=prompt.strip(),
+                is_follow_up=bool(eff_sid),
+                response_payload={
+                    "conversational_header": res.get("category_name") or "Consulenza IA",
+                    "conversational_summary": res.get("biomechanical_reasoning") or res.get("category_description"),
+                    "is_conversational_advice": True,
+                    "results": [
+                        {
+                            "id": r.get("link") or r.get("product_name", ""),
+                            "canonical_name": r.get("product_name", ""),
+                            "brand": r.get("brand"),
+                            "image_url": r.get("image_url"),
+                            "best_price": r.get("best_price"),
+                            "cross_store_savings": r.get("cross_store_savings"),
+                            "offers": r.get("all_offers") or [],
+                        }
+                        for r in (res.get("recommendations") or [])
+                        if isinstance(r, dict)
+                    ],
+                },
+                context_state={"user_profile": res.get("user_profile")},
+            )
+            res = dict(res)
+            res["session_id"] = saved.get("session_id")
+            res["turn_id"] = saved.get("turn_id")
+        except Exception as e:
+            logger.warning(f"[ai_advise] Failed to persist chat turn: {e}")
+    return res
 
 
 @app.get("/api/ai/compare", response_model=ModelComparisonResponse)
@@ -255,6 +296,47 @@ def compare_models(
     return comparator.compare_models(model_a, model_b)
 
 
+def _persist_smart_search_turn(
+    result_data: dict,
+    query: str,
+    session_id: Optional[str],
+    device_id: Optional[str],
+    user_id: Optional[str],
+    is_follow_up: bool,
+) -> dict:
+    """Persist a Smart Search turn to DB if tracking identifiers are supplied and return a shallow copy with IDs."""
+    if not (session_id or device_id or user_id):
+        return result_data
+    try:
+        intent_dict = result_data.get("intent") or {}
+        saved = db.save_chat_turn(
+            session_id=session_id,
+            device_id=device_id or "default_device",
+            user_id=user_id,
+            chat_type="smart_search",
+            query=query.strip(),
+            is_follow_up=is_follow_up,
+            response_payload=result_data,
+            context_state={
+                "last_query": query.strip(),
+                "brand": intent_dict.get("brand"),
+                "category": intent_dict.get("category"),
+                "gender": intent_dict.get("gender"),
+                "max_price": intent_dict.get("max_price"),
+                "min_price": intent_dict.get("min_price"),
+                "size": intent_dict.get("size"),
+                "features": intent_dict.get("features") or [],
+            },
+        )
+        out = dict(result_data)
+        out["session_id"] = saved.get("session_id")
+        out["turn_id"] = saved.get("turn_id")
+        return out
+    except Exception as e:
+        logger.warning(f"[search_smart] Failed to persist chat turn: {e}")
+        return result_data
+
+
 @app.get("/api/search/smart")
 def search_smart(
     q: str = Query(..., min_length=2, description="Natural language or keywords query (e.g. 'scarpe running ammortizzate sotto 140 euro')"),
@@ -264,29 +346,66 @@ def search_smart(
     category: Optional[str] = Query(None, description="Category filter override"),
     store: Optional[str] = Query(None, description="Store filter (e.g. 'cisalfa', 'top4running')"),
     context_query: Optional[str] = Query(None, description="Previous search query to maintain conversational context"),
+    session_id: Optional[str] = Query(None, description="Persistent chat session UUID"),
+    device_id: Optional[str] = Query(None, description="Client device ID for persistent chat history"),
+    user_id: Optional[str] = Query(None, description="Optional user ID for persistent chat history"),
+    preferred_size: Optional[str] = Query(None, description="Optional soft preference size boost from user profile"),
     limit: int = Query(35, ge=1, le=100)
 ):
     """Shopify Shop-style intelligent search: interprets user intent, classifies query mode (AI deep dive vs classic),
     clusters results into curated thematic carousels, provides spotlight recommendation and follow-up prompts.
     """
+    eff_mode = mode.strip() if isinstance(mode, str) and mode.strip() else None
+    eff_max_price_param = float(max_price) if isinstance(max_price, (int, float)) else None
+    eff_size_param = size.strip() if isinstance(size, str) and size.strip() else None
+    eff_category_param = category.strip() if isinstance(category, str) and category.strip() else None
+    eff_store = store.strip() if isinstance(store, str) and store.strip() else None
     eff_context = context_query.strip() if isinstance(context_query, str) and context_query.strip() else None
+    eff_session_id = session_id.strip() if isinstance(session_id, str) and session_id.strip() else None
+    eff_device_id = device_id.strip() if isinstance(device_id, str) and device_id.strip() else None
+    eff_user_id = user_id.strip() if isinstance(user_id, str) and user_id.strip() else None
+    eff_pref_size = preferred_size.strip() if isinstance(preferred_size, str) and preferred_size.strip() else None
+
+    session_context = None
+    if eff_session_id:
+        try:
+            sess_detail = db.get_chat_session_detail(eff_session_id)
+            if sess_detail and isinstance(sess_detail.get("context_state"), dict):
+                session_context = sess_detail.get("context_state")
+        except Exception as e:
+            logger.warning(f"[search_smart] Failed to load session context for {eff_session_id}: {e}")
+
     effective_q = f"{eff_context} >> {q.strip()}" if eff_context else q
+    if eff_pref_size:
+        effective_q = f"{effective_q} [pref_size:{eff_pref_size}]"
 
     # 1. Tier-2 Response Cache Check (Fast-path < 5ms)
     cache_key = cache_manager.make_response_key(
         query=effective_q,
-        mode=mode,
-        max_price=max_price,
-        size=size,
-        category=category,
-        store=store,
+        mode=eff_mode,
+        max_price=eff_max_price_param,
+        size=eff_size_param,
+        category=eff_category_param,
+        store=eff_store,
         limit=limit
     )
     cached_resp = cache_manager.get_search_response(cache_key)
     if cached_resp is not None:
-        return cached_resp
+        return _persist_smart_search_turn(
+            cached_resp,
+            query=q,
+            session_id=eff_session_id,
+            device_id=eff_device_id,
+            user_id=eff_user_id,
+            is_follow_up=bool(eff_context or (session_context is not None)),
+        )
 
-    intent = smart_engine.parse_query(q, force_mode=mode, context_query=eff_context)
+    intent = smart_engine.parse_query(
+        q,
+        force_mode=eff_mode,
+        context_query=eff_context,
+        session_context=session_context,
+    )
 
     # 1. Guardrail Safety & Relevance Check: Strictly block off-topic and unsafe queries!
     if getattr(intent, "is_off_topic", False) or getattr(intent, "is_unsafe", False) or not intent.target_keywords:
@@ -315,9 +434,9 @@ def search_smart(
     detected_product_type = QueryProductGuardrail.detect_product_type(q, eff_context)
 
     # Use explicit query overrides if user modified/toggled active chips
-    eff_max_price = max_price if max_price is not None else intent.max_price
-    eff_size = size if size is not None else intent.size
-    eff_category = category if category is not None else intent.category
+    eff_max_price = eff_max_price_param if eff_max_price_param is not None else intent.max_price
+    eff_size = eff_size_param if eff_size_param is not None else intent.size
+    eff_category = eff_category_param if eff_category_param is not None else intent.category
 
     products = db.search_smart(
         target_keywords=intent.target_keywords,
@@ -327,9 +446,10 @@ def search_smart(
         max_price=eff_max_price,
         min_price=intent.min_price,
         size=eff_size,
-        store_id=store,
+        store_id=eff_store,
         limit=limit,
-        raw_query=q
+        raw_query=q,
+        preferred_size=eff_pref_size,
     )
 
     # Extra safety filter: ensure every returned product satisfies product-type guardrails
@@ -839,7 +959,14 @@ def search_smart(
 
     # Store full curated response into L1 memory & L2 disk cache (20-min TTL)
     cache_manager.set_search_response(cache_key, result_data)
-    return result_data
+    return _persist_smart_search_turn(
+        result_data,
+        query=q,
+        session_id=eff_session_id,
+        device_id=eff_device_id,
+        user_id=eff_user_id,
+        is_follow_up=bool(eff_context or (session_context is not None)),
+    )
 
 
 
@@ -1146,6 +1273,83 @@ def record_recent_activity_endpoint(payload: dict):
     """Record an item or search to user's recent activity in the database."""
     success = db.record_recent_activity(payload)
     return {"status": "ok", "success": success}
+
+
+# MARK: - Persistent AI Search Chats & Messages
+
+@app.get("/api/chats")
+def list_chat_sessions_endpoint(
+    device_id: Optional[str] = Query(None, description="Filter chats by device_id"),
+    user_id: Optional[str] = Query(None, description="Filter chats by authenticated user_id"),
+    chat_type: Optional[str] = Query(None, description="Filter by chat_type: 'smart_search' or 'ai_advisor'"),
+    limit: int = Query(30, ge=1, le=100),
+):
+    """List saved conversation sessions ordered by most recently updated."""
+    eff_did = device_id.strip() if isinstance(device_id, str) and device_id.strip() else None
+    eff_uid = user_id.strip() if isinstance(user_id, str) and user_id.strip() else None
+    eff_type = chat_type.strip() if isinstance(chat_type, str) and chat_type.strip() else None
+    sessions = db.get_chat_sessions(device_id=eff_did, user_id=eff_uid, chat_type=eff_type, limit=limit)
+    return {"sessions": sessions}
+
+
+@app.get("/api/chats/{session_id}")
+def get_chat_session_detail_endpoint(session_id: str):
+    """Retrieve a saved chat session with all ordered turns and snapshots."""
+    session = db.get_chat_session_detail(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat non trovata.")
+    return session
+
+
+@app.post("/api/chats/sync")
+def sync_chat_turn_endpoint(payload: dict):
+    """Persist or sync a conversation turn directly to Supabase + SQLite."""
+    query_str = str(payload.get("query") or "").strip()
+    if not query_str:
+        raise HTTPException(status_code=400, detail="Campo 'query' obbligatorio.")
+    saved = db.save_chat_turn(
+        session_id=payload.get("session_id"),
+        device_id=str(payload.get("device_id") or "default_device"),
+        user_id=payload.get("user_id"),
+        chat_type=str(payload.get("chat_type") or "smart_search"),
+        query=query_str,
+        is_follow_up=bool(payload.get("is_follow_up", False)),
+        response_payload=payload.get("response_payload") or {},
+        context_state=payload.get("context_state"),
+    )
+    return {"status": "ok", **saved}
+
+
+@app.patch("/api/chats/{session_id}/messages/{turn_id}/feedback")
+def update_chat_feedback_endpoint(session_id: str, turn_id: str, payload: dict):
+    """Save positive/negative feedback (1 or -1) on a specific chat turn."""
+    fb = payload.get("feedback")
+    if fb not in (-1, 0, 1):
+        raise HTTPException(status_code=400, detail="Il valore feedback deve essere -1, 0 o 1.")
+    ok = db.update_chat_message_feedback(session_id, turn_id, int(fb))
+    return {"status": "ok", "success": ok}
+
+
+@app.delete("/api/chats/{session_id}")
+def delete_chat_session_endpoint(session_id: str, device_id: Optional[str] = Query(None)):
+    """Delete a single saved chat session and its turns."""
+    eff_did = device_id.strip() if isinstance(device_id, str) and device_id.strip() else None
+    ok = db.delete_chat_session(session_id, device_id=eff_did)
+    return {"status": "ok", "success": ok}
+
+
+@app.delete("/api/chats")
+def clear_chat_sessions_endpoint(
+    device_id: Optional[str] = Query(None),
+    user_id: Optional[str] = Query(None),
+):
+    """Clear all saved chat sessions for a device or user."""
+    eff_did = device_id.strip() if isinstance(device_id, str) and device_id.strip() else None
+    eff_uid = user_id.strip() if isinstance(user_id, str) and user_id.strip() else None
+    if not (eff_did or eff_uid):
+        raise HTTPException(status_code=400, detail="Specificare almeno device_id o user_id.")
+    ok = db.clear_chat_sessions(device_id=eff_did, user_id=eff_uid)
+    return {"status": "ok", "success": ok}
 
 
 # MARK: - Stores, Hidden Stores & Store Reports

@@ -1813,4 +1813,208 @@ class SupabaseManager: ObservableObject {
 
         return Array(results.prefix(limit))
     }
+
+    // MARK: - Direct Persistent AI Chat Sessions & Messages
+
+    func fetchChatSessionsDirect(deviceId: String, limit: Int = 20) async -> [ChatSessionSummary] {
+        let did = deviceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !did.isEmpty,
+              let didEnc = did.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(restURL)/chat_sessions?device_id=eq.\(didEnc)&is_archived=eq.false&order=updated_at.desc&limit=\(limit)") else {
+            return []
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+
+        guard let (data, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200,
+              let decoded = try? JSONDecoder().decode([ChatSessionSummary].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+
+    func fetchChatSessionDetailDirect(sessionId: String) async -> ChatSessionDetail? {
+        let sid = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sid.isEmpty,
+              let sidEnc = sid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let sUrl = URL(string: "\(restURL)/chat_sessions?id=eq.\(sidEnc)&limit=1"),
+              let mUrl = URL(string: "\(restURL)/chat_messages?session_id=eq.\(sidEnc)&order=turn_index.asc,created_at.asc") else {
+            return nil
+        }
+        var sReq = URLRequest(url: sUrl)
+        sReq.httpMethod = "GET"
+        for (k, v) in makeHeaders(isPublic: true) { sReq.setValue(v, forHTTPHeaderField: k) }
+
+        guard let (sData, sResp) = try? await session.data(for: sReq),
+              let sHttp = sResp as? HTTPURLResponse, sHttp.statusCode == 200,
+              let sRows = try? JSONDecoder().decode([ChatSessionSummary].self, from: sData),
+              let sess = sRows.first else {
+            return nil
+        }
+
+        var mReq = URLRequest(url: mUrl)
+        mReq.httpMethod = "GET"
+        for (k, v) in makeHeaders(isPublic: true) { mReq.setValue(v, forHTTPHeaderField: k) }
+
+        var msgs: [ChatMessageRecord] = []
+        if let (mData, mResp) = try? await session.data(for: mReq),
+           let mHttp = mResp as? HTTPURLResponse, mHttp.statusCode == 200,
+           let mRows = try? JSONDecoder().decode([ChatMessageRecord].self, from: mData) {
+            msgs = mRows
+        }
+
+        return ChatSessionDetail(
+            id: sess.id,
+            device_id: sess.device_id,
+            user_id: sess.user_id,
+            chat_type: sess.chat_type,
+            title: sess.title,
+            subtitle: sess.subtitle,
+            preview_image_url: sess.preview_image_url,
+            turn_count: sess.turn_count,
+            context_state: sess.context_state,
+            is_archived: sess.is_archived,
+            created_at: sess.created_at,
+            updated_at: sess.updated_at,
+            messages: msgs
+        )
+    }
+
+    func saveChatTurnDirect(
+        sessionId: String,
+        deviceId: String,
+        query: String,
+        isFollowUp: Bool,
+        response: SmartSearchResponse
+    ) async {
+        struct SessionUpsertPayload: Encodable {
+            let id: String
+            let device_id: String
+            let user_id: String?
+            let chat_type: String
+            let title: String
+            let subtitle: String?
+            let preview_image_url: String?
+            let turn_count: Int
+            let context_state: ChatSessionContextState
+            let updated_at: String
+        }
+        struct MessageInsertPayload: Encodable {
+            let id: String
+            let session_id: String
+            let turn_index: Int
+            let query: String
+            let is_follow_up: Bool
+            let is_conversational_advice: Bool
+            let conversational_header: String?
+            let conversational_summary: String?
+            let intent_json: SmartSearchIntent?
+            let chips_json: [SmartSearchChip]
+            let results_snapshot_json: ChatTurnResultsSnapshot
+            let follow_up_suggestions_json: [String]
+            let is_off_topic: Bool
+            let is_unsafe: Bool
+            let created_at: String
+        }
+
+        let sid = sessionId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !sid.isEmpty, UUID(uuidString: sid) != nil else { return }
+
+        let nowIso = ISO8601DateFormatter().string(from: Date())
+        let existing = await fetchChatSessionDetailDirect(sessionId: sid)
+        let turnIdx = existing?.messages?.count ?? existing?.turn_count ?? 0
+        let previewUrl = response.spotlight?.product.image_url ?? response.results.first?.image_url ?? existing?.preview_image_url
+
+        let ctx = ChatSessionContextState(
+            last_query: query,
+            brand: response.intent?.brand ?? existing?.context_state?.brand,
+            category: response.intent?.category ?? existing?.context_state?.category,
+            gender: response.intent?.gender ?? existing?.context_state?.gender,
+            max_price: response.intent?.max_price ?? existing?.context_state?.max_price,
+            min_price: response.intent?.min_price ?? existing?.context_state?.min_price,
+            size: response.intent?.size ?? existing?.context_state?.size,
+            features: response.intent?.features ?? existing?.context_state?.features
+        )
+
+        let sessionPayload = SessionUpsertPayload(
+            id: sid,
+            device_id: deviceId,
+            user_id: currentUserId,
+            chat_type: "smart_search",
+            title: existing?.title ?? query,
+            subtitle: response.conversational_header ?? query,
+            preview_image_url: previewUrl,
+            turn_count: turnIdx + 1,
+            context_state: ctx,
+            updated_at: nowIso
+        )
+
+        if let sUrl = URL(string: "\(restURL)/chat_sessions?on_conflict=id"),
+           let sBody = try? JSONEncoder().encode(sessionPayload) {
+            var sReq = URLRequest(url: sUrl)
+            sReq.httpMethod = "POST"
+            for (k, v) in makeHeaders(upsert: true, isPublic: true) { sReq.setValue(v, forHTTPHeaderField: k) }
+            sReq.httpBody = sBody
+            _ = try? await session.data(for: sReq)
+        }
+
+        let snapshot = ChatTurnResultsSnapshot(
+            results: Array(response.results.prefix(12)),
+            curated_sections: Array((response.curated_sections ?? []).prefix(4)),
+            comparative_cards: Array((response.comparative_cards ?? []).prefix(5)),
+            spotlight: response.spotlight
+        )
+
+        let msgPayload = MessageInsertPayload(
+            id: UUID().uuidString.lowercased(),
+            session_id: sid,
+            turn_index: turnIdx,
+            query: query,
+            is_follow_up: isFollowUp,
+            is_conversational_advice: response.is_conversational_advice ?? false,
+            conversational_header: response.conversational_header,
+            conversational_summary: response.conversational_summary,
+            intent_json: response.intent,
+            chips_json: response.chips ?? [],
+            results_snapshot_json: snapshot,
+            follow_up_suggestions_json: response.follow_up_suggestions ?? [],
+            is_off_topic: response.is_off_topic ?? false,
+            is_unsafe: response.is_unsafe ?? false,
+            created_at: nowIso
+        )
+
+        if let mUrl = URL(string: "\(restURL)/chat_messages"),
+           let mBody = try? JSONEncoder().encode(msgPayload) {
+            var mReq = URLRequest(url: mUrl)
+            mReq.httpMethod = "POST"
+            for (k, v) in makeHeaders(isPublic: true) { mReq.setValue(v, forHTTPHeaderField: k) }
+            mReq.httpBody = mBody
+            _ = try? await session.data(for: mReq)
+        }
+    }
+
+    func deleteChatSessionDirect(sessionId: String, deviceId: String? = nil) async -> Bool {
+        let sid = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sid.isEmpty,
+              let sidEnc = sid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return false
+        }
+        var urlStr = "\(restURL)/chat_sessions?id=eq.\(sidEnc)"
+        if let did = deviceId?.trimmingCharacters(in: .whitespacesAndNewlines), !did.isEmpty,
+           let didEnc = did.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            urlStr += "&device_id=eq.\(didEnc)"
+        }
+        guard let url = URL(string: urlStr) else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+
+        guard let (_, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse else {
+            return false
+        }
+        return http.statusCode == 200 || http.statusCode == 204
+    }
 }

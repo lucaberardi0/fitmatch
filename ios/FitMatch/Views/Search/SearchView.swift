@@ -41,6 +41,8 @@ struct SearchView: View {
     @State private var feedbackSubmittedToast: Bool = false
     @State private var lastContextQuery: String? = nil // Multi-turn conversational memory
     @State private var conversationTurns: [SearchConversationTurn] = []
+    @State private var currentSessionId: String? = nil
+    @State private var savedChatSessions: [ChatSessionSummary] = []
     @State private var isFollowUpLoading: Bool = false
     @State private var pendingFollowUpQuery: String? = nil
     @State private var followUpErrorMessage: String? = nil
@@ -251,6 +253,7 @@ struct SearchView: View {
             .task {
                 loadInitialTopSavings()
                 await recentManager.syncFromDatabase()
+                await loadSavedChatSessions()
                 if !searchText.isEmpty && !hasSearched {
                     executeSearch()
                 }
@@ -298,10 +301,15 @@ struct SearchView: View {
                         recentlyViewedSection
                     }
 
-                    // Section 2: "Continua ad acquistare >" (Screenshot 1 & 2 list)
+                    // Section 2: "Conversazioni IA recenti" (Saved multi-turn chats from DB)
+                    if !savedChatSessions.isEmpty {
+                        savedChatSessionsSection
+                    }
+
+                    // Section 3: "Continua ad acquistare >" (Screenshot 1 & 2 list)
                     if !recentManager.continueShoppingItems.isEmpty {
                         continueShoppingSection
-                    } else if recentManager.recentlyViewedProducts.isEmpty {
+                    } else if recentManager.recentlyViewedProducts.isEmpty && savedChatSessions.isEmpty {
                         emptyHistoryPlaceholder
                     }
 
@@ -489,6 +497,160 @@ struct SearchView: View {
                 }
             } label: {
                 Label("Elimina", systemImage: "trash")
+            }
+        }
+    }
+
+    // MARK: - Section 2: Conversazioni IA recenti (Persistent DB Chats)
+    private var savedChatSessionsSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.shopPurple)
+
+                Text("Conversazioni IA recenti")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(.shopDark)
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+
+            VStack(spacing: 10) {
+                ForEach(savedChatSessions.prefix(5)) { session in
+                    savedChatSessionRow(session)
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private func savedChatSessionRow(_ session: ChatSessionSummary) -> some View {
+        Button(action: {
+            restoreChatSession(session)
+        }) {
+            HStack(spacing: 14) {
+                ShopProductThumbnail(
+                    imageUrl: session.preview_image_url,
+                    systemIcon: "bubble.left.and.bubble.right.fill",
+                    cornerRadius: 15,
+                    size: CGSize(width: 50, height: 50)
+                )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(session.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.shopDark)
+                        .lineLimit(1)
+
+                    let turnsLabel = (session.turn_count ?? 1) > 1 ? "\(session.turn_count ?? 1) messaggi • " : ""
+                    Text("\(turnsLabel)\(session.formattedUpdatedDate)")
+                        .font(.system(size: 12.5, weight: .regular))
+                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Image(systemName: "arrow.uturn.backward.circle")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.shopPurple.opacity(0.85))
+            }
+            .padding(10)
+            .background(Color(red: 249/255, green: 249/255, blue: 252/255))
+            .cornerRadius(16)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            Button(role: .destructive) {
+                deleteSavedChatSession(session)
+            } label: {
+                Label("Elimina conversazione", systemImage: "trash")
+            }
+        }
+    }
+
+    private func loadSavedChatSessions() async {
+        let sessions = await api.fetchChatSessions(deviceId: SupabaseManager.shared.deviceId, limit: 15)
+        await MainActor.run {
+            self.savedChatSessions = sessions.filter { ($0.chat_type ?? "smart_search") == "smart_search" }
+        }
+    }
+
+    private func deleteSavedChatSession(_ session: ChatSessionSummary) {
+        withAnimation {
+            savedChatSessions.removeAll { $0.id == session.id }
+        }
+        Task {
+            _ = await api.deleteChatSession(sessionId: session.id, deviceId: SupabaseManager.shared.deviceId)
+        }
+    }
+
+    private func restoreChatSession(_ session: ChatSessionSummary) {
+        hideAllKeyboards()
+        isLoading = true
+        hasSearched = true
+        currentSessionId = session.id
+        rootQuery = session.title
+        searchText = session.title
+
+        Task {
+            if let detail = await api.fetchChatSessionDetail(sessionId: session.id),
+               let msgs = detail.messages, !msgs.isEmpty {
+                let restoredTurns: [SearchConversationTurn] = msgs.map { m in
+                    let snap = m.results_snapshot_json
+                    return SearchConversationTurn(
+                        id: m.id,
+                        query: m.query,
+                        isFollowUp: m.is_follow_up ?? (m.turn_index > 0),
+                        isConversationalAdvice: m.is_conversational_advice ?? false,
+                        conversationalHeader: m.conversational_header ?? "Ho cercato \(m.query)",
+                        conversationalSummary: m.conversational_summary ?? "",
+                        smartIntent: m.intent_json,
+                        activeChips: m.chips_json ?? [],
+                        searchResults: snap?.results ?? [],
+                        curatedSections: snap?.curated_sections ?? [],
+                        comparativeCards: snap?.comparative_cards ?? [],
+                        spotlight: snap?.spotlight,
+                        followUpSuggestions: m.follow_up_suggestions_json ?? [],
+                        userFeedback: m.user_feedback,
+                        showAiExplanation: false,
+                        error: nil,
+                        isOffTopic: m.is_off_topic ?? false,
+                        isUnsafe: m.is_unsafe ?? false,
+                        timestamp: Date()
+                    )
+                }
+                await MainActor.run {
+                    if let last = restoredTurns.last {
+                        self.conversationTurns = restoredTurns
+                        self.lastContextQuery = last.query
+                        self.smartIntent = last.smartIntent
+                        self.activeChips = last.activeChips
+                        self.searchResults = last.searchResults
+                        self.curatedSections = last.curatedSections
+                        self.comparativeCards = last.comparativeCards
+                        self.spotlight = last.spotlight
+                        self.followUpSuggestions = last.followUpSuggestions
+                        self.conversationalHeader = last.conversationalHeader
+                        self.conversationalSummary = last.conversationalSummary
+                        self.isDeepDiveMode = true
+                        self.isSmartSearchActive = true
+                        self.errorMessage = nil
+                    }
+                    self.isLoading = false
+                }
+            } else {
+                await MainActor.run {
+                    self.isLoading = false
+                    self.executeSearch(isFollowUp: false)
+                }
             }
         }
     }
@@ -2022,6 +2184,7 @@ struct SearchView: View {
             userForcedClassicMode = false
             lastFollowUpQuery = nil
             conversationTurns = []
+            currentSessionId = nil
             isFollowUpLoading = false
             pendingFollowUpQuery = nil
             followUpErrorMessage = nil
@@ -2032,6 +2195,9 @@ struct SearchView: View {
             } else if !rootQuery.isEmpty {
                 searchText = rootQuery
             }
+        }
+        Task {
+            await loadSavedChatSessions()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             isSearchFieldFocused = true
@@ -2269,11 +2435,15 @@ struct SearchView: View {
             rootQuery = query
             conversationalHeader = "Ho cercato \(query)"
             conversationTurns = []
+            currentSessionId = UUID().uuidString.lowercased()
             isLoading = true
             isFollowUpLoading = false
             pendingFollowUpQuery = nil
             followUpErrorMessage = nil
         } else {
+            if currentSessionId == nil {
+                currentSessionId = UUID().uuidString.lowercased()
+            }
             lastFollowUpQuery = query
             pendingFollowUpQuery = query
             isFollowUpLoading = true
@@ -2304,6 +2474,8 @@ struct SearchView: View {
         }
 
         let requestedMode = userForcedClassicMode ? "classic" : nil
+        let activeSid = currentSessionId
+        let prefSize = prefs.preferences.preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines)
 
         Task {
             do {
@@ -2313,9 +2485,15 @@ struct SearchView: View {
                     maxPrice: overrideMaxPrice,
                     size: selectedSize,
                     store: selectedStore,
-                    contextQuery: activeContext
+                    contextQuery: activeContext,
+                    sessionId: activeSid,
+                    deviceId: SupabaseManager.shared.deviceId,
+                    preferredSize: prefSize.isEmpty ? nil : prefSize
                 )
                 await MainActor.run {
+                    if let returnedSid = smartRes.session_id, !returnedSid.isEmpty {
+                        self.currentSessionId = returnedSid
+                    }
                     self.errorMessage = nil
                     self.followUpErrorMessage = nil
                     self.smartIntent = smartRes.intent
@@ -2333,7 +2511,7 @@ struct SearchView: View {
                     let isAdvice = smartRes.is_conversational_advice ?? (smartRes.intent?.is_conversational_advice ?? false)
 
                     let newTurn = SearchConversationTurn(
-                        id: UUID().uuidString,
+                        id: smartRes.turn_id ?? UUID().uuidString,
                         query: query,
                         isFollowUp: isFollowUp,
                         isConversationalAdvice: isAdvice,
@@ -2379,6 +2557,9 @@ struct SearchView: View {
                     }
                     self.isSmartSearchActive = true
                     self.isLoading = false
+                    Task {
+                        await self.loadSavedChatSessions()
+                    }
                 }
             } catch {
                 if !isFollowUp {
@@ -2442,7 +2623,8 @@ struct SearchView: View {
                         maxPrice: overrideMaxPrice,
                         size: selectedSize,
                         store: selectedStore,
-                        contextQuery: activeContext
+                        contextQuery: activeContext,
+                        sessionId: activeSid
                     ) {
                         await MainActor.run {
                             self.isFollowUpLoading = false

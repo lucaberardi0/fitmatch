@@ -946,6 +946,159 @@ SPORTS_KNOWLEDGE = {
             "Confronta caschi Kask e POC",
             "Mostrami caschi sotto 100 euro"
         ]
+    },
+    "stability_pronation": {
+        "models": [
+            "asics kayano", "asics gt-2000", "brooks adrenaline",
+            "saucony guide", "hoka arahi", "mizuno wave inspire", "nike structure"
+        ],
+        "label": "Stabilità & Antipronazione",
+        "category": "running_shoes",
+        "description": "Scarpe con supporto mediale e geometrie stabili per controllare l'iperpronazione e sostenere i piedi piatti.",
+        "conversational_summary": "Per chi soffre di **iperpronazione o piedi piatti** servono scarpe da **stabilità con guida progressiva dell'appoggio** che evitino il collasso interno della caviglia. Ecco i modelli di riferimento:",
+        "sections": [
+            {
+                "id": "sec_max_stability",
+                "title": "Massima Stabilità & Supporto",
+                "subtitle": "Tecnologie 3D Guidance, GuideRails e J-Frame per lunghi chilometri in sicurezza.",
+                "keywords": ["kayano", "adrenaline", "arahi"]
+            },
+            {
+                "id": "sec_light_stability",
+                "title": "Stabilità Dinamica & Daily",
+                "subtitle": "Supporto equilibrato e transizioni fluide per allenamenti quotidiani.",
+                "keywords": ["gt-2000", "guide", "wave inspire", "structure"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Asics Gel-Kayano 31",
+                "ideal_for": "Iperpronazione moderata o severa e lunghi",
+                "strengths": "4D Guidance System e PureGEL ad alta protezione",
+                "target_keyword": "kayano"
+            },
+            {
+                "model_name": "Brooks Adrenaline GTS 24",
+                "ideal_for": "Supporto intelligente non invasivo",
+                "strengths": "Sistema GuideRails protettivo per ginocchia e caviglie",
+                "target_keyword": "adrenaline"
+            },
+            {
+                "model_name": "Hoka Arahi 7",
+                "ideal_for": "Stabilità leggera con massimo comfort",
+                "strengths": "Tecnologia J-Frame e geometria Meta-Rocker",
+                "target_keyword": "arahi"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "kayano",
+            "badge_text": "Top Stabilità",
+            "highlights": [
+                "Sistema adattivo anti-pronazione non rigido",
+                "Ottima stabilità torsionale per archi plantari bassi",
+                "Miglior prezzo confrontato tra più negozi partner"
+            ]
+        },
+        "follow_ups": [
+            "Confronta Asics Kayano e Brooks Adrenaline",
+            "Mostrami scarpe stabili sotto 130 euro",
+            "Vanno bene anche per camminata veloce?"
+        ]
+    },
+    "trekking_hiking": {
+        "models": [
+            "salomon x ultra", "la sportiva ultra raptor", "salomon quest",
+            "scarpa mojito", "salewa", "adidas terrex"
+        ],
+        "label": "Trekking & Escursionismo",
+        "category": "trail_running",
+        "description": "Scarpe e scarponcini da trekking e montagna con suole aderenti e protezione impermeabile.",
+        "conversational_summary": "Per escursioni in montagna, ferrate o sentieri alpini ti consiglio calzature da **trekking e avvicinamento** con battistrada Vibram/Contagrip e protezione anti-roccia:",
+        "sections": [
+            {
+                "id": "sec_fast_hiking",
+                "title": "Fast Hiking & Avvicinamento",
+                "subtitle": "Leggerezza e precisione su roccia e sentieri alpini.",
+                "keywords": ["x ultra", "ultra raptor", "terrex"]
+            },
+            {
+                "id": "sec_alpine_boots",
+                "title": "Trekking Strutturato & Montagna",
+                "subtitle": "Sostegno della caviglia e resistenza su terreni tecnici.",
+                "keywords": ["quest", "mojito", "salewa"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Salomon X Ultra 4 GTX",
+                "ideal_for": "Escursionismo veloce e terreni misti",
+                "strengths": "Telaio ADV-C e membrana Gore-Tex impermeabile",
+                "target_keyword": "x ultra"
+            },
+            {
+                "model_name": "La Sportiva Ultra Raptor II",
+                "ideal_for": "Sentieri alpini tecnici e lunghe percorrenze",
+                "strengths": "Mescola FriXion ad altissima tenuta su roccia",
+                "target_keyword": "ultra raptor"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "x ultra",
+            "badge_text": "Top Escursionismo",
+            "highlights": [
+                "Stabilità laterale avanzata in discesa",
+                "Suola Contagrip per roccia e fango",
+                "Disponibilità multi-negozio al miglior prezzo"
+            ]
+        },
+        "follow_ups": [
+            "Mostrami modelli da trekking in Gore-Tex",
+            "Alternative sotto 140 euro",
+            "Filtra per la mia taglia"
+        ]
+    },
+    "recovery_slides": {
+        "models": ["hoka ora recovery", "hoka ora", "salomon reelax", "nike calm"],
+        "label": "Ciabatte & Recupero Post-Corsa",
+        "category": "shoes",
+        "description": "Sandali e ciabatte anatomiche ad alta ammortizzazione per rigenerare i piedi dopo corse e gare.",
+        "conversational_summary": "Dopo allenamenti intensi o gare, le **ciabatte da recupero anatomiche** riducono lo stress su fascia plantare e tendine d'Achille:",
+        "sections": [
+            {
+                "id": "sec_recovery_footwear",
+                "title": "Recupero Post-Gara & Fascia Plantare",
+                "subtitle": "Suole sovradimensionate con supporto dell'arco plantare.",
+                "keywords": ["ora", "reelax", "calm"]
+            }
+        ],
+        "spec_comparisons": [
+            {
+                "model_name": "Hoka Ora Recovery Slide 3",
+                "ideal_for": "Massimo sollievo dopo lunghi e maratone",
+                "strengths": "Intersuola a doppia densità con Meta-Rocker",
+                "target_keyword": "hoka ora"
+            },
+            {
+                "model_name": "Salomon Reelax Slide 6.0",
+                "ideal_for": "Defaticamento muscolare e relax quotidiano",
+                "strengths": "Schiuma Fuze Foam morbida e tomaia traspirante",
+                "target_keyword": "reelax"
+            }
+        ],
+        "spotlight": {
+            "target_keyword": "hoka ora",
+            "badge_text": "Top Recovery",
+            "highlights": [
+                "Geometria anatomica che scarica il tallone",
+                "Intersuola morbida ideale post-allenamento",
+                "Miglior prezzo online verificato"
+            ]
+        },
+        "follow_ups": [
+            "Mostrami modelli sotto 50 euro",
+            "Cerco nella mia taglia",
+            "Scarpe max cushioning per correre"
+        ]
     }
 }
 
@@ -2309,6 +2462,48 @@ class FitMatchSportsAdvisor:
             follow = ["Ha il display AMOLED?", "Quanto dura la batteria?", "Supporta la musica offline?"]
             return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": "Garmin", "category": "gps_watch"}
 
+        # 10b. Protezione Articolare / Ginocchia / Schiena / Peso Elevato
+        if re.search(r"\b(ginocchi[ao]|schiena|fascite|tendinit[ei]|periostite|dolor[ei]|articolazion[ei]|peso|\d{2,3}\s*kg)\b", q):
+            header = f"Protezione & Biomeccanica {sub}"
+            if arch == "max_cushion" or any(m in sub.lower() for m in ("nimbus", "bondi", "glycerin", "kayano", "invincible", "clifton")):
+                ans = (
+                    f"Sì, le **{sub}** sono tra le scarpe più indicate per **proteggere ginocchia, schiena e articolazioni**.\n\n"
+                    "• **Alto Assorbimento d'Impatto**: L'intersuola generosa disperde efficacemente lo shock dell'appoggio sul tallone e sul mesopiede, riducendo lo stress meccanico anche per runner sopra gli 80-85 kg.\n"
+                    "• **Consiglio**: Se soffri di iperpronazione abbinata a dolori articolari, valuta anche modelli con guida stabile come **Asics Gel-Kayano 31** o **Brooks Adrenaline GTS**."
+                )
+            elif "zoom fly" in sub.lower() or "vaporfly" in sub.lower() or "alphafly" in sub.lower():
+                ans = (
+                    f"Le **{sub}** montano una piastra in carbonio rigida orientata alla velocità: ammortizzano bene grazie alla schiuma, ma sollecitano di più polpacci e tendine d'Achille rispetto a una scarpa tradizionale.\n\n"
+                    "• Se cerchi la **massima protezione per ginocchia e schiena** nei lenti quotidiani, meglio affiancarle a una max-cushion come **Asics Gel-Nimbus 26** o **Hoka Bondi 8**."
+                )
+            else:
+                ans = (
+                    f"Le **{sub}** offrono una buona protezione quotidiana su asfalto. Se vuoi massimizzare la tutela articolare o corri con un peso superiore a 80 kg, punta su scarpe a **massimo ammortizzamento** (*max cushion*)."
+                )
+            follow = ["Mostrami scarpe con massimo ammortizzamento", "Vanno bene per pronatori?", "Come calzano?"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
+        # 10c. Pioggia / Impermeabilità / Inverno / Gore-Tex
+        if re.search(r"\b(pioggi[ae]|bagnat[oa]|acqua|impermeabil[ei]|gore[\s-]*tex|gtx|invern[oa]|fredd[oa]|neve)\b", q):
+            header = f"Protezione Pioggia & Inverno {sub}"
+            ans = (
+                f"La versione standard delle **{sub}** privilegia la **traspirabilità** con tomaia in mesh aperto, quindi non è impermeabile sotto pioggia battente.\n\n"
+                "• **Soluzione Pioggia**: Se corri spesso su asfalto bagnato, fango o in inverno, scegli la variante **GTX (Gore-Tex)** o **Shield** dello stesso modello (es. *Pegasus Trail GTX*, *Cumulus GTX* o *Cascadia GTX*) che mantiene il piede asciutto e caldo.\n"
+                "• **Grip sul Bagnato**: Valuta battistrada ad alta aderenza (*Continental* su Adidas, *Vibram Megagrip* su Hoka/La Sportiva o *PumaGrip*)."
+            )
+            follow = ["Mostrami versioni Gore-Tex impermeabili", "Mostrami scarpe da trail impermeabili", "Giacche running antipioggia"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, f"{subject_kw} gtx"], "brand": b, "category": "running_shoes"}
+
+        # 10d. Estate / Caldo / Traspirabilità
+        if re.search(r"\b(estat[ei]|estiv[ae]|cald[oa]|af[ao]|sudor[ei]|traspirant[ei])\b", q):
+            header = f"Traspirabilità Estiva {sub}"
+            ans = (
+                f"Sì, le **{sub}** gestiscono molto bene il caldo estivo grazie alla **tomaia in engineered mesh traforato**, che favorisce il ricambio d'aria e limita il surriscaldamento del piede.\n\n"
+                "• **Tip per l'estate**: Abbinale a calze tecniche sottili in filato Coolmax/Dryarn e considera che col caldo il piede tende a gonfiarsi leggermente sui lunghi."
+            )
+            follow = ["Come calzano?", "Calze running traspiranti", "Maglie tecniche estive"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
+
         # 11. General Fallback Expert Advice
         if is_apparel:
             header = f"Info {sub}"
@@ -2529,6 +2724,11 @@ class LocalHeuristicParser:
             archetype_key = "cycling"
         elif re.search(r"\b(casco|caschi|kask|poc|abus)\b", text):
             archetype_key = "gear"
+        elif re.search(r"\b(recovery\s*slide|ciabatt[ae]\s*(?:recovery|recupero|post)|sandal[oi]\s*(?:recovery|recupero)|ora\s*recovery|reelax)\b", text):
+            archetype_key = "recovery_slides"
+        elif re.search(r"\b(trekking|escursionism[oa]|hiking|scarpon[ei]|scarponcin[oi]|montagna\s+escurs|via\s*ferrata|avvicinamento|x\s*ultra|ultra\s*raptor|mojito)\b", text):
+            archetype_key = "trekking_hiking"
+            features.append("trail")
         elif re.search(r"\b(trail|sterrato|fango|montagna|sentier[oi]|bosco)\b", text):
             archetype_key = "trail_running"
             features.append("trail")
@@ -2547,6 +2747,9 @@ class LocalHeuristicParser:
                     detected_brand = "Reebok"
                 elif "tribase" in text:
                     detected_brand = "Under Armour"
+        elif re.search(r"\b(pronazion[ei]|pronator[ei]|iperpronazion[ei]|antipronazion[ei]|pied[ei]\s*piatt[oi]|arco\s*basso|stabilit[aà]|supporto\s*mediale|kayano|adrenaline|gt[\s-]*2000|arahi|wave\s*inspire|structure\s*2\d)\b", text):
+            archetype_key = "stability_pronation"
+            features.append("stability")
         elif re.search(r"\b(alphafly|vaporfly|streakfly|zoom\s*fly|zoomfly|metaspeed|adizero|endorphin|veloc[ei]|reattiv[ae]|gara|maratona|mezza|ripetute|piastra|carbonio)\b", text):
             archetype_key = "speed_race"
             features.append("racing")
@@ -2558,9 +2761,29 @@ class LocalHeuristicParser:
             archetype_key = "max_cushion"
             features.append("cushioning")
 
-        # Context-aware archetype inheritance for follow-up conversational queries
+        # Context-aware archetype & cumulative constraint inheritance across multi-turn chats
         if has_context:
-            is_relative = bool(re.search(r"\b(alternative|modelli|prestazioni|funzionalit|funzioni|sotto|meno|max|confronta|altri|altre|economici|economiche|miglior|scelta|smartwatch)\b", text))
+            prev_turns = [part.strip() for part in ctx_text.split(">>") if part.strip()]
+            inherited = ConversationContextMerger.extract_cumulative_constraints(prev_turns)
+
+            # Inherit filters from earlier turns when omitted in the current follow-up
+            if not detected_brand and inherited.get("brand"):
+                # Don't force a different brand if current turn names a specific model
+                if not re.search(r"\b(pegasus|vomero|nimbus|kayano|clifton|bondi|speedgoat|ghost|glycerin|adrenaline|adizero|forerunner|fenix)\b", text):
+                    detected_brand = inherited["brand"]
+            if not gender and inherited.get("gender"):
+                gender = inherited["gender"]
+            if max_price is None and inherited.get("max_price") is not None:
+                # Only keep previous max_price unless current turn removes budget ("senza limiti", "qualsiasi prezzo")
+                if not re.search(r"\b(senza\s*limiti|qualsiasi\s*prezzo|top\s*di\s*gamma)\b", text):
+                    max_price = inherited["max_price"]
+            if min_price is None and inherited.get("min_price") is not None:
+                min_price = inherited["min_price"]
+            if size is None and inherited.get("size"):
+                if not re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", text):
+                    size = inherited["size"]
+
+            is_relative = bool(re.search(r"\b(alternative|modelli|prestazioni|funzionalit|funzioni|sotto|meno|max|confronta|altri|altre|economici|economiche|miglior|scelta|smartwatch|taglia|numero|misura|uomo|donna|pioggia|gtx)\b", text))
             if is_relative or archetype_key == "daily_trainer":
                 if re.search(r"\b(garmin|forerunner|fenix|instinct|epix|venu|smartwatch|orologi|sportwatch|gps|cardio|polar|suunto|coros)\b", ctx_text):
                     archetype_key = "gps_watch"
@@ -2572,8 +2795,14 @@ class LocalHeuristicParser:
                     archetype_key = "running_apparel_long_sleeve"
                 elif re.search(r"\bhyrox\b", ctx_text):
                     archetype_key = "hyrox"
+                elif re.search(r"\b(trekking|escursionism|hiking|x\s*ultra|ultra\s*raptor)\b", ctx_text):
+                    archetype_key = "trekking_hiking"
                 elif re.search(r"\b(trail|sterrato)\b", ctx_text):
                     archetype_key = "trail_running"
+                elif re.search(r"\b(pronazion|pronator|antipronazion|piedi\s*piatti|kayano|adrenaline|arahi)\b", ctx_text):
+                    archetype_key = "stability_pronation"
+                elif inherited.get("archetype_key") and archetype_key == "daily_trainer":
+                    archetype_key = inherited["archetype_key"]
 
         arch = SPORTS_KNOWLEDGE[archetype_key]
         category = arch["category"]
@@ -2621,6 +2850,13 @@ class LocalHeuristicParser:
             ]
             if tokens and len(tokens) >= 2 and archetype_key in ("daily_trainer", "running_shorts", "running_pants", "running_apparel") and not detected_brand:
                 target_keywords = [" ".join(tokens), tokens[0]]
+            elif archetype_key not in ("daily_trainer",) and detected_brand and any(detected_brand.lower() in m for m in arch.get("models", [])):
+                brand_lower = detected_brand.lower()
+                candidate_models = [m for m in arch["models"] if brand_lower in m]
+                if is_waterproof and category in ("running_shoes", "trail_running"):
+                    target_keywords = [f"{m} gtx" for m in candidate_models[:3]] + candidate_models[:4]
+                else:
+                    target_keywords = candidate_models[:6]
             elif tokens and detected_brand:
                 non_brand_tokens = [t for t in tokens if t != detected_brand.lower()]
                 if non_brand_tokens:
@@ -2633,7 +2869,7 @@ class LocalHeuristicParser:
                     brand_lower = detected_brand.lower()
                     filtered = [m for m in candidate_models if brand_lower in m]
                     candidate_models = filtered if filtered else [f"{detected_brand.lower()}"]
-                if is_waterproof and category == "running_shoes":
+                if is_waterproof and category in ("running_shoes", "trail_running"):
                     target_keywords = [f"{m} gtx" for m in candidate_models[:3]] + candidate_models[:2]
                 else:
                     target_keywords = candidate_models[:8]
@@ -3471,6 +3707,114 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
         return None
 
 
+class ConversationContextMerger:
+    """Extracts and merges structured constraints across multi-turn chat queries and stored session state."""
+
+    @staticmethod
+    def extract_turn_constraints(turn_text: str) -> Dict[str, Any]:
+        t = LocalHeuristicParser.normalize_typos(turn_text.strip().lower())
+        out: Dict[str, Any] = {}
+
+        max_m = re.search(r"(?:sotto\s*i?|meno\s*di|max|massimo|budget\s*di?|fino\s*a)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?", t)
+        if max_m:
+            out["max_price"] = float(max_m.group(1).replace(",", "."))
+
+        min_m = re.search(r"(?:sopra\s*i?|più\s*di|minimo|almeno)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?", t)
+        if min_m:
+            out["min_price"] = float(min_m.group(1).replace(",", "."))
+
+        sz_m = re.search(r"(?:taglia|numero|misura|porto\s*(?:il|la)?)\s*([0-9]{2}(?:[\.,][0-9])?|[xXsSmMlL]{1,3})", t)
+        if sz_m:
+            out["size"] = sz_m.group(1).replace(",", ".").upper()
+
+        if re.search(r"\b(donna|ragazza|femmin[eia]|wmns?|women)\b", t):
+            out["gender"] = "Donna"
+        elif re.search(r"\b(uomo|ragazzo|maschil[eia]|mens?|men)\b", t):
+            out["gender"] = "Uomo"
+
+        for b in KNOWN_BRANDS:
+            if re.search(rf"\b{re.escape(b)}\b", t):
+                if "maison margiela" in b or "margiela" in b:
+                    out["brand"] = "Maison Margiela"
+                elif "new balance" in b or "new-balance" in b:
+                    out["brand"] = "New-balance"
+                else:
+                    out["brand"] = b.capitalize()
+                break
+
+        if re.search(r"\b(pronazion[ei]|pronator[ei]|iperpronazion[ei]|antipronazion[ei]|pied[ei]\s*piatt[oi]|kayano|adrenaline|arahi)\b", t):
+            out["archetype_key"] = "stability_pronation"
+        elif re.search(r"\b(trekking|escursionism[oa]|hiking|scarponcin|x\s*ultra|ultra\s*raptor)\b", t):
+            out["archetype_key"] = "trekking_hiking"
+        elif re.search(r"\b(trail|sterrato|fango|montagna|sentier)\b", t):
+            out["archetype_key"] = "trail_running"
+        elif re.search(r"\bhyrox\b", t):
+            out["archetype_key"] = "hyrox"
+        elif re.search(r"\b(dropset|metcon|nano|palestra|pesi|crossfit)\b", t):
+            out["archetype_key"] = "gym_training"
+        elif re.search(r"\b(ammortizzat|nimbus|bondi|glycerin|clifton|vomero|invincible|ginocchi|schiena)\b", t):
+            out["archetype_key"] = "max_cushion"
+        elif re.search(r"\b(alphafly|vaporfly|adizero|endorphin|metaspeed|maratona|gara|carbonio)\b", t):
+            out["archetype_key"] = "speed_race"
+        elif re.search(r"\b(garmin|forerunner|fenix|instinct|smartwatch|orolog)\b", t):
+            out["archetype_key"] = "gps_watch"
+
+        return out
+
+    @classmethod
+    def extract_cumulative_constraints(cls, turn_queries: Any, base_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        merged: Dict[str, Any] = dict(base_context or {})
+        turns = [p.strip() for p in turn_queries.split(">>") if p.strip()] if isinstance(turn_queries, str) else list(turn_queries or [])
+        for q in turns:
+            c = cls.extract_turn_constraints(q)
+            for k, v in c.items():
+                if v is not None:
+                    merged[k] = v
+        return merged
+
+    @classmethod
+    def apply_to_intent(
+        cls,
+        intent: SmartSearchIntent,
+        user_query: str,
+        context_query: Optional[str] = None,
+        session_context: Optional[Dict[str, Any]] = None,
+    ) -> SmartSearchIntent:
+        turns = [p.strip() for p in (context_query or "").split(">>") if p.strip()]
+        if not turns and not session_context:
+            return intent
+
+        inherited = cls.extract_cumulative_constraints(turns, base_context=session_context)
+        cur_text = LocalHeuristicParser.normalize_typos(user_query.strip().lower())
+
+        if not intent.brand and inherited.get("brand"):
+            if not re.search(r"\b(pegasus|vomero|nimbus|kayano|clifton|bondi|speedgoat|ghost|glycerin|adrenaline|adizero|forerunner|fenix)\b", cur_text):
+                intent.brand = inherited["brand"]
+        if not intent.gender and inherited.get("gender"):
+            intent.gender = inherited["gender"]
+        if intent.max_price is None and inherited.get("max_price") is not None:
+            if not re.search(r"\b(senza\s*limiti|qualsiasi\s*prezzo|top\s*di\s*gamma)\b", cur_text):
+                intent.max_price = float(inherited["max_price"])
+        if intent.min_price is None and inherited.get("min_price") is not None:
+            intent.min_price = float(inherited["min_price"])
+        if not intent.size and inherited.get("size"):
+            if not re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", cur_text):
+                intent.size = str(inherited["size"])
+
+        # Rebuild chips so UI reflects merged constraints cleanly
+        existing_keys = {c.param_key for c in (intent.chips or [])}
+        if intent.max_price is not None and "max_price" not in existing_keys:
+            intent.chips.append(SmartSearchChip(id="price", label=f"Max €{intent.max_price:.0f}", param_key="max_price", value=str(intent.max_price)))
+        if intent.size and "size" not in existing_keys:
+            intent.chips.append(SmartSearchChip(id="size", label=f"Taglia {intent.size}", param_key="size", value=str(intent.size)))
+        if intent.gender and "gender" not in existing_keys:
+            intent.chips.append(SmartSearchChip(id="gender", label=intent.gender, param_key="gender", value=intent.gender))
+        if intent.brand and "brand" not in existing_keys:
+            intent.chips.append(SmartSearchChip(id="brand", label=intent.brand, param_key="brand", value=intent.brand))
+
+        return intent
+
+
 class SmartSearchEngine:
     """Unified coordinator with dual-engine AI parser, enterprise multi-tier LRU/TTL cache, and SQL aggregator."""
 
@@ -3479,7 +3823,27 @@ class SmartSearchEngine:
         self.model = model or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
         self.cache_manager = cache_manager or SearchCacheManager.get_instance()
 
-    def parse_query(self, user_query: str, force_mode: Optional[str] = None, context_query: Optional[str] = None) -> SmartSearchIntent:
+    @staticmethod
+    def is_complex_natural_query(user_query: str) -> bool:
+        """Detect nuanced, biomechanical, or multi-constraint natural language queries that benefit from LLM."""
+        q = user_query.strip().lower()
+        words = q.split()
+        if len(words) < 7:
+            return False
+        complex_markers = (
+            r"\b(\d{2,3}\s*kg|chili|mal\s*di\s*schiena|ginocchi[oa]|fascite|tendinite|periostite|"
+            r"passo\s*(?:di|da|al)?\s*\d|min/km|sterrato\s*e\s*asfalto|asfalto\s*e\s*sterrato|"
+            r"misto\s*asfalto|indecis[oa]|cosa\s*mi\s*consigli|consigliami\s*tra|perch[eé]\s*scegliere)\b"
+        )
+        return bool(re.search(complex_markers, q))
+
+    def parse_query(
+        self,
+        user_query: str,
+        force_mode: Optional[str] = None,
+        context_query: Optional[str] = None,
+        session_context: Optional[Dict[str, Any]] = None,
+    ) -> SmartSearchIntent:
         # 0. Deterministic Security & Relevance Guardrail Pre-Check (Zero latency, full defense)
         security_eval = QuerySecurityGuardrail.evaluate(user_query, context=context_query)
         if security_eval and security_eval.get("is_blocked"):
@@ -3487,36 +3851,55 @@ class SmartSearchEngine:
 
         # 1. Check Multi-Tier Cache (L1 Memory LRU / L2 Disk Persistence)
         cache_lookup_query = f"{context_query.strip()} >> {user_query.strip()}" if context_query and context_query.strip() else user_query
+        if session_context:
+            ctx_sig = json.dumps(
+                {k: session_context.get(k) for k in ("brand", "gender", "max_price", "min_price", "size", "category") if session_context.get(k) is not None},
+                sort_keys=True,
+            )
+            cache_lookup_query = f"{cache_lookup_query} || {ctx_sig}"
+
         cached_data = self.cache_manager.get_intent(cache_lookup_query, force_mode=force_mode)
         if cached_data:
             try:
                 cached_intent = SmartSearchIntent.model_validate(cached_data)
+                cached_intent = ConversationContextMerger.apply_to_intent(
+                    cached_intent, user_query=user_query, context_query=context_query, session_context=session_context
+                )
                 return QueryProductGuardrail.sanitize_intent(cached_intent, user_query=user_query, context_query=context_query)
             except Exception as e:
                 logger.debug("Failed to re-validate cached intent: %s", e)
 
         # 2. Ultra-Fast Local Athletic NLP Engine (Zero latency: ~3ms)
         local_intent = LocalHeuristicParser.parse(user_query=user_query, force_mode=force_mode, context_query=context_query)
+        local_intent = ConversationContextMerger.apply_to_intent(
+            local_intent, user_query=user_query, context_query=context_query, session_context=session_context
+        )
 
-        # Determine if local intent is sufficiently decisive to skip slow remote LLM calls
-        has_context = bool(context_query and context_query.strip())
+        # Determine if local intent is sufficiently decisive to skip remote LLM calls
+        has_context = bool((context_query and context_query.strip()) or session_context)
+        is_complex_nl = self.is_complex_natural_query(user_query)
+
         is_confident_context = has_context and (
             local_intent.is_conversational_advice or
             local_intent.max_price is not None or
+            local_intent.size is not None or
+            local_intent.gender is not None or
             local_intent.category in ("gps_watch", "cycling", "top", "jacket", "pants", "fitness") or
-            bool(re.search(r"\b(alternative|modelli|prestazioni|funzionalit|funzioni|sotto|econom|confronta|miglior|scelta|smartwatch|orologi)\b", user_query.lower()))
+            bool(re.search(r"\b(alternative|modelli|prestazioni|funzionalit|funzioni|sotto|econom|confronta|miglior|scelta|smartwatch|orologi|taglia|numero|uomo|donna)\b", user_query.lower()))
         )
 
         is_confident_local = (
-            local_intent.is_conversational_advice or
-            local_intent.brand is not None or
-            local_intent.max_price is not None or
-            local_intent.min_price is not None or
-            local_intent.size is not None or
-            local_intent.gender is not None or
-            bool(local_intent.features) or
-            local_intent.category != "running_shoes" or
-            bool(re.search(r"\b(hyrox|palestra|maratona|gara|trail|ammortizzat|carbonio|piastra|adizero|dropset|metcon|nano|alphafly|vaporfly|vomero|pegasus|nimbus|clifton|bondi|ghost|speedgoat|forerunner|fenix|instinct|novablast|superblast|endorphin|sutro|radar|vertex|hack|at10|long\s*sleeve|antivento|termic|giacc|magli|pantaloncin|garmin|coros|polar|suunto|smartwatch|orologi)\b", user_query.lower()))
+            not is_complex_nl and (
+                local_intent.is_conversational_advice or
+                local_intent.brand is not None or
+                local_intent.max_price is not None or
+                local_intent.min_price is not None or
+                local_intent.size is not None or
+                local_intent.gender is not None or
+                bool(local_intent.features) or
+                local_intent.category != "running_shoes" or
+                bool(re.search(r"\b(hyrox|palestra|maratona|gara|trail|trekking|pronazion|pronator|ammortizzat|carbonio|piastra|adizero|dropset|metcon|nano|alphafly|vaporfly|vomero|pegasus|nimbus|kayano|adrenaline|arahi|clifton|bondi|ghost|speedgoat|forerunner|fenix|instinct|novablast|superblast|endorphin|sutro|radar|vertex|hack|at10|long\s*sleeve|antivento|termic|giacc|magli|pantaloncin|garmin|coros|polar|suunto|smartwatch|orologi)\b", user_query.lower()))
+            )
         )
 
         intent = None
@@ -3531,6 +3914,21 @@ class SmartSearchEngine:
                     force_mode=force_mode,
                     context_query=context_query
                 )
+                if intent:
+                    # Fuse deterministic hard constraints extracted locally so LLM never drops explicit brand/price/size/gender
+                    if local_intent.brand and not intent.brand:
+                        intent.brand = local_intent.brand
+                    if local_intent.gender and not intent.gender:
+                        intent.gender = local_intent.gender
+                    if local_intent.max_price is not None and intent.max_price is None:
+                        intent.max_price = local_intent.max_price
+                    if local_intent.min_price is not None and intent.min_price is None:
+                        intent.min_price = local_intent.min_price
+                    if local_intent.size and not intent.size:
+                        intent.size = local_intent.size
+                    intent = ConversationContextMerger.apply_to_intent(
+                        intent, user_query=user_query, context_query=context_query, session_context=session_context
+                    )
             except Exception as ex:
                 logger.warning(f"OpenRouterParser error: {ex}")
 
@@ -3539,7 +3937,7 @@ class SmartSearchEngine:
 
         if intent:
             intent = QueryProductGuardrail.sanitize_intent(intent, user_query=user_query, context_query=context_query)
-            # 2. Store in Multi-Tier Cache with 7-day TTL (only if not off-topic/unsafe)
+            # Store in Multi-Tier Cache with 7-day TTL (only if not off-topic/unsafe)
             if not intent.is_off_topic and not intent.is_unsafe:
                 self.cache_manager.set_intent(cache_lookup_query, force_mode=force_mode, intent_data=intent)
 

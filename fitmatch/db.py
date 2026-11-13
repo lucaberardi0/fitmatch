@@ -210,6 +210,44 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_store ON affiliate_clicks(store_id);
                 CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_created ON affiliate_clicks(created_at);
 
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id TEXT PRIMARY KEY,
+                    device_id TEXT NOT NULL DEFAULT 'default_device',
+                    user_id TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'smart_search',
+                    title TEXT NOT NULL,
+                    subtitle TEXT,
+                    preview_image_url TEXT,
+                    turn_count INTEGER NOT NULL DEFAULT 1,
+                    context_state TEXT DEFAULT '{}',
+                    is_archived INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    turn_index INTEGER NOT NULL DEFAULT 0,
+                    query TEXT NOT NULL,
+                    is_follow_up INTEGER NOT NULL DEFAULT 0,
+                    is_conversational_advice INTEGER NOT NULL DEFAULT 0,
+                    conversational_header TEXT,
+                    conversational_summary TEXT,
+                    intent_json TEXT DEFAULT '{}',
+                    chips_json TEXT DEFAULT '[]',
+                    results_snapshot_json TEXT DEFAULT '{}',
+                    follow_up_suggestions_json TEXT DEFAULT '[]',
+                    user_feedback INTEGER,
+                    is_off_topic INTEGER NOT NULL DEFAULT 0,
+                    is_unsafe INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_chat_sessions_device_updated ON chat_sessions(device_id, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_chat_messages_session_turn ON chat_messages(session_id, turn_index);
+
                 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand);
                 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
                 CREATE INDEX IF NOT EXISTS idx_offers_product_id ON store_offers(product_id);
@@ -953,7 +991,9 @@ class Database:
         size: Optional[str] = None,
         store_id: Optional[str] = None,
         limit: int = 30,
-        raw_query: Optional[str] = None
+        raw_query: Optional[str] = None,
+        preferred_size: Optional[str] = None,
+        favorite_brands: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Smart AI-powered SQL retrieval matching multiple candidate models, price bounds and filters."""
         if self.use_supabase and self.supabase:
@@ -968,19 +1008,22 @@ class Database:
                     size=size,
                     store_id=store_id,
                     limit=limit,
-                    raw_query=raw_query
+                    raw_query=raw_query,
+                    preferred_size=preferred_size,
+                    favorite_brands=favorite_brands,
                 )
             except Exception as e:
                 import traceback
                 logger.error(f"[Database] Error search_smart from Supabase: {e}\n{traceback.format_exc()}")
 
         from fitmatch.models import STORE_SHIPPING_RULES
+        import re as _re
 
         with self.get_connection() as conn:
             where_clauses = []
             params: List[Any] = []
 
-            # 1. Target Keywords matching (OR across candidate model archetypes)
+            # 1. Target Keywords matching (OR across candidate model archetypes, matching canonical_name, brand OR raw_title)
             if target_keywords:
                 kw_conditions = []
                 for kw in target_keywords:
@@ -989,7 +1032,7 @@ class Database:
                         continue
                     word_conds = []
                     for w in words:
-                        word_conds.append("(LOWER(p.canonical_name || ' ' || COALESCE(p.brand, '')) LIKE ?)")
+                        word_conds.append("(LOWER(p.canonical_name || ' ' || COALESCE(p.brand, '') || ' ' || COALESCE(o.raw_title, '')) LIKE ?)")
                         params.append(f"%{w}%")
                     kw_conditions.append("(" + " AND ".join(word_conds) + ")")
                 if kw_conditions:
@@ -1001,10 +1044,12 @@ class Database:
                 params.append(f"%{brand.lower()}%")
                 params.append(f"%{brand.lower()}%")
 
-            # 3. Category Filter
+            # 3. Category Filter with category equivalents
             if category and category.lower() not in ("all", "tutti"):
-                where_clauses.append("p.category = ?")
-                params.append(category.lower())
+                cat_eq = SupabaseClient.CATEGORY_EQUIVALENTS.get(category.lower(), [category.lower()])
+                placeholders = ",".join("?" for _ in cat_eq)
+                where_clauses.append(f"LOWER(p.category) IN ({placeholders})")
+                params.extend(c.lower() for c in cat_eq)
 
             # 4. Gender Filter
             if gender and gender.lower() in ("donna", "uomo"):
@@ -1045,7 +1090,7 @@ class Database:
                 ORDER BY (MAX(o.current_price) - MIN(o.current_price)) DESC, best_price ASC
                 LIMIT ?
             """
-            params.append(limit)
+            params.append(max(limit * 2, 50))
             cur = conn.execute(sql, params)
             products = [dict(r) for r in cur.fetchall()]
 
@@ -1054,8 +1099,10 @@ class Database:
                 fb_clauses = []
                 fb_params: List[Any] = []
                 if category and category.lower() not in ("all", "tutti"):
-                    fb_clauses.append("p.category = ?")
-                    fb_params.append(category.lower())
+                    cat_eq = SupabaseClient.CATEGORY_EQUIVALENTS.get(category.lower(), [category.lower()])
+                    placeholders = ",".join("?" for _ in cat_eq)
+                    fb_clauses.append(f"LOWER(p.category) IN ({placeholders})")
+                    fb_params.extend(c.lower() for c in cat_eq)
                 if brand:
                     fb_clauses.append("LOWER(COALESCE(p.brand, '')) LIKE ?")
                     fb_params.append(f"%{brand.lower()}%")
@@ -1114,7 +1161,30 @@ class Database:
                 else:
                     prod["cross_store_savings"] = 0.0
 
-            return products
+                # Relevance score for SQLite ranking alignment
+                pname = (prod.get("canonical_name") or "").lower()
+                pbrand = (prod.get("brand") or "").lower()
+                rel = 0.0
+                for idx, kw in enumerate(target_keywords or []):
+                    kw_low = kw.lower().strip()
+                    if not kw_low:
+                        continue
+                    mult = 1.5 if idx == 0 else (1.2 if idx < 3 else 1.0)
+                    if _re.search(rf"\b{_re.escape(kw_low)}\b", pname):
+                        rel += 120.0 * mult
+                    for tok in kw_low.split():
+                        if tok in pname or tok in pbrand:
+                            rel += 25.0 * mult
+                            if tok.isdigit():
+                                rel += 45.0
+                rel += len(offers) * 10.0 + min(prod.get("cross_store_savings", 0.0) * 0.2, 20.0)
+                prod["relevance_score"] = rel
+
+            products.sort(
+                key=lambda x: (float(x.get("relevance_score") or 0.0), float(x.get("cross_store_savings") or 0.0)),
+                reverse=True,
+            )
+            return products[:limit]
 
     def get_store_showcases(self, limit_per_store: int = 6) -> List[Dict[str, Any]]:
         """Return curated product highlights for each store (Shop-style merchant showcase)."""
@@ -2196,5 +2266,345 @@ class Database:
                 "by_store": by_store,
                 "recent_clicks": recent,
             }
+
+    # MARK: - Chat Sessions & Messages Persistence
+
+    def save_chat_turn(
+        self,
+        session_id: Optional[str],
+        device_id: str,
+        user_id: Optional[str],
+        chat_type: str,
+        query: str,
+        is_follow_up: bool,
+        response_payload: Dict[str, Any],
+        context_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Save or append a conversation turn in Supabase Cloud and mirror into SQLite."""
+        saved_remote = None
+        if self.use_supabase and self.supabase:
+            try:
+                saved_remote = self.supabase.save_chat_turn(
+                    session_id=session_id,
+                    device_id=device_id,
+                    user_id=user_id,
+                    chat_type=chat_type,
+                    query=query,
+                    is_follow_up=is_follow_up,
+                    response_payload=response_payload,
+                    context_state=context_state,
+                )
+            except Exception as e:
+                logger.warning(f"[Database] Supabase save_chat_turn error: {e}")
+
+        sid = (saved_remote.get("session_id") if saved_remote else None) or SupabaseClient.normalize_uuid(session_id)
+        msg_id = (saved_remote.get("turn_id") if saved_remote else None) or str(uuid.uuid4())
+        did = (device_id or "default_device").strip()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        results = response_payload.get("results") or []
+        spotlight = response_payload.get("spotlight")
+        preview_img = None
+        if isinstance(spotlight, dict) and isinstance(spotlight.get("product"), dict):
+            preview_img = clean_image_url(spotlight["product"].get("image_url"))
+        if not preview_img and results and isinstance(results[0], dict):
+            preview_img = clean_image_url(results[0].get("image_url"))
+
+        snapshot = (
+            saved_remote["message"]["results_snapshot_json"]
+            if saved_remote and isinstance(saved_remote.get("message"), dict)
+            else {
+                "results": SupabaseClient._build_results_snapshot(results, max_items=12),
+                "curated_sections": [
+                    {
+                        "id": sec.get("id", ""),
+                        "title": sec.get("title", ""),
+                        "subtitle": sec.get("subtitle", ""),
+                        "products": SupabaseClient._build_results_snapshot(sec.get("products"), max_items=8),
+                    }
+                    for sec in (response_payload.get("curated_sections") or [])[:4]
+                    if isinstance(sec, dict)
+                ],
+                "comparative_cards": [
+                    {
+                        "product": (SupabaseClient._build_results_snapshot([c.get("product")], max_items=1) or [None])[0],
+                        "model_name": c.get("model_name", ""),
+                        "ideal_for": c.get("ideal_for", ""),
+                        "strengths": c.get("strengths", ""),
+                        "section_title": c.get("section_title"),
+                    }
+                    for c in (response_payload.get("comparative_cards") or [])[:5]
+                    if isinstance(c, dict) and isinstance(c.get("product"), dict)
+                ],
+                "spotlight": (
+                    {
+                        "product": (SupabaseClient._build_results_snapshot([spotlight.get("product")], max_items=1) or [None])[0],
+                        "badge_text": spotlight.get("badge_text"),
+                        "highlights": spotlight.get("highlights") or [],
+                    }
+                    if isinstance(spotlight, dict) and isinstance(spotlight.get("product"), dict)
+                    else None
+                ),
+            }
+        )
+
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT title, turn_count, context_state, preview_image_url FROM chat_sessions WHERE id = ?",
+                (sid,),
+            ).fetchone()
+            if row:
+                turn_idx = int(row["turn_count"] or 0)
+                title = row["title"]
+                try:
+                    merged_ctx = json.loads(row["context_state"] or "{}")
+                except Exception:
+                    merged_ctx = {}
+                if context_state:
+                    for k, v in context_state.items():
+                        if v is not None:
+                            merged_ctx[k] = v
+                eff_preview = preview_img or row["preview_image_url"]
+                conn.execute(
+                    """
+                    UPDATE chat_sessions
+                    SET subtitle = ?, preview_image_url = ?, turn_count = ?, context_state = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        response_payload.get("conversational_header") or query.strip(),
+                        eff_preview,
+                        turn_idx + 1,
+                        json.dumps(merged_ctx),
+                        now_iso,
+                        sid,
+                    ),
+                )
+            else:
+                turn_idx = 0
+                title = query.strip()
+                merged_ctx = {k: v for k, v in (context_state or {}).items() if v is not None}
+                conn.execute(
+                    """
+                    INSERT INTO chat_sessions
+                    (id, device_id, user_id, chat_type, title, subtitle, preview_image_url, turn_count, context_state, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        sid,
+                        did,
+                        user_id,
+                        chat_type or "smart_search",
+                        title,
+                        response_payload.get("conversational_header") or query.strip(),
+                        preview_img,
+                        1,
+                        json.dumps(merged_ctx),
+                        now_iso,
+                        now_iso,
+                    ),
+                )
+
+            conn.execute(
+                """
+                INSERT INTO chat_messages
+                (id, session_id, turn_index, query, is_follow_up, is_conversational_advice,
+                 conversational_header, conversational_summary, intent_json, chips_json,
+                 results_snapshot_json, follow_up_suggestions_json, is_off_topic, is_unsafe, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    msg_id,
+                    sid,
+                    turn_idx,
+                    query.strip(),
+                    1 if is_follow_up else 0,
+                    1 if response_payload.get("is_conversational_advice") else 0,
+                    response_payload.get("conversational_header"),
+                    response_payload.get("conversational_summary"),
+                    json.dumps(response_payload.get("intent") or {}),
+                    json.dumps(response_payload.get("chips") or []),
+                    json.dumps(snapshot),
+                    json.dumps(response_payload.get("follow_up_suggestions") or []),
+                    1 if response_payload.get("is_off_topic") else 0,
+                    1 if response_payload.get("is_unsafe") else 0,
+                    now_iso,
+                ),
+            )
+            conn.commit()
+
+        if saved_remote:
+            return saved_remote
+        return {
+            "session_id": sid,
+            "turn_id": msg_id,
+            "turn_index": turn_idx,
+            "session": {
+                "id": sid,
+                "device_id": did,
+                "user_id": user_id,
+                "chat_type": chat_type or "smart_search",
+                "title": title,
+                "subtitle": response_payload.get("conversational_header") or query.strip(),
+                "preview_image_url": preview_img,
+                "turn_count": turn_idx + 1,
+                "context_state": merged_ctx,
+                "updated_at": now_iso,
+            },
+        }
+
+    def get_chat_sessions(
+        self,
+        device_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        chat_type: Optional[str] = None,
+        limit: int = 30,
+    ) -> List[Dict[str, Any]]:
+        """List saved conversation sessions from Supabase or SQLite."""
+        if self.use_supabase and self.supabase:
+            try:
+                remote = self.supabase.get_chat_sessions(
+                    device_id=device_id, user_id=user_id, chat_type=chat_type, limit=limit
+                )
+                if remote:
+                    return remote
+            except Exception as e:
+                logger.warning(f"[Database] Supabase get_chat_sessions error: {e}")
+
+        clauses = ["is_archived = 0"]
+        params: List[Any] = []
+        if user_id and user_id.strip():
+            if device_id and device_id.strip():
+                clauses.append("(user_id = ? OR device_id = ?)")
+                params.extend([user_id.strip(), device_id.strip()])
+            else:
+                clauses.append("user_id = ?")
+                params.append(user_id.strip())
+        elif device_id and device_id.strip():
+            clauses.append("device_id = ?")
+            params.append(device_id.strip())
+
+        if chat_type and chat_type.strip():
+            clauses.append("chat_type = ?")
+            params.append(chat_type.strip())
+
+        where_sql = " AND ".join(clauses)
+        params.append(limit)
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM chat_sessions WHERE {where_sql} ORDER BY updated_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    d["context_state"] = json.loads(d.get("context_state") or "{}")
+                except Exception:
+                    d["context_state"] = {}
+                d["is_archived"] = bool(d.get("is_archived"))
+                out.append(d)
+            return out
+
+    def get_chat_session_detail(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve full chat session and ordered messages from Supabase or SQLite."""
+        norm_sid = SupabaseClient.normalize_uuid(session_id)
+        if self.use_supabase and self.supabase:
+            try:
+                remote = self.supabase.get_chat_session_detail(norm_sid)
+                if remote:
+                    return remote
+            except Exception as e:
+                logger.warning(f"[Database] Supabase get_chat_session_detail error: {e}")
+
+        with self.get_connection() as conn:
+            s_row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (norm_sid,)).fetchone()
+            if not s_row:
+                return None
+            session_obj = dict(s_row)
+            try:
+                session_obj["context_state"] = json.loads(session_obj.get("context_state") or "{}")
+            except Exception:
+                session_obj["context_state"] = {}
+            session_obj["is_archived"] = bool(session_obj.get("is_archived"))
+
+            m_rows = conn.execute(
+                "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY turn_index ASC, created_at ASC",
+                (norm_sid,),
+            ).fetchall()
+            messages = []
+            for mr in m_rows:
+                m = dict(mr)
+                for jf, default in [
+                    ("intent_json", {}),
+                    ("chips_json", []),
+                    ("results_snapshot_json", {}),
+                    ("follow_up_suggestions_json", []),
+                ]:
+                    try:
+                        m[jf] = json.loads(m.get(jf) or json.dumps(default))
+                    except Exception:
+                        m[jf] = default
+                m["is_follow_up"] = bool(m.get("is_follow_up"))
+                m["is_conversational_advice"] = bool(m.get("is_conversational_advice"))
+                m["is_off_topic"] = bool(m.get("is_off_topic"))
+                m["is_unsafe"] = bool(m.get("is_unsafe"))
+                messages.append(m)
+            session_obj["messages"] = messages
+            return session_obj
+
+    def update_chat_message_feedback(self, session_id: str, turn_id: str, feedback_val: int) -> bool:
+        """Update user feedback (1/-1) on a saved chat turn."""
+        norm_sid = SupabaseClient.normalize_uuid(session_id)
+        norm_tid = SupabaseClient.normalize_uuid(turn_id)
+        if self.use_supabase and self.supabase:
+            try:
+                self.supabase.update_chat_message_feedback(norm_sid, norm_tid, feedback_val)
+            except Exception as e:
+                logger.warning(f"[Database] Supabase update_chat_message_feedback error: {e}")
+
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE chat_messages SET user_feedback = ? WHERE id = ? AND session_id = ?",
+                (int(feedback_val), norm_tid, norm_sid),
+            )
+            conn.commit()
+        return True
+
+    def delete_chat_session(self, session_id: str, device_id: Optional[str] = None) -> bool:
+        """Delete a single chat session from Supabase and SQLite."""
+        norm_sid = SupabaseClient.normalize_uuid(session_id)
+        ok = True
+        if self.use_supabase and self.supabase:
+            try:
+                ok = self.supabase.delete_chat_session(norm_sid, device_id=device_id)
+            except Exception as e:
+                logger.warning(f"[Database] Supabase delete_chat_session error: {e}")
+
+        with self.get_connection() as conn:
+            if device_id and device_id.strip():
+                conn.execute("DELETE FROM chat_sessions WHERE id = ? AND device_id = ?", (norm_sid, device_id.strip()))
+            else:
+                conn.execute("DELETE FROM chat_sessions WHERE id = ?", (norm_sid,))
+            conn.commit()
+        return ok
+
+    def clear_chat_sessions(self, device_id: Optional[str] = None, user_id: Optional[str] = None) -> bool:
+        """Clear all chat sessions for a device or user."""
+        ok = True
+        if self.use_supabase and self.supabase:
+            try:
+                ok = self.supabase.clear_chat_sessions(device_id=device_id, user_id=user_id)
+            except Exception as e:
+                logger.warning(f"[Database] Supabase clear_chat_sessions error: {e}")
+
+        with self.get_connection() as conn:
+            if user_id and user_id.strip():
+                conn.execute("DELETE FROM chat_sessions WHERE user_id = ?", (user_id.strip(),))
+            elif device_id and device_id.strip():
+                conn.execute("DELETE FROM chat_sessions WHERE device_id = ?", (device_id.strip(),))
+            conn.commit()
+        return ok
+
 
 
