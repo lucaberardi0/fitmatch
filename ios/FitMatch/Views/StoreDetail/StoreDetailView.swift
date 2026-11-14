@@ -122,6 +122,10 @@ struct StoreDetailView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
+            .refreshable {
+                await refreshStoreDataAsync()
+            }
         }
         .background(Color.white.ignoresSafeArea())
         .navigationBarHidden(true)
@@ -436,21 +440,22 @@ struct StoreDetailView: View {
     private var productCatalogGrid: some View {
         Group {
             if filteredProducts.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 32))
-                        .foregroundColor(.shopTextMuted)
-                    Text("Nessun prodotto trovato")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.shopDark)
-                    Text("Nessun modello corrisponde a \"\(searchQuery)\". Prova con un modello (es. Alphafly, Vomero, Pegasus) o una categoria (es. trail, corsa, donna).")
-                        .font(.system(size: 13))
-                        .foregroundColor(.shopTextMuted)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 50)
+                let storeDisplay = storeDetails?.store_name ?? initialStoreName
+                let hasQuery = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                FitMatchEmptyStateView(
+                    icon: "magnifyingglass",
+                    accentColor: .shopPurple,
+                    badgeText: "CATALOGO NEGOZIO",
+                    title: hasQuery ? "Nessun risultato su \(storeDisplay)" : "Nessun articolo in questa selezione",
+                    subtitle: hasQuery
+                        ? "Nessun modello dello store corrisponde a «\(searchQuery)». Prova con una scarpa (es. Novablast, Pegasus) o uno sport (es. trail, padel, bici)."
+                        : "Prova a rimuovere o modificare i filtri attivi per vedere tutte le offerte di \(storeDisplay).",
+                    primaryTitle: hasQuery ? "Azzera ricerca" : nil,
+                    primaryIcon: hasQuery ? "arrow.counterclockwise" : nil,
+                    primaryColor: .shopDark,
+                    onPrimaryTap: hasQuery ? { searchQuery = "" } : nil
+                )
+                .padding(.vertical, 20)
             } else {
                 LazyVGrid(columns: columns, spacing: 18) {
                     ForEach(filteredProducts) { item in
@@ -583,26 +588,30 @@ struct StoreDetailView: View {
         isLoading = true
         errorMessage = nil
         Task {
-            do {
-                let details = try await api.getStoreDetails(
+            await refreshStoreDataAsync()
+        }
+    }
+
+    private func refreshStoreDataAsync() async {
+        do {
+            let details = try await api.getStoreDetails(
+                storeId: storeId,
+                query: searchQuery,
+                sort: selectedSort
+            )
+            await MainActor.run {
+                self.storeDetails = details
+                self.isLoading = false
+                RecentActivityManager.shared.recordStoreView(
                     storeId: storeId,
-                    query: searchQuery,
-                    sort: selectedSort
+                    storeName: details.store_name,
+                    logoUrl: nil
                 )
-                await MainActor.run {
-                    self.storeDetails = details
-                    self.isLoading = false
-                    RecentActivityManager.shared.recordStoreView(
-                        storeId: storeId,
-                        storeName: details.store_name,
-                        logoUrl: nil
-                    )
-                }
-            } catch {
-                await MainActor.run {
-                    self.errorMessage = error.localizedDescription
-                    self.isLoading = false
-                }
+            }
+        } catch {
+            await MainActor.run {
+                self.errorMessage = error.localizedDescription
+                self.isLoading = false
             }
         }
     }

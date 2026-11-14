@@ -48,9 +48,12 @@ struct FollowingView: View {
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 22) {
-                if isLoading && showcases.isEmpty {
+        ScrollViewReader { scrollProxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    Color.clear.frame(height: 0).id("following_top")
+
+                    if isLoading && showcases.isEmpty {
                     ShopFollowingSkeletonView()
                         .transition(.opacity)
                 } else if followedManager.followedStores.isEmpty {
@@ -75,6 +78,13 @@ struct FollowingView: View {
         }
         .refreshable {
             await refreshData()
+        }
+        .onReceive(TabCoordinator.shared.$scrollToTopEvent) { event in
+            guard let event, event.tab == 0 else { return }
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                scrollProxy.scrollTo("following_top", anchor: .top)
+            }
+        }
         }
         .task {
             if showcases.isEmpty {
@@ -202,10 +212,14 @@ struct FollowingView: View {
                         }
                         .padding(.horizontal, 16)
                     } else if products.isEmpty {
-                        Text("Nessun articolo disponibile al momento")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.shopTextMuted)
-                            .padding(.horizontal, 16)
+                        FitMatchInlineEmptyRow(
+                            icon: "bag.badge.questionmark",
+                            accentColor: .shopPurple,
+                            title: "Vetrina negozio in aggiornamento",
+                            subtitle: "Apri la scheda di \(store.store_name) per vedere tutte le offerte e le taglie disponibili",
+                            showsChevron: true
+                        )
+                        .padding(.horizontal, 16)
                     } else {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 14) {
@@ -244,46 +258,19 @@ struct FollowingView: View {
     // MARK: - 4. Empty State Banner
 
     private var emptyFollowedBanner: some View {
-        VStack(spacing: 12) {
-            Text("Non segui ancora nessun brand")
-                .font(.system(size: 19, weight: .bold, design: .rounded))
-                .foregroundColor(.shopDark)
-                .multilineTextAlignment(.center)
-                .padding(.top, 8)
-
-            Text("Segui i tuoi negozi preferiti per vedere i nuovi arrivi e le offerte esclusive")
-                .font(.system(size: 13.5, weight: .regular))
-                .foregroundColor(.shopTextMuted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
-
-            Button(action: {
-                let gen = UIImpactFeedbackGenerator(style: .medium)
-                gen.impactOccurred()
+        FitMatchEmptyStateView(
+            icon: "storefront.fill",
+            accentColor: .shopPurple,
+            badgeText: "NEGOZI PARTNER",
+            title: "Non segui ancora nessun negozio sportivo",
+            subtitle: "Segui store specializzati come Mister Running, Maxi Sport, Cisalfa o Deporvillage per avere subito nella tua bacheca nuovi arrivi e ribassi esclusivi.",
+            primaryTitle: "Esplora i negozi e i prodotti",
+            primaryIcon: "sparkles",
+            primaryColor: .shopDark,
+            onPrimaryTap: {
                 onGoShopping?()
-            }) {
-                Text("Fai shopping")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(Color.shopDark)
-                    .cornerRadius(24)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
-            .padding(.bottom, 8)
-        }
-        .padding(.vertical, 16)
-        .padding(.horizontal, 8)
-        .background(Color.white)
-        .cornerRadius(22)
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .stroke(Color(red: 236/255, green: 237/255, blue: 242/255), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.02), radius: 6, x: 0, y: 2)
     }
 
     // MARK: - 5. Suggested Brands Feed (When nothing is followed)

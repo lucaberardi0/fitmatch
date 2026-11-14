@@ -128,9 +128,12 @@ struct WishlistView: View {
     // MARK: - Main Content
 
     private var mainContent: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                if wishlist.isSyncingDatabase && wishlist.items.isEmpty {
+        ScrollViewReader { scrollProxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    Color.clear.frame(height: 0).id("wishlist_top")
+
+                    if wishlist.isSyncingDatabase && wishlist.items.isEmpty {
                     ShopWishlistSkeletonView()
                         .transition(.opacity)
                 } else if wishlist.items.isEmpty {
@@ -160,81 +163,122 @@ struct WishlistView: View {
             }
         }
         .background(Color(red: 245/255, green: 246/255, blue: 248/255))
+        .scrollDismissesKeyboard(.interactively)
         .refreshable {
             await wishlist.syncWithDatabase()
+        }
+        .onReceive(TabCoordinator.shared.$scrollToTopEvent) { event in
+            guard let event, event.tab == 2 else { return }
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                scrollProxy.scrollTo("wishlist_top", anchor: .top)
+            }
+        }
         }
     }
 
     // MARK: - Screen 1: Empty Saved State (Matching Reference Image 1)
 
     private var emptySavedState: some View {
-        VStack(spacing: 22) {
-            // Layered card illustration with coffee cup / product and subtle heart
+        VStack(spacing: 20) {
+            // FitMatch Sport Gear Card Illustration
             ZStack {
-                // Background shadow tilted card
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(Color(red: 244/255, green: 244/255, blue: 247/255))
-                    .frame(width: 175, height: 185)
-                    .rotationEffect(.degrees(4))
-                    .offset(x: 6, y: -4)
-                    .shadow(color: Color.black.opacity(0.04), radius: 8, x: 2, y: 4)
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color.shopPurple.opacity(0.08))
+                    .frame(width: 172, height: 182)
+                    .rotationEffect(.degrees(5))
+                    .offset(x: 8, y: -4)
 
-                // Foreground card
-                RoundedRectangle(cornerRadius: 24)
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(Color.white)
-                    .frame(width: 175, height: 185)
+                    .frame(width: 172, height: 182)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 24)
-                            .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(Color.shopBorder, lineWidth: 1)
                     )
                     .shadow(color: Color.black.opacity(0.06), radius: 14, x: 0, y: 6)
 
-                // Product photo inside card (mug or sneaker asset)
-                VStack {
-                    Image(systemName: "cup.and.saucer.fill")
-                        .font(.system(size: 54))
-                        .foregroundColor(Color(red: 45/255, green: 45/255, blue: 50/255))
-                        .padding(.top, 8)
-                }
-                .frame(width: 175, height: 185)
+                VStack(spacing: 10) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.shopPurple.opacity(0.16), Color.shopPurple.opacity(0.06)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 74, height: 74)
 
-                // Bottom-right circular heart button
+                        Image(systemName: "figure.run")
+                            .font(.system(size: 34, weight: .semibold))
+                            .foregroundColor(.shopPurple)
+                    }
+
+                    HStack(spacing: 6) {
+                        Text("42 EU")
+                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopDark)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3.5)
+                            .background(Color.shopCardBg)
+                            .clipShape(Capsule())
+
+                        Text("-30%")
+                            .font(.system(size: 10.5, weight: .heavy, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3.5)
+                            .background(Color.shopRed)
+                            .clipShape(Capsule())
+                    }
+                }
+                .frame(width: 172, height: 182)
+
+                // Floating Heart Badge
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
                         Circle()
-                            .fill(Color.black.opacity(0.28))
-                            .frame(width: 34, height: 34)
+                            .fill(Color.white)
+                            .frame(width: 38, height: 38)
+                            .shadow(color: Color.black.opacity(0.10), radius: 6, x: 0, y: 3)
                             .overlay(
-                                Image(systemName: "heart")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(.white)
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(.shopRed)
                             )
-                            .padding([.bottom, .trailing], 12)
+                            .offset(x: 8, y: 8)
                     }
                 }
-                .frame(width: 175, height: 185)
+                .frame(width: 172, height: 182)
             }
-            .padding(.top, 24)
+            .padding(.top, 20)
 
-            // Titles
             VStack(spacing: 8) {
-                Text("Non hai ancora salvato alcun articolo")
+                Text("CONFRONTO & AVVISI PREZZO")
+                    .font(.system(size: 10.5, weight: .heavy, design: .rounded))
+                    .tracking(0.8)
+                    .foregroundColor(.shopPurple)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.shopPurpleLight)
+                    .clipShape(Capsule())
+
+                Text("La tua lista desideri sportiva è vuota")
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundColor(.shopDark)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
 
-                Text("Tocca l’icona del cuore su un articolo per salvarlo e ricevere una notifica in caso di calo di prezzo")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(Color(red: 120/255, green: 120/255, blue: 125/255))
+                Text("Salva scarpe da running, smartwatch GPS o attrezzatura da padel e ciclismo per monitorare taglie e ribassi tra i negozi partner.")
+                    .font(.system(size: 13.5, weight: .regular))
+                    .foregroundColor(.shopTextMuted)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .lineSpacing(2)
+                    .padding(.horizontal, 30)
+                    .lineSpacing(3)
             }
 
-            // Purple "Fai acquisti" Action Button (Image 1: #633BEE)
             Button(action: {
                 let gen = UIImpactFeedbackGenerator(style: .medium)
                 gen.impactOccurred()
@@ -246,18 +290,22 @@ struct WishlistView: View {
                     }
                 }
             }) {
-                Text("Fai acquisti")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(Color(red: 99/255, green: 59/255, blue: 238/255))
-                    .cornerRadius(26)
-                    .shadow(color: Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.28), radius: 8, x: 0, y: 4)
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .bold))
+                    Text("Esplora l'attrezzatura")
+                        .font(.system(size: 15.5, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(Color.shopPurple)
+                .clipShape(Capsule())
+                .shadow(color: Color.shopPurple.opacity(0.28), radius: 8, x: 0, y: 4)
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 20)
-            .padding(.top, 10)
+            .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
     }
@@ -456,72 +504,28 @@ struct WishlistView: View {
     // MARK: - Empty Filtered State
 
     private var emptyFilteredState: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 64, height: 64)
-                    .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
-
-                Image(systemName: "folder.badge.questionmark")
-                    .font(.system(size: 26))
-                    .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
-            }
-            .padding(.top, 12)
-
-            Text("Nessun articolo in '\(selectedCollectionFilter)'")
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundColor(.shopDark)
-
-            Text("Non ci sono articoli in questa collezione. Tutti i tuoi articoli salvati (\(wishlist.items.count)) rimangono comunque visibili in 'Tutti i salvati'.")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(.shopTextMuted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 28)
-                .lineSpacing(2)
-
-            HStack(spacing: 12) {
-                Button(action: {
-                    collectionForAddSheet = selectedCollectionFilter
-                    showingAddToCollectionSheet = true
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus")
-                        Text("Aggiungi articoli")
-                    }
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color(red: 99/255, green: 59/255, blue: 238/255))
-                    .clipShape(Capsule())
-                    .shadow(color: Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.25), radius: 4, x: 0, y: 2)
+        FitMatchEmptyStateView(
+            icon: "folder.badge.plus",
+            accentColor: .shopPurple,
+            badgeText: "COLLEZIONE VUOTA",
+            title: "Nessun modello in «\(selectedCollectionFilter)»",
+            subtitle: "Organizza qui i prodotti che stai confrontando (es. Scarpe Maratona, Kit Trail o Padel). I tuoi \(wishlist.items.count) articoli salvati restano sempre in «Tutti i salvati».",
+            primaryTitle: "Aggiungi dai preferiti",
+            primaryIcon: "plus",
+            primaryColor: .shopPurple,
+            onPrimaryTap: {
+                collectionForAddSheet = selectedCollectionFilter
+                showingAddToCollectionSheet = true
+            },
+            secondaryTitle: "Vedi tutti i salvati (\(wishlist.items.count))",
+            secondaryIcon: "square.grid.2x2",
+            onSecondaryTap: {
+                withAnimation(.spring(response: 0.25)) {
+                    selectedCollectionFilter = "Tutti"
                 }
-                .buttonStyle(.plain)
-
-                Button(action: {
-                    withAnimation(.spring(response: 0.25)) {
-                        selectedCollectionFilter = "Tutti"
-                    }
-                }) {
-                    Text("Mostra tutti (\(wishlist.items.count))")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundColor(.shopDark)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(Color.white)
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(Color(red: 230/255, green: 232/255, blue: 238/255), lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
             }
-            .padding(.top, 4)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        )
+        .padding(.vertical, 8)
     }
 
     // MARK: - Saved Products 2-Column Grid
@@ -1252,19 +1256,15 @@ struct AddToCollectionSheet: View {
         NavigationStack {
             Group {
                 if wishlist.items.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "heart.slash")
-                            .font(.system(size: 40))
-                            .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
-                        Text("Nessun articolo salvato")
-                            .font(.system(size: 17, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopDark)
-                        Text("Salva prima qualche prodotto nei tuoi preferiti per poterlo organizzare in questa collezione.")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(.shopTextMuted)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                    }
+                    FitMatchEmptyStateView(
+                        icon: "heart.text.square",
+                        accentColor: .shopPurple,
+                        badgeText: "NESSUN PREFERITO",
+                        title: "Salva prima qualche modello",
+                        subtitle: "Tocca il cuore su scarpe, orologi GPS o abbigliamento sportivo per aggiungerli ai preferiti e organizzarli nella collezione «\(collectionName)».",
+                        showsCardBackground: false
+                    )
+                    .padding(.horizontal, 16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView(showsIndicators: false) {

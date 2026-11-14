@@ -270,6 +270,8 @@ struct HomeView: View {
                                 withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
                                     selectedTab = 2
                                 }
+                            } else if activeSubTab == tab {
+                                TabCoordinator.shared.triggerScrollToTop(for: 0)
                             } else {
                                 withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
                                     activeSubTab = tab
@@ -366,11 +368,14 @@ struct HomeView: View {
     }
 
     private var perTeContent: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
-                // MARK: 1. Top Carousel of Summary Cards: "Visti di recente" & "Elementi salvati" (Screenshots 1 & 2)
-                topSummaryCardsCarousel
-                    .padding(.top, 4)
+        ScrollViewReader { scrollProxy in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    Color.clear.frame(height: 0).id("home_per_te_top")
+
+                    // MARK: 1. Top Carousel of Summary Cards: "Visti di recente" & "Elementi salvati" (Screenshots 1 & 2)
+                    topSummaryCardsCarousel
+                        .padding(.top, 4)
 
                 // MARK: 2. Real Database Partner Stores (Ranked & Personalized)
                 let currentShowcases = personalizedShowcases
@@ -412,6 +417,14 @@ struct HomeView: View {
         }
         .refreshable {
             await fetchShowcases()
+            await recentManager.syncFromDatabase()
+        }
+        .onReceive(TabCoordinator.shared.$scrollToTopEvent) { event in
+            guard let event, event.tab == 0, activeSubTab == .perTe else { return }
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                scrollProxy.scrollTo("home_per_te_top", anchor: .top)
+            }
+        }
         }
     }
 
@@ -460,26 +473,12 @@ struct HomeView: View {
             // Thumbnails of real recently viewed items
             let items = previewRecentProducts
             if items.isEmpty {
-                HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
-                            .frame(width: 52, height: 52)
-                        Image(systemName: "clock")
-                            .font(.system(size: 20))
-                            .foregroundColor(.shopTextMuted)
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Nessun articolo recente")
-                            .font(.system(size: 13.5, weight: .semibold, design: .rounded))
-                            .foregroundColor(Color.shopDark)
-                        Text("I prodotti che visualizzi appariranno qui")
-                            .font(.system(size: 11.5, weight: .regular))
-                            .foregroundColor(.shopTextMuted)
-                    }
-                    Spacer()
-                }
-                .frame(height: thumbSize)
+                FitMatchInlineEmptyRow(
+                    icon: "clock.arrow.circlepath",
+                    accentColor: .shopPurple,
+                    title: "Nessun modello consultato",
+                    subtitle: "Scarpe da running, smartwatch GPS e attrezzatura visti appariranno qui"
+                )
             } else {
                 HStack(spacing: 10) {
                     ForEach(items) { prod in
@@ -572,26 +571,13 @@ struct HomeView: View {
                         selectedTab = 2
                     }
                 }) {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
-                                .frame(width: 52, height: 52)
-                            Image(systemName: "heart")
-                                .font(.system(size: 20))
-                                .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.7))
-                        }
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Nessun articolo salvato")
-                                .font(.system(size: 13.5, weight: .semibold, design: .rounded))
-                                .foregroundColor(Color.shopDark)
-                            Text("Tocca l'icona del cuore sui prodotti")
-                                .font(.system(size: 11.5, weight: .regular))
-                                .foregroundColor(.shopTextMuted)
-                        }
-                        Spacer()
-                    }
-                    .frame(height: thumbSize)
+                    FitMatchInlineEmptyRow(
+                        icon: "heart",
+                        accentColor: .shopRed,
+                        title: "Nessun modello monitorato",
+                        subtitle: "Salva scarpe o orologi GPS per seguire taglie e cali di prezzo",
+                        showsChevron: true
+                    )
                 }
                 .buttonStyle(.plain)
             } else {
@@ -971,7 +957,29 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Minimal Clean Product Card (Screenshots 1, 2, 5: Image + Top-Left Price + Bottom-Right Heart)
+    // MARK: - Minimal Clean Product Card (Screenshots 1, 2, 5: Image + Top-Left Price + Bottom-Left Size + Bottom-Right Heart)
+
+    @ViewBuilder
+    private func productSizeMatchBadge(size: String) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(Color(red: 22/255, green: 163/255, blue: 74/255))
+                .frame(width: 5.5, height: 5.5)
+
+            Text("EU \(size)")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundColor(.shopDark)
+        }
+        .padding(.horizontal, 7.5)
+        .padding(.vertical, 4)
+        .background(Color.white.opacity(0.94))
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color(red: 22/255, green: 163/255, blue: 74/255).opacity(0.28), lineWidth: 0.9)
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 1.5)
+    }
 
     private func cleanProductCard(product: StoreShowcaseProduct, matchedProduct: MatchedProduct, cardBg: Color) -> some View {
         NavigationLink(destination: ProductDetailView(product: matchedProduct)) {
@@ -1029,29 +1037,16 @@ struct HomeView: View {
                 .clipShape(Capsule())
                 .padding([.top, .leading], 8)
 
-                // Top-Right Size Match Badge
-                if prefsManager.matchesUserShoeSize(availableSizes: product.available_sizes) {
-                    HStack(spacing: 2.5) {
-                        Circle()
-                            .fill(Color(red: 34/255, green: 197/255, blue: 94/255))
-                            .frame(width: 4.5, height: 4.5)
-                        Text("EU \(prefsManager.preferences.preferredShoeSize)")
-                            .font(.system(size: 9, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                    }
-                    .padding(.horizontal, 5.5)
-                    .padding(.vertical, 2.5)
-                    .background(Color.black.opacity(0.65))
-                    .clipShape(Capsule())
-                    .frame(maxWidth: .infinity, alignment: .topTrailing)
-                    .padding([.top, .trailing], 8)
-                }
-
-                // Bottom-Right Translucent Heart Button
+                // Bottom Bar: Size Match Badge (Bottom-Left) + Heart Button (Bottom-Right)
                 VStack {
                     Spacer()
-                    HStack {
+                    HStack(alignment: .center) {
+                        if prefsManager.matchesUserShoeSize(availableSizes: product.available_sizes) {
+                            productSizeMatchBadge(size: prefsManager.preferences.preferredShoeSize)
+                        }
+
                         Spacer()
+
                         Button(action: {
                             let gen = UIImpactFeedbackGenerator(style: .medium)
                             gen.impactOccurred()
@@ -1070,8 +1065,9 @@ struct HomeView: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .padding([.bottom, .trailing], 8)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
                 }
                 .frame(width: 138, height: 178)
             }
@@ -1141,29 +1137,16 @@ struct HomeView: View {
                 .clipShape(Capsule())
                 .padding([.top, .leading], 8)
 
-                // Top-Right Size Match Badge
-                if prefsManager.matchesUserShoeSize(availableSizes: product.available_sizes) {
-                    HStack(spacing: 2.5) {
-                        Circle()
-                            .fill(Color(red: 34/255, green: 197/255, blue: 94/255))
-                            .frame(width: 4.5, height: 4.5)
-                        Text("EU \(prefsManager.preferences.preferredShoeSize)")
-                            .font(.system(size: 9, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                    }
-                    .padding(.horizontal, 5.5)
-                    .padding(.vertical, 2.5)
-                    .background(Color.black.opacity(0.65))
-                    .clipShape(Capsule())
-                    .frame(maxWidth: .infinity, alignment: .topTrailing)
-                    .padding([.top, .trailing], 8)
-                }
-
-                // Bottom-Right Translucent Heart Button
+                // Bottom Bar: Size Match Badge (Bottom-Left) + Heart Button (Bottom-Right)
                 VStack {
                     Spacer()
-                    HStack {
+                    HStack(alignment: .center) {
+                        if prefsManager.matchesUserShoeSize(availableSizes: product.available_sizes) {
+                            productSizeMatchBadge(size: prefsManager.preferences.preferredShoeSize)
+                        }
+
                         Spacer()
+
                         Button(action: {
                             let gen = UIImpactFeedbackGenerator(style: .medium)
                             gen.impactOccurred()
@@ -1182,8 +1165,9 @@ struct HomeView: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .padding([.bottom, .trailing], 8)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 180)
@@ -1195,21 +1179,7 @@ struct HomeView: View {
     // MARK: - Helpers
 
     private var previewRecentProducts: [MatchedProduct] {
-        let productActivities = recentManager.activities.compactMap { act -> MatchedProduct? in
-            guard act.type == .product else { return nil }
-            return act.productData
-        }
-
-        var seen = Set<String>()
-        var unique: [MatchedProduct] = []
-        for p in productActivities {
-            let key = p.canonical_name.lowercased()
-            if !seen.contains(key) {
-                seen.insert(key)
-                unique.append(enrichMatchedProduct(p))
-            }
-        }
-        return Array(unique.prefix(3))
+        recentManager.recentlyViewedProducts.prefix(3).map { enrichMatchedProduct($0) }
     }
 
     private func enrichMatchedProduct(_ prod: MatchedProduct) -> MatchedProduct {

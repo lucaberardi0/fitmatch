@@ -234,7 +234,11 @@ struct SearchView: View {
                 }
             }
             .onChange(of: tabCoordinator.selectedTab) { newTab in
-                if newTab != 1 {
+                if newTab == 1 {
+                    Task {
+                        await recentManager.syncFromDatabase()
+                    }
+                } else {
                     hideAllKeyboards()
                 }
             }
@@ -266,9 +270,12 @@ struct SearchView: View {
     // MARK: - Search Typing & History View
     private var searchTypingHistoryView: some View {
         ZStack(alignment: .bottom) {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 26) {
-                    // Header Title: Cerca (with back button if navigated from Home/Product)
+            ScrollViewReader { scrollProxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 26) {
+                        Color.clear.frame(height: 0).id("search_home_top")
+
+                        // Header Title: Cerca (with back button if navigated from Home/Product)
                     HStack(spacing: 12) {
                         if tabCoordinator.previousTab != nil {
                             Button(action: {
@@ -318,6 +325,13 @@ struct SearchView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 hideAllKeyboards()
+            }
+            .onReceive(tabCoordinator.$scrollToTopEvent) { event in
+                guard let event, event.tab == 1, !hasSearched else { return }
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                    scrollProxy.scrollTo("search_home_top", anchor: .top)
+                }
+            }
             }
 
             // Autocomplete live suggestions overlay when typing
@@ -927,6 +941,8 @@ struct SearchView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 18) {
+                            Color.clear.frame(height: 0).id("search_ai_top")
+
                             if !conversationTurns.isEmpty {
                                 ForEach(conversationTurns) { turn in
                                     turnContentView(for: turn)
@@ -985,6 +1001,12 @@ struct SearchView: View {
                                     proxy.scrollTo("spotlight_section", anchor: .top)
                                 }
                             }
+                        }
+                    }
+                    .onReceive(tabCoordinator.$scrollToTopEvent) { event in
+                        guard let event, event.tab == 1, hasSearched, isDeepDiveMode else { return }
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                            proxy.scrollTo("search_ai_top", anchor: .top)
                         }
                     }
                 }
@@ -1363,7 +1385,7 @@ struct SearchView: View {
                 .padding(.top, 10)
             }
 
-            // Antigravity Live Thinking Trace for Follow-Up
+            // Flagship Live Agentic Trace for Follow-Up
             ShopAgentThinkingCardView(
                 query: pendingFollowUpQuery ?? lastFollowUpQuery ?? "",
                 isFollowUp: true,
@@ -1371,6 +1393,28 @@ struct SearchView: View {
                 startedAt: thinkingStartedAt
             )
             .padding(.horizontal, 18)
+
+            // Subtle Preview Strip below Follow-Up Card
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 7) {
+                    ShopSkeletonTextLine(height: 12, cornerRadius: 5)
+                        .frame(maxWidth: .infinity)
+                    ShopSkeletonTextLine(width: 210, height: 12, cornerRadius: 5)
+                }
+                .padding(.horizontal, 18)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ShopThemedCarouselSkeletonCard()
+                        ShopThemedCarouselSkeletonCard()
+                        ShopThemedCarouselSkeletonCard()
+                    }
+                    .padding(.horizontal, 18)
+                }
+                .disabled(true)
+            }
+            .opacity(0.75)
+            .padding(.top, 4)
         }
     }
 
@@ -1620,114 +1664,69 @@ struct SearchView: View {
 
     // MARK: - AI Deep Dive Error & Empty Views
     private func aiErrorView(_ error: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "wifi.exclamationmark")
-                .font(.system(size: 40))
-                .foregroundColor(.shopPurple)
-                .frame(width: 76, height: 76)
-                .background(Color.shopPurpleLight)
-                .clipShape(Circle())
-
-            Text("Impossibile caricare i risultati")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundColor(.shopDark)
-
-            Text(error)
-                .font(.system(size: 13.5))
-                .foregroundColor(.shopTextMuted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 36)
-
-            VStack(spacing: 10) {
-                Button(action: {
+        VStack {
+            Spacer()
+            FitMatchEmptyStateView(
+                icon: "wifi.exclamationmark",
+                accentColor: .shopPurple,
+                badgeText: "RICERCA IA FITMATCH",
+                title: "Analisi momentaneamente non disponibile",
+                subtitle: error,
+                primaryTitle: "Riprova analisi IA",
+                primaryIcon: "arrow.clockwise",
+                primaryColor: .shopDark,
+                onPrimaryTap: {
                     executeSearch()
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.clockwise")
-                        Text("Riprova la ricerca")
-                    }
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: 240)
-                    .padding(.vertical, 12)
-                    .background(Color.shopDark)
-                    .cornerRadius(22)
-                }
-
-                Button(action: {
+                },
+                secondaryTitle: "Passa alla ricerca classica",
+                secondaryIcon: "magnifyingglass",
+                onSecondaryTap: {
                     userForcedClassicMode = true
                     withAnimation {
                         isDeepDiveMode = false
                     }
                     executeSearch()
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "magnifyingglass")
-                        Text("Passa alla ricerca classica")
-                    }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.shopPurple)
-                    .padding(.vertical, 8)
                 }
-            }
-            .padding(.top, 10)
+            )
+            .padding(.horizontal, 16)
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.bottom, 80)
     }
 
     private var aiEmptyView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 38))
-                .foregroundColor(.shopPurple)
-                .frame(width: 76, height: 76)
-                .background(Color.shopPurpleLight)
-                .clipShape(Circle())
-
-            Text("Nessun prodotto trovato")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundColor(.shopDark)
-
-            Text("L'IA non ha trovato prodotti per \"\(searchText)\". Prova con parole chiave come 'Scarpe running ammortizzate' o cerca per brand.")
-                .font(.system(size: 13.5))
-                .foregroundColor(.shopTextMuted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 36)
-
-            VStack(spacing: 10) {
-                Button(action: {
+        VStack {
+            Spacer()
+            FitMatchEmptyStateView(
+                icon: "sparkles",
+                accentColor: .shopPurple,
+                badgeText: "MOTORE SPORTIVO IA",
+                title: "Nessuna corrispondenza per questa ricerca",
+                subtitle: "L'assistente FitMatch non ha trovato attrezzatura per «\(searchText)» tra i negozi partner. Prova uno dei suggerimenti o passa al catalogo classico.",
+                suggestions: ["Scarpe maratona", "Garmin Forerunner", "Racchetta padel"],
+                onSuggestionTap: { term in
+                    searchText = term
                     executeSearch()
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.clockwise")
-                        Text("Ricarica")
-                    }
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: 220)
-                    .padding(.vertical, 12)
-                    .background(Color.shopDark)
-                    .cornerRadius(22)
-                }
-
-                Button(action: {
+                },
+                primaryTitle: "Ricarica ricerca IA",
+                primaryIcon: "arrow.clockwise",
+                primaryColor: .shopDark,
+                onPrimaryTap: {
+                    executeSearch()
+                },
+                secondaryTitle: "Passa alla ricerca classica",
+                secondaryIcon: "magnifyingglass",
+                onSecondaryTap: {
                     userForcedClassicMode = true
                     withAnimation {
                         isDeepDiveMode = false
                     }
                     executeSearch()
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "magnifyingglass")
-                        Text("Passa alla ricerca classica")
-                    }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.shopPurple)
-                    .padding(.vertical, 8)
                 }
-            }
-            .padding(.top, 8)
+            )
+            .padding(.horizontal, 16)
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.bottom, 80)
@@ -1981,35 +1980,51 @@ struct SearchView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !filteredAndSortedResults.isEmpty {
-                ScrollView {
-                    LazyVStack(spacing: 14) {
-                        ForEach(filteredAndSortedResults) { item in
-                            ShopOfficialProductCard(product: item)
+                ScrollViewReader { scrollProxy in
+                    ScrollView {
+                        LazyVStack(spacing: 14) {
+                            Color.clear.frame(height: 0).id("search_classic_top")
+
+                            ForEach(filteredAndSortedResults) { item in
+                                ShopOfficialProductCard(product: item)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .padding(.bottom, 130)
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            if isFollowUpFieldFocused || isSearchFieldFocused {
+                                hideAllKeyboards()
+                            }
+                        }
+                    )
+                    .onReceive(tabCoordinator.$scrollToTopEvent) { event in
+                        guard let event, event.tab == 1, hasSearched, !isDeepDiveMode else { return }
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                            scrollProxy.scrollTo("search_classic_top", anchor: .top)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 130)
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        if isFollowUpFieldFocused || isSearchFieldFocused {
-                            hideAllKeyboards()
-                        }
-                    }
-                )
             } else {
-                VStack(spacing: 14) {
-                    Image(systemName: "magnifyingglass.circle")
-                        .font(.system(size: 48))
-                        .foregroundColor(.shopTextMuted)
-                    Text("Nessun prodotto trovato")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.shopDark)
-                    Text("Prova a cercare marchi come 'Nike', 'Hoka', 'Garmin' o 'Asics'.")
-                        .font(.system(size: 13))
-                        .foregroundColor(.shopTextMuted)
+                VStack {
+                    Spacer()
+                    FitMatchEmptyStateView(
+                        icon: "magnifyingglass",
+                        accentColor: .shopPurple,
+                        badgeText: "CATALOGO FITMATCH",
+                        title: "Nessun prodotto trovato",
+                        subtitle: "Nessun articolo corrisponde a «\(searchText)». Prova a cercare per modello o disciplina sportiva tra i nostri negozi partner.",
+                        suggestions: ["Hoka Clifton", "Garmin 265", "Asics Novablast"],
+                        onSuggestionTap: { term in
+                            searchText = term
+                            executeSearch()
+                        }
+                    )
+                    .padding(.horizontal, 16)
+                    Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -3640,7 +3655,7 @@ struct RecentlyViewedCard: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: 104, height: 94)
-                        } else if let img = product.image_url, let url = URL(string: img) {
+                        } else if let img = product.image_url, let url = URL(string: img), !img.isEmpty {
                             ShopCachedAsyncImage(url: url, maxPixelSize: 320) { phase in
                                 switch phase {
                                 case .success(let image):
@@ -3656,6 +3671,11 @@ struct RecentlyViewedCard: View {
                                         .frame(width: 104, height: 94)
                                 }
                             }
+                        } else {
+                            Image(systemName: "tag.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(.gray.opacity(0.35))
+                                .frame(width: 104, height: 94)
                         }
                         Spacer()
                     }
@@ -3664,13 +3684,15 @@ struct RecentlyViewedCard: View {
                 .frame(width: 136, height: 140)
 
                 // Top-Left Price Badge Pill (Screenshots: "80,00 €" / "160,00 € 230,00 €")
-                if let best = product.best_price {
+                let bestPrice = product.best_price ?? product.bestOffer?.price
+                let origPrice = product.highest_price ?? product.bestOffer?.original_price
+                if let best = bestPrice {
                     HStack(spacing: 4) {
                         Text(formatEuro(best))
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(.white)
 
-                        if let orig = product.highest_price, orig > best {
+                        if let orig = origPrice, orig > best {
                             Text(formatEuro(orig))
                                 .font(.system(size: 9.5, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.72))

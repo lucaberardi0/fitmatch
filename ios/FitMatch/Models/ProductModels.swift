@@ -1068,15 +1068,19 @@ struct ModelComparisonResponse: Codable, Hashable {
 // MARK: - Dedicated Category Filter Matcher for Deals & Search
 
 struct CategoryFilterMatcher {
-    static func matches(title: String, category: String) -> Bool {
+    static func matches(title: String, category: String, dbCategory: String? = nil, dbGender: String? = nil, brand: String? = nil) -> Bool {
         let t = title.lowercased()
         let cat = category.lowercased()
+        let lcat = dbCategory?.lowercased() ?? ""
+        let lgender = dbGender?.lowercased() ?? ""
+        let lbrand = brand?.lowercased() ?? ""
         if cat == "tutti" || cat.isEmpty { return true }
 
         if cat == "smartwatch" {
-            let exc = ["fleece", "buff", "bolt polar", "polartec", "pile", "fascia", "calzini", "short", "maglia", "canott", "watching", "polaroid", "guanti", "pantalon", "protezione", "vetro", "pellicola", "custodia", "cover", "cinturino", "strap", "supporto", "sostegno", "manubrio", "attacco", "adattatore", "cavo", "sensore"]
+            let exc = ["racchetta", "padel", "siux", "craft pacer", "scarpe", "scarpa", "fleece", "buff", "bolt polar", "polartec", "pile", "fascia", "calzini", "short", "maglia", "canott", "watching", "polaroid", "guanti", "pantalon", "protezione", "vetro", "pellicola", "custodia", "cover", "cinturino", "strap", "supporto", "sostegno", "manubrio", "attacco", "adattatore", "cavo", "sensore", "ciclocomputer", "edge 5", "edge 8", "edge 10", "edge explore", "pacer ls"]
             if exc.contains(where: { t.contains($0) }) { return false }
-            let incStrong = ["smartwatch", "apple watch", "garmin", "suunto", "coros", "forerunner", "fenix", "epix", "cardiofrequenzimetro", "instinct", "vivoactive", "venu", "enduro"]
+            if lcat == "gps_watch" && !t.contains("fenix pro") { return true }
+            let incStrong = ["smartwatch", "apple watch", "galaxy watch", "garmin", "suunto", "coros", "forerunner", "fenix", "epix", "cardiofrequenzimetro", "instinct", "vivoactive", "venu", "enduro", "orologio gps"]
             if incStrong.contains(where: { t.contains($0) }) { return true }
             if t.contains("polar") && ["grit", "vantage", "pacer", "ignite", "unite", "orologio", "gps", "cardio"].contains(where: { t.contains($0) }) {
                 return true
@@ -1085,65 +1089,80 @@ struct CategoryFilterMatcher {
         }
 
         if cat == "running" {
-            let exc = ["smartwatch", "apple watch", "garmin", "polar grit", "polar vantage", "polar pacer", "polar ignite", "fleece", "pile"]
+            let exc = ["maglia", "maglietta", "pantalon", "short", "tight", "tights", "legging", "felpa", "giacca", "t-shirt", "tshirt", "canotta", "reggiseno", "bra", "calzin", "calze", "cassette", "gonna", "padel", "calcio", "calcetto", "bici", "mtb", "gravel", "ciabatt", "sandal", "scarpone", "smartwatch", "apple watch", "forerunner", "garmin", "suunto", "coros", "racchetta", "zaino", "borsone", "occhiali", "cappello", "guanti", "shinguard", "parastinchi"]
             if exc.contains(where: { t.contains($0) }) { return false }
-            let inc = ["running", "scarpe running", "corsa", "maratona", "asics", "hoka", "brooks", "saucony", "mizuno", "pegasus", "vaporfly", "alphafly", "clifton", "ghost", "cumulus", "nimbus", "novablast", "adizero", "supernova", "vomero", "invincible", "endorphin", "deviate", "boston", "zoom fly"]
-            return inc.contains(where: { t.contains($0) })
+            if ["running_shoes", "trail_running"].contains(lcat) { return true }
+            let inc = ["running", "scarpe running", "scarpe da corsa", "corsa", "maratona", "pegasus", "vomero", "vaporfly", "alphafly", "invincible", "zoom fly", "adizero", "supernova", "boston", "ultraboost", "clifton", "bondi", "rincon", "mach", "novablast", "nimbus", "cumulus", "kayano", "superblast", "ghost", "glycerin", "endorphin", "kinvara", "triumph", "ride", "deviate", "velocity nitro", "foreverrun", "magnify", "magmax", "cloudmonster", "cloudsurfer", "fresh foam", "fuelcell", "1080", "880", "infinite elite", "velociti", "kinabalu", "supertrac", "speedcross", "speedgoat"]
+            if inc.contains(where: { t.contains($0) }) { return true }
+            if lcat == "shoes" && ["hoka", "brooks", "saucony", "altra", "on", "mizuno", "asics"].contains(lbrand) {
+                return true
+            }
+            return ["asics", "hoka", "brooks", "saucony", "mizuno"].contains(where: { t.contains($0) })
         }
 
         if cat == "abbigliamento" {
-            let exc = ["scarpe", "sneaker", "smartwatch", "apple watch", "garmin", "occhiali", "borraccia"]
+            let exc = ["scarpe", "scarpa", "sneaker", "smartwatch", "apple watch", "garmin", "occhiali", "borraccia", "racchetta", "bicicletta", "bici", "zaino"]
             if exc.contains(where: { t.contains($0) }) { return false }
-            let inc = ["maglia", "pantalon", "tshirt", "t-shirt", "felpa", "jacket", "giacca", "tight", "short", "top", "tee", "windbreaker", "wind", "pile", "tuta", "leggings", "canotta", "fleece", "reggiseno", "bra", "calze", "calzini"]
+            if ["top", "pants", "jacket"].contains(lcat) { return true }
+            let inc = ["maglia", "maglietta", "pantalon", "tshirt", "t-shirt", "felpa", "hoodie", "jacket", "giacca", "giubbotto", "piumino", "parka", "tight", "short", "top", "tee", "windbreaker", "guscio", "gilet", "pile", "tuta", "leggings", "canotta", "fleece", "reggiseno", "bra", "salopette"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "donna" {
-            let exc = ["uomo", "men", "man", "homme", "bambino", "bambina", "junior", "jr"]
+            if ["uomo", "junior"].contains(lgender) { return false }
+            let exc = ["uomo", "men", "man", "homme", "bambino", "bambina", "boy", "junior", "jr", "baby"]
             if exc.contains(where: { t.contains($0) }) { return false }
-            let inc = ["donna", "wmn", "women", "femme", "lady", "girl", "reggiseno", "bra"]
+            if lgender == "donna" { return true }
+            let inc = ["donna", "wmn", "women", "woman", "femme", "lady", "girl", "reggiseno", "bra"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "outdoor" {
-            let exc = ["smartwatch", "apple watch", "t-shirt", "canotta"]
+            let exc = ["smartwatch", "apple watch", "forerunner", "racchetta", "padel", "calcio", "calcetto", "bicicletta", "bici"]
             if exc.contains(where: { t.contains($0) }) { return false }
-            let inc = ["trail", "trekking", "outdoor", "montagna", "gore-tex", "gtx", "salomon", "speedcross", "hierro", "cascadia", "peregrine", "terrex", "scarpone", "wildhorse", "mafate", "speedgoat"]
+            if ["trail_running", "outdoor"].contains(lcat) { return true }
+            let inc = ["trail", "trekking", "outdoor", "montagna", "alpinism", "hiking", "gore-tex", "goretex", "gtx", "salomon", "speedcross", "supertrac", "kinabalu", "hierro", "cascadia", "peregrine", "terrex", "scarpone", "wildhorse", "mafate", "speedgoat", "tecton", "la sportiva", "salewa", "dynafit", "patagonia", "columbia", "merrell", "bastoncini"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "fitness" {
-            let exc = ["smartwatch", "apple watch", "occhiali", "scarpe outdoor"]
+            let exc = ["smartwatch", "apple watch", "orologio", "occhiali", "scarpe outdoor", "racchetta", "padel", "bici", "bicicletta", "ipod", "fascia porta", "push up", "ferretto"]
             if exc.contains(where: { t.contains($0) }) { return false }
-            let inc = ["fitness", "training", "gym", "palestra", "pesi", "swoosh", "leggings", "bra", "crossfit", "metcon", "tuta", "manubri"]
+            if ["fitness", "trainer"].contains(lcat) { return true }
+            let inc = ["fitness", "training", "gym", "palestra", "pesi", "manubri", "kettlebell", "crossfit", "metcon", "dropset", "yoga", "pilates", "tappetino", "leggings", "sports bra", "reggiseno sportivo", "tuta", "indoor", "cyclette"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "accessori" {
-            let exc = ["scarpe", "maglia", "pantalone", "felpa", "giacca"]
+            let exc = ["scarpe", "scarpa", "maglia", "pantalone", "felpa", "giacca", "smartwatch", "orologio", "racchetta", "bici", "bicicletta"]
             if exc.contains(where: { t.contains($0) }) { return false }
-            let inc = ["occhiali", "calzini", "guanti", "cappell", "zaino", "borraccia", "sock", "belt", "marsupio", "headband", "visiera", "cinturino", "strap", "cappello", "berretto"]
+            if ["eyewear", "socks", "pack", "hydration", "strap", "case", "mount", "sensor", "nutrition"].contains(lcat) { return true }
+            let inc = ["occhiali", "calzini", "calze", "guanti", "cappell", "beanie", "zaino", "borraccia", "soft flask", "sock", "belt", "marsupio", "headband", "visiera", "cinturino", "strap", "berretto", "borsone", "shinguard", "parastinchi", "ginocchier"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "uomo" {
-            let exc = ["donna", "women", "wmn", "femme", "bambino", "bambina", "junior", "jr"]
+            if ["donna", "junior"].contains(lgender) { return false }
+            let exc = ["donna", "women", "woman", "wmn", "femme", "lady", "reggiseno", "bra", "bambino", "bambina", "junior", "jr", "baby"]
             if exc.contains(where: { t.contains($0) }) { return false }
+            if lgender == "uomo" { return true }
             let inc = ["uomo", "men", "man", "homme"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "padel" {
-            let exc = ["scarpe running", "smartwatch", "trail", "trekking"]
+            let exc = ["scarpe running", "smartwatch", "trail", "trekking", "bicicletta", "t-fight", "medvedev", "pure drive", "pure aero", "pro staff", "altra experience", "flow velociti", "salomon drx"]
             if exc.contains(where: { t.contains($0) }) { return false }
-            let inc = ["padel", "racchetta", "pala", "bullpadel", "nox", "starvie", "siux", "kuikma", "babolat technical", "head speed", "overgrip", "tubo palline"]
+            if lcat == "padel" { return true }
+            let inc = ["padel", "bullpadel", "nox", "siux", "starvie", "kuikma", "coello", "vertex", "metalbone", "adipower", "viper", "veron", "nova pro", "extreme motion", "flash pro", "racchetta bolt", "overgrip"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "cycling" || cat == "ciclismo" {
-            let exc = ["scarpe running", "trail running"]
+            let exc = ["hyperboost", "neo lumina", "neo daichi", "edge 75", "scarponi sci", "scarpe running", "trail running", "padel", "racchetta"]
             if exc.contains(where: { t.contains($0) }) { return false }
-            let inc = ["ciclismo", "bici", "ciclocomputer", "rullo", "smart trainer", "kickr", "flux", "tacx", "wahoo", "favero", "assioma", "kask", "poc ventral", "castelli", "sportful", "santini", "salopette", "shimano", "copertone"]
+            if lcat == "cycling" { return true }
+            let inc = ["ciclismo", "bicicletta", "bici", "e-bike", "ebike", "ciclocomputer", "edge 5", "edge 8", "edge 10", "edge explore", "karoo", "rullo", "smart trainer", "kickr", "flux", "tacx", "wahoo", "favero", "assioma", "kask", "castelli", "sportful", "santini", "assos", "northwave", "fizik", "salopette", "shimano", "campagnolo", "copertone", "mtb", "gravel", "pastiglie freno", "disco freno"]
             return inc.contains(where: { t.contains($0) })
         }
 

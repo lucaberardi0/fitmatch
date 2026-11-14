@@ -362,47 +362,45 @@ struct NotificationsView: View {
     // MARK: - Empty State View
 
     private var emptyStateView: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 68, height: 68)
-                    .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 2)
+        let titleText: String
+        let subtitleText: String
+        let iconColor: Color
 
-                Image(systemName: "bell.slash")
-                    .font(.system(size: 28))
-                    .foregroundColor(Color(red: 160/255, green: 160/255, blue: 170/255))
-            }
-            .padding(.top, 20)
-
-            Text("Nessuna notifica in '\(selectedFilter.rawValue)'")
-                .font(.system(size: 16.5, weight: .bold, design: .rounded))
-                .foregroundColor(Color.shopDark)
-
-            Text("Ti avviseremo automaticamente con notifiche push in tempo reale non appena rileviamo un calo di prezzo o un'offerta speciale sui tuoi articoli salvati.")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(.shopTextMuted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 36)
-                .lineSpacing(2)
-
-            Button(action: {
-                notifManager.simulateTestNotification(type: .priceDrop)
-            }) {
-                Text("Crea notifica di prova")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color(red: 99/255, green: 59/255, blue: 238/255))
-                    .clipShape(Capsule())
-                    .shadow(color: Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.25), radius: 6, x: 0, y: 2)
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 6)
+        switch selectedFilter {
+        case .all:
+            titleText = "Nessun avviso al momento"
+            subtitleText = "Quando un prodotto nei tuoi preferiti scende di prezzo o torna disponibile nella tua taglia su uno degli store partner, lo troverai subito qui."
+            iconColor = .shopPurple
+        case .priceDrop:
+            titleText = "Nessun calo di prezzo rilevato"
+            subtitleText = "Salva scarpe da running, smartwatch GPS o attrezzatura tra i preferiti: monitoriamo i listini di tutti i negozi per avvisarti al primo ribasso."
+            iconColor = .shopRed
+        case .promo:
+            titleText = "Nessuna promo negozio attiva"
+            subtitleText = "Segui i tuoi store sportivi preferiti per ricevere notifiche su codici sconto, saldi stagionali e nuovi arrivi."
+            iconColor = .shopGreen
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
+
+        return FitMatchEmptyStateView(
+            icon: selectedFilter.icon,
+            accentColor: iconColor,
+            badgeText: "AVVISI IN TEMPO REALE",
+            title: titleText,
+            subtitle: subtitleText,
+            primaryTitle: "Esplora prodotti e offerte",
+            primaryIcon: "flame.fill",
+            primaryColor: .shopDark,
+            onPrimaryTap: {
+                dismiss()
+            },
+            secondaryTitle: "Invia avviso di prova",
+            secondaryIcon: "bell.badge",
+            onSecondaryTap: {
+                notifManager.simulateTestNotification(type: .priceDrop)
+            }
+        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Action Handler

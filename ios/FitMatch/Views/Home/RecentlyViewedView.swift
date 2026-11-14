@@ -23,7 +23,7 @@ struct RecentlyViewedView: View {
         var seen = Set<String>()
         var list: [RecentActivityItem] = []
         for act in recentManager.activities where act.type == .product || act.type == .store {
-            let key = "\(act.type.rawValue)-\(act.title.lowercased())"
+            let key = RecentActivityManager.normalizedKey(type: act.type, title: act.title)
             if !seen.contains(key) {
                 seen.insert(key)
                 list.append(act)
@@ -54,6 +54,9 @@ struct RecentlyViewedView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 90)
                 }
+                .refreshable {
+                    await recentManager.syncFromDatabase()
+                }
             }
         }
         .background(Color.white.ignoresSafeArea())
@@ -61,6 +64,9 @@ struct RecentlyViewedView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
+        .task {
+            await recentManager.syncFromDatabase()
+        }
         .onAppear {
             TabBarVisibilityManager.shared.hide(for: "recently_viewed")
         }
@@ -363,40 +369,23 @@ struct RecentlyViewedView: View {
 
     // MARK: - Empty State View
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
+        VStack {
             Spacer()
 
-            ZStack {
-                Circle()
-                    .fill(Color(red: 242/255, green: 243/255, blue: 245/255))
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundColor(.shopPurple)
-            }
-
-            Text("Nessun articolo visto di recente")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
-
-            Text("I prodotti e i negozi che visualizzi appariranno qui per essere ritrovati al volo.")
-                .font(.system(size: 14))
-                .foregroundColor(.shopTextMuted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-
-            Button(action: { dismiss() }) {
-                Text("Esplora prodotti")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
-                    .background(Color.shopDark)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 10)
+            FitMatchEmptyStateView(
+                icon: "clock.arrow.circlepath",
+                accentColor: .shopPurple,
+                badgeText: "CRONOLOGIA FITMATCH",
+                title: "Nessun prodotto consultato di recente",
+                subtitle: "Esplora scarpe da running, orologi GPS, ciclismo e padel: ogni modello aperto viene salvato qui per confrontare subito taglie e negozi.",
+                primaryTitle: "Esplora attrezzatura sportiva",
+                primaryIcon: "magnifyingglass",
+                primaryColor: .shopDark,
+                onPrimaryTap: {
+                    dismiss()
+                }
+            )
+            .padding(.horizontal, 16)
 
             Spacer()
         }

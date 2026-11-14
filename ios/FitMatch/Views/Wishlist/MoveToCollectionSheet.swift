@@ -36,11 +36,13 @@ struct MoveToCollectionSheet: View {
 
                         VStack(spacing: 8) {
                             if wishlist.getAvailableCollections().isEmpty {
-                                Text("Nessuna collezione creata. Puoi crearne una nuova qui sotto.")
-                                    .font(.system(size: 13.5, weight: .regular))
-                                    .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.vertical, 8)
+                                FitMatchInlineEmptyRow(
+                                    icon: "folder.badge.plus",
+                                    accentColor: .shopPurple,
+                                    title: "Nessuna collezione ancora creata",
+                                    subtitle: "Raggruppa i tuoi prodotti per sport o obiettivo (es. «Gara 10K», «Padel») qui sotto."
+                                )
+                                .padding(.vertical, 4)
                             } else {
                                 ForEach(wishlist.getAvailableCollections(), id: \.name) { col in
                                     collectionRow(col)

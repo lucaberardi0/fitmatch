@@ -47,6 +47,7 @@ struct ProductDetailView: View {
     @State private var selectedSize: String? = nil
     @State private var selectedVariant: String? = nil
     @State private var selectedImageIndex: Int = 0
+    @State private var showDoubleTapHeart: Bool = false
 
     // Collapsible Accordion States (Shopify Shop Style)
     @State private var isExpandedSizes: Bool = false
@@ -590,6 +591,16 @@ struct ProductDetailView: View {
                     .frame(height: 330)
                     .frame(maxWidth: .infinity)
             }
+
+            if showDoubleTapHeart {
+                Image(systemName: wishlist.isFavorite(product.canonical_name) ? "heart.fill" : "heart.slash.fill")
+                    .font(.system(size: 64, weight: .bold))
+                    .foregroundColor(wishlist.isFavorite(product.canonical_name) ? .shopRed : .shopTextMuted)
+                    .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.scale(scale: 0.5).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
         }
         .frame(height: 330)
         .cornerRadius(24)
@@ -597,6 +608,41 @@ struct ProductDetailView: View {
             RoundedRectangle(cornerRadius: 24)
                 .stroke(Color(red: 236/255, green: 237/255, blue: 240/255), lineWidth: 0.8)
         )
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            let gen = UIImpactFeedbackGenerator(style: .medium)
+            gen.impactOccurred()
+            wishlist.toggleFavorite(product: product, selectedSize: selectedSize)
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.6)) {
+                showDoubleTapHeart = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    showDoubleTapHeart = false
+                }
+            }
+        }
+        .contextMenu {
+            let isSaved = wishlist.isFavorite(product.canonical_name)
+            Button(action: {
+                let gen = UIImpactFeedbackGenerator(style: .medium)
+                gen.impactOccurred()
+                wishlist.toggleFavorite(product: product, selectedSize: selectedSize)
+            }) {
+                Label(
+                    isSaved ? "Rimuovi dai preferiti" : "Salva nei preferiti",
+                    systemImage: isSaved ? "heart.slash" : "heart.fill"
+                )
+            }
+
+            Button(action: { showingComparisonSheet = true }) {
+                Label("Confronta con altri modelli", systemImage: "square.split.2x1")
+            }
+
+            Button(action: { showingShareSheet = true }) {
+                Label("Condividi prodotto", systemImage: "square.and.arrow.up")
+            }
+        }
     }
 
     // MARK: - 4. Title & Action Row (Screenshot 1: Title, Wishlist Heart, Share)

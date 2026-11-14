@@ -134,6 +134,7 @@ class SupabaseManager: ObservableObject {
         // Migrate/link anonymous device data to this user in Supabase
         Task {
             await linkAnonymousDataToAccount(newUserId: userId)
+            NotificationCenter.default.post(name: NSNotification.Name("FitMatchAuthSessionDidChange"), object: nil)
         }
     }
 
@@ -299,6 +300,7 @@ class SupabaseManager: ObservableObject {
         // Reset preferences to default guest
         UserPreferencesManager.shared.preferences.userName = "Ospite"
         UserPreferencesManager.shared.preferences.userEmail = ""
+        NotificationCenter.default.post(name: NSNotification.Name("FitMatchAuthSessionDidChange"), object: nil)
     }
 
     func deleteAccount() async throws -> Bool {
@@ -824,14 +826,26 @@ class SupabaseManager: ObservableObject {
 
     // MARK: - Recent Activity API
 
-    func fetchRecentActivities() async throws -> [RecentActivityItem] {
-        var urlStr = "\(restURL)/recent_activity?select=*"
+    private static let postgrestQueryValueAllowed: CharacterSet = {
+        var cs = CharacterSet.alphanumerics
+        cs.insert(charactersIn: "-._~")
+        return cs
+    }()
+
+    private func encodeQueryValue(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: Self.postgrestQueryValueAllowed) ?? value
+    }
+
+    private var recentActivityOwnerFilter: String {
         if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
-            urlStr += "&user_id=eq.\(uid)"
+            return "user_id=eq.\(encodeQueryValue(uid))"
         } else {
-            urlStr += "&device_id=eq.\(deviceId)"
+            return "device_id=eq.\(encodeQueryValue(deviceId))"
         }
-        urlStr += "&order=created_at.desc&limit=30"
+    }
+
+    func fetchRecentActivities() async throws -> [RecentActivityItem] {
+        let urlStr = "\(restURL)/recent_activity?select=*&\(recentActivityOwnerFilter)&order=created_at.desc&limit=60"
 
         guard let url = URL(string: urlStr) else {
             throw URLError(.badURL)
@@ -848,6 +862,7 @@ class SupabaseManager: ObservableObject {
         struct ActivityRow: Codable {
             let id: UUID
             let activity_type: String
+            let product_id: String?
             let title: String
             let subtitle: String?
             let image_url: String?
@@ -869,8 +884,8 @@ class SupabaseManager: ObservableObject {
             } else {
                 actType = .product
             }
-            let productData: MatchedProduct? = (r.price != nil) ? MatchedProduct(
-                id_val: r.id.uuidString,
+            let productData: MatchedProduct? = (actType == .product) ? MatchedProduct(
+                id_val: (r.product_id?.isEmpty == false) ? r.product_id : r.id.uuidString,
                 canonical_name: r.title,
                 brand: r.subtitle,
                 image_url: r.image_url,
@@ -895,7 +910,22 @@ class SupabaseManager: ObservableObject {
         }
     }
 
-    func recordRecentActivity(type: String, title: String, subtitle: String? = nil, imageUrl: String? = nil, price: Double? = nil, originalPrice: Double? = nil, storeId: String? = nil, storeName: String? = nil) async throws -> Bool {
+    func recordRecentActivity(id: UUID? = nil, type: String, title: String, subtitle: String? = nil, imageUrl: String? = nil, price: Double? = nil, originalPrice: Double? = nil, storeId: String? = nil, storeName: String? = nil, productId: String? = nil) async throws -> Bool {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return false }
+
+        // Remove any prior duplicate rows for the same owner + activity_type + title before inserting
+        let encodedType = encodeQueryValue(type)
+        let encodedTitle = encodeQueryValue(trimmedTitle)
+        if let delUrl = URL(string: "\(restURL)/recent_activity?\(recentActivityOwnerFilter)&activity_type=eq.\(encodedType)&title=eq.\(encodedTitle)") {
+            var delReq = URLRequest(url: delUrl)
+            delReq.httpMethod = "DELETE"
+            for (k, v) in makeHeaders() {
+                delReq.setValue(v, forHTTPHeaderField: k)
+            }
+            _ = try? await session.data(for: delReq)
+        }
+
         guard let url = URL(string: "\(restURL)/recent_activity") else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -904,12 +934,14 @@ class SupabaseManager: ObservableObject {
         }
         var body: [String: Any] = [
             "activity_type": type,
-            "title": title,
+            "title": trimmedTitle,
             "device_id": deviceId
         ]
+        if let rowId = id { body["id"] = rowId.uuidString }
         if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
             body["user_id"] = uid
         }
+        if let pid = productId, !pid.isEmpty { body["product_id"] = pid }
         if let s = subtitle { body["subtitle"] = s }
         if let img = imageUrl { body["image_url"] = img }
         if let p = price { body["price"] = p }
@@ -923,13 +955,48 @@ class SupabaseManager: ObservableObject {
         return [200, 201].contains(code)
     }
 
-    func clearRecentActivities() async throws -> Bool {
-        var urlStr = "\(restURL)/recent_activity?"
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
-            urlStr += "user_id=eq.\(uid)"
-        } else {
-            urlStr += "device_id=eq.\(deviceId)"
+    func deleteRecentActivity(id: UUID, type: String, title: String) async throws -> Bool {
+        let owner = recentActivityOwnerFilter
+        var allSucceeded = true
+
+        // 1. Delete exact row by id
+        if let idUrl = URL(string: "\(restURL)/recent_activity?id=eq.\(id.uuidString)&\(owner)") {
+            var req = URLRequest(url: idUrl)
+            req.httpMethod = "DELETE"
+            for (k, v) in makeHeaders() {
+                req.setValue(v, forHTTPHeaderField: k)
+            }
+            let (_, response) = try await session.data(for: req)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if ![200, 204].contains(code) {
+                allSucceeded = false
+            }
         }
+
+        // 2. Delete any duplicate rows matching the same activity_type + title
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty {
+            let encodedType = encodeQueryValue(type)
+            let encodedTitle = encodeQueryValue(trimmedTitle)
+            if let titleUrl = URL(string: "\(restURL)/recent_activity?\(owner)&activity_type=eq.\(encodedType)&title=eq.\(encodedTitle)") {
+                var req = URLRequest(url: titleUrl)
+                req.httpMethod = "DELETE"
+                for (k, v) in makeHeaders() {
+                    req.setValue(v, forHTTPHeaderField: k)
+                }
+                let (_, response) = try await session.data(for: req)
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if ![200, 204].contains(code) {
+                    allSucceeded = false
+                }
+            }
+        }
+
+        return allSucceeded
+    }
+
+    func clearRecentActivities() async throws -> Bool {
+        let urlStr = "\(restURL)/recent_activity?\(recentActivityOwnerFilter)"
         guard let url = URL(string: urlStr) else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.httpMethod = "DELETE"
@@ -1340,6 +1407,30 @@ class SupabaseManager: ObservableObject {
     // MARK: - Dedicated Deals Showcases (Ranked by Deepest Discount & Category Filtered)
 
     func fetchDealsShowcasesDirect(category: String? = nil) async throws -> [StoreShowcase] {
+        struct RpcDealRow: Codable {
+            let id: String
+            let product_id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+            let available_sizes: [String]?
+            let shipping_cost: Double?
+            let free_shipping_threshold: Double?
+            let courier: String?
+            let store_rating: Double?
+            let store_formatted_review_count: String?
+            let store_review_count: Int?
+            let store_card_theme: String?
+            let store_accent_color: String?
+            let store_logo_url: String?
+            let product_brand: String?
+        }
+
         struct OfferRow: Codable {
             let id: String
             let product_id: String?
@@ -1357,7 +1448,129 @@ class SupabaseManager: ObservableObject {
             let courier: String?
         }
 
-        let isAllCategories = (category == nil || category!.lowercased() == "tutti" || category!.isEmpty)
+        func cleanDealTitle(_ title: String) -> String {
+            title
+                .replacingOccurrences(of: "&nbsp;", with: " ")
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let normalizedCategory = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
+            $0.isEmpty ? nil : $0
+        } ?? "tutti"
+
+        // 1. Primary path: server-side PostgreSQL RPC `get_category_deals_showcases`.
+        // Evaluates ALL discounted in-stock offers across every store (no 1000-row PostgREST cutoff),
+        // filters using product taxonomy + anti-noise exclusions, deduplicates variants per store,
+        // and ranks top 12 deals per store by discount % and € savings.
+        if let rpcUrl = URL(string: "\(restURL)/rpc/get_category_deals_showcases") {
+            var rpcReq = URLRequest(url: rpcUrl)
+            rpcReq.httpMethod = "POST"
+            for (k, v) in makeHeaders(isPublic: true) {
+                rpcReq.setValue(v, forHTTPHeaderField: k)
+            }
+            let payload: [String: Any] = ["p_category": normalizedCategory, "p_per_store": 12]
+            rpcReq.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+            if let (data, resp) = try? await session.data(for: rpcReq),
+               let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+               let rpcRows = try? JSONDecoder().decode([RpcDealRow].self, from: data),
+               !rpcRows.isEmpty {
+
+                var grouped: [String: (
+                    name: String,
+                    products: [StoreShowcaseProduct],
+                    discounts: [Double],
+                    maxDisc: Double,
+                    rating: Double?,
+                    formattedReviews: String?,
+                    reviewCount: Int?,
+                    theme: String?,
+                    accent: String?,
+                    logo: String?
+                )] = [:]
+
+                for r in rpcRows {
+                    let cleanTitle = cleanDealTitle(r.raw_title)
+                    let extractedBrand = (r.product_brand?.isEmpty == false)
+                        ? r.product_brand!
+                        : ProductBrandHelper.extractBrand(from: cleanTitle, fallback: r.store_name)
+                    let ship = r.shipping_cost ?? 0.0
+                    let p = StoreShowcaseProduct(
+                        id: r.id,
+                        title: cleanTitle,
+                        brand: extractedBrand,
+                        image_url: r.image_url,
+                        available_sizes: r.available_sizes,
+                        current_price: r.current_price,
+                        original_price: r.original_price,
+                        discount_pct: r.discount_pct,
+                        product_url: r.product_url,
+                        canonical_name: cleanTitle,
+                        product_id: r.product_id,
+                        shipping_cost: r.shipping_cost,
+                        total_price: r.current_price + ship,
+                        is_free_shipping: ship == 0.0,
+                        shipping_label: ship == 0.0 ? "Sped. Gratis" : "+ \(String(format: "%.2f", ship)) €",
+                        free_shipping_threshold: r.free_shipping_threshold,
+                        courier: r.courier
+                    )
+
+                    let sId = r.store_id.lowercased()
+                    if grouped[sId] == nil {
+                        grouped[sId] = (
+                            name: r.store_name,
+                            products: [],
+                            discounts: [],
+                            maxDisc: 0.0,
+                            rating: r.store_rating,
+                            formattedReviews: r.store_formatted_review_count,
+                            reviewCount: r.store_review_count,
+                            theme: r.store_card_theme,
+                            accent: r.store_accent_color,
+                            logo: r.store_logo_url
+                        )
+                    }
+                    grouped[sId]?.products.append(p)
+                    if let disc = r.discount_pct, disc > 0 {
+                        grouped[sId]?.discounts.append(disc)
+                        if disc > (grouped[sId]?.maxDisc ?? 0) {
+                            grouped[sId]?.maxDisc = disc
+                        }
+                    }
+                }
+
+                let showcases: [StoreShowcase] = grouped.compactMap { sId, info in
+                    guard !info.products.isEmpty else { return nil }
+                    let avgDisc = info.discounts.isEmpty ? 25.0 : (info.discounts.reduce(0, +) / Double(info.discounts.count))
+                    let rating = info.rating.map { String(format: "%.1f", $0) } ?? "4.8"
+                    let revStr = info.formattedReviews ?? info.reviewCount.map { "\($0)" }
+                    return StoreShowcase(
+                        store_id: sId,
+                        store_name: info.name,
+                        total_offers: info.products.count,
+                        avg_discount: avgDisc,
+                        rating: rating,
+                        review_count: revStr,
+                        card_theme: info.theme ?? "white",
+                        accent_color: info.accent,
+                        logo_url: info.logo,
+                        products: info.products
+                    )
+                }
+
+                return showcases.sorted {
+                    let max0 = grouped[$0.store_id]?.maxDisc ?? 0
+                    let max1 = grouped[$1.store_id]?.maxDisc ?? 0
+                    if max0 != max1 { return max0 > max1 }
+                    if $0.products.count != $1.products.count { return $0.products.count > $1.products.count }
+                    return $0.avg_discount > $1.avg_discount
+                }
+            }
+        }
+
+        // 2. Fallback REST query if RPC is unavailable
+        let isAllCategories = normalizedCategory == "tutti"
         var fetchedOffers: [OfferRow] = []
 
         if isAllCategories {
@@ -1374,7 +1587,7 @@ class SupabaseManager: ObservableObject {
         }
 
         if fetchedOffers.isEmpty {
-            guard let url = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier&discount_pct=gt.0&order=discount_pct.desc.nullslast&limit=2500") else {
+            guard let url = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier&discount_pct=gt.0&in_stock=neq.false&order=discount_pct.desc.nullslast&limit=1000") else {
                 throw URLError(.badURL)
             }
             var req = URLRequest(url: url)
@@ -1391,8 +1604,8 @@ class SupabaseManager: ObservableObject {
 
         // Filter rows by category keywords if active
         let rows: [OfferRow]
-        if let cat = category?.lowercased(), !cat.isEmpty && cat != "tutti" {
-            rows = fetchedOffers.filter { CategoryFilterMatcher.matches(title: $0.raw_title, category: cat) }
+        if normalizedCategory != "tutti" {
+            rows = fetchedOffers.filter { CategoryFilterMatcher.matches(title: cleanDealTitle($0.raw_title), category: normalizedCategory) }
         } else {
             rows = fetchedOffers
         }
@@ -1422,12 +1635,21 @@ class SupabaseManager: ObservableObject {
             }
         }
 
-        var storeMap: [String: (name: String, products: [StoreShowcaseProduct], discounts: [Double], maxDisc: Double)] = [:]
+        var storeMap: [String: (name: String, products: [StoreShowcaseProduct], seenKeys: Set<String>, discounts: [Double], maxDisc: Double)] = [:]
         for r in rows {
-            let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.store_name)
+            let cleanTitle = cleanDealTitle(r.raw_title)
+            let dedupKey = (r.product_id?.isEmpty == false) ? r.product_id! : cleanTitle.lowercased()
+            let sId = r.store_id.lowercased()
+            if storeMap[sId] == nil {
+                storeMap[sId] = (name: r.store_name, products: [], seenKeys: [], discounts: [], maxDisc: 0.0)
+            }
+            guard storeMap[sId]?.seenKeys.contains(dedupKey) != true else { continue }
+            storeMap[sId]?.seenKeys.insert(dedupKey)
+
+            let extractedBrand = ProductBrandHelper.extractBrand(from: cleanTitle, fallback: r.store_name)
             let p = StoreShowcaseProduct(
                 id: r.id,
-                title: r.raw_title,
+                title: cleanTitle,
                 brand: extractedBrand,
                 image_url: r.image_url,
                 available_sizes: r.available_sizes,
@@ -1435,7 +1657,7 @@ class SupabaseManager: ObservableObject {
                 original_price: r.original_price,
                 discount_pct: r.discount_pct,
                 product_url: r.product_url,
-                canonical_name: r.raw_title,
+                canonical_name: cleanTitle,
                 product_id: r.product_id,
                 shipping_cost: r.shipping_cost,
                 total_price: r.current_price + (r.shipping_cost ?? 0.0),
@@ -1444,11 +1666,7 @@ class SupabaseManager: ObservableObject {
                 free_shipping_threshold: r.free_shipping_threshold,
                 courier: r.courier
             )
-            let sId = r.store_id.lowercased()
-            if storeMap[sId] == nil {
-                storeMap[sId] = (name: r.store_name, products: [], discounts: [], maxDisc: 0.0)
-            }
-            if (storeMap[sId]?.products.count ?? 0) < 10 {
+            if (storeMap[sId]?.products.count ?? 0) < 12 {
                 storeMap[sId]?.products.append(p)
             }
             if let disc = r.discount_pct, disc > 0 {
@@ -1481,7 +1699,6 @@ class SupabaseManager: ObservableObject {
             ))
         }
 
-        // Sort stores by the HIGHEST real discount first (real Holiday Sales ranking!)
         return showcases.sorted {
             let max0 = storeMap[$0.store_id]?.maxDisc ?? 0
             let max1 = storeMap[$1.store_id]?.maxDisc ?? 0

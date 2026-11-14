@@ -13,6 +13,15 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     }
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        return viewControllers.count > 1
+        guard viewControllers.count > 1 else { return false }
+        return transitionCoordinator?.isAnimated != true
+    }
+
+    public func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        // Ensure edge swipe-to-go-back takes priority over nested horizontal scroll views/carousels
+        return gestureRecognizer === interactivePopGestureRecognizer
     }
 }

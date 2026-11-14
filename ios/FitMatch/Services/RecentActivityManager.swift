@@ -139,6 +139,21 @@ class RecentActivityManager: ObservableObject {
     @Published var activities: [RecentActivityItem] = []
 
     private let saveFileName = "fitmatch_recent_activity.json"
+    private let pendingDeletesKey = "fitmatch_recent_pending_deletes_v1"
+    private let pendingClearAllKey = "fitmatch_recent_pending_clear_v1"
+
+    private var pendingDeletedKeys: Set<String> = []
+    private var pendingClearAll: Bool = false
+    private var pendingUploadKeys: Set<String> = []
+    private var inFlightDeletes: [String: Task<Void, Never>] = [:]
+    private var mutationGeneration: Int = 0
+    private var isSyncing: Bool = false
+    private var needsAnotherSync: Bool = false
+    private var authObserver: NSObjectProtocol?
+
+    nonisolated static func normalizedKey(type: ActivityType, title: String) -> String {
+        "\(type.rawValue):\(title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+    }
 
     private var fileURL: URL {
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
@@ -146,6 +161,7 @@ class RecentActivityManager: ObservableObject {
     }
 
     init() {
+        loadPendingFlags()
         loadActivities()
         // Purge legacy test activities and conversational follow-ups from previous sessions
         if !UserDefaults.standard.bool(forKey: "fitmatch_recent_purged_v5") {
@@ -169,32 +185,127 @@ class RecentActivityManager: ObservableObject {
             UserDefaults.standard.set(true, forKey: "fitmatch_recent_timestamps_fixed_v2")
         }
 
+        if pendingClearAll {
+            self.activities = []
+        } else if !pendingDeletedKeys.isEmpty {
+            self.activities.removeAll {
+                pendingDeletedKeys.contains(Self.normalizedKey(type: $0.type, title: $0.title))
+            }
+        }
+
+        authObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("FitMatchAuthSessionDidChange"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.syncFromDatabase(force: true)
+            }
+        }
+
         Task {
             await syncFromDatabase()
         }
     }
 
-    func syncFromDatabase() async {
+    private func loadPendingFlags() {
+        let savedDeletes = UserDefaults.standard.stringArray(forKey: pendingDeletesKey) ?? []
+        self.pendingDeletedKeys = Set(savedDeletes)
+        self.pendingClearAll = UserDefaults.standard.bool(forKey: pendingClearAllKey)
+    }
+
+    private func savePendingFlags() {
+        UserDefaults.standard.set(Array(pendingDeletedKeys), forKey: pendingDeletesKey)
+        UserDefaults.standard.set(pendingClearAll, forKey: pendingClearAllKey)
+    }
+
+    func syncFromDatabase(force: Bool = false) async {
+        if isSyncing {
+            if force {
+                needsAnotherSync = true
+            }
+            return
+        }
+        isSyncing = true
+        defer {
+            isSyncing = false
+            if needsAnotherSync {
+                needsAnotherSync = false
+                Task { [weak self] in
+                    await self?.syncFromDatabase()
+                }
+            }
+        }
+
         do {
+            if pendingClearAll {
+                let cleared = (try? await SupabaseManager.shared.clearRecentActivities()) ?? false
+                if cleared {
+                    pendingClearAll = false
+                    savePendingFlags()
+                } else {
+                    return
+                }
+            }
+
+            let startGen = mutationGeneration
             let supaItems = try await SupabaseManager.shared.fetchRecentActivities()
-            // Deduplicate remote items preserving the newest timestamp
+
+            // If a local mutation (add/remove/clear) occurred while fetching, do not overwrite with stale remote state
+            guard startGen == mutationGeneration else {
+                needsAnotherSync = true
+                return
+            }
+
+            var localByKey: [String: RecentActivityItem] = [:]
+            for local in self.activities {
+                let key = Self.normalizedKey(type: local.type, title: local.title)
+                if localByKey[key] == nil {
+                    localByKey[key] = local
+                }
+            }
+
+            // Deduplicate remote items preserving the newest timestamp and any richer local productData
             var seenKeys = Set<String>()
             var deduplicated: [RecentActivityItem] = []
             for item in supaItems {
                 guard item.type != .search || RecentActivityManager.isValidShoppingQuery(item.title) else {
                     continue
                 }
-                let key = "\(item.type.rawValue):\(item.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+                let key = Self.normalizedKey(type: item.type, title: item.title)
+
+                if pendingDeletedKeys.contains(key) {
+                    scheduleRetryDelete(item: item, key: key)
+                    continue
+                }
+
                 if !seenKeys.contains(key) {
                     seenKeys.insert(key)
-                    deduplicated.append(item)
+                    if item.type == .product,
+                       let localProd = localByKey[key]?.productData,
+                       localProd.offers.count > (item.productData?.offers.count ?? 0) || localProd.gallery_images != nil {
+                        let merged = RecentActivityItem(
+                            id: item.id,
+                            type: item.type,
+                            title: item.title,
+                            subtitle: item.subtitle,
+                            imageUrl: item.imageUrl ?? localProd.image_url,
+                            systemIcon: item.systemIcon,
+                            timestamp: item.timestamp,
+                            productData: localProd,
+                            storeId: item.storeId
+                        )
+                        deduplicated.append(merged)
+                    } else {
+                        deduplicated.append(item)
+                    }
                 }
             }
 
-            // Keep any recent local activities that haven't synced to remote yet
+            // Keep any local activities that were recorded in this session and are still uploading
             for local in self.activities {
-                let key = "\(local.type.rawValue):\(local.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
-                if !seenKeys.contains(key) {
+                let key = Self.normalizedKey(type: local.type, title: local.title)
+                if pendingUploadKeys.contains(key) && !pendingDeletedKeys.contains(key) && !seenKeys.contains(key) {
                     seenKeys.insert(key)
                     deduplicated.append(local)
                 }
@@ -208,6 +319,25 @@ class RecentActivityManager: ObservableObject {
             saveActivities()
         } catch {
             print("RecentActivityManager sync note: \(error)")
+        }
+    }
+
+    private func scheduleRetryDelete(item: RecentActivityItem, key: String) {
+        guard inFlightDeletes[key] == nil else { return }
+        inFlightDeletes[key] = Task { [weak self] in
+            let success = (try? await SupabaseManager.shared.deleteRecentActivity(
+                id: item.id,
+                type: item.type.rawValue,
+                title: item.title
+            )) ?? false
+            await MainActor.run {
+                guard let self else { return }
+                self.inFlightDeletes[key] = nil
+                if success {
+                    self.pendingDeletedKeys.remove(key)
+                    self.savePendingFlags()
+                }
+            }
         }
     }
 
@@ -296,7 +426,8 @@ class RecentActivityManager: ObservableObject {
     var recentlyViewedProducts: [MatchedProduct] {
         var seen = Set<String>()
         var unique: [MatchedProduct] = []
-        for p in activities.compactMap({ $0.productData }) {
+        for act in activities where act.type == .product {
+            let p = act.effectiveProduct
             let key = p.canonical_name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if !seen.contains(key) {
                 seen.insert(key)
@@ -331,8 +462,15 @@ class RecentActivityManager: ObservableObject {
         // Guard against conversational follow-up questions, off-topic tests, or isolated filters
         guard RecentActivityManager.isValidShoppingQuery(clean) else { return }
 
+        let key = Self.normalizedKey(type: .search, title: clean)
+        pendingDeletedKeys.remove(key)
+        pendingClearAll = false
+        pendingUploadKeys.insert(key)
+        savePendingFlags()
+        mutationGeneration += 1
+
         // Deduplicate: remove any previous search for the same query so it rises to the top
-        activities.removeAll { $0.type == .search && $0.title.caseInsensitiveCompare(clean) == .orderedSame }
+        activities.removeAll { Self.normalizedKey(type: $0.type, title: $0.title) == key }
 
         let icon = clean.lowercased().contains("per") || clean.lowercased().contains("miglior") || clean.lowercased().contains("sotto")
             ? "sparkles"
@@ -358,22 +496,40 @@ class RecentActivityManager: ObservableObject {
         saveActivities()
 
         // Background Sync to Supabase
+        let priorDelete = inFlightDeletes[key]
         Task {
-            _ = try? await SupabaseManager.shared.recordRecentActivity(
+            await priorDelete?.value
+            let ok = (try? await SupabaseManager.shared.recordRecentActivity(
+                id: newItem.id,
                 type: "search",
                 title: clean
-            )
+            )) ?? false
+            await MainActor.run {
+                if ok && self.activities.contains(where: { $0.id == newItem.id }) {
+                    self.pendingUploadKeys.remove(key)
+                }
+            }
         }
     }
 
     func recordProductView(_ product: MatchedProduct) {
+        let cleanTitle = product.canonical_name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTitle.isEmpty else { return }
+
+        let key = Self.normalizedKey(type: .product, title: cleanTitle)
+        pendingDeletedKeys.remove(key)
+        pendingClearAll = false
+        pendingUploadKeys.insert(key)
+        savePendingFlags()
+        mutationGeneration += 1
+
         // Deduplicate: remove any previous entry for this product
-        activities.removeAll { $0.type == .product && $0.title.caseInsensitiveCompare(product.canonical_name) == .orderedSame }
+        activities.removeAll { Self.normalizedKey(type: $0.type, title: $0.title) == key }
 
         let newItem = RecentActivityItem(
             id: UUID(),
             type: .product,
-            title: product.canonical_name,
+            title: cleanTitle,
             subtitle: product.brand,
             imageUrl: product.image_url,
             systemIcon: nil,
@@ -390,21 +546,30 @@ class RecentActivityManager: ObservableObject {
         saveActivities()
 
         // Background Sync to Supabase
+        let priorDelete = inFlightDeletes[key]
         Task {
+            await priorDelete?.value
             let bestPrice = product.best_price ?? product.bestOffer?.price
             let origPrice = product.highest_price ?? product.bestOffer?.original_price
             let store = product.bestOffer?.store_name
             let sId = product.bestOffer?.store_id
-            _ = try? await SupabaseManager.shared.recordRecentActivity(
+            let ok = (try? await SupabaseManager.shared.recordRecentActivity(
+                id: newItem.id,
                 type: "product",
-                title: product.canonical_name,
+                title: cleanTitle,
                 subtitle: product.brand,
                 imageUrl: product.image_url,
                 price: bestPrice,
                 originalPrice: origPrice,
                 storeId: sId,
-                storeName: store
-            )
+                storeName: store,
+                productId: product.id_val
+            )) ?? false
+            await MainActor.run {
+                if ok && self.activities.contains(where: { $0.id == newItem.id }) {
+                    self.pendingUploadKeys.remove(key)
+                }
+            }
         }
     }
 
@@ -412,8 +577,17 @@ class RecentActivityManager: ObservableObject {
         let clean = storeName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
 
+        let key = Self.normalizedKey(type: .store, title: clean)
+        pendingDeletedKeys.remove(key)
+        pendingClearAll = false
+        pendingUploadKeys.insert(key)
+        savePendingFlags()
+        mutationGeneration += 1
+
         // Deduplicate: remove any previous entry for this store
-        activities.removeAll { $0.type == .store && ($0.storeId == storeId || $0.title.caseInsensitiveCompare(clean) == .orderedSame) }
+        activities.removeAll {
+            $0.type == .store && ($0.storeId == storeId || Self.normalizedKey(type: $0.type, title: $0.title) == key)
+        }
 
         let newItem = RecentActivityItem(
             id: UUID(),
@@ -436,28 +610,74 @@ class RecentActivityManager: ObservableObject {
         saveActivities()
 
         // Background Sync to Supabase
+        let priorDelete = inFlightDeletes[key]
         Task {
-            _ = try? await SupabaseManager.shared.recordRecentActivity(
+            await priorDelete?.value
+            let ok = (try? await SupabaseManager.shared.recordRecentActivity(
+                id: newItem.id,
                 type: "store",
                 title: clean,
                 subtitle: "Negozio",
                 imageUrl: logoUrl,
                 storeId: storeId,
                 storeName: clean
-            )
+            )) ?? false
+            await MainActor.run {
+                if ok && self.activities.contains(where: { $0.id == newItem.id }) {
+                    self.pendingUploadKeys.remove(key)
+                }
+            }
         }
     }
 
     func removeActivity(_ item: RecentActivityItem) {
-        activities.removeAll { $0.id == item.id }
+        let key = Self.normalizedKey(type: item.type, title: item.title)
+        pendingDeletedKeys.insert(key)
+        pendingUploadKeys.remove(key)
+        savePendingFlags()
+        mutationGeneration += 1
+
+        activities.removeAll {
+            $0.id == item.id || Self.normalizedKey(type: $0.type, title: $0.title) == key
+        }
         saveActivities()
+
+        let previousDelete = inFlightDeletes[key]
+        inFlightDeletes[key] = Task { [weak self] in
+            await previousDelete?.value
+            let success = (try? await SupabaseManager.shared.deleteRecentActivity(
+                id: item.id,
+                type: item.type.rawValue,
+                title: item.title
+            )) ?? false
+            await MainActor.run {
+                guard let self else { return }
+                self.inFlightDeletes[key] = nil
+                if success {
+                    self.pendingDeletedKeys.remove(key)
+                    self.savePendingFlags()
+                }
+            }
+        }
     }
 
     func clearAll() {
+        pendingClearAll = true
+        pendingDeletedKeys.removeAll()
+        pendingUploadKeys.removeAll()
+        savePendingFlags()
+        mutationGeneration += 1
+
         activities.removeAll()
         saveActivities()
         Task {
-            _ = try? await SupabaseManager.shared.clearRecentActivities()
+            let success = (try? await SupabaseManager.shared.clearRecentActivities()) ?? false
+            await MainActor.run {
+                if success {
+                    self.pendingClearAll = false
+                    self.savePendingFlags()
+                }
+            }
         }
     }
 

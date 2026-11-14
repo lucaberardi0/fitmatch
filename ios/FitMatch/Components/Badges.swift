@@ -121,3 +121,223 @@ struct WishlistButton: View {
         .buttonStyle(.plain)
     }
 }
+
+// MARK: - FitMatch Shared Empty State Components
+
+struct FitMatchEmptyStateView: View {
+    let icon: String
+    var accentColor: Color = .shopPurple
+    var badgeText: String? = nil
+    let title: String
+    let subtitle: String
+    var suggestions: [String] = []
+    var onSuggestionTap: ((String) -> Void)? = nil
+    var primaryTitle: String? = nil
+    var primaryIcon: String? = nil
+    var primaryColor: Color = .shopDark
+    var onPrimaryTap: (() -> Void)? = nil
+    var secondaryTitle: String? = nil
+    var secondaryIcon: String? = nil
+    var onSecondaryTap: (() -> Void)? = nil
+    var showsCardBackground: Bool = true
+
+    var body: some View {
+        let content = VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(accentColor.opacity(0.08))
+                    .frame(width: 84, height: 84)
+
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [accentColor.opacity(0.16), accentColor.opacity(0.07)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 60, height: 60)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(accentColor.opacity(0.18), lineWidth: 1)
+                    )
+
+                Image(systemName: icon)
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundColor(accentColor)
+            }
+
+            VStack(spacing: 8) {
+                if let badge = badgeText, !badge.isEmpty {
+                    Text(badge)
+                        .font(.system(size: 10.5, weight: .heavy, design: .rounded))
+                        .tracking(0.8)
+                        .foregroundColor(accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(accentColor.opacity(0.10))
+                        .clipShape(Capsule())
+                }
+
+                Text(title)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(.shopDark)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(subtitle)
+                    .font(.system(size: 13.5, weight: .regular))
+                    .foregroundColor(.shopTextMuted)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+            }
+
+            if !suggestions.isEmpty, let onSuggestionTap {
+                HStack(spacing: 8) {
+                    ForEach(suggestions, id: \.self) { item in
+                        Button(action: {
+                            let gen = UIImpactFeedbackGenerator(style: .light)
+                            gen.impactOccurred()
+                            onSuggestionTap(item)
+                        }) {
+                            Text(item)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundColor(.shopDark)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(Color.shopCardBg)
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.shopBorder, lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.top, 2)
+            }
+
+            if (primaryTitle != nil && onPrimaryTap != nil) || (secondaryTitle != nil && onSecondaryTap != nil) {
+                VStack(spacing: 10) {
+                    if let pTitle = primaryTitle, let pAction = onPrimaryTap {
+                        Button(action: {
+                            let gen = UIImpactFeedbackGenerator(style: .medium)
+                            gen.impactOccurred()
+                            pAction()
+                        }) {
+                            HStack(spacing: 7) {
+                                if let pIcon = primaryIcon {
+                                    Image(systemName: pIcon)
+                                        .font(.system(size: 13.5, weight: .bold))
+                                }
+                                Text(pTitle)
+                                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(primaryColor)
+                            .clipShape(Capsule())
+                            .shadow(color: primaryColor.opacity(0.22), radius: 8, x: 0, y: 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if let sTitle = secondaryTitle, let sAction = onSecondaryTap {
+                        Button(action: {
+                            let gen = UIImpactFeedbackGenerator(style: .light)
+                            gen.impactOccurred()
+                            sAction()
+                        }) {
+                            HStack(spacing: 5) {
+                                if let sIcon = secondaryIcon {
+                                    Image(systemName: sIcon)
+                                        .font(.system(size: 12.5, weight: .semibold))
+                                }
+                                Text(sTitle)
+                                    .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundColor(accentColor)
+                            .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, showsCardBackground ? 20 : 12)
+        .padding(.vertical, showsCardBackground ? 26 : 16)
+        .frame(maxWidth: .infinity)
+
+        if showsCardBackground {
+            content
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.shopBorder, lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.03), radius: 10, x: 0, y: 4)
+        } else {
+            content
+        }
+    }
+}
+
+struct FitMatchInlineEmptyRow: View {
+    let icon: String
+    var accentColor: Color = .shopPurple
+    let title: String
+    let subtitle: String
+    var showsChevron: Bool = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(accentColor.opacity(0.10))
+                    .frame(width: 48, height: 48)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(accentColor.opacity(0.14), lineWidth: 1)
+                    )
+
+                Image(systemName: icon)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundColor(accentColor)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                    .foregroundColor(.shopDark)
+                    .lineLimit(1)
+
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(.shopTextMuted)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 4)
+
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.shopTextMuted)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.shopCardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.shopBorder, lineWidth: 1)
+        )
+    }
+}

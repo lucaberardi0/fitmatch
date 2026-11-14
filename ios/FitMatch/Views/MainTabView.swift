@@ -40,6 +40,11 @@ final class TabBarVisibilityManager: ObservableObject {
 
 // MARK: - Tab Coordinator (Preserves tab state and manages seamless cross-tab navigation)
 
+struct TabScrollEvent: Equatable {
+    let tab: Int
+    let token: UUID = UUID()
+}
+
 @MainActor
 final class TabCoordinator: ObservableObject {
     static let shared = TabCoordinator()
@@ -47,6 +52,13 @@ final class TabCoordinator: ObservableObject {
     @Published var selectedTab: Int = 0
     @Published var previousTab: Int? = nil
     @Published var searchSource: String? = nil
+    @Published var scrollToTopEvent: TabScrollEvent? = nil
+
+    func triggerScrollToTop(for tab: Int) {
+        let gen = UIImpactFeedbackGenerator(style: .light)
+        gen.impactOccurred()
+        scrollToTopEvent = TabScrollEvent(tab: tab)
+    }
 
     func selectTab(_ index: Int, focusSearch: Bool = false, fromSource: String? = nil) {
         if selectedTab != index {
@@ -57,6 +69,8 @@ final class TabCoordinator: ObservableObject {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
                 selectedTab = index
             }
+        } else {
+            triggerScrollToTop(for: index)
         }
         if index == 1 && focusSearch {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
@@ -202,6 +216,17 @@ struct ShopFloatingIslandDock: View {
         )
         .shadow(color: Color.black.opacity(0.09), radius: 18, x: 0, y: 7)
         .shadow(color: Color.black.opacity(0.03), radius: 5, x: 0, y: 2)
+        .gesture(
+            DragGesture(minimumDistance: 24, coordinateSpace: .local)
+                .onEnded { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
+                    if value.translation.width < -28 && selectedTab < 2 {
+                        TabCoordinator.shared.selectTab(selectedTab + 1, focusSearch: false, fromSource: "dock_swipe")
+                    } else if value.translation.width > 28 && selectedTab > 0 {
+                        TabCoordinator.shared.selectTab(selectedTab - 1, focusSearch: false, fromSource: "dock_swipe")
+                    }
+                }
+        )
     }
 
     private func dockButton(index: Int, content: AnyView) -> some View {

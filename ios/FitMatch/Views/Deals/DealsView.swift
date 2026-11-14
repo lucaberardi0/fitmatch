@@ -111,41 +111,51 @@ struct DealsView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 20) {
-                    // MARK: - 1. Hero Promo Banner (Matching Image 3)
-                    heroBannerSection
-                        .padding(.top, 4)
+            ScrollViewReader { scrollProxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
+                        Color.clear.frame(height: 0).id("deals_top")
 
-                    // MARK: - 2. Category Filter Pills Bar (Matching Image 3)
-                    categoryPillsBar
+                        // MARK: - 1. Hero Promo Banner (Matching Image 3)
+                        heroBannerSection
+                            .padding(.top, 4)
 
-                    // MARK: - 3. Featured Deals Spotlight Card (Matching Image 3)
-                    dealsSpotlightCard
+                        // MARK: - 2. Category Filter Pills Bar (Matching Image 3)
+                        categoryPillsBar
 
-                    // MARK: - 4. Store Deals Sections in 2-Column Grid (Matching Image 2 & 3)
-                    if isCategorySwitching || (isLoading && showcases.isEmpty) {
-                        ShopDealsSkeletonView()
-                            .transition(.opacity)
-                    } else if showcases.isEmpty {
-                        emptyStateView
-                    } else {
-                        if selectedCategory != "tutti" {
-                            categoryCountHeader
+                        // MARK: - 3. Featured Deals Spotlight Card (Matching Image 3)
+                        dealsSpotlightCard
+
+                        // MARK: - 4. Store Deals Sections in 2-Column Grid (Matching Image 2 & 3)
+                        if isCategorySwitching || (isLoading && showcases.isEmpty) {
+                            ShopDealsSkeletonView()
+                                .transition(.opacity)
+                        } else if showcases.isEmpty {
+                            emptyStateView
+                        } else {
+                            if selectedCategory != "tutti" {
+                                categoryCountHeader
+                            }
+
+                            ForEach(showcases) { showcase in
+                                storeDealsSection(showcase: showcase)
+                            }
                         }
 
-                        ForEach(showcases) { showcase in
-                            storeDealsSection(showcase: showcase)
-                        }
+                        // Spacer for bottom dock and floating filter pill
+                        Color.clear.frame(height: 140)
                     }
-
-                    // Spacer for bottom dock and floating filter pill
-                    Color.clear.frame(height: 140)
                 }
-            }
-            .refreshable {
-                dealsCache[selectedCategory] = nil
-                await loadDeals(category: selectedCategory)
+                .refreshable {
+                    dealsCache[selectedCategory] = nil
+                    await loadDeals(category: selectedCategory)
+                }
+                .onReceive(TabCoordinator.shared.$scrollToTopEvent) { event in
+                    guard let event, event.tab == 0 else { return }
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                        scrollProxy.scrollTo("deals_top", anchor: .top)
+                    }
+                }
             }
 
             // MARK: - 5. Floating "Filtra" Button (Matching Image 2)
@@ -239,9 +249,6 @@ struct DealsView: View {
                         Button(action: {
                             let gen = UIImpactFeedbackGenerator(style: .light)
                             gen.impactOccurred()
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
-                                selectedCategory = cat.id
-                            }
                             selectCategory(cat.id)
                         }) {
                             HStack(spacing: 6) {
@@ -270,6 +277,23 @@ struct DealsView: View {
                     }
                 }
                 .padding(.horizontal, 16)
+            }
+            .onAppear {
+                proxy.scrollTo(selectedCategory, anchor: .center)
+            }
+            .onChange(of: selectedCategory) { _, newValue in
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                    proxy.scrollTo(newValue, anchor: .center)
+                }
+            }
+            .onChange(of: showingCategoriesSheet) { _, isPresented in
+                if !isPresented {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                            proxy.scrollTo(selectedCategory, anchor: .center)
+                        }
+                    }
+                }
             }
         }
     }
@@ -452,23 +476,22 @@ struct DealsView: View {
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "tag.slash")
-                .font(.system(size: 36))
-                .foregroundColor(Color.shopTextMuted.opacity(0.6))
-            Text("Nessuna offerta trovata per \(categoryTitle(for: selectedCategory))")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.shopDark)
-            Button("Mostra tutte le offerte") {
-                selectedCategory = "tutti"
+        let activeCategory = categories.first(where: { $0.id == selectedCategory })
+        return FitMatchEmptyStateView(
+            icon: activeCategory?.icon ?? "tag.slash",
+            accentColor: activeCategory?.accentColor ?? .shopPurple,
+            badgeText: "STATO CATEGORIA",
+            title: "Nessuno sconto attivo in \(categoryTitle(for: selectedCategory))",
+            subtitle: "Al momento gli store partner non hanno ribassi verificati in questa categoria. Esplora tutte le offerte o torna più tardi per i nuovi drop.",
+            primaryTitle: "Vedi tutte le offerte",
+            primaryIcon: "sparkles",
+            primaryColor: .shopPurple,
+            onPrimaryTap: {
                 selectCategory("tutti")
             }
-            .font(.system(size: 13, weight: .bold))
-            .foregroundColor(.shopPurple)
-            .padding(.top, 4)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 50)
+        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     private func categoryTitle(for id: String) -> String {
@@ -476,6 +499,9 @@ struct DealsView: View {
     }
 
     private func selectCategory(_ catId: String) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+            self.selectedCategory = catId
+        }
         if let cached = dealsCache[catId] {
             withAnimation(.easeInOut(duration: 0.2)) {
                 self.showcases = cached
@@ -494,15 +520,18 @@ struct DealsView: View {
     private func loadDeals(category: String) async {
         isLoading = true
         defer {
-            isLoading = false
-            isCategorySwitching = false
+            if selectedCategory == category {
+                isLoading = false
+                isCategorySwitching = false
+            }
         }
         do {
             let sc = try await api.getDealsShowcases(category: category == "tutti" ? nil : category)
             await MainActor.run {
+                self.dealsCache[category] = sc
+                guard self.selectedCategory == category else { return }
                 withAnimation(.easeInOut(duration: 0.25)) {
                     self.showcases = sc
-                    self.dealsCache[category] = sc
                 }
             }
         } catch {
@@ -664,6 +693,27 @@ struct ShopDealGridCard: View {
             }
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            let isSaved = wishlist.isFavorite(matchedProduct.canonical_name)
+            Button(action: {
+                let gen = UIImpactFeedbackGenerator(style: .medium)
+                gen.impactOccurred()
+                wishlist.toggleFavorite(product: matchedProduct)
+            }) {
+                Label(
+                    isSaved ? "Rimuovi dai preferiti" : "Salva nei preferiti",
+                    systemImage: isSaved ? "heart.slash" : "heart.fill"
+                )
+            }
+
+            if let url = URL(string: product.product_url) {
+                Button(action: {
+                    UIApplication.shared.open(url)
+                }) {
+                    Label("Apri offerta sullo store", systemImage: "arrow.up.right.square")
+                }
+            }
+        }
     }
 }
 

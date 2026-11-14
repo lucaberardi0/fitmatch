@@ -14,6 +14,7 @@ extension Color {
     static let shopGreenLight = Color(red: 230/255, green: 247/255, blue: 236/255) // #E6F7EC
     static let shopYellow = Color(red: 255/255, green: 179/255, blue: 0/255)
     static let shopOrange = Color(red: 255/255, green: 122/255, blue: 0/255)
+    static let shopRed = Color(red: 235/255, green: 52/255, blue: 62/255)
 
     init?(hex: String) {
         var cleanHex = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
