@@ -239,11 +239,14 @@ class SupabaseClient:
         data: Optional[Any] = None,
         upsert: bool = False,
         count_exact: bool = False,
-        return_representation: bool = False
+        return_representation: bool = False,
+        count_planned: bool = False,
     ) -> Any:
         url = f"{self.base_url}/{endpoint}" if not endpoint.startswith("http") else endpoint
         headers = self._get_headers(upsert=upsert, return_representation=return_representation)
-        if count_exact:
+        if count_planned:
+            headers["Prefer"] = "count=planned"
+        elif count_exact:
             headers["Prefer"] = "count=exact"
 
         body = json.dumps(data).encode("utf-8") if data is not None else None
@@ -258,6 +261,17 @@ class SupabaseClient:
                 return {"status": status, "data": parsed, "content_range": content_range}
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="ignore")
+            if count_exact and not count_planned and "57014" in err_body:
+                logger.warning(f"[Supabase] Exact count timed out on {url}; falling back to count=planned")
+                return self._request(
+                    endpoint,
+                    method=method,
+                    data=data,
+                    upsert=upsert,
+                    count_exact=False,
+                    return_representation=return_representation,
+                    count_planned=True,
+                )
             logger.error(f"[Supabase] HTTP {e.code} on {method} {url}: {err_body}")
             return {"status": e.code, "error": err_body, "data": None}
         except Exception as e:
@@ -837,6 +851,14 @@ class SupabaseClient:
         joined = ",".join(urllib.parse.quote(c) for c in eq_cats)
         return f"category=in.({joined})"
 
+    # Exclude heavy pgvector `embedding` (~6 KB TOAST/row) & audit timestamps on all catalog search queries
+    PRODUCT_SEARCH_SELECT = (
+        "select=id,canonical_name,brand,category,gender,image_url,gallery_images,"
+        "store_offers!inner(id,product_id,store_id,store_name,raw_title,current_price,"
+        "original_price,discount_pct,product_url,image_url,in_stock,available_sizes,"
+        "shipping_cost,free_shipping_threshold,courier,gallery_images)"
+    )
+
     def search_indexed(
         self,
         query: str = "",
@@ -847,7 +869,7 @@ class SupabaseClient:
     ) -> List[Dict[str, Any]]:
         """Fast catalog query on Supabase Cloud PostgreSQL with store offers joined."""
         query_clean = query.strip()
-        params = ["select=*,store_offers!inner(*)"]
+        params = [self.PRODUCT_SEARCH_SELECT]
 
         cat_filter = self._build_category_filter(category)
         if cat_filter:
@@ -855,18 +877,26 @@ class SupabaseClient:
         else:
             params.append("category=neq.non_sport")
 
+        # Merge brand, gender, and keyword predicates into a single PostgREST filter
+        # (PostgREST drops earlier `or=` params if `or=` appears multiple times in the URL).
+        and_clauses = []
+        gender_clause = None
+        brand_tokens = set()
+
         # SQL-level brand pre-filter so generic keyword expansion doesn't drown out requested brand
         if brand and brand.strip():
             b_clean = urllib.parse.quote(brand.strip())
-            params.append(f"or=(brand.ilike.*{b_clean}*,canonical_name.ilike.*{b_clean}*)")
+            and_clauses.append(f"or(brand.ilike.*{b_clean}*,canonical_name.ilike.*{b_clean}*)")
+            brand_tokens = set(re.findall(r"\b\w+\b", brand.strip().lower()))
 
         # SQL-level gender pre-filter preserving Unisex and Uomo | Donna
         if gender and gender.strip().lower() in ("uomo", "donna"):
             g_low = gender.strip().lower()
             if g_low == "uomo":
-                params.append("or=(gender.ilike.*Uomo*,gender.eq.Unisex,gender.is.null)")
+                gender_clause = "or(gender.ilike.*Uomo*,gender.eq.Unisex,gender.is.null)"
             else:
-                params.append("or=(gender.ilike.*Donna*,gender.eq.Unisex,gender.is.null)")
+                gender_clause = "or(gender.ilike.*Donna*,gender.eq.Unisex,gender.is.null)"
+            and_clauses.append(gender_clause)
 
         BASE_STOPWORDS = {
             "scarpe", "scarpa", "modello", "modelli", "per", "la", "il", "lo", "i", "gli", "le",
@@ -878,20 +908,35 @@ class SupabaseClient:
             "running", "corsa", "correre", "trail", "allenamento", "palestra",
             "sport", "sportivo", "sportiva", "uomo", "donna", "unisex"
         }
-        all_tokens = [w for w in re.findall(r"\b\w+\b", query_clean.lower()) if w not in BASE_STOPWORDS and len(w) > 1] if query_clean else []
+        all_tokens = [
+            w for w in re.findall(r"\b\w+\b", query_clean.lower())
+            if w not in BASE_STOPWORDS and w not in brand_tokens and len(w) > 1
+        ] if query_clean else []
         # Strip generic sport context words if there are other specific tokens (brand/model/garment)
         specific_tokens = [w for w in all_tokens if w not in SPORT_CONTEXT_WORDS]
         words = specific_tokens if specific_tokens else all_tokens
+        # PostgreSQL pg_trgm indexes only tokens >= 3 chars; keep >= 3 chars in SQL when available
+        trgm_words = [w for w in words if len(w) >= 3]
+        if trgm_words:
+            words = trgm_words
 
         if words:
-            if len(words) == 1:
-                w_enc = urllib.parse.quote(words[0])
-                params.append(f"or=(canonical_name.ilike.*{w_enc}*,brand.ilike.*{w_enc}*)")
-            else:
-                and_parts = [f"or(canonical_name.ilike.*{urllib.parse.quote(w)}*,brand.ilike.*{urllib.parse.quote(w)}*)" for w in words[:4]]
-                params.append(f"and=({','.join(and_parts)})")
+            for w in words[:4]:
+                w_enc = urllib.parse.quote(w)
+                if brand_tokens:
+                    # Brand already filtered above; scan canonical_name trigram directly instead of BitmapOr on brand
+                    and_clauses.append(f"canonical_name.ilike.*{w_enc}*")
+                else:
+                    and_clauses.append(f"or(canonical_name.ilike.*{w_enc}*,brand.ilike.*{w_enc}*)")
 
-        params.append(f"limit={max(limit * 2, 30)}")
+        if len(and_clauses) == 1:
+            single = and_clauses[0]
+            params.append(f"or=({single[3:-1]})" if single.startswith("or(") and single.endswith(")") else single)
+        elif len(and_clauses) > 1:
+            params.append(f"and=({','.join(and_clauses)})")
+
+        fetch_limit = max(limit * 3, 60) if gender_clause else max(limit * 2, 30)
+        params.append(f"limit={fetch_limit}")
         endpoint = f"products?{'&'.join(params)}"
         resp = self._request(endpoint)
         raw_prods = resp.get("data") or []
@@ -910,9 +955,16 @@ class SupabaseClient:
                     extra_pids.append(pid)
             if extra_pids:
                 pids_in = ",".join(f'"{urllib.parse.quote(pid)}"' for pid in extra_pids[:25])
-                p_extra_ep = f"products?id=in.({pids_in})&select=*,store_offers!inner(*)"
+                extra_params = [f"id=in.({pids_in})", self.PRODUCT_SEARCH_SELECT]
                 if cat_filter:
-                    p_extra_ep += f"&{cat_filter}"
+                    extra_params.append(cat_filter)
+                extra_and = [c for c in and_clauses[:2] if not c.startswith("or(canonical_name.ilike.") and not c.startswith("canonical_name.ilike.")]
+                if len(extra_and) == 1:
+                    s = extra_and[0]
+                    extra_params.append(f"or=({s[3:-1]})" if s.startswith("or(") and s.endswith(")") else s)
+                elif len(extra_and) > 1:
+                    extra_params.append(f"and=({','.join(extra_and)})")
+                p_extra_ep = f"products?{'&'.join(extra_params)}"
                 extra_resp = self._request(p_extra_ep)
                 for ep in (extra_resp.get("data") or []):
                     if ep.get("id") not in seen_pids:
@@ -927,10 +979,20 @@ class SupabaseClient:
                     w_enc = urllib.parse.quote(w)
                     or_parts.append(f"canonical_name.ilike.*{w_enc}*")
             if or_parts:
-                params_fb = ["select=*,store_offers!inner(*)", f"or=({','.join(or_parts)})"]
+                params_fb = [self.PRODUCT_SEARCH_SELECT]
+                fb_and = [f"or({','.join(or_parts)})"]
+                if brand and brand.strip():
+                    b_clean = urllib.parse.quote(brand.strip())
+                    fb_and.append(f"or(brand.ilike.*{b_clean}*,canonical_name.ilike.*{b_clean}*)")
+                if gender_clause:
+                    fb_and.append(gender_clause)
+                if len(fb_and) == 1:
+                    params_fb.append(f"or=({','.join(or_parts)})")
+                else:
+                    params_fb.append(f"and=({','.join(fb_and)})")
                 if cat_filter:
                     params_fb.append(cat_filter)
-                params_fb.append(f"limit={max(limit * 2, 30)}")
+                params_fb.append(f"limit={fetch_limit}")
                 fb_resp = self._request(f"products?{'&'.join(params_fb)}")
                 raw_prods = fb_resp.get("data") or []
 
@@ -1167,7 +1229,7 @@ class SupabaseClient:
                 sim_map[m["id"]] = 0.0
 
         ids_encoded = ",".join([urllib.parse.quote(m["id"]) for m in raw_matches])
-        endpoint = f"products?id=in.({ids_encoded})&select=*,store_offers!inner(*)"
+        endpoint = f"products?id=in.({ids_encoded})&{self.PRODUCT_SEARCH_SELECT}"
         resp = self._request(endpoint)
         prods = resp.get("data") or []
 
@@ -1196,6 +1258,7 @@ class SupabaseClient:
         preferred_size: Optional[str] = None,
         favorite_brands: Optional[List[str]] = None,
         exclude_ids: Optional[List[str]] = None,
+        context_query: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Shopify Shop-style intelligent query on Supabase Cloud PostgreSQL with multi-store offers."""
         from fitmatch.smart_search import QueryProductGuardrail
@@ -1204,8 +1267,13 @@ class SupabaseClient:
         seen_names = set()
         excluded_id_set = {str(x) for x in (exclude_ids or []) if x}
 
-        eff_query_str = (raw_query or " ".join(target_keywords or [])).strip()
-        detected_product_type = QueryProductGuardrail.detect_product_type(eff_query_str)
+        raw_q_part = (raw_query or " ".join(target_keywords or [])).strip()
+        ctx_q_part = (context_query or "").strip()
+        eff_query_str = " ".join(x for x in (ctx_q_part, raw_q_part) if x).strip()
+        detected_product_type = QueryProductGuardrail.detect_product_type(
+            raw_q_part or eff_query_str,
+            context_query=ctx_q_part or None,
+        )
 
         eff_max_price: Optional[float] = None
         if max_price is not None:
@@ -1241,35 +1309,40 @@ class SupabaseClient:
             if norm_pref_size in US_TO_EU_MEN:
                 pref_size_candidates.add(US_TO_EU_MEN[norm_pref_size])
 
-        keywords_to_query = [k for k in (target_keywords or [""]) if k.strip()][:5]
+        keywords_to_query = [k for k in (target_keywords or [""]) if k.strip()][:4]
         if not keywords_to_query:
             keywords_to_query = [""]
         from concurrent.futures import ThreadPoolExecutor
 
         def _fetch_kw(kw: str) -> List[Dict[str, Any]]:
-            query_term = kw.strip()
-            prods = self.search_indexed(
-                query=query_term,
+            return self.search_indexed(
+                query=kw.strip(),
                 category=category,
                 limit=limit,
                 brand=brand,
                 gender=gender,
             )
-            if not prods and category:
-                prods = self.search_indexed(
-                    query=query_term,
-                    category=None,
-                    limit=limit,
-                    brand=brand,
-                    gender=gender,
-                )
-            return prods
 
-        with ThreadPoolExecutor(max_workers=min(5, max(1, len(keywords_to_query)))) as executor:
+        with ThreadPoolExecutor(max_workers=min(4, max(1, len(keywords_to_query)))) as executor:
             kw_batches = list(executor.map(_fetch_kw, keywords_to_query))
 
         for prods in kw_batches:
             for p in prods:
+                p_ident = p.get("id") or p.get("canonical_name")
+                if p_ident not in seen_names:
+                    seen_names.add(p_ident)
+                    raw_results.append(p)
+
+        # Only broaden across categories if all category-scoped keyword queries returned 0 results
+        if not raw_results and category:
+            broad_prods = self.search_indexed(
+                query=keywords_to_query[0].strip(),
+                category=None,
+                limit=limit,
+                brand=brand,
+                gender=gender,
+            )
+            for p in broad_prods:
                 p_ident = p.get("id") or p.get("canonical_name")
                 if p_ident not in seen_names:
                     seen_names.add(p_ident)
@@ -1331,15 +1404,28 @@ class SupabaseClient:
                 continue
 
             if gender and gender.lower() not in ("unisex", "uomo | donna", "uomo/donna", "tutti", "all"):
-                req_g = gender.lower()
+                req_g = gender.lower().strip()
                 prod_g = (p.get("gender") or "unisex").lower()
                 is_dual_gender = ("uomo" in prod_g and "donna" in prod_g)
                 if prod_g != "unisex" and not is_dual_gender and req_g not in prod_g and prod_g not in req_g:
                     continue
-                # Even if tagged unisex, exclude explicit opposite-sex title markers (e.g. "Scarpa Donna" when searching "Uomo")
-                if req_g == "uomo" and re.search(r"\b(donna|wmns|women|femme|lady)\b", p_name) and not re.search(r"\b(uomo|men|homme)\b", p_name):
+                # Even if tagged unisex, exclude explicit opposite-sex markers in title, offers, or URLs
+                offer_meta_text = " ".join(
+                    f"{(o.get('title') or '')} {(o.get('raw_title') or '')} {(o.get('url') or '')}"
+                    for o in (p.get("offers") or [])[:4]
+                ).lower()
+                gender_probe = f"{p_name} {offer_meta_text}"
+                has_female_marker = bool(re.search(
+                    r"(?:\b(?:donna|donne|wmns|woman|women|womens|femme|lady|ladies|damen|mujer)\b|/(?:donna|woman|women|womens|wmns|femme)/)",
+                    gender_probe,
+                ))
+                has_male_marker = bool(re.search(
+                    r"(?:\b(?:uomo|uomini|men|mens|homme|herren|hombre)\b|/(?:uomo|men|mens|homme)/)",
+                    gender_probe,
+                ))
+                if req_g == "uomo" and has_female_marker and not has_male_marker:
                     continue
-                if req_g == "donna" and re.search(r"\b(uomo|men|homme)\b", p_name) and not re.search(r"\b(donna|wmns|women|femme|lady)\b", p_name):
+                if req_g == "donna" and has_male_marker and not has_female_marker:
                     continue
 
             # If product has explicit available sizes and size filter was requested
@@ -1382,6 +1468,11 @@ class SupabaseClient:
         wants_trail = bool(re.search(r"\b(trail|sterrato|montagna|sentier[oi]|fango|bosco|skyrunning)\b", q_str_low))
         wants_waterproof = bool(re.search(r"\b(gtx|gore[\s-]*tex|impermeabil[ei]|pioggia|invern[oa]|waterproof|shield)\b", q_str_low))
         wants_hr_strap = bool(re.search(r"\b(fascia\s*cardio|cardiofrequenzimetro\s*fascia|h10|h9|hrm|verity)\b", q_str_low))
+        wants_half_zip = bool(re.search(r"\b(half[\s-]*zip|mezza[\s-]*zip|1/2[\s-]*zip|quarter[\s-]*zip)\b", q_str_low))
+        wants_thermal = bool(re.search(r"\b(termic[aohe]+|invern[aoei]+|warm|merino|freddo|caldo)\b", q_str_low))
+        wants_pockets = bool(re.search(r"\b(tasc[ah]e?|telefono|smartphone|cellulare|2[\s-]*in[\s-]*1|pockets?)\b", q_str_low))
+        wants_cushion = bool(re.search(r"\b(ammortizzat[aoei]*|massima\s*ammortizzazione|max\s*cushion|morbide?|gimocch\w*|schiena)\b", q_str_low))
+        req_gender_low = gender.lower().strip() if (gender and gender.lower() not in ("unisex", "uomo | donna", "uomo/donna", "tutti", "all")) else None
 
         def compute_relevance(prod: Dict[str, Any], query_kws: List[str]) -> float:
             score = 0.0
@@ -1450,11 +1541,17 @@ class SupabaseClient:
                     score += 65.0
                 if re.search(r"\b(running|run|adizero|cross\s*run|active\s*warm|warmalite|element)\b", combined_text):
                     score += 50.0
+                if re.search(r"\b(street\s*jam|basketball|nba|replica|casual|felpa\s*con\s*cappuccio)\b", combined_text):
+                    score -= 160.0
             elif detected_product_type in ("short_sleeve_top", "pants_shorts", "jacket", "socks"):
                 if any(b in pbrand for b in ("adidas", "nike", "asics", "salomon", "odlo", "mizuno", "kiprun", "hoka", "brooks", "craft", "under armour", "gorewear", "puma", "new balance", "cep", "compressport", "uyn")):
                     score += 55.0
                 if re.search(r"\b(running|run|adizero|dri[\s-]*fit|miler|stride|challenger|bonatti|zeroweight|fujitrail)\b", combined_text):
                     score += 45.0
+                if wants_pockets and re.search(r"\b(tasc\w*|pocket\w*|2[\s-]*in[\s-]*1|2in1|cargo|storage)\b", combined_text):
+                    score += 125.0
+                if wants_waterproof and re.search(r"\b(gtx|gore[\s-]*tex|impermeabil\w*|waterproof|bonatti|storm|rain|pioggia|shakedry)\b", combined_text):
+                    score += 110.0
             elif detected_product_type == "padel_racket":
                 if re.search(r"\b(vertex|hack|at10|ml10|technical\s*viper|air\s*viper|counter\s*viper|metalbone|adipower|speed\s*pro|extreme\s*pro|diablo|electra)\b", combined_text):
                     score += 95.0
@@ -1523,8 +1620,33 @@ class SupabaseClient:
                 else:
                     if pcat == "trail_running" or re.search(r"\b(trail|speedcross|trabuco|speedgoat|cascadia|ultra\s*raptor|akasha|bushido|prodigio|ultra\s*glide|genesis|peregrine|hierro)\b", pname):
                         score += 85.0
+                if wants_cushion and re.search(r"\b(nimbus|bondi|invincible|glycerin|more\s*v\d|1080|triumph|cloudmonster|sky|glideride|superblast|magmax)\b", pname):
+                    score += 95.0
+                if re.search(r"\b(pallavolo|volley|air\s*force|force\s*1|dunk|basket|court\s*vision|sneaker\s*force)\b", combined_text):
+                    score -= 190.0
                 if not wants_waterproof and re.search(r"\b(gtx|gore[\s-]*tex|waterproof|shield)\b", pname):
                     score -= 35.0
+                elif wants_waterproof and re.search(r"\b(gtx|gore[\s-]*tex|waterproof|shield)\b", combined_text):
+                    score += 110.0
+
+            # Feature refinement boosts (apply across compatible categories)
+            if wants_half_zip:
+                if re.search(r"(?:\b(?:half[\s-]*zip|mezza[\s-]*zip|quarter[\s-]*zip|hz)\b|1/2[\s-]*zip)", combined_text):
+                    score += 170.0
+                else:
+                    score -= 60.0
+            if wants_thermal:
+                if re.search(r"\b(termic\w*|warm\w*|merino|thermo\w*|winter|invern\w*|fleece|cardat\w*)\b", combined_text):
+                    score += 105.0
+
+            # Exact gender match priority when user filtered Uomo / Donna
+            if req_gender_low:
+                pg_low = (prod.get("gender") or "unisex").lower()
+                is_dual = ("uomo" in pg_low and "donna" in pg_low)
+                if req_gender_low in pg_low and not is_dual:
+                    score += 95.0
+                elif pg_low == "unisex":
+                    score -= 25.0
 
             ACCESSORY_KEYWORDS = {
                 "pellicola", "vetro temperato", "film hydrogel", "protezione schermo",

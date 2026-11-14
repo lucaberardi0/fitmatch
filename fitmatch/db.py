@@ -999,6 +999,7 @@ class Database:
         preferred_size: Optional[str] = None,
         favorite_brands: Optional[List[str]] = None,
         exclude_ids: Optional[List[str]] = None,
+        context_query: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Smart AI-powered SQL retrieval matching multiple candidate models, price bounds and filters."""
         if self.use_supabase and self.supabase:
@@ -1017,6 +1018,7 @@ class Database:
                     preferred_size=preferred_size,
                     favorite_brands=favorite_brands,
                     exclude_ids=exclude_ids,
+                    context_query=context_query,
                 )
             except Exception as e:
                 import traceback
@@ -1112,9 +1114,18 @@ class Database:
                 if brand:
                     fb_clauses.append("LOWER(COALESCE(p.brand, '')) LIKE ?")
                     fb_params.append(f"%{brand.lower()}%")
-                if max_price:
+                if gender and gender.lower() in ("donna", "uomo"):
+                    fb_clauses.append("(LOWER(p.gender) LIKE ? OR LOWER(p.gender) = 'unisex' OR p.gender IS NULL)")
+                    fb_params.append(f"%{gender.lower()}%")
+                if store_id and store_id.lower() not in ("all", "tutti"):
+                    fb_clauses.append("LOWER(o.store_id) = ?")
+                    fb_params.append(store_id.lower())
+                if max_price is not None:
                     fb_clauses.append("o.current_price <= ?")
                     fb_params.append(float(max_price))
+                if min_price is not None:
+                    fb_clauses.append("o.current_price >= ?")
+                    fb_params.append(float(min_price))
                 if fb_clauses:
                     fb_sql = f"""
                         SELECT p.id, p.canonical_name, p.brand, p.category, p.gender, p.image_url,
@@ -1136,6 +1147,8 @@ class Database:
                 excluded = {str(x) for x in exclude_ids if x}
                 products = [p for p in products if str(p.get("id") or "") not in excluded]
 
+            req_g_low = gender.lower().strip() if (gender and gender.lower() not in ("unisex", "uomo | donna", "uomo/donna", "tutti", "all")) else None
+            kept_products = []
             for prod in products:
                 offer_cur = conn.execute("""
                     SELECT store_id, store_name, current_price, original_price, discount_pct, product_url, image_url, raw_title
@@ -1164,6 +1177,22 @@ class Database:
                     o["courier"] = rule["courier"]
                     offers.append(o)
 
+                # Opposite-gender guardrail on SQLite offers/titles even if product is tagged Unisex
+                pname = (prod.get("canonical_name") or "").lower()
+                if req_g_low:
+                    pg_low = (prod.get("gender") or "unisex").lower()
+                    is_dual = ("uomo" in pg_low and "donna" in pg_low)
+                    if pg_low != "unisex" and not is_dual and req_g_low not in pg_low and pg_low not in req_g_low:
+                        continue
+                    offer_probe = " ".join(f"{(o.get('title') or '')} {(o.get('url') or '')}" for o in offers[:4]).lower()
+                    probe = f"{pname} {offer_probe}"
+                    has_f = bool(_re.search(r"(?:\b(?:donna|donne|wmns|woman|women|womens|femme|lady|ladies|damen|mujer)\b|/(?:donna|woman|women|womens|wmns|femme)/)", probe))
+                    has_m = bool(_re.search(r"(?:\b(?:uomo|uomini|men|mens|homme|herren|hombre)\b|/(?:uomo|men|mens|homme)/)", probe))
+                    if req_g_low == "uomo" and has_f and not has_m:
+                        continue
+                    if req_g_low == "donna" and has_m and not has_f:
+                        continue
+
                 prod["offers"] = offers
                 prod["highest_price"] = prod.get("max_price")
                 if prod.get("max_price") and prod.get("best_price"):
@@ -1172,7 +1201,6 @@ class Database:
                     prod["cross_store_savings"] = 0.0
 
                 # Relevance score for SQLite ranking alignment
-                pname = (prod.get("canonical_name") or "").lower()
                 pbrand = (prod.get("brand") or "").lower()
                 rel = 0.0
                 for idx, kw in enumerate(target_keywords or []):
@@ -1187,14 +1215,22 @@ class Database:
                             rel += 25.0 * mult
                             if tok.isdigit():
                                 rel += 45.0
+                if req_g_low:
+                    pg_low = (prod.get("gender") or "unisex").lower()
+                    is_dual = ("uomo" in pg_low and "donna" in pg_low)
+                    if req_g_low in pg_low and not is_dual:
+                        rel += 95.0
+                    elif pg_low == "unisex":
+                        rel -= 25.0
                 rel += len(offers) * 10.0 + min(prod.get("cross_store_savings", 0.0) * 0.2, 20.0)
                 prod["relevance_score"] = rel
+                kept_products.append(prod)
 
-            products.sort(
+            kept_products.sort(
                 key=lambda x: (float(x.get("relevance_score") or 0.0), float(x.get("cross_store_savings") or 0.0)),
                 reverse=True,
             )
-            return products[:limit]
+            return kept_products[:limit]
 
     def get_store_showcases(self, limit_per_store: int = 6) -> List[Dict[str, Any]]:
         """Return curated product highlights for each store (Shop-style merchant showcase)."""

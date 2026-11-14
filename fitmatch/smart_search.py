@@ -1297,7 +1297,9 @@ KNOWN_BRANDS = [
     "mizuno", "new balance", "new-balance", "la sportiva", "poc", "kask", "abus",
     "bullpadel", "nox", "babolat", "starvie", "siux", "wahoo", "tacx", "favero", "castelli",
     "puma", "reebok", "under armour", "altra", "scarpa", "odlo", "craft", "gorewear",
-    "kiprun", "coros", "amazfit", "maison margiela", "margiela"
+    "kiprun", "coros", "amazfit", "maison margiela", "margiela",
+    "arena", "speedo", "tyr", "dynafit", "joma", "diadora", "wilson",
+    "compressport", "uyn", "cep"
 ]
 
 BRAND_POPULAR_MODELS: Dict[str, List[str]] = {
@@ -1554,7 +1556,12 @@ class QueryProductGuardrail:
         "fitness", "sport", "sportivo", "sportiva", "sportivi", "sportive",
         "gara", "maratona", "uomo", "donna", "unisex", "scarpe", "scarpa",
         "modelli", "modello", "migliori", "migliore", "offerta", "offerte",
-        "da", "per", "con", "su", "in", "di", "del", "della", "dei", "delle"
+        "da", "per", "con", "su", "in", "di", "del", "della", "dei", "delle",
+        "sotto", "sopra", "fino", "meno", "max", "min", "massimo", "minimo",
+        "euro", "eur", "budget", "limiti", "senza", "qualsiasi", "tutte", "tutti",
+        "taglia", "taglie", "numero", "misura", "invece", "mostrami", "mostramene",
+        "fammi", "vedere", "filtra", "cerca", "trova", "cerco", "vorrei", "solo",
+        "anche", "meglio", "esempi", "alternativa", "alternative", "opzioni"
     }
 
     @classmethod
@@ -1756,6 +1763,9 @@ class QueryProductGuardrail:
                 return False
             if "mtb" in full_text and "mtb" not in q_lower and "bici" not in q_lower and "ciclismo" not in q_lower:
                 return False
+            if not re.search(r"\b(pallavolo|volley|basket|pallacanestro|tennis|air\s*force|force\s*1|dunk|lifestyle|casual|street)\b", q_lower):
+                if re.search(r"\b(pallavolo|volley|air\s*force|force\s*1|sneaker\s*force|dunk|street\s*jam)\b", full_text):
+                    return False
             # If query is specifically for Hyrox shoes, require hyrox or known hybrid/training/running shoe models
             if "hyrox" in q_lower:
                 if not re.search(r"\b(hyrox|dropset|deviate|velocity|metcon|nano|tribase|fuse|adizero|pegasus|endorphin|clifton|mach|rebel|novablast|superblast)\b", full_text):
@@ -1771,7 +1781,7 @@ class QueryProductGuardrail:
                 full_text
             ):
                 return False
-            if brand in cls.CASUAL_NON_RUNNING_BRANDS or any(cb in cname for cb in ["woolrich", "only t shirt", "ciao bella", "vero moda", "jack & jones"]):
+            if brand in cls.CASUAL_NON_RUNNING_BRANDS or any(cb in cname for cb in ["woolrich", "only t shirt", "ciao bella", "vero moda", "jack & jones"]) or re.search(r"\b(street\s*jam|nba|replica\s*jersey)\b", full_text):
                 return False
             if not re.search(
                 r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)|l/s\b|half[\s-]*zip|1/2[\s-]*zip|quarter[\s-]*zip|mezza\s*zip|maglia\s*termica|intimo\s*termico|active\s*warm|run\s*warm|warmalite|warm\b|termic[ao]|midlayer|mid[\s-]*layer|crew\s*neck)\b",
@@ -1836,9 +1846,9 @@ class QueryProductGuardrail:
                 blocked_watch_cats.add("sensor")
             if cat in blocked_watch_cats:
                 return False
-            # Block bike computers, mounts, straps, screen protectors, and apparel
+            # Block bike computers, mounts, straps, screen protectors, hydration vests/packs, and apparel
             if re.search(
-                r"\b(ciclocomputer|bike\s*computer|contachilometri|contatore|contapassi|igpsport|bsc100|bsc200|bsc300|igs\d+|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|bryton|wahoo\s*elemnt|cinturin[oi]|strap|bracelet|bracciale|quickfit|pellicol[ae]|cover|custodi[ae]|cav[oi]|caricabatteri[ae]|staff[ae]|supporto|support\b|mount|protezion[ei]|idrogel|hydrogel|vetro\s*temp[ea]rato|screen\s*protector|sportenzia|second\s*hand|\b(?:18|20|22|24|26)\s*mm\b|felp[ae]|pile\b|fleece|cardigan|polo\b|t[\s-]*shirt|magli[ae]|giacc(?:a|he)|pantalon[ie]|cappellin[oi]|scarp[ae])\b",
+                r"\b(ciclocomputer|bike\s*computer|contachilometri|contatore|contapassi|igpsport|bsc100|bsc200|bsc300|igs\d+|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|bryton|wahoo\s*elemnt|cinturin[oi]|strap|bracelet|bracciale|quickfit|pellicol[ae]|cover|custodi[ae]|cav[oi]|caricabatteri[ae]|staff[ae]|supporto|support\b|mount|protezion[ei]|idrogel|hydrogel|vetro\s*temp[ea]rato|screen\s*protector|sportenzia|second\s*hand|\b(?:18|20|22|24|26)\s*mm\b|gilet|idratazion\w*|zaino|backpack|vest\b|marsupi\w*|borracci\w*|soft\s*flask|attacch[io]|snowboard\w*|scarpon[ei]\s*sci|felp[ae]|pile\b|fleece|cardigan|polo\b|t[\s-]*shirt|magli[ae]|giacc(?:a|he)|pantalon[ie]|cappellin[oi]|scarp[ae])\b",
                 full_text
             ):
                 return False
@@ -1946,6 +1956,16 @@ class QueryProductGuardrail:
         if not kw:
             return ""
         kw_low = kw.strip().lower()
+        # Strip explicit price/size/budget phrases before tokenizing so filter values ("50", "160", "42") don't become SKU keywords
+        kw_low = re.sub(
+            r"\b(?:sotto\s*i?|sopra\s*i?|meno\s*di|pi[uù]\s*di|fino\s*a|budget\s*di?|max|min|massimo|minimo)\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\b",
+            " ",
+            kw_low,
+        )
+        kw_low = re.sub(r"\b(?:taglia|numero|misura)\s*(?:[0-9]{2}(?:[.,][0-9])?|[xsml]{1,3})\b", " ", kw_low)
+        kw_low = " ".join(kw_low.split())
+        if not kw_low:
+            return ""
         # Preserve specific compound product terms
         preserved_phrases = [
             "long sleeve", "manica lunga", "maniche lunghe", "short sleeve", "manica corta",
@@ -2263,48 +2283,43 @@ class QueryProductGuardrail:
             if re.search(r"\b(trail|sterrato|sentier)\b", q_low) and intent.category == "running_shoes":
                 intent.category = "trail_running"
 
-        # 2. Override with specialized domain templates when generic/broken
+        # 2. Populate domain structure defaults only when not already tailored (preserve follow-up / constrained / OpenRouter text!)
+        has_active_filters = bool(
+            (context_query and context_query.strip())
+            or intent.gender
+            or intent.max_price is not None
+            or intent.min_price is not None
+            or intent.size
+            or intent.features
+            or intent.source == "openrouter"
+        )
+        template_key = None
+        template_header = None
         if "hyrox" in q_low and product_type == "shoes" and not intent.brand:
-            hyrox_arch = SPORTS_KNOWLEDGE["hyrox"]
-            intent.conversational_header = "Ho cercato Scarpe Hyrox"
-            intent.conversational_summary = hyrox_arch["conversational_summary"]
-            intent.explanation = hyrox_arch["conversational_summary"]
-            intent.curated_sections = [
-                CuratedSectionDef(**s) for s in hyrox_arch["sections"]
-            ]
-            intent.spec_comparisons = [
-                SpecComparisonDef(**sc) for sc in hyrox_arch["spec_comparisons"]
-            ]
-            intent.spotlight = SpotlightDef(**hyrox_arch["spotlight"])
-            intent.follow_up_suggestions = list(hyrox_arch["follow_ups"])
-
+            template_key = "hyrox"
+            template_header = "Ho cercato Scarpe Hyrox"
         elif product_type == "long_sleeve_top" and not intent.brand:
-            ls_arch = SPORTS_KNOWLEDGE["running_apparel_long_sleeve"]
-            intent.conversational_header = "Ho cercato Maglie a Manica Lunga da Corsa"
-            intent.conversational_summary = ls_arch["conversational_summary"]
-            intent.explanation = ls_arch["conversational_summary"]
-            intent.curated_sections = [
-                CuratedSectionDef(**s) for s in ls_arch["sections"]
-            ]
-            intent.spec_comparisons = [
-                SpecComparisonDef(**sc) for sc in ls_arch["spec_comparisons"]
-            ]
-            intent.spotlight = SpotlightDef(**ls_arch["spotlight"])
-            intent.follow_up_suggestions = list(ls_arch["follow_ups"])
-
+            template_key = "running_apparel_long_sleeve"
+            template_header = "Ho cercato Maglie a Manica Lunga da Corsa"
         elif product_type == "bike_computer" and not intent.brand:
-            bc_arch = SPORTS_KNOWLEDGE["bike_computer"]
-            intent.conversational_header = "Ho cercato Ciclocomputer GPS"
-            intent.conversational_summary = bc_arch["conversational_summary"]
-            intent.explanation = bc_arch["conversational_summary"]
-            intent.curated_sections = [
-                CuratedSectionDef(**s) for s in bc_arch["sections"]
-            ]
-            intent.spec_comparisons = [
-                SpecComparisonDef(**sc) for sc in bc_arch["spec_comparisons"]
-            ]
-            intent.spotlight = SpotlightDef(**bc_arch["spotlight"])
-            intent.follow_up_suggestions = list(bc_arch["follow_ups"])
+            template_key = "bike_computer"
+            template_header = "Ho cercato Ciclocomputer GPS"
+
+        if template_key and template_key in SPORTS_KNOWLEDGE:
+            tmpl = SPORTS_KNOWLEDGE[template_key]
+            if not has_active_filters:
+                intent.conversational_header = template_header
+                intent.conversational_summary = tmpl["conversational_summary"]
+                intent.explanation = tmpl["conversational_summary"]
+                intent.follow_up_suggestions = list(tmpl["follow_ups"])
+            if not intent.curated_sections:
+                intent.curated_sections = [CuratedSectionDef(**s) for s in tmpl["sections"]]
+            if not intent.spec_comparisons:
+                intent.spec_comparisons = [SpecComparisonDef(**sc) for sc in tmpl["spec_comparisons"]]
+            if not intent.spotlight:
+                intent.spotlight = SpotlightDef(**tmpl["spotlight"])
+            if not intent.follow_up_suggestions:
+                intent.follow_up_suggestions = list(tmpl["follow_ups"])
 
         # Collect model keywords referenced by LLM in spotlight, spec_comparisons, and sections
         intent_extra_kws: List[str] = []
@@ -2496,10 +2511,20 @@ class FitMatchSportsAdvisor:
         # Exclude pagination / more-examples requests ("Fammi vedere più esempi", "altri modelli")
         if re.search(r"\b(pi[uù]\s*esempi|altri\s*esempi|altri\s*modelli|altr[ae]\s*(?:alternative|opzioni|prodott[oi])|mostramene\s*altr[ioe]|fammi\s*vedere\s*(?:pi[uù]|altr[ioe])|ancora\s*esempi)\b", t):
             return False
-        # Exclude plain shopping catalog commands unless they ask an advisory question
-        if re.search(r"^(?:mostrami|filtra|cerca|trova|ordina|seleziona|solo)\b", t):
+        # Exclude plain shopping catalog commands & brand/budget/gender refinement switches
+        if re.search(r"^(?:mostrami|filtra|cerca|trova|ordina|seleziona|solo|invece|preferisco|cambiamo|passiamo)\b", t):
             if "?" not in t and not re.search(r"\b(buon|bene|consigl|opinione|parere|differenz|passo|drop)\b", t):
                 return False
+        if "?" not in t and re.search(
+            rf"^(?:meglio|allora|proviamo)\s+(?:{'|'.join(re.escape(b) for b in sorted(KNOWN_BRANDS, key=len, reverse=True))})\b",
+            t,
+        ):
+            return False
+        if "?" not in t and re.search(
+            r"\b(?:fino\s*a|sotto\s*i?|meno\s*di|max|massimo|sopra\s*i?|budget|taglia|numero|misura|da\s+uomo|da\s+donna|senza\s+limiti)\b",
+            t,
+        ) and not re.search(r"\b(calzan[oi]|vestibilit[aà]|piastr[ae]|drop|batteria|autonomia|tasch[ae]|liner)\b", t):
+            return False
         # Multi-model comparison ("Meglio Pegasus 41 o Novablast 4?") must search BOTH models + run RAG
         if len(FitMatchSportsAdvisor.extract_mentioned_models(t)) >= 2:
             return False
@@ -2634,10 +2659,16 @@ class FitMatchSportsAdvisor:
                 disp = f"Leggings {brand_in_t}" if brand_in_t else "Leggings da Corsa & Fitness"
                 return disp, f"{(brand_in_t or '').lower()} leggings running".strip(), "tights", brand_in_t
 
-            # Tops / Maglie / Canotte
-            if re.search(r"\b(magli[ae]|t[\s-]*shirt|canott[ae]|singlet|top)\b", t):
-                disp = f"Maglia Tecnica {brand_in_t}" if brand_in_t else "Maglia Tecnica Traspirante"
-                return disp, f"{(brand_in_t or '').lower()} maglia running".strip(), "running_top", brand_in_t
+            # Tops / Maglie / Canotte / Long Sleeve
+            if re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|half[\s-]*zip|mezza[\s-]*zip|magli[ae]|magliett[ae]|t[\s-]*shirt|canott[ae]|singlet|top)\b", t) or "1/2 zip" in t:
+                is_ls = bool(re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|half[\s-]*zip|mezza[\s-]*zip)\b", t) or "1/2 zip" in t)
+                if is_ls:
+                    disp = f"Maglia Manica Lunga {brand_in_t}" if brand_in_t else "Maglia a Manica Lunga Tecnica"
+                    kw = f"{(brand_in_t or '').lower()} long sleeve".strip()
+                else:
+                    disp = f"Maglia Tecnica {brand_in_t}" if brand_in_t else "Maglia Tecnica Traspirante"
+                    kw = f"{(brand_in_t or '').lower()} maglia running".strip()
+                return disp, kw, "running_top", brand_in_t
 
             # Running Shoes (check before generic GPS watch fallback)
             if re.search(r"\b(scarp[ae]|sneakers?|calzatur[ae])\b", t):
@@ -2680,19 +2711,23 @@ class FitMatchSportsAdvisor:
         is_apparel = arch in ("running_shorts", "compression_shorts", "running_top", "tights", "running_apparel") or any(
             w in sub.lower() for w in ("shorts", "pantaloncin", "magli", "leggings", "tights", "canott", "abbigliamento")
         )
+        is_top_apparel = arch == "running_top" or any(w in sub.lower() for w in ("magli", "canott", "long sleeve", "t-shirt"))
+        is_tights_apparel = arch == "tights" or any(w in sub.lower() for w in ("leggings", "tights", "fuseaux"))
+        apparel_cat = "top" if is_top_apparel else "pants"
+        apparel_kw = "maglia running" if is_top_apparel else ("leggings" if is_tights_apparel else "shorts")
 
         # 1. Comfort / Comodità / Morbidezza / Materiali / Sfregamento
-        if re.search(r"\b(comod[oi]|comfort|morbidez|vestibilit[aà]|tessut[oi]|traspiran|sfregament|material[ei])\b", q):
+        if re.search(r"\b(comod[oiae]|comfort|morbidez\w*|vestibilit[aà]|tessut[oi]|traspiran\w*|sfregament\w*|material[ei])\b", q):
             if is_apparel:
                 header = f"Comfort & Materiali {sub}"
                 ans = (
                     f"Sì, i **{sub}** sono rinomati per l'eccellente **comfort, leggerezza e traspirabilità** sia durante la corsa che negli allenamenti intensi.\n\n"
                     "• **Tessuto Tecnico Ultra-Leggero**: Realizzati in mesh elasticizzato a 4 vie ad alta traspirabilità (come la tecnologia HeatGear / Dri-FIT), allontanano rapidamente il sudore dal corpo, si asciugano in pochissimi minuti e non appesantiscono la falcata.\n"
-                    "• **Zero Sfregamenti**: Le cuciture ergonomiche piatte (*flatlock*) sono studiate per azzerare le frizioni nell'interno coscia anche sui lunghi estivi con elevata sudorazione.\n"
-                    "• **Cintura Elastica Sicura**: La fascia in vita ultra-morbida con coulisse interna piatta mantiene il capo saldo sui fianchi senza pizzicare o scendere durante scatti, ripetute o squat."
+                    "• **Zero Sfregamenti**: Le cuciture ergonomiche piatte (*flatlock*) sono studiate per azzerare le frizioni anche sui lunghi estivi con elevata sudorazione.\n"
+                    "• **Vestibilità Ergonomica**: Il taglio tecnico mantiene il capo stabile senza pizzicare o creare ingombro durante scatti, ripetute o workout."
                 )
-                follow = ["Hanno le tasche con zip per il telefono?", "Come vestono come taglia?", "Hanno il boxer o liner interno?"]
-                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts", "running"], "brand": b, "category": "pants"}
+                follow = ["Come vestono come taglia?", "Filtra modelli da uomo", "Mostrami varianti sotto 50 euro"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, apparel_kw, "running"], "brand": b, "category": apparel_cat}
             else:
                 header = f"Comfort {sub}"
                 ans = (
@@ -2713,8 +2748,8 @@ class FitMatchSportsAdvisor:
                     "• **Tasche Laterali**: Comode tasche per le mani per inserire chiavi di casa, cuffie Bluetooth o barrette/gel energetici.\n"
                     "• **Tessuti Idrorepellenti**: La tasca posteriore protegge i dispositivi elettronici dal sudore e dall'umidità esterna."
                 )
-                follow = ["Sono comodi per correre?", "Come vestono come taglia?", "Hanno il liner interno?"]
-                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts"], "brand": b, "category": "pants"}
+                follow = ["Sono comodi per correre?", "Come vestono come taglia?", "Filtra modelli da uomo"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, apparel_kw], "brand": b, "category": apparel_cat}
 
         # 3. Palestra / Pesi / Fitness / Workout
         if re.search(r"\b(palestra|fitness|pesi|workout|crossfit|sala\s*pesi|allenament[oi]|funzionale)\b", q):
@@ -2726,7 +2761,7 @@ class FitMatchSportsAdvisor:
                     "• **Traspirabilità & Resistenza**: Il materiale tecnico resiste allo sfregamento contro panche e bilancieri, disperdendo il sudore senza trattenere cattivi odori."
                 )
                 follow = ["Hanno le tasche?", "Sono comodi?", "Come vestono come taglia?"]
-                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts"], "brand": b, "category": "pants"}
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, apparel_kw], "brand": b, "category": apparel_cat}
 
         # 4. Liner / Boxer Interno / Intimo / 2-in-1
         if re.search(r"\b(liner|intimo|boxer|mutand[ae]|slip|2-in-1|2\s*in\s*1|doppio\s*strato|antisfregament)\b", q):
@@ -2738,23 +2773,21 @@ class FitMatchSportsAdvisor:
                 "• **Trattamento Antibatterico**: La fodera interna contrasta i microbi responsabili dei cattivi odori, mantenendo la sensazione di freschezza per tutto l'allenamento."
             )
             follow = ["Sono comodi?", "Hanno le tasche per il telefono?", "Come vestono come taglia?"]
-            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts"], "brand": b, "category": "pants"}
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, apparel_kw], "brand": b, "category": apparel_cat}
 
         # 5. Taglia & Vestibilità Abbigliamento
         if is_apparel and re.search(r"\b(veston[oi]|vestibilit[aà]|tagli[ae]|misur[ae]|lunghezz[ae]|inch|strett[oi]|largh[oi])\b", q):
             header = f"Taglia & Vestibilità {sub}"
             ans = (
                 f"La vestibilità dei **{sub}** è di tipo **Fitted** (aerodinamica ed ergonomica senza stringere) e rispetta fedelmente la taglia abituale (*true to size*).\n\n"
-                "• **Guida alla Taglia**: Ordina la taglia che indossi normalmente per i pantaloncini sportivi. Se preferisci una vestibilità più morbida e rilassata sulle cosce, prendi una taglia in più.\n"
-                "• **Lunghezza (Inseam)**:\n"
-                "  - **5 pollici (5'')**: Lunghezza corta preferita dai runner veloci per la massima aerazione e ampiezza di passo.\n"
-                "  - **7 pollici (7'')**: Lunghezza versatile appena sopra il ginocchio, ottima per alternare corsa su strada, tapis roulant e sala attrezzi."
+                "• **Guida alla Taglia**: Ordina la taglia che indossi normalmente. Se preferisci una vestibilità più morbida e rilassata, prendi una taglia in più.\n"
+                "• **Consiglio Taglie**: Controlla sempre la guida taglie del singolo store partner prima dell'acquisto per confrontare petto, vita e cavallo."
             )
-            follow = ["Hanno le tasche per il telefono?", "Sono comodi per correre?", "Hanno il liner interno?"]
-            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts"], "brand": b, "category": "pants"}
+            follow = ["Filtra modelli da uomo", "Sono comodi per correre?", "Mostrami varianti sotto 50 euro"]
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, apparel_kw], "brand": b, "category": apparel_cat}
 
         # 6. Mezza Maratona / 21 km / Maratona / Distanze
-        if re.search(r"\b(mezza|mezza\s*maratona|21\s*km|21k)\b", q):
+        if not is_apparel and re.search(r"\b(mezza|mezza\s*maratona|21\s*km|21k)\b", q):
             if "zoom fly" in sub.lower():
                 header = f"Risposta per {sub}"
                 ans = (
@@ -2795,7 +2828,7 @@ class FitMatchSportsAdvisor:
                 return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
 
         # 2. Maratona (42 km) / Lunghi
-        if re.search(r"\b(maratona|42\s*km|42k|lunghissim[oi]|lunghi)\b", q):
+        if not is_apparel and re.search(r"\b(maratona|42\s*km|42k|lunghissim[oi]|lunghi)\b", q):
             header = f"Risposta per {sub}"
             if "zoom fly" in sub.lower():
                 ans = (
@@ -2818,7 +2851,7 @@ class FitMatchSportsAdvisor:
             return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
 
         # 3. Pronatori / Stabilità / Appoggio
-        if re.search(r"\b(pronator[ei]|pronazione|iperpronat|stabilit[aà]|stabili|appoggio\s*neutro|supinator[ei])\b", q):
+        if not is_apparel and re.search(r"\b(pronator[ei]|pronazione|iperpronat|stabilit[aà]|stabili|appoggio\s*neutro|supinator[ei])\b", q):
             header = f"Risposta per {sub}"
             if "kayano" in sub.lower() or "guide" in sub.lower() or "adrenaline" in sub.lower() or "gt-2000" in sub.lower():
                 ans = (
@@ -2837,7 +2870,7 @@ class FitMatchSportsAdvisor:
             return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
 
         # 4. Differenza tra Modelli / Vaporfly / Pegasus / ecc.
-        if re.search(r"\b(differenz|confront|vaporfly|pegasus|rispetto\s+a|meglio\b|perch[eé]\s+costan)\b", q):
+        if not is_apparel and re.search(r"\b(differenz|confront|vaporfly|pegasus|rispetto\s+a|meglio\b|perch[eé]\s+costan)\b", q):
             header = f"Confronto per {sub}"
             if "zoom fly" in sub.lower() and ("vaporfly" in q or "differenz" in q or "meglio" in q):
                 ans = (
@@ -2863,7 +2896,7 @@ class FitMatchSportsAdvisor:
                 return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
 
         # 5. Calzata / Taglia / Come Calzano / Strette o Larghe
-        if re.search(r"\b(calzan[oi]|calzata|tagli[ae]|misur[ae]|strett[ae]|largh[ae]|pianta\s*larga|mezzo\s*numero)\b", q):
+        if not is_apparel and re.search(r"\b(calzan[oi]|calzata|tagli[ae]|misur[ae]|strett[ae]|largh[ae]|pianta\s*larga|mezzo\s*numero)\b", q):
             header = f"Calzata & Taglia {sub}"
             if "zoom fly" in sub.lower() or "vaporfly" in sub.lower():
                 ans = (
@@ -2883,7 +2916,7 @@ class FitMatchSportsAdvisor:
             return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
 
         # 6. Piastra in Carbonio / Tecnologia / Schiuma
-        if re.search(r"\b(piastr[ae]|carbonio|flyplate|carbitex|nylon|schiuma|zoomx)\b", q):
+        if not is_apparel and re.search(r"\b(piastr[ae]|carbonio|flyplate|carbitex|nylon|schiuma|zoomx)\b", q):
             header = f"Tecnologia {sub}"
             if "zoom fly" in sub.lower():
                 ans = (
@@ -2906,7 +2939,7 @@ class FitMatchSportsAdvisor:
             return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
 
         # 7. Drop & Peso / Specifiche Tecniche
-        if re.search(r"\b(drop|peso|quanto\s*pesan|grammi|differenziale|stack)\b", q):
+        if not is_apparel and re.search(r"\b(drop|peso|quanto\s*pesan|grammi|differenziale|stack)\b", q):
             header = f"Specifiche {sub}"
             if "zoom fly" in sub.lower():
                 ans = (
@@ -2930,7 +2963,7 @@ class FitMatchSportsAdvisor:
             return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
 
         # 8. Durata / Quanti KM / Chilometraggio
-        if re.search(r"\b(duran[oi]|durata|quanti\s*km|chilometraggio|resistenza|vita\s*utile)\b", q):
+        if not is_apparel and re.search(r"\b(duran[oi]|durata|quanti\s*km|chilometraggio|resistenza|vita\s*utile)\b", q):
             header = f"Durata & Chilometri {sub}"
             if "zoom fly" in sub.lower():
                 ans = (
@@ -2950,7 +2983,7 @@ class FitMatchSportsAdvisor:
             return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": b, "category": "running_shoes"}
 
         # 9. Passo Ideale / Ritmo / Velocità
-        if re.search(r"\b(passo|ritm[oi]|velocit[aà]|min/km|lenti|veloci)\b", q):
+        if not is_apparel and re.search(r"\b(passo|ritm[oi]|velocit[aà]|min/km|lenti|veloci)\b", q):
             header = f"Passo Ideale {sub}"
             if "zoom fly" in sub.lower():
                 ans = (
@@ -2988,7 +3021,7 @@ class FitMatchSportsAdvisor:
             return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw], "brand": "Garmin", "category": "gps_watch"}
 
         # 10b. Protezione Articolare / Ginocchia / Schiena / Peso Elevato
-        if re.search(r"\b(ginocchi[ao]|schiena|fascite|tendinit[ei]|periostite|dolor[ei]|articolazion[ei]|peso|\d{2,3}\s*kg)\b", q):
+        if not is_apparel and re.search(r"\b(ginocchi[ao]|schiena|fascite|tendinit[ei]|periostite|dolor[ei]|articolazion[ei]|peso|\d{2,3}\s*kg)\b", q):
             header = f"Protezione & Biomeccanica {sub}"
             if arch == "max_cushion" or any(m in sub.lower() for m in ("nimbus", "bondi", "glycerin", "kayano", "invincible", "clifton")):
                 ans = (
@@ -3010,6 +3043,15 @@ class FitMatchSportsAdvisor:
 
         # 10c. Pioggia / Impermeabilità / Inverno / Gore-Tex
         if re.search(r"\b(pioggi[ae]|bagnat[oa]|acqua|impermeabil[ei]|gore[\s-]*tex|gtx|invern[oa]|fredd[oa]|neve)\b", q):
+            if is_apparel:
+                header = f"Protezione Termica & Meteo {sub}"
+                ans = (
+                    f"Per freddo e meteo variabile, i capi tecnici **{sub}** puntano su isolamento traspirante e gestione rapida del sudore.\n\n"
+                    "• **Freddo secco o intenso**: Scegli varianti termiche spazzolate (*brushed* / *half-zip*) oppure abbina uno strato intermedio.\n"
+                    "• **Pioggia battente o vento forte**: Per restare asciutto conviene aggiungere o preferire un guscio impermeabile traspirante (*running jacket* idrorepellente o GORE-TEX)."
+                )
+                follow = ["Mostrami modelli termici invernali", "Mostrami modelli con mezza zip", "Filtra modelli da uomo"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, apparel_kw], "brand": b, "category": apparel_cat}
             header = f"Protezione Pioggia & Inverno {sub}"
             ans = (
                 f"La versione standard delle **{sub}** privilegia la **traspirabilità** con tomaia in mesh aperto, quindi non è impermeabile sotto pioggia battente.\n\n"
@@ -3021,6 +3063,14 @@ class FitMatchSportsAdvisor:
 
         # 10d. Estate / Caldo / Traspirabilità
         if re.search(r"\b(estat[ei]|estiv[ae]|cald[oa]|af[ao]|sudor[ei]|traspirant[ei])\b", q):
+            if is_apparel:
+                header = f"Traspirabilità Estiva {sub}"
+                ans = (
+                    f"I capi **{sub}** utilizzano filati sintetici leggeri a rapida asciugatura pensati per disperdere calore e umidità.\n\n"
+                    "• **Con caldo intenso**: Scegli grammature ultraleggere o inserti traforati in mesh sulle zone ad alta sudorazione."
+                )
+                follow = ["Come vestono come taglia?", "Filtra modelli da uomo", "Mostrami varianti sotto 50 euro"]
+                return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, apparel_kw], "brand": b, "category": apparel_cat}
             header = f"Traspirabilità Estiva {sub}"
             ans = (
                 f"Sì, le **{sub}** gestiscono molto bene il caldo estivo grazie alla **tomaia in engineered mesh traforato**, che favorisce il ricambio d'aria e limita il surriscaldamento del piede.\n\n"
@@ -3037,8 +3087,12 @@ class FitMatchSportsAdvisor:
                 "• Offrono tessuti traspiranti a rapida asciugatura (come HeatGear o Dri-FIT), eccellente elasticità e cuciture piatte ergonomiche anti-sfregamento.\n"
                 "• Sono ideali sia per sessioni di corsa prolungate sia per allenamenti intensi in palestra, con prezzi e disponibilità verificati in tempo reale tra tutti i partner ufficiali."
             )
-            follow = ["Sono comodi per correre?", "Hanno le tasche con zip?", "Come vestono come taglia?"]
-            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, "shorts", "running"], "brand": b, "category": "pants"}
+            follow = (
+                ["Sono comode per correre?", "Hanno la mezza zip?", "Come vestono come taglia?"]
+                if is_top_apparel
+                else ["Sono comodi per correre?", "Hanno le tasche con zip?", "Come vestono come taglia?"]
+            )
+            return {"header": header, "answer": ans, "follow_ups": follow, "subject_name": sub, "target_keywords": [subject_kw, apparel_kw, "running"], "brand": b, "category": apparel_cat}
 
         header = f"Risposta per {sub}"
         ans = (
@@ -3197,19 +3251,25 @@ class LocalHeuristicParser:
 
         # 3. Gender
         gender = None
-        if re.search(r"\b(donna|ragazza|femmin[eia]|wmns?|women)\b", text):
+        if re.search(r"\b(unisex|uomo\s+e\s+donna|tutti\s+i\s+generi)\b", text):
+            gender = None
+        elif re.search(r"\b(donna|donne|ragazza|femmin[eia]|wmns?|women|woman)\b", text):
             gender = "Donna"
-        elif re.search(r"\b(uomo|ragazzo|maschil[eia]|mens?|men)\b", text):
+        elif re.search(r"\b(uomo|uomini|ragazzo|maschil[eia]|mens?|men)\b", text):
             gender = "Uomo"
 
-        # 4. Brand extraction
+        # 4. Brand extraction (longest match first)
         detected_brand = None
-        for b in KNOWN_BRANDS:
+        for b in sorted(KNOWN_BRANDS, key=len, reverse=True):
             if re.search(rf"\b{re.escape(b)}\b", text):
                 if "maison margiela" in b or "margiela" in b:
                     detected_brand = "Maison Margiela"
                 elif "new balance" in b or "new-balance" in b:
                     detected_brand = "New-balance"
+                elif "under armour" in b:
+                    detected_brand = "Under Armour"
+                elif "la sportiva" in b:
+                    detected_brand = "La Sportiva"
                 else:
                     detected_brand = b.capitalize()
                 break
@@ -3220,6 +3280,15 @@ class LocalHeuristicParser:
         is_waterproof = bool(re.search(r"\b(impermeabil[ei]|gtx|gore[\s-]tex|pioggia|fango)\b", text))
         if is_waterproof:
             features.append("waterproof")
+        is_half_zip = bool(re.search(r"(?:\b(?:half[\s-]*zip|mezza[\s-]*zip|quarter[\s-]*zip)\b|1/2[\s-]*zip)", text))
+        if is_half_zip:
+            features.append("half_zip")
+        is_thermal = bool(re.search(r"\b(termic[aohe]+|invern[aoei]+|merino|freddo|active\s*warm|warmalite)\b", text))
+        if is_thermal:
+            features.append("thermal")
+        is_pockets = bool(re.search(r"\b(tasc[ah]e?|taschin[oi]|telefono|smartphone|2[\s-]*in[\s-]*1|cargo)\b", text))
+        if is_pockets:
+            features.append("pockets")
 
         # Check shorts & pants BEFORE other apparel, ensuring short-sleeve does NOT trigger shorts
         is_short_sleeve = bool(re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b", text))
@@ -3305,9 +3374,17 @@ class LocalHeuristicParser:
             features.append("cushioning")
 
         # Context-aware archetype & cumulative constraint inheritance across multi-turn chats
-        if has_context:
-            prev_turns = [part.strip() for part in ctx_text.split(">>") if part.strip()]
-            inherited = ConversationContextMerger.extract_cumulative_constraints(prev_turns)
+        is_explicit_road = (
+            bool(re.search(r"\b(da\s*strada|su\s*strada|strada|asfalto)\b", text))
+            and not bool(re.search(r"\b(trail|sterrato|fango|montagna)\b", text))
+        )
+        has_any_context = has_context or bool(session_context)
+        clear_budget = bool(re.search(r"\b(senza\s*limiti(?:\s*di\s*budget)?|qualsiasi\s*prezzo|tutti\s*i\s*prezzi|top\s*di\s*gamma)\b", text))
+        clear_size = bool(re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", text))
+        clear_gender = bool(re.search(r"\b(unisex|uomo\s+e\s+donna|tutti\s+i\s+generi)\b", text))
+        if has_any_context:
+            prev_turns = [part.strip() for part in ctx_text.split(">>") if part.strip()] if ctx_text else []
+            inherited = ConversationContextMerger.extract_cumulative_constraints(prev_turns, base_context=session_context)
             is_cat_switch = QueryProductGuardrail.is_category_switch(
                 user_query, context_query=ctx_text, session_context=session_context
             )
@@ -3317,46 +3394,39 @@ class LocalHeuristicParser:
             # (never carry over brand/price/size/category across an explicit product-type switch!)
             if not is_cat_switch:
                 if not detected_brand and inherited.get("brand"):
-                    # Don't force a different brand if current turn names a specific model
                     if not re.search(r"\b(pegasus|vomero|nimbus|kayano|clifton|bondi|speedgoat|ghost|glycerin|adrenaline|adizero|forerunner|fenix)\b", text):
                         detected_brand = inherited["brand"]
-                if max_price is None and inherited.get("max_price") is not None:
-                    # Only keep previous max_price unless current turn removes budget ("senza limiti", "qualsiasi prezzo")
-                    if not re.search(r"\b(senza\s*limiti|qualsiasi\s*prezzo|top\s*di\s*gamma)\b", text):
-                        max_price = inherited["max_price"]
-                if min_price is None and inherited.get("min_price") is not None:
+                if max_price is None and not clear_budget and inherited.get("max_price") is not None:
+                    max_price = inherited["max_price"]
+                if min_price is None and not clear_budget and inherited.get("min_price") is not None:
                     min_price = inherited["min_price"]
-                if size is None and inherited.get("size"):
-                    if not re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", text):
-                        size = inherited["size"]
-            if not gender and inherited.get("gender"):
+                if size is None and not clear_size and inherited.get("size"):
+                    size = inherited["size"]
+                if inherited.get("features"):
+                    for f in inherited["features"]:
+                        if is_explicit_road and f in ("trail", "waterproof"):
+                            continue
+                        if f not in features:
+                            features.append(f)
+                    is_waterproof = is_waterproof or ("waterproof" in features)
+                    is_half_zip = is_half_zip or ("half_zip" in features)
+                    is_thermal = is_thermal or ("thermal" in features)
+                    is_pockets = is_pockets or ("pockets" in features)
+            if not gender and not clear_gender and inherited.get("gender"):
                 gender = inherited["gender"]
 
-            last_ctx_turn = prev_turns[-1] if prev_turns else ctx_text
-            is_relative = bool(re.search(r"\b(alternative|modelli|esempi|prestazioni|funzionalit|funzioni|sotto|meno|max|confronta|altri|altre|economici|economiche|miglior|scelta|smartwatch|taglia|numero|misura|uomo|donna|pioggia|gtx)\b", text))
-            if not is_cat_switch and cur_explicit_ptype is None and (is_relative or archetype_key == "daily_trainer"):
-                if re.search(r"\b(occhialin[oi]|nuoto|nuotare|piscina)\b", last_ctx_turn):
-                    archetype_key = "swim"
-                elif re.search(r"\b(scarpin[oi]|calcetto|calcio\s*a\s*[57]|mercurial|predator|phantom|tiempo)\b", last_ctx_turn):
-                    archetype_key = "football_boots"
-                elif re.search(r"\b(garmin|forerunner|fenix|instinct|epix|venu|smartwatch|orologi|sportwatch|gps|cardio|polar|suunto|coros)\b", last_ctx_turn):
-                    archetype_key = "gps_watch"
-                    if not detected_brand and "garmin" in last_ctx_turn:
-                        detected_brand = "Garmin"
-                elif re.search(r"\b(ciclocomputer|edge|bike\s*computer|igpsport|bryton|wahoo)\b", last_ctx_turn):
-                    archetype_key = "bike_computer"
-                elif re.search(r"\b(long[\s-]*sleeve|manica\s*lunga|termic)\b", last_ctx_turn):
-                    archetype_key = "running_apparel_long_sleeve"
-                elif re.search(r"\bhyrox\b", last_ctx_turn):
-                    archetype_key = "hyrox"
-                elif re.search(r"\b(trekking|escursionism|hiking|x\s*ultra|ultra\s*raptor)\b", last_ctx_turn):
-                    archetype_key = "trekking_hiking"
-                elif re.search(r"\b(trail|sterrato)\b", last_ctx_turn):
-                    archetype_key = "trail_running"
-                elif re.search(r"\b(pronazion|pronator|antipronazion|piedi\s*piatti|kayano|adrenaline|arahi)\b", last_ctx_turn):
-                    archetype_key = "stability_pronation"
-                elif inherited.get("archetype_key") and archetype_key == "daily_trainer":
+            # Preserve specific archetype across arbitrary turn depth (e.g. T1 Long Sleeve -> T2 Da uomo -> T3 Sotto 50 euro)
+            if not is_cat_switch and not is_explicit_road and (cur_explicit_ptype is None or archetype_key == "daily_trainer"):
+                if archetype_key == "daily_trainer" and inherited.get("archetype_key"):
                     archetype_key = inherited["archetype_key"]
+                elif archetype_key == "daily_trainer" and prev_turns:
+                    for ctx_turn in reversed(prev_turns):
+                        inferred_arch = ConversationContextMerger.extract_turn_constraints(ctx_turn).get("archetype_key")
+                        if inferred_arch:
+                            archetype_key = inferred_arch
+                            break
+                if archetype_key == "gps_watch" and not detected_brand and any("garmin" in pt for pt in prev_turns):
+                    detected_brand = "Garmin"
 
         arch = SPORTS_KNOWLEDGE[archetype_key]
         category = arch["category"]
@@ -3406,16 +3476,28 @@ class LocalHeuristicParser:
 
             stopwords = {
                 "per", "la", "il", "lo", "i", "gli", "le", "un", "una", "uno", "di", "a", "da", "in", "con", "su",
-                "scarpe", "scarpa", "modello", "modelli", "sotto", "fino", "euro", "eur", "max", "taglia", "misura",
-                "porto", "cerco", "voglio", "trova", "della", "delle", "dei", "del", "running", "corsa", "ammortizzate",
-                "comode", "veloci", "nere", "bianche", "uomo", "donna", "ragazzo", "ragazza", "migliori", "miglior",
-                "cosa", "mi", "consigli", "consigliami", "come", "iniziare", "correre", "nuotare", "principiante", "principianti",
-                "fammi", "vedere", "piu", "più", "esempi", "altri", "altre", "opzioni", "alternative", "vorrei", "quale", "quali",
-                "scarpini", "calcio", "occhialini", "nuoto", "piscina",
-                "mentre", "sempre", "invece", "dopo", "anche", "proprio", "adesso", "magari", "tipo"
+                "scarpe", "scarpa", "modello", "modelli", "sotto", "sopra", "fino", "euro", "eur", "max", "min",
+                "massimo", "minimo", "budget", "limiti", "senza", "qualsiasi", "prezzo", "tutte", "tutti", "taglia",
+                "taglie", "misura", "numero", "porto", "cerco", "voglio", "trova", "della", "delle", "dei", "del",
+                "running", "corsa", "ammortizzate", "comode", "veloci", "nere", "bianche", "uomo", "uomini",
+                "donna", "donne", "ragazzo", "ragazza", "migliori", "miglior", "meglio", "solo", "mostrami",
+                "mostramene", "filtra", "cosa", "mi", "consigli", "consigliami", "come", "iniziare", "correre",
+                "nuotare", "principiante", "principianti", "fammi", "vedere", "piu", "più", "esempi", "altri",
+                "altre", "opzioni", "alternative", "vorrei", "quale", "quali", "scarpini", "calcio", "occhialini",
+                "nuoto", "piscina", "mentre", "sempre", "invece", "dopo", "anche", "proprio", "adesso", "magari", "tipo"
             }
+            clean_tok_text = re.sub(
+                r"\b(?:sotto\s*i?|sopra\s*i?|meno\s*di|pi[uù]\s*di|fino\s*a|budget\s*di?|max|min|massimo|minimo)\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\b",
+                " ",
+                text,
+            )
+            clean_tok_text = re.sub(
+                r"\b(?:taglia|numero|misura|porto\s*(?:il|la)?)\s*(?:[0-9]{2}(?:[\.,][0-9])?|[xXsSmMlL]{1,3})\b",
+                " ",
+                clean_tok_text,
+            )
             tokens = [
-                w for w in re.findall(r"\b[a-zA-Z0-9]+\b", text)
+                w for w in re.findall(r"\b[a-zA-Z0-9]+\b", clean_tok_text)
                 if w not in stopwords and w not in numeric_filter_values and len(w) > 1
             ]
             if tokens and len(tokens) >= 2 and archetype_key in ("daily_trainer", "running_shorts", "running_pants", "running_apparel") and not detected_brand:
@@ -3444,6 +3526,20 @@ class LocalHeuristicParser:
                 else:
                     target_keywords = candidate_models[:8]
 
+            # Prepend active feature keywords so filtered follow-ups surface matching products immediately
+            feature_kw_boost: List[str] = []
+            if is_half_zip:
+                feature_kw_boost.extend(["half zip", "1/2 zip", "mezza zip"])
+            if is_thermal and archetype_key == "running_apparel_long_sleeve":
+                feature_kw_boost.extend(["active warm", "termica", "warm"])
+            if is_pockets and archetype_key in ("running_shorts", "running_pants"):
+                feature_kw_boost.extend(["2in1", "tasche", "shorts"])
+            if feature_kw_boost:
+                if detected_brand:
+                    b_low = detected_brand.lower()
+                    feature_kw_boost = [f"{b_low} {fk}" for fk in feature_kw_boost[:2]] + feature_kw_boost
+                target_keywords = list(dict.fromkeys(feature_kw_boost + list(target_keywords or [])))[:10]
+
         # 7. Chips & Filter Representation
         chips = []
         if max_price:
@@ -3456,6 +3552,12 @@ class LocalHeuristicParser:
             chips.append(SmartSearchChip(id="brand", label=detected_brand, param_key="brand", value=detected_brand))
         if is_waterproof:
             chips.append(SmartSearchChip(id="feature_gtx", label="Impermeabile / GTX", param_key="feature", value="waterproof"))
+        if is_half_zip:
+            chips.append(SmartSearchChip(id="feature_halfzip", label="Mezza Zip (1/2 Zip)", param_key="feature", value="half_zip"))
+        if is_thermal and archetype_key == "running_apparel_long_sleeve":
+            chips.append(SmartSearchChip(id="feature_thermal", label="Termica / Invernale", param_key="feature", value="thermal"))
+        if is_pockets:
+            chips.append(SmartSearchChip(id="feature_pockets", label="Con Tasche", param_key="feature", value="pockets"))
         if "cushioning" in features:
             chips.append(SmartSearchChip(id="feature_cushion", label="Massimo Ammortizzamento", param_key="feature", value="cushioning"))
         elif "racing" in features:
@@ -3525,10 +3627,57 @@ class LocalHeuristicParser:
             clean_subject = detected_brand or arch["label"]
             if detected_brand and "scarpe" in text:
                 clean_subject = f"scarpe {detected_brand}"
-            elif archetype_key in ("running_apparel", "running_shorts", "running_pants") and detected_brand:
+            elif detected_brand and archetype_key != "daily_trainer":
                 clean_subject = f"{arch['label']} {detected_brand}"
-            conversational_header = f"Ho cercato {clean_subject}" if clean_subject else "Ho cercato prodotti"
-            conversational_summary = arch.get("conversational_summary") or f"Ho trovato diverse **{clean_subject}**: dai modelli più versatili a quelli più performanti e ricercati, con prezzi e stili molto diversi."
+
+            header_qualifiers: List[str] = []
+            summary_qualifiers: List[str] = []
+            if gender:
+                header_qualifiers.append(gender)
+                summary_qualifiers.append(f"da {gender.lower()}")
+            if is_half_zip:
+                header_qualifiers.append("Mezza Zip")
+                summary_qualifiers.append("con mezza zip (1/2 zip)")
+            if is_thermal and archetype_key == "running_apparel_long_sleeve":
+                header_qualifiers.append("Termiche")
+                summary_qualifiers.append("termiche / invernali")
+            if is_pockets:
+                header_qualifiers.append("Con Tasche")
+                summary_qualifiers.append("con tasche")
+            if is_waterproof:
+                header_qualifiers.append("Impermeabili / GTX")
+                summary_qualifiers.append("impermeabili / Gore-Tex")
+            if max_price is not None:
+                p_str = f"€{int(max_price) if float(max_price).is_integer() else max_price}"
+                header_qualifiers.append(f"fino a {p_str}")
+                summary_qualifiers.append(f"entro {p_str}")
+            if min_price is not None:
+                p_str = f"€{int(min_price) if float(min_price).is_integer() else min_price}"
+                header_qualifiers.append(f"da {p_str}")
+                summary_qualifiers.append(f"da almeno {p_str}")
+            if size:
+                header_qualifiers.append(f"Taglia {size}")
+                summary_qualifiers.append(f"in taglia **{size}**")
+
+            base_header = f"Ho cercato {clean_subject}" if clean_subject else "Ho cercato prodotti"
+            if header_qualifiers:
+                conversational_header = f"{clean_subject or arch['label']} — {' · '.join(header_qualifiers)}"
+                subj_desc = (clean_subject or arch["label"]).lower()
+                qual_desc = ", ".join(summary_qualifiers)
+                conversational_summary = (
+                    f"Ecco le migliori opzioni di **{subj_desc}** filtrate per {qual_desc}, "
+                    f"ordinate in base alla pertinenza e al miglior prezzo disponibile:"
+                )
+            elif has_any_context:
+                conversational_header = base_header
+                conversational_summary = (
+                    arch.get("conversational_summary")
+                    or f"Ecco i risultati aggiornati per **{(clean_subject or arch['label']).lower()}** con le migliori offerte verificate:"
+                )
+            else:
+                conversational_header = base_header
+                conversational_summary = arch.get("conversational_summary") or f"Ho trovato diverse **{clean_subject}**: dai modelli più versatili a quelli più performanti e ricercati, con prezzi e stili molto diversi."
+
             curated_sections_raw = arch.get("sections", [])
             curated_sections = []
             for s in curated_sections_raw:
@@ -3968,11 +4117,20 @@ class LocalHeuristicParser:
                         "Prezzo confrontato in tempo reale tra negozi verificati"
                     ])
                 )
-            follow_ups = arch.get("follow_ups", [
-                f"Mostrami solo opzioni sotto {max_price or 150} euro",
-                f"Confronta i modelli più apprezzati",
+            raw_follow_ups = arch.get("follow_ups", [
+                f"Mostrami solo opzioni sotto {int(max_price) if max_price else 150} euro",
+                "Confronta i modelli più apprezzati",
                 "Filtra per disponibilità immediata"
             ])
+            follow_ups = ConversationContextMerger.filter_follow_up_suggestions(
+                raw_follow_ups,
+                gender=gender,
+                max_price=max_price,
+                size=size,
+                features=features,
+                brand=detected_brand,
+                category=category,
+            )
 
         explanation = conversational_summary
 
@@ -4374,15 +4532,17 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa esatta struttura:
         rag_system = """Sei il consulente tecnico sportivo AI di FitMatch.
 Scrivi risposte naturali, esperte, concise e su misura in ITALIANO basandoti SOLO sui PRODOTTI REALI recuperati dal database qui sotto.
 REGOLE TASSATIVE:
-1. NON usare frasi generiche o pre-impostate ("Ho cercato prodotti", "un modello di riferimento per prestazioni"). Adattati esattamente allo sport, al livello (es. principiante, intermedio, gara), alla superficie (es. erba sintetica calcio a 7, asfalto, piscina) e alle domande poste.
-2. Cita ESCLUSIVAMENTE modelli presenti nella lista PRODOTTI REALI con il loro nome esatto e prezzo reale! NON inventare mai modelli assenti dalla lista.
-3. Se la lista è vuota o povera per la richiesta specifica, dillo in modo onesto e chiaro in 2 frasi spiegando cosa manca in catalogo e suggerisci una ricerca alternativa valida.
-4. Per `curated_sections`, usa keyword presenti davvero nei nomi dei prodotti elencati.
-5. Per `spec_comparisons` (max 3), usa i primi 2-3 modelli distinti dalla lista reale: `model_name` esatto dal catalogo, `target_keyword` (2-3 parole prese dal `model_name`), `ideal_for` e `strengths` tecnici reali SENZA markdown asterischi (**).
-6. In `conversational_summary` usa **grassetto** solo sui concetti tecnici chiave e nomi modello (max 3-4 frasi ben strutturate).
+1. NON usare frasi generiche o pre-impostate ("Ho cercato prodotti", "un modello di riferimento per prestazioni"). Adattati esattamente allo sport, ai filtri attivi (genere Uomo/Donna, budget max, taglia, marchio, caratteristiche tecniche) e alle domande poste.
+2. Cita ESCLUSIVAMENTE modelli presenti nella lista PRODOTTI REALI con il loro nome esatto e prezzo reale! NON inventare mai modelli o caratteristiche (es. "half-zip") assenti dai nomi dei prodotti elencati.
+3. REGOLA CRITICA SULLA DISPONIBILITÀ: Se nella lista PRODOTTI REALI è presente ALMENO 1 prodotto, NON dire MAI "non abbiamo modelli" o "attualmente non disponibili"! Presenta invece con sicurezza i modelli reali trovati rispettando i filtri attivi. Solo se la lista dice esplicitamente NESSUN PRODOTTO COMPATIBILE, dillo in 2 frasi proponendo un filtro meno restrittivo.
+4. Per `conversational_header`, includi il tipo di prodotto E eventuali filtri attivi chiave (es. "Scarpe Running Nike da Donna", "Maglie Termiche da Corsa — Uomo · fino a €50"). NON scrivere MAI "Nessuno", "Nessun filtro", "Nessun filtro restrittivo" o "Generale" nel titolo, e MAI inventare limiti di budget (es. "sotto i 60 euro") o genere assenti da `Filtri attivi`; se l'utente chiede altri esempi/modelli, includi "Altri Esempi" o "Altri Modelli" nel titolo.
+5. Per `curated_sections`, usa keyword presenti davvero nei nomi dei prodotti elencati.
+6. Per `spec_comparisons` (max 3), usa i primi 2-3 modelli distinti dalla lista reale: `model_name` esatto dal catalogo, `target_keyword` (2-3 parole prese dal `model_name`), `ideal_for` e `strengths` tecnici reali SENZA markdown asterischi (**).
+7. In `conversational_summary` usa **grassetto** solo sui concetti tecnici chiave e nomi modello (max 3-4 frasi ben strutturate), specificando chiaramente i filtri applicati (es. genere, budget, marchio) e dicendo "Ecco altri modelli..." se l'utente ha chiesto altri esempi.
+8. Per `follow_up_suggestions`, proponi 3 comandi o domande brevi e direttamente azionabili sullo STESSO prodotto/sport (es. filtri per budget, taglia, genere, caratteristica tecnica o confronto tra modelli mostrati); MAI domande generiche su altri sport/categorie ("Cerchi altre categorie?", "Sei interessato ad altri sport?").
 Rispondi SOLO con JSON valido:
 {
-  "conversational_header": "Titolo breve specifico",
+  "conversational_header": "Titolo breve specifico con eventuali filtri",
   "conversational_summary": "Risposta esperta grounded...",
   "curated_sections": [{"id": "sec_1", "title": "...", "subtitle": "...", "keywords": ["..."]}],
   "spec_comparisons": [{"model_name": "...", "ideal_for": "...", "strengths": "...", "target_keyword": "..."}],
@@ -4404,9 +4564,30 @@ Rispondi SOLO con JSON valido:
         elif context_query and context_query.strip():
             messages.append({"role": "user", "content": f"Ricerca precedente: {context_query.strip()}"})
 
+        active_constraints = []
+        if intent.brand:
+            active_constraints.append(f"Brand={intent.brand}")
+        if intent.gender:
+            active_constraints.append(f"Genere={intent.gender}")
+        if intent.max_price is not None:
+            active_constraints.append(f"Budget max=€{intent.max_price:.0f}")
+        if intent.min_price is not None:
+            active_constraints.append(f"Prezzo min=€{intent.min_price:.0f}")
+        if intent.size:
+            active_constraints.append(f"Taglia={intent.size}")
+        if intent.features:
+            active_constraints.append(f"Caratteristiche={', '.join(intent.features)}")
+        constraints_str = " | ".join(active_constraints) if active_constraints else "Nessuno"
+
         messages.append({
             "role": "user",
-            "content": f"Richiesta utente attuale: {user_query.strip()}\nCategoria stimata: {intent.category}\n\nPRODOTTI REALI DISPONIBILI:\n{catalog_block}"
+            "content": (
+                f"Richiesta utente attuale: {user_query.strip()}\n"
+                f"Categoria stimata: {intent.category}\n"
+                f"Filtri attivi: {constraints_str}\n"
+                f"Totale prodotti compatibili trovati: {len(products)}\n\n"
+                f"PRODOTTI REALI DISPONIBILI:\n{catalog_block}"
+            ),
         })
 
         models_to_try = [model]
@@ -4420,6 +4601,8 @@ Rispondi SOLO con JSON valido:
                 "temperature": 0.2,
                 "max_tokens": 900,
             }
+            if current_model.startswith("openai/"):
+                payload["response_format"] = {"type": "json_object"}
             headers = {
                 "Authorization": f"Bearer {api_key.strip()}",
                 "HTTP-Referer": "https://fitmatch.it",
@@ -4436,8 +4619,13 @@ Rispondi SOLO con JSON valido:
                 with urllib.request.urlopen(req, timeout=7.5, context=ctx) as resp:
                     if resp.status != 200:
                         continue
-                    data = json.loads(resp.read().decode("utf-8"))
-                    content = data["choices"][0]["message"]["content"]
+                    raw_resp_text = resp.read().decode("utf-8", errors="ignore").strip()
+                    if not raw_resp_text:
+                        continue
+                    data = json.loads(raw_resp_text)
+                    content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+                    if not str(content).strip():
+                        continue
                     json_match = re.search(r"(\{.*\})", content, flags=re.DOTALL)
                     clean_json = json_match.group(1).strip() if json_match else content.strip()
                     if clean_json.startswith("```json"):
@@ -4463,51 +4651,181 @@ class ConversationContextMerger:
         t = LocalHeuristicParser.normalize_typos(turn_text.strip().lower())
         out: Dict[str, Any] = {}
 
-        max_m = re.search(r"(?:sotto\s*i?|meno\s*di|max|massimo|budget\s*di?|fino\s*a)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?", t)
-        if max_m:
-            out["max_price"] = float(max_m.group(1).replace(",", "."))
+        clear_budget = bool(re.search(r"\b(senza\s*limiti(?:\s*di\s*budget)?|qualsiasi\s*prezzo|tutti\s*i\s*prezzi|top\s*di\s*gamma)\b", t))
+        clear_size = bool(re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", t))
+        clear_gender = bool(re.search(r"\b(unisex|uomo\s+e\s+donna|tutti\s+i\s+generi)\b", t))
 
-        min_m = re.search(r"(?:sopra\s*i?|più\s*di|minimo|almeno)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?", t)
-        if min_m:
-            out["min_price"] = float(min_m.group(1).replace(",", "."))
+        if clear_budget:
+            out["__clear_budget__"] = True
+        else:
+            max_m = re.search(r"(?:sotto\s*i?|meno\s*di|max|massimo|budget\s*di?|fino\s*a)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?", t)
+            if max_m:
+                out["max_price"] = float(max_m.group(1).replace(",", "."))
 
-        sz_m = re.search(r"(?:taglia|numero|misura|porto\s*(?:il|la)?)\s*([0-9]{2}(?:[\.,][0-9])?|[xXsSmMlL]{1,3})", t)
-        if sz_m:
-            out["size"] = sz_m.group(1).replace(",", ".").upper()
+            min_m = re.search(r"(?:sopra\s*i?|più\s*di|minimo|almeno)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?", t)
+            if min_m:
+                out["min_price"] = float(min_m.group(1).replace(",", "."))
 
-        if re.search(r"\b(donna|ragazza|femmin[eia]|wmns?|women)\b", t):
+        if clear_size:
+            out["__clear_size__"] = True
+        else:
+            sz_m = re.search(r"(?:taglia|numero|misura|porto\s*(?:il|la)?)\s*([0-9]{2}(?:[\.,][0-9])?|[xXsSmMlL]{1,3})", t)
+            if sz_m:
+                out["size"] = sz_m.group(1).replace(",", ".").upper()
+
+        if clear_gender:
+            out["__clear_gender__"] = True
+        elif re.search(r"\b(donna|donne|ragazza|femmin[eia]|wmns?|women|woman)\b", t):
             out["gender"] = "Donna"
-        elif re.search(r"\b(uomo|ragazzo|maschil[eia]|mens?|men)\b", t):
+        elif re.search(r"\b(uomo|uomini|ragazzo|maschil[eia]|mens?|men)\b", t):
             out["gender"] = "Uomo"
 
-        for b in KNOWN_BRANDS:
+        for b in sorted(KNOWN_BRANDS, key=len, reverse=True):
             if re.search(rf"\b{re.escape(b)}\b", t):
                 if "maison margiela" in b or "margiela" in b:
                     out["brand"] = "Maison Margiela"
                 elif "new balance" in b or "new-balance" in b:
                     out["brand"] = "New-balance"
+                elif "under armour" in b:
+                    out["brand"] = "Under Armour"
+                elif "la sportiva" in b:
+                    out["brand"] = "La Sportiva"
                 else:
                     out["brand"] = b.capitalize()
                 break
 
-        if re.search(r"\b(pronazion[ei]|pronator[ei]|iperpronazion[ei]|antipronazion[ei]|pied[ei]\s*piatt[oi]|kayano|adrenaline|arahi)\b", t):
+        turn_features: List[str] = []
+        if re.search(r"\b(impermeabil[ei]|gtx|gore[\s-]tex|pioggia|fango)\b", t):
+            turn_features.append("waterproof")
+        if re.search(r"(?:\b(?:half[\s-]*zip|mezza[\s-]*zip|quarter[\s-]*zip)\b|1/2[\s-]*zip)", t):
+            turn_features.append("half_zip")
+        if re.search(r"\b(termic[aohe]+|invern[aoei]+|merino|freddo|active\s*warm|warmalite)\b", t):
+            turn_features.append("thermal")
+        if re.search(r"\b(tasc[ah]e?|taschin[oi]|telefono|smartphone|2[\s-]*in[\s-]*1|cargo)\b", t):
+            turn_features.append("pockets")
+        if turn_features:
+            out["features"] = turn_features
+
+        # Check all archetypes across apparel, hardgoods, sports shoes, and running sub-types
+        is_short_sleeve_t = bool(re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b", t))
+        is_shorts_t = bool(re.search(r"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|ciclisti|sprinter|bermuda|2-in-1|boxer\s*(?:corsa|running))\b", t)) and not is_short_sleeve_t
+        is_pants_t = bool(re.search(r"\b(leggings?|tights?|fuseaux|pantaloni\s*lunghi|pantacollant|pantaloni)\b", t)) and not is_shorts_t
+
+        if is_shorts_t:
+            out["archetype_key"] = "running_shorts"
+        elif is_pants_t:
+            out["archetype_key"] = "running_pants"
+        elif re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|1/2\s*zip|half[\s-]*zip|mezza\s*zip)\b", t):
+            out["archetype_key"] = "running_apparel_long_sleeve"
+        elif re.search(r"\b(t[\s-]*shirt|magliett[ae]|magli[ae]\s*(?:da\s*)?(?:running|corsa|trail)|canott[ae]|singlet|abbigliamento\s*(?:running|corsa))\b", t) or is_short_sleeve_t:
+            out["archetype_key"] = "running_apparel"
+        elif re.search(r"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way|gilet\s*antivento|guscio)\b", t):
+            out["archetype_key"] = "jacket"
+        elif re.search(r"\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b", t):
+            out["archetype_key"] = "socks"
+        elif re.search(r"\b(cappellin[oi]|cappell[oi]|berrett[oi]|visier[ae]|fascia\s*testa|scaldacollo)\b", t):
+            out["archetype_key"] = "gear"
+        elif re.search(r"\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*(?:bici|gps)?|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|wahoo\s*elemnt|bryton|igpsport)\b", t):
+            out["archetype_key"] = "bike_computer"
+        elif re.search(r"\b(garmin|forerunner|fenix|instinct|epix|venu|vivoactive|smartwatch|sportwatch|orolog\w*|gps|cardio|polar|suunto|coros)\b", t):
+            out["archetype_key"] = "gps_watch"
+        elif re.search(r"\b(occhialin[oi]|nuoto|nuotare|piscina|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno))\b", t):
+            out["archetype_key"] = "swim"
+        elif re.search(r"\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|scarpin[oi]|calcetto|futsal|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b", t):
+            out["archetype_key"] = "football_boots"
+        elif re.search(r"\b(basket|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina)\b", t) and not re.search(r"\b(magli[ae]|pantaloncin[oi]|calz[ae])\b", t):
+            out["archetype_key"] = "basketball_shoes"
+        elif re.search(r"\b(tennis|terra\s*battuta|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b", t) and not re.search(r"\b(racchett[ae]|pallin[ae]|abbigliamento|pantaloncin[oi]|magli[ae])\b", t):
+            out["archetype_key"] = "tennis_shoes"
+        elif re.search(r"\b(pallavolo|volley|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b", t) and not re.search(r"\b(ginocchier[ae]|magli[ae]|pantaloncin[oi])\b", t):
+            out["archetype_key"] = "volleyball_shoes"
+        elif re.search(r"\b(occhial[ie]|oakley|sutro|radar\s*ev|jawbreaker)\b", t):
+            out["archetype_key"] = "eyewear"
+        elif re.search(r"\b(zain[oi]|gilet|flask|borracci[ae]|idratazione|camelbak)\b", t):
+            out["archetype_key"] = "hydration"
+        elif re.search(r"\b(theragun|pistola|massaggi[ao]|recupero|therabody)\b", t):
+            out["archetype_key"] = "fitness"
+        elif re.search(r"\b(gel|barrett[ae]|integrator[ei]|enervit|sali|maltodestrin[ae]|nutrizione)\b", t):
+            out["archetype_key"] = "nutrition"
+        elif re.search(r"\b(padel|racchett[ae]|pala|bullpadel|nox|starvie|siux)\b", t):
+            out["archetype_key"] = "padel"
+        elif re.search(r"\b(ciclismo|bici|bicicletta|rull[oi]|smart\s*trainer|kickr|flux|tacx|wahoo|assioma|favero|castelli)\b", t):
+            out["archetype_key"] = "cycling"
+        elif re.search(r"\b(pronazion[ei]|pronator[ei]|iperpronazion[ei]|antipronazion[ei]|pied[ei]\s*piatt[oi]|kayano|adrenaline|arahi)\b", t):
             out["archetype_key"] = "stability_pronation"
-        elif re.search(r"\b(trekking|escursionism[oa]|hiking|scarponcin|x\s*ultra|ultra\s*raptor)\b", t):
+        elif re.search(r"\b(trekking|escursionism[oa]|hiking|scarponcin\w*|x\s*ultra|ultra\s*raptor)\b", t):
             out["archetype_key"] = "trekking_hiking"
-        elif re.search(r"\b(trail|sterrato|fango|montagna|sentier)\b", t):
+        elif re.search(r"\b(trail|sterrato|fango|montagna|sentier\w*)\b", t):
             out["archetype_key"] = "trail_running"
+        elif re.search(r"\b(da\s*strada|su\s*strada|strada|asfalto)\b", t):
+            out["archetype_key"] = "daily_trainer"
         elif re.search(r"\bhyrox\b", t):
             out["archetype_key"] = "hyrox"
         elif re.search(r"\b(dropset|metcon|nano|palestra|pesi|crossfit)\b", t):
             out["archetype_key"] = "gym_training"
-        elif re.search(r"\b(ammortizzat|nimbus|bondi|glycerin|clifton|vomero|invincible|ginocchi|schiena)\b", t):
+        elif re.search(r"\b(ammortizzat\w*|nimbus|bondi|glycerin|clifton|vomero|invincible|ginocchi\w*|schiena|morbida?|pesant\w*)\b", t):
             out["archetype_key"] = "max_cushion"
         elif re.search(r"\b(alphafly|vaporfly|adizero|endorphin|metaspeed|maratona|gara|carbonio)\b", t):
             out["archetype_key"] = "speed_race"
-        elif re.search(r"\b(garmin|forerunner|fenix|instinct|smartwatch|orolog)\b", t):
-            out["archetype_key"] = "gps_watch"
 
         return out
+
+    @staticmethod
+    def filter_follow_up_suggestions(
+        candidates: List[str],
+        gender: Optional[str] = None,
+        max_price: Optional[float] = None,
+        size: Optional[str] = None,
+        features: Optional[List[str]] = None,
+        brand: Optional[str] = None,
+        category: Optional[str] = None,
+    ) -> List[str]:
+        """Remove follow-ups that repeat active filters and fill with fresh context-aware refinements."""
+        feat_set = set(features or [])
+        filtered: List[str] = []
+        for s in (candidates or []):
+            sl = s.lower()
+            if gender == "Uomo" and re.search(r"\b(da\s+uomo|uomo)\b", sl) and "donna" not in sl:
+                continue
+            if gender == "Donna" and re.search(r"\b(da\s+donna|donna)\b", sl) and "uomo" not in sl:
+                continue
+            if "half_zip" in feat_set and re.search(r"\b(half[\s-]*zip|mezza\s*zip)\b", sl):
+                continue
+            if "waterproof" in feat_set and re.search(r"\b(gore[\s-]*tex|gtx|impermeabil|pioggia)\b", sl):
+                continue
+            if "pockets" in feat_set and re.search(r"\btasch", sl):
+                continue
+            if size and re.search(r"\b(taglia|numero|misura)\b", sl):
+                continue
+            if max_price is not None:
+                m_s = re.search(r"(?:sotto\s*i?|meno\s*di|fino\s*a)\s*(\d+)", sl)
+                if m_s and float(m_s.group(1)) >= float(max_price):
+                    continue
+            filtered.append(s)
+
+        extras: List[str] = []
+        if max_price is not None:
+            extras.append("Mostrami anche senza limiti di budget")
+        elif category in ("top", "pants", "socks"):
+            extras.append("Filtra modelli sotto 40 euro")
+        else:
+            extras.append("Filtra opzioni sotto 120 euro")
+        if gender == "Uomo":
+            extras.append("Mostrami varianti da donna")
+        elif gender == "Donna":
+            extras.append("Mostrami varianti da uomo")
+        else:
+            extras.append("Filtra modelli da uomo")
+        if not brand and category in ("running_shoes", "trail_running", "top", "pants"):
+            extras.append("Filtra per brand (Nike, Adidas, Asics)")
+        extras.append("Fammi vedere più esempi")
+
+        for ex in extras:
+            if len(filtered) >= 3:
+                break
+            if ex not in filtered:
+                filtered.append(ex)
+        return filtered[:3]
 
     @classmethod
     def extract_cumulative_constraints(cls, turn_queries: Any, base_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -4516,14 +4834,46 @@ class ConversationContextMerger:
         active_ptype: Optional[str] = QueryProductGuardrail._normalize_ptype_group(
             QueryProductGuardrail.detect_previous_product_type(context_query=None, session_context=base_context)
         )
+        # Seed archetype_key from base_context category if available and archetype_key missing
+        if "archetype_key" not in merged and base_context and base_context.get("category"):
+            cat_to_arch = {
+                "top": "running_apparel",
+                "pants": "running_shorts",
+                "jacket": "jacket",
+                "socks": "socks",
+                "gps_watch": "gps_watch",
+                "swim": "swim",
+                "football_boots": "football_boots",
+                "trail_running": "trail_running",
+                "padel": "padel",
+                "eyewear": "eyewear",
+                "hydration": "hydration",
+                "cycling": "cycling",
+                "fitness": "fitness",
+                "nutrition": "nutrition",
+            }
+            cat_str = str(base_context.get("category") or "").lower()
+            if cat_str in cat_to_arch:
+                merged["archetype_key"] = cat_to_arch[cat_str]
+
         for q in turns:
             q_ptype = QueryProductGuardrail._normalize_ptype_group(QueryProductGuardrail.detect_product_type(q, context_query=None))
             if q_ptype:
                 if active_ptype and q_ptype != active_ptype:
-                    for reset_k in ("brand", "max_price", "min_price", "size", "archetype_key"):
+                    for reset_k in ("brand", "max_price", "min_price", "size", "archetype_key", "features"):
                         merged.pop(reset_k, None)
                 active_ptype = q_ptype
             c = cls.extract_turn_constraints(q)
+            if c.pop("__clear_budget__", False):
+                merged.pop("max_price", None)
+                merged.pop("min_price", None)
+            if c.pop("__clear_size__", False):
+                merged.pop("size", None)
+            if c.pop("__clear_gender__", False):
+                merged.pop("gender", None)
+            new_feats = c.pop("features", None)
+            if new_feats:
+                merged["features"] = list(dict.fromkeys(list(merged.get("features") or []) + list(new_feats)))
             for k, v in c.items():
                 if v is not None:
                     merged[k] = v
@@ -4546,23 +4896,46 @@ class ConversationContextMerger:
         is_cat_switch = QueryProductGuardrail.is_category_switch(
             user_query, context_query=context_query, session_context=session_context
         )
+        clear_budget = bool(re.search(r"\b(senza\s*limiti(?:\s*di\s*budget)?|qualsiasi\s*prezzo|tutti\s*i\s*prezzi|top\s*di\s*gamma)\b", cur_text))
+        clear_size = bool(re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", cur_text))
+        clear_gender = bool(re.search(r"\b(unisex|uomo\s+e\s+donna|tutti\s+i\s+generi)\b", cur_text))
+        is_explicit_road = (
+            bool(re.search(r"\b(da\s*strada|su\s*strada|strada|asfalto)\b", cur_text))
+            and not bool(re.search(r"\b(trail|sterrato|fango|montagna)\b", cur_text))
+        )
+
+        if clear_budget:
+            intent.max_price = None
+            intent.min_price = None
+            intent.chips = [c for c in (intent.chips or []) if c.param_key not in ("max_price", "min_price")]
+        if clear_size:
+            intent.size = None
+            intent.chips = [c for c in (intent.chips or []) if c.param_key != "size"]
+        if clear_gender:
+            intent.gender = None
+            intent.chips = [c for c in (intent.chips or []) if c.param_key != "gender"]
 
         if not is_cat_switch:
             if not intent.brand and inherited.get("brand"):
                 if not re.search(r"\b(pegasus|vomero|nimbus|kayano|clifton|bondi|speedgoat|ghost|glycerin|adrenaline|adizero|forerunner|fenix)\b", cur_text):
                     intent.brand = inherited["brand"]
-            if intent.max_price is None and inherited.get("max_price") is not None:
-                if not re.search(r"\b(senza\s*limiti|qualsiasi\s*prezzo|top\s*di\s*gamma)\b", cur_text):
-                    intent.max_price = float(inherited["max_price"])
-            if intent.min_price is None and inherited.get("min_price") is not None:
+            if intent.max_price is None and not clear_budget and inherited.get("max_price") is not None:
+                intent.max_price = float(inherited["max_price"])
+            if intent.min_price is None and not clear_budget and inherited.get("min_price") is not None:
                 intent.min_price = float(inherited["min_price"])
-            if not intent.size and inherited.get("size"):
-                if not re.search(r"\b(tutte\s*le\s*taglie|qualsiasi\s*taglia)\b", cur_text):
-                    intent.size = str(inherited["size"])
-        if not intent.gender and inherited.get("gender"):
+            if not intent.size and not clear_size and inherited.get("size"):
+                intent.size = str(inherited["size"])
+            if inherited.get("features"):
+                inh_feats = [
+                    f for f in inherited["features"]
+                    if not (is_explicit_road and f in ("trail", "waterproof"))
+                ]
+                merged_feats = list(dict.fromkeys(list(intent.features or []) + inh_feats))
+                intent.features = merged_feats
+        if not intent.gender and not clear_gender and inherited.get("gender"):
             intent.gender = inherited["gender"]
 
-        # Rebuild chips so UI reflects merged constraints cleanly
+        # Rebuild chips cleanly without duplicates
         existing_keys = {c.param_key for c in (intent.chips or [])}
         if intent.max_price is not None and "max_price" not in existing_keys:
             intent.chips.append(SmartSearchChip(id="price", label=f"Max €{intent.max_price:.0f}", param_key="max_price", value=str(intent.max_price)))
@@ -4624,7 +4997,7 @@ class SmartSearchEngine:
             return True
         if self.is_more_examples_query(q) or self.is_complex_natural_query(q) or intent.source == "openrouter":
             return True
-        if context_query and len(q.split()) >= 3:
+        if context_query and context_query.strip():
             return True
         return "?" in q
 
@@ -4708,7 +5081,7 @@ class SmartSearchEngine:
         cache_lookup_query = f"{eff_context.strip()} >> {user_query.strip()}" if eff_context and eff_context.strip() else user_query
         if session_context:
             ctx_sig = json.dumps(
-                {k: session_context.get(k) for k in ("brand", "gender", "max_price", "min_price", "size", "category") if session_context.get(k) is not None},
+                {k: session_context.get(k) for k in ("brand", "gender", "max_price", "min_price", "size", "category", "features") if session_context.get(k) is not None},
                 sort_keys=True,
             )
             cache_lookup_query = f"{cache_lookup_query} || {ctx_sig}"
@@ -4738,31 +5111,41 @@ class SmartSearchEngine:
             local_intent, user_query=user_query, context_query=eff_context, session_context=session_context
         )
 
-        if is_more_req and session_context:
-            prev_kws = session_context.get("last_keywords") or []
-            if prev_kws and isinstance(prev_kws, list):
-                merged_kws = list(dict.fromkeys([str(k) for k in prev_kws if k] + list(local_intent.target_keywords or [])))
-                local_intent.target_keywords = merged_kws[:12]
-            if session_context.get("category") and local_intent.category == "running_shoes":
-                local_intent.category = str(session_context["category"])
+        if is_more_req:
+            if session_context:
+                prev_kws = session_context.get("last_keywords") or []
+                if prev_kws and isinstance(prev_kws, list):
+                    merged_kws = list(dict.fromkeys([str(k) for k in prev_kws if k] + list(local_intent.target_keywords or [])))
+                    local_intent.target_keywords = merged_kws[:12]
+                if session_context.get("category") and local_intent.category == "running_shoes":
+                    local_intent.category = str(session_context["category"])
             local_intent.search_mode = "deep_dive"
             local_intent.is_deep_dive = True
-            local_intent.conversational_header = f"Altri esempi: {eff_context or 'Modelli consigliati'}"
+            ctx_label = (eff_context.split(">>")[0].strip() if eff_context else None) or "Modelli consigliati"
+            local_intent.conversational_header = f"Altri esempi: {ctx_label}"
+            local_intent.conversational_summary = (
+                f"Ecco altre alternative ed esempi in catalogo per **{ctx_label}** selezionati oltre ai modelli mostrati in precedenza:"
+            )
 
         # Determine if local intent is sufficiently decisive to skip Stage-1 remote LLM parsing
         has_context = bool((eff_context and eff_context.strip()) or session_context or conversation_history)
         is_complex_nl = self.is_complex_natural_query(user_query)
 
-        is_confident_context = has_context and not is_complex_nl and not is_more_req and (
+        is_confident_context = has_context and not is_complex_nl and (
+            is_more_req or
             local_intent.is_conversational_advice or
+            local_intent.brand is not None or
             local_intent.max_price is not None or
+            local_intent.min_price is not None or
             local_intent.size is not None or
             local_intent.gender is not None or
-            local_intent.category in ("gps_watch", "cycling", "top", "jacket", "pants", "fitness")
+            bool(local_intent.features) or
+            local_intent.category in ("gps_watch", "cycling", "top", "jacket", "pants", "fitness", "swim", "football_boots", "padel", "eyewear", "hydration")
         )
 
         is_confident_local = (
-            not is_complex_nl and not is_more_req and (
+            not is_complex_nl and (
+                (is_more_req and has_context) or
                 local_intent.is_conversational_advice or
                 local_intent.brand is not None or
                 local_intent.max_price is not None or
@@ -4790,16 +5173,35 @@ class SmartSearchEngine:
                     conversation_history=conversation_history,
                 )
                 if intent:
-                    # Fuse deterministic hard constraints extracted locally so LLM never drops explicit brand/price/size/gender
-                    if local_intent.brand and not intent.brand:
+                    # Enforce explicit deterministic current-turn constraints/overrides so LLM cannot revert them
+                    turn_c = ConversationContextMerger.extract_turn_constraints(user_query)
+                    if turn_c.get("brand"):
+                        intent.brand = turn_c["brand"]
+                    elif local_intent.brand and not intent.brand:
                         intent.brand = local_intent.brand
-                    if local_intent.gender and not intent.gender:
+                    if turn_c.get("gender"):
+                        intent.gender = turn_c["gender"]
+                    elif turn_c.get("__clear_gender__"):
+                        intent.gender = None
+                    elif local_intent.gender and not intent.gender:
                         intent.gender = local_intent.gender
-                    if local_intent.max_price is not None and intent.max_price is None:
-                        intent.max_price = local_intent.max_price
-                    if local_intent.min_price is not None and intent.min_price is None:
-                        intent.min_price = local_intent.min_price
-                    if local_intent.size and not intent.size:
+                    if turn_c.get("__clear_budget__"):
+                        intent.max_price = None
+                        intent.min_price = None
+                    else:
+                        if turn_c.get("max_price") is not None:
+                            intent.max_price = turn_c["max_price"]
+                        elif local_intent.max_price is not None and intent.max_price is None:
+                            intent.max_price = local_intent.max_price
+                        if turn_c.get("min_price") is not None:
+                            intent.min_price = turn_c["min_price"]
+                        elif local_intent.min_price is not None and intent.min_price is None:
+                            intent.min_price = local_intent.min_price
+                    if turn_c.get("__clear_size__"):
+                        intent.size = None
+                    elif turn_c.get("size"):
+                        intent.size = turn_c["size"]
+                    elif local_intent.size and not intent.size:
                         intent.size = local_intent.size
                     if is_more_req and session_context and session_context.get("last_keywords"):
                         prev_kws = [str(k) for k in session_context.get("last_keywords") if k]

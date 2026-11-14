@@ -153,6 +153,50 @@ class APIService: ObservableObject {
         return try JSONDecoder().decode(PriceHistoryResponse.self, from: data)
     }
 
+    private func isMoreExamplesQuery(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return q.range(
+            of: #"\b(pi[uù]\s*esempi|altri\s*esempi|altri\s*modelli|altr[ae]\s*(?:alternative|opzioni|scarp[ae]|prodott[oi])|mostramene\s*altr[ioe]|fammi\s*vedere\s*(?:pi[uù]\s*esempi|altr[ioe]|di\s*pi[uù])|vederne\s*altr[ioe]|ancora\s*(?:qualche|altri))\b"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private func detectGenderConstraint(query: String, contextQuery: String?, intentGender: String? = nil) -> String? {
+        if let ig = intentGender?.trimmingCharacters(in: .whitespacesAndNewlines),
+           ig == "Uomo" || ig == "Donna" {
+            return ig
+        }
+        let turns = ((contextQuery ?? "").components(separatedBy: ">>").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }) + [query]
+        var resolved: String? = nil
+        for turn in turns {
+            let t = turn.lowercased()
+            if t.range(of: #"\b(unisex|uomo\s+e\s+donna|tutti\s+i\s+generi)\b"#, options: .regularExpression) != nil {
+                resolved = nil
+            } else if t.range(of: #"\b(donna|donne|ragazza|femmin[eia]|wmns?|women|woman)\b"#, options: .regularExpression) != nil {
+                resolved = "Donna"
+            } else if t.range(of: #"\b(uomo|uomini|ragazzo|maschil[eia]|mens?|men)\b"#, options: .regularExpression) != nil {
+                resolved = "Uomo"
+            }
+        }
+        return resolved
+    }
+
+    private func matchesGenderConstraint(_ product: MatchedProduct, gender: String?) -> Bool {
+        guard let req = gender?.lowercased(), req == "uomo" || req == "donna" else { return true }
+        let pg = (product.gender ?? "Unisex").lowercased()
+        let isDual = pg.contains("uomo") && pg.contains("donna")
+        if pg != "unisex" && !pg.isEmpty && !isDual && !pg.contains(req) && !req.contains(pg) {
+            return false
+        }
+        let offerMeta = product.offers.prefix(4).map { "\($0.title) \($0.url)" }.joined(separator: " ")
+        let probe = "\(product.canonical_name) \(offerMeta)".lowercased()
+        let hasF = probe.range(of: #"(?:\b(?:donna|donne|wmns|woman|women|womens|femme|lady|ladies|damen|mujer)\b|/(?:donna|woman|women|womens|wmns|femme)/)"#, options: .regularExpression) != nil
+        let hasM = probe.range(of: #"(?:\b(?:uomo|uomini|men|mens|homme|herren|hombre)\b|/(?:uomo|men|mens|homme)/)"#, options: .regularExpression) != nil
+        if req == "uomo" && hasF && !hasM { return false }
+        if req == "donna" && hasM && !hasF { return false }
+        return true
+    }
+
     private func smartSearchCacheKey(
         query: String,
         mode: String?,
@@ -236,7 +280,8 @@ class APIService: ObservableObject {
             contextQuery: contextQuery,
             preferredSize: preferredSize
         )
-        if let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
+        let skipClientCache = isMoreExamplesQuery(query)
+        if !skipClientCache, let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
             if let sid = sessionId, !sid.isEmpty, let did = deviceId, !did.isEmpty {
                 Task {
                     await SupabaseManager.shared.saveChatTurnDirect(
@@ -276,7 +321,9 @@ class APIService: ObservableObject {
                 size: size,
                 store: store
             )
-            smartSearchCache[cacheKey] = (enriched, Date().addingTimeInterval(600))
+            if !skipClientCache {
+                smartSearchCache[cacheKey] = (enriched, Date().addingTimeInterval(600))
+            }
             return enriched
         } catch {
             // High-Availability Fallback: if Render backend is sleeping (cold start), deploying, or experiencing high load,
@@ -333,7 +380,8 @@ class APIService: ObservableObject {
             contextQuery: contextQuery,
             preferredSize: preferredSize
         )
-        if let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
+        let skipClientCache = isMoreExamplesQuery(query)
+        if !skipClientCache, let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
             await onStep(SearchThinkingStep(
                 id: "cache",
                 status: .done,
@@ -426,7 +474,9 @@ class APIService: ObservableObject {
                         size: size,
                         store: store
                     )
-                    smartSearchCache[cacheKey] = (enriched, Date().addingTimeInterval(600))
+                    if !skipClientCache {
+                        smartSearchCache[cacheKey] = (enriched, Date().addingTimeInterval(600))
+                    }
                     return enriched
                 } else if event.type == "error" {
                     break
@@ -595,10 +645,13 @@ class APIService: ObservableObject {
             }
         }
 
+        let effectiveGender = detectGenderConstraint(query: query, contextQuery: contextQuery)
+
         var prods = await SupabaseManager.shared.fetchSmartProductsDirect(
             category: effectiveCategory,
             keywords: keywordsToSearch,
             brand: nil,
+            gender: effectiveGender,
             maxPrice: effectiveMaxPrice,
             size: size,
             store: store,
@@ -655,6 +708,7 @@ class APIService: ObservableObject {
                 category: effectiveCategory,
                 keywords: fbKws,
                 brand: nil,
+                gender: effectiveGender,
                 maxPrice: effectiveMaxPrice,
                 size: size,
                 store: store,
@@ -679,9 +733,21 @@ class APIService: ObservableObject {
             summaryText = "Ecco i migliori prezzi e offerte per **\(matchedStr)**, confrontati in tempo reale:"
             sectionTitle = "Offerte \(matchedStr)"
         } else if effectiveCategory == "pants" {
-            headerTitle = "Ho cercato Shorts & Pantaloncini da Corsa"
+            headerTitle = "Shorts & Pantaloncini da Corsa"
             summaryText = "Ecco i migliori **shorts e pantaloncini da corsa** trovati al miglior prezzo verificato:"
             sectionTitle = "Shorts & Pantaloncini Selezionati"
+        } else if effectiveCategory == "top" && (combined.contains("manica lunga") || combined.contains("long sleeve")) {
+            headerTitle = "Maglie a Manica Lunga da Corsa"
+            summaryText = "Ecco le migliori **maglie a manica lunga da corsa** disponibili in catalogo:"
+            sectionTitle = "Maglie a Manica Lunga Selezionate"
+        }
+        if effectiveGender != nil || effectiveMaxPrice != nil {
+            var qParts: [String] = []
+            if let eg = effectiveGender { qParts.append(eg) }
+            if let emp = effectiveMaxPrice { qParts.append("fino a €\(Int(emp))") }
+            if !qParts.isEmpty {
+                headerTitle = "\(headerTitle) — \(qParts.joined(separator: " · "))"
+            }
         }
 
         var isAdvice = false
@@ -783,7 +849,7 @@ class APIService: ObservableObject {
                 target_keywords: [query],
                 brand: topProd.brand,
                 category: effectiveCategory ?? "shoes",
-                gender: nil,
+                gender: effectiveGender,
                 max_price: effectiveMaxPrice,
                 min_price: nil,
                 size: size,
@@ -1010,7 +1076,8 @@ class APIService: ObservableObject {
         }
 
         let effMaxPrice = maxPrice ?? response.intent?.max_price
-        var validResults = response.results.filter { isProductCompatible($0, with: kind) }
+        let effGender = detectGenderConstraint(query: query, contextQuery: contextQuery, intentGender: response.intent?.gender)
+        var validResults = response.results.filter { isProductCompatible($0, with: kind) && matchesGenderConstraint($0, gender: effGender) }
 
         // Strictly enforce price bounds on product and offer levels
         if let mp = effMaxPrice {
@@ -1108,11 +1175,12 @@ class APIService: ObservableObject {
                 category: fallbackCategory,
                 keywords: fallbackKeywords,
                 brand: response.intent?.brand,
+                gender: effGender,
                 maxPrice: effMaxPrice,
                 size: size ?? response.intent?.size,
                 store: store,
                 limit: 35
-            ).filter { isProductCompatible($0, with: kind) }
+            ).filter { isProductCompatible($0, with: kind) && matchesGenderConstraint($0, gender: effGender) }
 
             var seenNames = Set(finalResults.map { $0.canonical_name.lowercased() })
             for dp in directProds where !seenNames.contains(dp.canonical_name.lowercased()) {

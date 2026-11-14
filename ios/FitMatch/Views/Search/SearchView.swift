@@ -2668,11 +2668,24 @@ struct SearchView: View {
                 conversationTurns[lastIdx].activeChips.removeAll { $0.id == chip.id }
             }
             if chip.param_key == "max_price" {
-                overrideMaxPrice = 9999.0
+                overrideMaxPrice = nil
+                if !conversationTurns.isEmpty {
+                    executeSearch(isFollowUp: true, rawFollowUpText: "Senza limiti di budget")
+                    return
+                }
             } else if chip.param_key == "size" {
                 selectedSize = nil
+                if !conversationTurns.isEmpty {
+                    executeSearch(isFollowUp: true, rawFollowUpText: "Tutte le taglie")
+                    return
+                }
+            } else if chip.param_key == "gender" {
+                if !conversationTurns.isEmpty {
+                    executeSearch(isFollowUp: true, rawFollowUpText: "Unisex")
+                    return
+                }
             }
-            executeSearch()
+            executeSearch(isFollowUp: false)
         }
     }
 

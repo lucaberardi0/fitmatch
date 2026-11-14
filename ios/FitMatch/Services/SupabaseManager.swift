@@ -1875,6 +1875,7 @@ class SupabaseManager: ObservableObject {
         category: String?,
         keywords: [String],
         brand: String? = nil,
+        gender: String? = nil,
         maxPrice: Double? = nil,
         size: String? = nil,
         store: String? = nil,
@@ -1937,6 +1938,13 @@ class SupabaseManager: ObservableObject {
             } else {
                 params.append("category=neq.non_sport")
             }
+            var andClauses: [String] = []
+            let gLow = gender?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if gLow == "uomo" {
+                andClauses.append("or(gender.ilike.*Uomo*,gender.eq.Unisex,gender.is.null)")
+            } else if gLow == "donna" {
+                andClauses.append("or(gender.ilike.*Donna*,gender.eq.Unisex,gender.is.null)")
+            }
             if !term.isEmpty {
                 let allWords = term.components(separatedBy: CharacterSet.alphanumerics.inverted)
                     .filter { $0.count >= 2 || ($0.count == 1 && $0.first?.isNumber == true) }
@@ -1944,19 +1952,22 @@ class SupabaseManager: ObservableObject {
                 let specificWords = allWords.filter { !stopwords.contains($0.lowercased()) }
                 let words = specificWords.isEmpty ? allWords : specificWords
 
-                if words.count == 1, let wEnc = words[0].addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-                    params.append("or=(canonical_name.ilike.*\(wEnc)*,brand.ilike.*\(wEnc)*)")
-                } else if words.count > 1 {
-                    let andParts = words.prefix(4).compactMap { w -> String? in
-                        guard let wEnc = w.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
-                        return "or(canonical_name.ilike.*\(wEnc)*,brand.ilike.*\(wEnc)*)"
-                    }
-                    if !andParts.isEmpty {
-                        params.append("and=(\(andParts.joined(separator: ",")))")
+                for w in words.prefix(4) {
+                    if let wEnc = w.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                        andClauses.append("or(canonical_name.ilike.*\(wEnc)*,brand.ilike.*\(wEnc)*)")
                     }
                 }
             }
-            params.append("limit=25")
+            if andClauses.count == 1, let single = andClauses.first {
+                if single.hasPrefix("or(") && single.hasSuffix(")") {
+                    params.append("or=(\(String(single.dropFirst(3).dropLast(1))))")
+                } else {
+                    params.append(single)
+                }
+            } else if andClauses.count > 1 {
+                params.append("and=(\(andClauses.joined(separator: ",")))")
+            }
+            params.append(gLow == "uomo" || gLow == "donna" ? "limit=50" : "limit=25")
 
             guard let url = URL(string: "\(restBase)/products?\(params.joined(separator: "&"))") else { continue }
             var req = URLRequest(url: url)
@@ -1972,6 +1983,9 @@ class SupabaseManager: ObservableObject {
             }
         }
 
+        let reqGender = gender?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filterByGender = (reqGender == "uomo" || reqGender == "donna")
+
         var results: [MatchedProduct] = []
         for p in rawProducts {
             guard let rawOffers = p.store_offers, !rawOffers.isEmpty else { continue }
@@ -1981,6 +1995,19 @@ class SupabaseManager: ObservableObject {
                 if !pBrand.contains(reqBrand) && !pName.contains(reqBrand) {
                     continue
                 }
+            }
+            if filterByGender, let rg = reqGender {
+                let pg = (p.gender ?? "unisex").lowercased()
+                let isDual = pg.contains("uomo") && pg.contains("donna")
+                if pg != "unisex" && !pg.isEmpty && !isDual && !pg.contains(rg) && !rg.contains(pg) {
+                    continue
+                }
+                let offerMeta = rawOffers.prefix(4).map { "\($0.raw_title ?? "") \($0.product_url)" }.joined(separator: " ")
+                let probe = "\(p.canonical_name) \(offerMeta)".lowercased()
+                let hasF = probe.range(of: #"(?:\b(?:donna|donne|wmns|woman|women|womens|femme|lady|ladies|damen|mujer)\b|/(?:donna|woman|women|womens|wmns|femme)/)"#, options: .regularExpression) != nil
+                let hasM = probe.range(of: #"(?:\b(?:uomo|uomini|men|mens|homme|herren|hombre)\b|/(?:uomo|men|mens|homme)/)"#, options: .regularExpression) != nil
+                if rg == "uomo" && hasF && !hasM { continue }
+                if rg == "donna" && hasM && !hasF { continue }
             }
 
             var formattedOffers: [Offer] = []
@@ -2032,6 +2059,19 @@ class SupabaseManager: ObservableObject {
                 highest_price: maxP,
                 cross_store_savings: savings
             ))
+        }
+
+        if filterByGender, let rg = reqGender {
+            results.sort { lhs, rhs in
+                let lg = (lhs.gender ?? "unisex").lowercased()
+                let rgG = (rhs.gender ?? "unisex").lowercased()
+                let lhsExact = lg.contains(rg) && !(lg.contains("uomo") && lg.contains("donna"))
+                let rhsExact = rgG.contains(rg) && !(rgG.contains("uomo") && rgG.contains("donna"))
+                if lhsExact != rhsExact {
+                    return lhsExact && !rhsExact
+                }
+                return (lhs.best_price ?? 0) < (rhs.best_price ?? 0)
+            }
         }
 
         return Array(results.prefix(limit))

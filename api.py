@@ -444,7 +444,18 @@ def _persist_smart_search_turn(
         q_clean = query.strip()
         is_more = smart_engine.is_more_examples_query(q_clean)
         prev_search_q = (prev_session_context or {}).get("last_search_query") or (prev_session_context or {}).get("last_query")
-        effective_topic_q = prev_search_q if (is_more and prev_search_q) else q_clean
+        from fitmatch.smart_search import QueryProductGuardrail
+        has_new_ptype = QueryProductGuardrail.detect_product_type(q_clean, context_query=None) is not None
+        is_switch = bool(prev_search_q and QueryProductGuardrail.is_category_switch(q_clean, context_query=str(prev_search_q), session_context=prev_session_context))
+        if is_more and prev_search_q:
+            effective_topic_q = str(prev_search_q)
+        elif prev_search_q and (is_follow_up or not has_new_ptype) and not is_switch:
+            prev_parts = [p.strip() for p in str(prev_search_q).split(">>") if p.strip()]
+            if q_clean not in prev_parts:
+                prev_parts.append(q_clean)
+            effective_topic_q = " >> ".join(prev_parts[-5:])
+        else:
+            effective_topic_q = q_clean
 
         prev_shown = list((prev_session_context or {}).get("shown_ids") or [])
         cur_shown = [str(p.get("id")) for p in (result_data.get("results") or [])[:15] if p.get("id")]
@@ -551,7 +562,7 @@ def _execute_smart_search(
                         continue
                     q_m = (msg.get("query") or msg.get("user_query") or "").strip()
                     rp = msg.get("response_payload") or {}
-                    a_m = (rp.get("conversational_summary") or msg.get("assistant_summary") or "").strip()
+                    a_m = (rp.get("conversational_summary") or msg.get("conversational_summary") or msg.get("assistant_summary") or "").strip()
                     if q_m or a_m:
                         conversation_history.append({"query": q_m, "summary": a_m})
         except Exception as e:
@@ -559,12 +570,18 @@ def _execute_smart_search(
         ctx_detail = f"{len(conversation_history)} messaggi precedenti considerati" if conversation_history else "Nuova sessione inizializzata"
         _emit_step("context", "done", "Contesto conversazione caricato", ctx_detail)
 
+    eff_resolved_context = eff_context
+    if not eff_resolved_context and session_context:
+        prev_q = session_context.get("last_search_query") or session_context.get("last_query")
+        if prev_q and str(prev_q).strip():
+            eff_resolved_context = str(prev_q).strip()
+
     is_more_examples = smart_engine.is_more_examples_query(q)
-    effective_q = f"{eff_context} >> {q.strip()}" if eff_context else q
+    effective_q = f"{eff_resolved_context} >> {q.strip()}" if eff_resolved_context else q
     if eff_pref_size:
         effective_q = f"{effective_q} [pref_size:{eff_pref_size}]"
 
-    # 1. Tier-2 Response Cache Check (skip cache on follow-up pagination / active chat history so fresh products & replies serve)
+    # 1. Tier-2 Response Cache Check (skip cache on follow-up pagination / active chat session so fresh products & replies serve)
     cache_key = cache_manager.make_response_key(
         query=effective_q,
         mode=eff_mode,
@@ -574,7 +591,7 @@ def _execute_smart_search(
         store=eff_store,
         limit=limit
     )
-    cached_resp = None if (is_more_examples or conversation_history) else cache_manager.get_search_response(cache_key)
+    cached_resp = None if (is_more_examples or conversation_history or session_context is not None or eff_resolved_context) else cache_manager.get_search_response(cache_key)
     if cached_resp is not None:
         cached_count = len(cached_resp.get("results") or [])
         _emit_step("cache", "done", "Risposta rapida dalla cache", f"{cached_count} modelli già verificati pronti")
@@ -620,8 +637,8 @@ def _execute_smart_search(
         cache_manager.set_search_response(cache_key, result_data)
         return result_data
 
-    from fitmatch.smart_search import QueryProductGuardrail
-    detected_product_type = QueryProductGuardrail.detect_product_type(q, eff_context)
+    from fitmatch.smart_search import QueryProductGuardrail, ConversationContextMerger
+    detected_product_type = QueryProductGuardrail.detect_product_type(q, eff_resolved_context)
 
     # Use explicit query overrides if user modified/toggled active chips
     eff_max_price = eff_max_price_param if eff_max_price_param is not None else intent.max_price
@@ -659,6 +676,7 @@ def _execute_smart_search(
         raw_query=q,
         preferred_size=eff_pref_size,
         exclude_ids=shown_ids_to_exclude,
+        context_query=eff_resolved_context,
     )
 
     if not products and is_more_examples and shown_ids_to_exclude:
@@ -674,13 +692,15 @@ def _execute_smart_search(
             limit=limit,
             raw_query=q,
             preferred_size=eff_pref_size,
+            context_query=eff_resolved_context,
         )
 
     # Extra safety filter: ensure every returned product satisfies product-type guardrails
     if products and detected_product_type:
+        guardrail_query = f"{eff_resolved_context} {q}".strip() if eff_resolved_context else q
         products = [
             p for p in products
-            if QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=q)
+            if QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=guardrail_query)
         ]
 
     # Strict Price Guardrail: ensure every offer and product strictly respects eff_max_price
@@ -698,29 +718,54 @@ def _execute_smart_search(
                     filtered_by_price.append(p)
         products = filtered_by_price
 
-    # Strict Gender Guardrail
+    # Strict Gender Guardrail (checks product gender, canonical_name, offer titles, and offer URLs)
     if products and intent.gender in ("Uomo", "Donna"):
         req_g = intent.gender.lower()
         filtered_by_gender = []
         for p in products:
             p_g = (p.get("gender") or "unisex").lower()
-            cname = (p.get("canonical_name") or "").lower()
-            if req_g == "uomo" and (p_g == "donna" or "(donna)" in cname or " wmns " in cname or "women" in cname):
+            is_dual = ("uomo" in p_g and "donna" in p_g)
+            if p_g not in ("unisex", "") and not is_dual and req_g not in p_g and p_g not in req_g:
                 continue
-            if req_g == "donna" and (p_g == "uomo" or "(uomo)" in cname or " men " in cname or " mens " in cname):
+            cname = (p.get("canonical_name") or "").lower()
+            offer_probe = " ".join(
+                f"{(o.get('title') or '')} {(o.get('raw_title') or '')} {(o.get('url') or '')}"
+                for o in (p.get("offers") or [])[:4]
+            ).lower()
+            probe = f"{cname} {offer_probe}"
+            has_f = bool(re.search(r"(?:\b(?:donna|donne|wmns|woman|women|womens|femme|lady|ladies|damen|mujer)\b|/(?:donna|woman|women|womens|wmns|femme)/)", probe))
+            has_m = bool(re.search(r"(?:\b(?:uomo|uomini|men|mens|homme|herren|hombre)\b|/(?:uomo|men|mens|homme)/)", probe))
+            if req_g == "uomo" and has_f and not has_m:
+                continue
+            if req_g == "donna" and has_m and not has_f:
                 continue
             filtered_by_gender.append(p)
         products = filtered_by_gender
 
-    # Model relevance re-ranking: prioritize products matching the specific requested model
-    if products and intent.target_keywords:
-        primary_kws = [k.lower().strip() for k in intent.target_keywords[:2] if k.strip()]
+    # Relevance-preserving re-ranking: prioritize exact gender match and specific model match without discarding relevance_score
+    if products and (intent.target_keywords or intent.gender in ("Uomo", "Donna")):
+        spec_kws = [
+            k.lower().strip() for k in (intent.target_keywords or [])[:2]
+            if k.strip() and k.lower().strip() not in QueryProductGuardrail.GENERIC_CATEGORY_KEYWORDS
+        ]
+        req_g_sort = (intent.gender or "").lower().strip()
+
         def _relevance_sort_key(p):
             pname = (p.get("canonical_name") or "").lower()
-            for rank, kw in enumerate(primary_kws):
+            pg = (p.get("gender") or "unisex").lower()
+            is_dual = ("uomo" in pg and "donna" in pg)
+            if req_g_sort in ("uomo", "donna"):
+                g_rank = 0 if (req_g_sort in pg and not is_dual) else 1
+            else:
+                g_rank = 0
+            kw_rank = 99
+            for rank, kw in enumerate(spec_kws):
                 if kw in pname:
-                    return (rank, p.get("best_price") or 0.0)
-            return (99, p.get("best_price") or 0.0)
+                    kw_rank = rank
+                    break
+            rel_s = float(p.get("relevance_score") or 0.0)
+            return (g_rank, kw_rank, -rel_s, float(p.get("best_price") or 0.0))
+
         products.sort(key=_relevance_sort_key)
 
     if products:
@@ -752,7 +797,7 @@ def _execute_smart_search(
 
     # Stage-2 Grounded RAG Synthesis: when query is conversational/discovery/follow-up and LLM key is available,
     # synthesize an intelligent response grounded strictly in the retrieved real Supabase products.
-    if smart_engine.should_synthesize_grounded(q, intent, context_query=eff_context):
+    if smart_engine.should_synthesize_grounded(q, intent, context_query=eff_resolved_context):
         _emit_step(
             "synthesis",
             "running",
@@ -773,7 +818,7 @@ def _execute_smart_search(
                 api_key=smart_engine.api_key,
                 model=smart_engine.model,
                 conversation_history=conversation_history or None,
-                context_query=eff_context,
+                context_query=eff_resolved_context,
             )
             if isinstance(grounded, dict):
                 if grounded.get("conversational_header"):
@@ -820,7 +865,15 @@ def _execute_smart_search(
                 if isinstance(raw_fups, list) and raw_fups:
                     clean_fups = [str(f).strip() for f in raw_fups if str(f).strip()]
                     if clean_fups:
-                        intent.follow_up_suggestions = clean_fups[:3]
+                        intent.follow_up_suggestions = ConversationContextMerger.filter_follow_up_suggestions(
+                            clean_fups,
+                            gender=intent.gender,
+                            max_price=eff_max_price,
+                            size=eff_size,
+                            features=intent.features,
+                            brand=intent.brand,
+                            category=eff_category,
+                        )
                 intent.source = "openrouter_grounded"
             _emit_step(
                 "synthesis",
@@ -1313,8 +1366,8 @@ def _execute_smart_search(
             " · ".join(curation_parts),
         )
 
-    # Store full curated response into L1 memory & L2 disk cache (20-min TTL) for non-paginated queries
-    if not is_more_examples and not conversation_history:
+    # Store full curated response into L1 memory & L2 disk cache (20-min TTL) for non-session single-turn queries
+    if not is_more_examples and not conversation_history and session_context is None and not eff_resolved_context:
         cache_manager.set_search_response(cache_key, result_data)
     return _persist_smart_search_turn(
         result_data,

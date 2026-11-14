@@ -281,9 +281,19 @@ class ProductNormalizer:
         combined = f"{title} {url}".lower()
         if re.search(r"\b(bambin[oi]|junior|jr|kids?|boy|girl)\b", combined):
             return "Junior"
-        if re.search(r"\b(donna|women|womens|wmns|\bw\b)\b", combined):
+        has_female = bool(re.search(
+            r"(?:\b(?:donna|donne|woman|women|womens|wmns|femme|lady|ladies|damen|mujer|w)\b|/(?:donna|woman|women|womens|wmns|femme)/)",
+            combined,
+        ))
+        has_male = bool(re.search(
+            r"(?:\b(?:uomo|uomini|men|mens|homme|herren|hombre|m)\b|/(?:uomo|men|mens|homme)/)",
+            combined,
+        ))
+        if has_female and has_male:
+            return "Uomo | Donna"
+        if has_female:
             return "Donna"
-        if re.search(r"\b(uomo|men|mens|\bm\b)\b", combined):
+        if has_male:
             return "Uomo"
         return "Unisex"
 
