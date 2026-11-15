@@ -10,7 +10,7 @@ load_dotenv()
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, Dict, Any
 from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.crawler import CategoryCrawler
@@ -253,17 +253,118 @@ def stop_embedding_sync():
     }
 
 
+CATALOG_DEAL_CATEGORIES: List[Dict[str, Any]] = [
+    {"id": "tutti", "name": "Tutte", "icon": "flame.fill", "accent_hex": "#F54B2D", "bg_hex": "#FEF2F0"},
+    {"id": "donna", "name": "Donna", "icon": "figure.walk", "accent_hex": "#EB4155", "bg_hex": "#FDF0F4"},
+    {"id": "uomo", "name": "Uomo", "icon": "figure.stand", "accent_hex": "#2373EB", "bg_hex": "#EEF6FF"},
+    {"id": "running", "name": "Scarpe Running", "icon": "figure.run", "accent_hex": "#14A078", "bg_hex": "#ECFAF5", "db_categories": ["running_shoes", "trail_running"]},
+    {"id": "abbigliamento", "name": "Abbigliamento", "icon": "tshirt.fill", "accent_hex": "#783CD7", "bg_hex": "#F6F0FE", "db_categories": ["top", "pants", "jacket"]},
+    {"id": "smartwatch", "name": "Smartwatch & GPS", "icon": "applewatch", "accent_hex": "#0F8CC3", "bg_hex": "#EEF8FD", "db_categories": ["gps_watch"]},
+    {"id": "accessori", "name": "Accessori", "icon": "bag.fill", "accent_hex": "#E19114", "bg_hex": "#FEF8EE", "db_categories": ["eyewear", "socks", "pack", "hydration", "strap", "case", "mount", "sensor"]},
+    {"id": "outdoor", "name": "Outdoor & Trail", "icon": "mountain.2.fill", "accent_hex": "#2D874B", "bg_hex": "#F0F9F2", "db_categories": ["trail_running", "outdoor"]},
+    {"id": "padel", "name": "Padel", "icon": "tennisball.fill", "accent_hex": "#87B919", "bg_hex": "#F8FCEE", "db_categories": ["padel"]},
+    {"id": "cycling", "name": "Ciclismo", "icon": "bicycle", "accent_hex": "#464BD2", "bg_hex": "#F2F3FE", "db_categories": ["cycling"]},
+    {"id": "fitness", "name": "Fitness & Gym", "icon": "dumbbell.fill", "accent_hex": "#D73278", "bg_hex": "#FDF0F8", "db_categories": ["fitness", "trainer"]},
+    {"id": "calcio", "name": "Calcio & Calcetto", "icon": "soccerball", "accent_hex": "#169146", "bg_hex": "#EEFAF2", "db_categories": ["football_boots"]},
+    {"id": "tennis", "name": "Tennis", "icon": "tennis.racket", "accent_hex": "#D7730F", "bg_hex": "#FFF7EC", "db_categories": ["tennis"]},
+    {"id": "basket", "name": "Basket", "icon": "basketball.fill", "accent_hex": "#E15219", "bg_hex": "#FFF2EB", "db_categories": ["basketball", "basketball_shoes"]},
+    {"id": "sci", "name": "Sci & Neve", "icon": "snowflake", "accent_hex": "#0E7DCD", "bg_hex": "#EEF7FF", "db_categories": ["winter_sports"]},
+    {"id": "nuoto", "name": "Nuoto", "icon": "figure.pool.swim", "accent_hex": "#009BB9", "bg_hex": "#ECFBFE", "db_categories": ["swim"]},
+    {"id": "nutrizione", "name": "Nutrizione", "icon": "bolt.heart.fill", "accent_hex": "#9641C8", "bg_hex": "#F8F0FF", "db_categories": ["nutrition"]},
+]
+
+
 @app.get("/api/stores")
 def get_stores():
+    """Return active stores (merged from live scrapers and Supabase stores table), shipping rules, dynamic categories and known brands."""
+    from fitmatch.models import STORE_SHIPPING_RULES
+    from fitmatch.matcher.normalizer import KNOWN_BRANDS, BRAND_ALIASES
+
+    db_stores_by_id: Dict[str, Dict[str, Any]] = {}
+    try:
+        for row in db.get_stores() or []:
+            sid = str(row.get("id") or "").lower().strip()
+            if sid:
+                db_stores_by_id[sid] = row
+    except Exception as e:
+        logger.debug(f"[get_stores] DB stores lookup warning: {e}")
+
+    merged_stores: List[Dict[str, Any]] = []
+    seen_ids = set()
+
+    def _build_store_payload(sid: str, scraper_obj: Any = None, db_row: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        rule = STORE_SHIPPING_RULES.get(sid, {})
+        name = (db_row or {}).get("name") or getattr(scraper_obj, "store_name", None) or sid.replace("_", " ").title()
+        base_url = (db_row or {}).get("base_url") or getattr(scraper_obj, "base_url", None) or ""
+        rating = (db_row or {}).get("rating")
+        if rating is None and scraper_obj is not None:
+            rating = getattr(scraper_obj, "rating", 4.8)
+        review_count = (db_row or {}).get("review_count")
+        if review_count is None and scraper_obj is not None:
+            review_count = getattr(scraper_obj, "review_count", 1200)
+        fmt_reviews = (db_row or {}).get("formatted_review_count") or getattr(scraper_obj, "formatted_review_count", None)
+        accent_color = (db_row or {}).get("accent_color") or getattr(scraper_obj, "accent_color", None)
+        card_theme = (db_row or {}).get("card_theme") or getattr(scraper_obj, "card_theme", "white")
+        free_thresh = (db_row or {}).get("free_shipping_threshold")
+        if free_thresh is None:
+            free_thresh = getattr(scraper_obj, "free_shipping_threshold", None) if scraper_obj is not None else None
+        if free_thresh is None:
+            free_thresh = rule.get("free_threshold")
+        std_cost = (db_row or {}).get("standard_shipping_cost")
+        if std_cost is None:
+            std_cost = getattr(scraper_obj, "standard_shipping_cost", None) if scraper_obj is not None else None
+        if std_cost is None:
+            std_cost = rule.get("standard")
+        courier = (db_row or {}).get("courier") or (getattr(scraper_obj, "courier", None) if scraper_obj is not None else None) or rule.get("courier")
+
+        sub_parts = []
+        if courier:
+            sub_parts.append(str(courier))
+        if free_thresh is not None:
+            t_num = float(free_thresh)
+            t_str = f"{int(t_num)}" if t_num.is_integer() else f"{t_num:.2f}"
+            sub_parts.append(f"Gratis da €{t_str}")
+        subtitle = " · ".join(sub_parts) if sub_parts else (base_url.replace("https://www.", "").replace("https://", "").rstrip("/") or "Partner verificato")
+
+        return {
+            "id": sid,
+            "name": name,
+            "base_url": base_url,
+            "rating": float(rating) if rating is not None else 4.8,
+            "review_count": int(review_count) if review_count is not None else 1200,
+            "formatted_review_count": fmt_reviews,
+            "accent_color": accent_color,
+            "card_theme": card_theme,
+            "free_shipping_threshold": float(free_thresh) if free_thresh is not None else None,
+            "standard_shipping_cost": float(std_cost) if std_cost is not None else None,
+            "courier": courier,
+            "subtitle": subtitle,
+        }
+
+    for s in service.registry.scrapers:
+        sid = str(getattr(s, "store_id", "") or "").lower().strip()
+        if not sid or sid in seen_ids:
+            continue
+        seen_ids.add(sid)
+        merged_stores.append(_build_store_payload(sid, scraper_obj=s, db_row=db_stores_by_id.get(sid)))
+
+    for sid, row in db_stores_by_id.items():
+        if sid and sid not in seen_ids:
+            seen_ids.add(sid)
+            merged_stores.append(_build_store_payload(sid, scraper_obj=None, db_row=row))
+
+    brand_set = {v for v in BRAND_ALIASES.values() if isinstance(v, str) and len(v) >= 2}
+    for raw_b in KNOWN_BRANDS:
+        canonical = BRAND_ALIASES.get(raw_b) or raw_b.title()
+        if len(canonical) >= 2:
+            brand_set.add(canonical)
+    known_brands = sorted(brand_set)
+
     return {
-        "active_stores": [
-            {
-                "id": s.store_id,
-                "name": s.store_name,
-                "base_url": s.base_url
-            }
-            for s in service.registry.scrapers
-        ]
+        "active_stores": merged_stores,
+        "stores": merged_stores,
+        "categories": CATALOG_DEAL_CATEGORIES,
+        "known_brands": known_brands,
     }
 
 
@@ -2089,13 +2190,8 @@ def clear_chat_sessions_endpoint(
     return {"status": "ok", "success": ok}
 
 
-# MARK: - Stores, Hidden Stores & Store Reports
-
-@app.get("/api/stores")
-def get_all_stores_endpoint():
-    """Retrieve all store metadata directly from the database."""
-    stores = db.get_stores()
-    return {"stores": stores}
+# MARK: - Hidden Stores & Store Reports
+# Note: /api/stores is served above with full merged scraper + DB metadata.
 
 
 @app.get("/api/stores/{store_id}")

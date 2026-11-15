@@ -146,6 +146,9 @@ struct MainTabView: View {
             }
         }
         .ignoresSafeArea(.keyboard)
+        .task {
+            await UserPreferencesManager.shared.fetchActiveStores(apiService: APIService.shared)
+        }
     }
 }
 

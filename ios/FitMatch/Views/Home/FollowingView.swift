@@ -5,6 +5,7 @@ struct FollowingView: View {
 
     @ObservedObject private var followedManager = FollowedStoresManager.shared
     @ObservedObject private var wishlist = WishlistManager.shared
+    @ObservedObject private var prefs = UserPreferencesManager.shared
     @StateObject private var api = APIService.shared
 
     @State private var showcases: [StoreShowcase] = []
@@ -18,7 +19,7 @@ struct FollowingView: View {
         let subtitle: String
     }
 
-    // Dynamic partner stores directly derived from real database catalog counts & offers
+    // Dynamic partner stores directly derived from real database catalog counts & /api/stores registry
     private var partnerStores: [PartnerStoreItem] {
         if !showcases.isEmpty {
             return showcases.map { sc in
@@ -28,7 +29,20 @@ struct FollowingView: View {
                 return PartnerStoreItem(id: sc.store_id, name: sc.store_name, subtitle: sub)
             }
         }
-        // Base partner stores with real catalog counts from Supabase database
+        if !prefs.activeStores.isEmpty {
+            return prefs.activeStores.map { store in
+                let count = fallbackStoreCounts[store.id]
+                let subtitle: String
+                if let count {
+                    let info = (store.subtitle?.isEmpty == false) ? store.subtitle! : store.base_url
+                    subtitle = "\(count) articoli • \(info)"
+                } else {
+                    subtitle = (store.subtitle?.isEmpty == false) ? store.subtitle! : store.base_url
+                }
+                return PartnerStoreItem(id: store.id, name: store.name, subtitle: subtitle)
+            }
+        }
+        // Fallback partner stores before first backend sync
         let baseStores: [(id: String, name: String, count: Int, highlight: String)] = [
             ("nike", "Nike", 702, "Novità serie ZoomX e scarpe da gara"),
             ("misterrunning", "Mister Running", 981, "Modelli corsa con sconti fino al 68%"),

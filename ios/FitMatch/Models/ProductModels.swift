@@ -1,9 +1,140 @@
 import Foundation
 
+// MARK: - Dynamic Runtime Catalog Registry (Zero App Update for New Stores / Categories / Brands)
+
+final class DynamicCatalogRegistry {
+    static let shared = DynamicCatalogRegistry()
+
+    private let storageKey = "fitmatch_dynamic_catalog_snapshot_v1"
+    private let lock = NSLock()
+    private var storesList: [ActiveStoreItem] = []
+    private var storesByKey: [String: ActiveStoreItem] = [:]
+    private var categoriesList: [DynamicCategoryItem] = []
+    private var categoriesById: [String: DynamicCategoryItem] = [:]
+    private var brandsList: [String] = []
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: storageKey),
+           let decoded = try? JSONDecoder().decode(ActiveStoresResponse.self, from: data) {
+            apply(decoded)
+        }
+    }
+
+    private func normalizeKey(_ raw: String) -> String {
+        let lower = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        return lower.components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
+    }
+
+    private func apply(_ response: ActiveStoresResponse) {
+        var map: [String: ActiveStoreItem] = [:]
+        for store in response.active_stores {
+            let idLow = store.id.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            let nameLow = store.name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !idLow.isEmpty {
+                map[idLow] = store
+                map[normalizeKey(idLow)] = store
+            }
+            if !nameLow.isEmpty {
+                map[nameLow] = store
+                map[normalizeKey(nameLow)] = store
+            }
+        }
+        self.storesList = response.active_stores
+        self.storesByKey = map
+
+        if let cats = response.categories, !cats.isEmpty {
+            self.categoriesList = cats
+            self.categoriesById = Dictionary(uniqueKeysWithValues: cats.map { ($0.id.lowercased(), $0) })
+        }
+        if let brands = response.known_brands, !brands.isEmpty {
+            self.brandsList = brands
+        }
+    }
+
+    func update(from response: ActiveStoresResponse) {
+        lock.lock()
+        apply(response)
+        lock.unlock()
+
+        if let encoded = try? JSONEncoder().encode(response) {
+            UserDefaults.standard.set(encoded, forKey: storageKey)
+        }
+    }
+
+    func storeItem(for identifier: String) -> ActiveStoreItem? {
+        let low = identifier.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !low.isEmpty else { return nil }
+        let norm = normalizeKey(low)
+        lock.lock()
+        defer { lock.unlock() }
+        if let exact = storesByKey[low] ?? storesByKey[norm] {
+            return exact
+        }
+        if norm.count >= 4 {
+            return storesList.first {
+                let sNorm = normalizeKey($0.id)
+                let nNorm = normalizeKey($0.name)
+                return (!sNorm.isEmpty && (norm.contains(sNorm) || sNorm.contains(norm)))
+                    || (!nNorm.isEmpty && (norm.contains(nNorm) || nNorm.contains(norm)))
+            }
+        }
+        return nil
+    }
+
+    func shippingRule(for storeId: String) -> (threshold: Double, standard: Double)? {
+        guard let item = storeItem(for: storeId) else { return nil }
+        if item.free_shipping_threshold == nil && item.standard_shipping_cost == nil {
+            return nil
+        }
+        return (
+            threshold: item.free_shipping_threshold ?? 49.0,
+            standard: item.standard_shipping_cost ?? 4.90
+        )
+    }
+
+    func categoryMeta(for catId: String) -> DynamicCategoryItem? {
+        let low = catId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        lock.lock()
+        defer { lock.unlock() }
+        return categoriesById[low]
+    }
+
+    var cachedStores: [ActiveStoreItem] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storesList
+    }
+
+    var cachedCategories: [DynamicCategoryItem] {
+        lock.lock()
+        defer { lock.unlock() }
+        return categoriesList
+    }
+
+    var allStoreIdentifiers: Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        var ids = Set<String>()
+        for store in storesList {
+            let idLow = store.id.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            let nameLow = store.name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !idLow.isEmpty { ids.insert(idLow) }
+            if !nameLow.isEmpty { ids.insert(nameLow) }
+        }
+        return ids
+    }
+
+    var allBrands: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return brandsList
+    }
+}
+
 // MARK: - Brand Detection & Cleaning Helper
 
 struct ProductBrandHelper {
-    static let knownBrands = [
+    private static let fallbackBrands = [
         "Nike", "Adidas", "Asics", "Hoka", "Brooks", "Saucony", "Puma", "Mizuno",
         "New Balance", "Salomon", "On", "Garmin", "Polar", "Suunto", "Coros",
         "Under Armour", "La Sportiva", "Altra", "Compressport", "Oakley", "The North Face",
@@ -14,7 +145,22 @@ struct ProductBrandHelper {
         "Maurten", "Enervit", "SiS", "NamedSport", "Dynafit", "Ortovox", "Black Diamond"
     ]
 
-    static let knownStores: Set<String> = [
+    static var knownBrands: [String] {
+        let dynamic = DynamicCatalogRegistry.shared.allBrands
+        if dynamic.isEmpty { return fallbackBrands }
+        var seen = Set(fallbackBrands.map { $0.lowercased() })
+        var merged = fallbackBrands
+        for brand in dynamic {
+            let low = brand.lowercased()
+            if !seen.contains(low) {
+                seen.insert(low)
+                merged.append(brand)
+            }
+        }
+        return merged
+    }
+
+    private static let fallbackStores: Set<String> = [
         "mister running", "misterrunning", "alltricks", "top4running", "maxi sport",
         "maxisport", "cisalfa", "cisalfa sport", "running warehouse", "runningwarehouse",
         "deporvillage", "sportler", "nencini", "nencini sport", "df sport specialist",
@@ -22,6 +168,10 @@ struct ProductBrandHelper {
         "basketball store", "basketballstore", "nonsolosport", "non solo sport",
         "intersport", "bshopzone"
     ]
+
+    static var knownStores: Set<String> {
+        fallbackStores.union(DynamicCatalogRegistry.shared.allStoreIdentifiers)
+    }
 
     static func extractBrand(from text: String, fallback: String? = nil) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -240,8 +390,13 @@ struct Offer: Identifiable, Codable, Hashable {
 
     var calculatedShippingCost: Double {
         if let cost = shipping_cost { return cost }
+        if let rule = DynamicCatalogRegistry.shared.shippingRule(for: store_id) {
+            let threshold = free_shipping_threshold ?? rule.threshold
+            return price >= threshold ? 0.0 : rule.standard
+        }
         let s = store_id.lowercased()
-        let threshold = (s.contains("cisalfa") || s.contains("maxi") || s.contains("nike")) ? 99.0 :
+        let threshold = free_shipping_threshold ?? (
+                        (s.contains("cisalfa") || s.contains("maxi") || s.contains("nike")) ? 99.0 :
                         s.contains("bshopzone") ? 100.0 :
                         s.contains("nencini") ? 100.0 :
                         s.contains("nonsolosport") ? 89.99 :
@@ -250,7 +405,7 @@ struct Offer: Identifiable, Codable, Hashable {
                         s.contains("alltricks") ? 69.0 :
                         s.contains("sportit") ? 59.90 :
                         (s.contains("warehouse") || s.contains("tennis_point") || s.contains("intersport")) ? 59.0 :
-                        s.contains("basketball") ? 50.0 : 49.0
+                        s.contains("basketball") ? 50.0 : 49.0)
         let standard = s.contains("warehouse") || s.contains("bshopzone") ? 10.00 :
                        s.contains("cisalfa") ? 9.90 :
                        s.contains("maxi") ? 7.90 :
@@ -1224,7 +1379,23 @@ struct CategoryFilterMatcher {
             return inc.contains(where: { t.contains($0) })
         }
 
-        return t.contains(cat)
+        // Dynamic fallback for categories added on backend / Supabase without an iOS update
+        if let meta = DynamicCatalogRegistry.shared.categoryMeta(for: cat) {
+            if let exc = meta.excluded_keywords, exc.contains(where: { t.contains($0.lowercased()) }) {
+                return false
+            }
+            if !lcat.isEmpty {
+                if lcat == cat { return true }
+                if let dbCats = meta.db_categories, dbCats.map({ $0.lowercased() }).contains(lcat) {
+                    return true
+                }
+            }
+            if let keywords = meta.keywords, keywords.contains(where: { t.contains($0.lowercased()) }) {
+                return true
+            }
+        }
+
+        return lcat == cat || t.contains(cat)
     }
 }
 

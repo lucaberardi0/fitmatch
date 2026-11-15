@@ -18,6 +18,8 @@ class UserPreferencesManager: ObservableObject {
     @Published var isRefreshingPrices: Bool = false
     @Published var refreshMessage: String?
     @Published var activeStores: [ActiveStoreItem] = []
+    @Published var dynamicCategories: [DynamicCategoryItem] = []
+    @Published var dynamicBrands: [String] = []
 
     init() {
         if let data = UserDefaults.standard.data(forKey: storageKey),
@@ -31,6 +33,9 @@ class UserPreferencesManager: ObservableObject {
         } else {
             self.preferences = .default
         }
+        self.activeStores = DynamicCatalogRegistry.shared.cachedStores
+        self.dynamicCategories = DynamicCatalogRegistry.shared.cachedCategories
+        self.dynamicBrands = DynamicCatalogRegistry.shared.allBrands
     }
 
     func save() {
@@ -278,7 +283,14 @@ class UserPreferencesManager: ObservableObject {
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             let decoded = try JSONDecoder().decode(ActiveStoresResponse.self, from: data)
+            DynamicCatalogRegistry.shared.update(from: decoded)
             self.activeStores = decoded.active_stores
+            if let cats = decoded.categories, !cats.isEmpty {
+                self.dynamicCategories = cats
+            }
+            if let brands = decoded.known_brands, !brands.isEmpty {
+                self.dynamicBrands = brands
+            }
         } catch {
             print("Errore caricamento store attivi: \(error)")
         }
@@ -300,7 +312,9 @@ class UserPreferencesManager: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         isRefreshingPrices = true
-        refreshMessage = "Sincronizzazione in corso su 9 negozi partner..."
+        let storeCount = activeStores.count
+        let scopeLabel = storeCount > 0 ? "\(storeCount) negozi partner" : "tutti i negozi partner"
+        refreshMessage = "Sincronizzazione in corso su \(scopeLabel)..."
 
         let haptic = UINotificationFeedbackGenerator()
 

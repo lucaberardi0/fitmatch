@@ -183,6 +183,9 @@ struct ShopStoreLogo: View {
     }
 
     var initials: String {
+        if let dynamic = DynamicCatalogRegistry.shared.storeItem(for: storeName) {
+            return dynamic.computedInitials
+        }
         let s = storeName.lowercased()
         if s.contains("starcow") { return "STARCOW" }
         if s.contains("peakpulse") || s.contains("peak") { return "PP" }
@@ -217,6 +220,10 @@ struct ShopStoreLogo: View {
     }
 
     var brandColor: Color {
+        if let hex = DynamicCatalogRegistry.shared.storeItem(for: storeName)?.accent_color,
+           let parsed = Color(hex: hex) {
+            return parsed
+        }
         let s = storeName.lowercased()
         if s.contains("starcow") { return Color.black }
         if s.contains("peak") { return Color(red: 24/255, green: 24/255, blue: 27/255) }

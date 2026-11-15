@@ -15,6 +15,7 @@ struct DealsView: View {
     @StateObject private var api = APIService.shared
     @ObservedObject private var wishlist = WishlistManager.shared
     @ObservedObject private var followedManager = FollowedStoresManager.shared
+    @ObservedObject private var prefs = UserPreferencesManager.shared
 
     @State private var showcases: [StoreShowcase] = []
     @State private var isLoading = false
@@ -29,8 +30,8 @@ struct DealsView: View {
         self.onSelectPerTe = onSelectPerTe
     }
 
-    // Real categories matching Image 1 & Image 3, mapped to FitMatch database
-    private let categories: [DealCategoryFilter] = [
+    // Fallback categories when offline before first /api/stores sync
+    private let defaultCategories: [DealCategoryFilter] = [
         DealCategoryFilter(
             id: "tutti",
             name: "Tutte",
@@ -152,6 +153,19 @@ struct DealsView: View {
         )
     ]
 
+    private var categories: [DealCategoryFilter] {
+        guard !prefs.dynamicCategories.isEmpty else { return defaultCategories }
+        return prefs.dynamicCategories.map { item in
+            DealCategoryFilter(
+                id: item.id,
+                name: item.name,
+                icon: (item.icon?.isEmpty == false ? item.icon! : "tag.fill"),
+                accentColor: item.accent_hex.flatMap { Color(hex: $0) } ?? .shopPurple,
+                bgTint: item.bg_hex.flatMap { Color(hex: $0) } ?? .shopPurpleLight
+            )
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             ScrollViewReader { scrollProxy in
@@ -223,6 +237,9 @@ struct DealsView: View {
             )
         }
         .task {
+            if prefs.dynamicCategories.isEmpty {
+                await prefs.fetchActiveStores(apiService: api)
+            }
             if showcases.isEmpty {
                 await loadDeals(category: selectedCategory)
             }

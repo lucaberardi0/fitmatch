@@ -29,11 +29,25 @@ struct AccountView: View {
         ("Padel & Tennis", "tennis.racket")
     ]
 
-    private let availableBrands = [
+    private let fallbackBrands = [
         "Nike", "Asics", "Garmin", "Salomon", "Hoka", "Brooks", "New Balance", "Under Armour", "Polar", "Oakley"
     ]
 
-    private let partnerStores = [
+    private var availableBrands: [String] {
+        guard !prefs.dynamicBrands.isEmpty else { return fallbackBrands }
+        var seen = Set(fallbackBrands.map { $0.lowercased() })
+        var merged = fallbackBrands
+        for brand in prefs.dynamicBrands {
+            let low = brand.lowercased()
+            if !seen.contains(low) {
+                seen.insert(low)
+                merged.append(brand)
+            }
+        }
+        return merged
+    }
+
+    private let fallbackPartnerStores: [(String, String, String, String)] = [
         ("decathlon", "Decathlon", "Marketplace & Catalogo Globale", "store_decathlon"),
         ("cisalfa", "Cisalfa Sport", "Salesforce Commerce Cloud", "store_cisalfa"),
         ("maxisport", "Maxi Sport", "Magento REST API", "store_maxisport"),
@@ -46,6 +60,14 @@ struct AccountView: View {
         ("sportler", "Sportler", "FactFinder & GTM Alpino", "store_sportler"),
         ("nike", "Nike Official Store", "Next.js Wall State & PDP Engine", "store_nike")
     ]
+
+    private var partnerStores: [(String, String, String, String)] {
+        guard !prefs.activeStores.isEmpty else { return fallbackPartnerStores }
+        return prefs.activeStores.map { store in
+            let sub = (store.subtitle?.isEmpty == false) ? store.subtitle! : store.base_url
+            return (store.id, store.name, sub, "store_\(store.id)")
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -99,6 +121,7 @@ struct AccountView: View {
             .task {
                 _ = await api.checkHealth()
                 await prefs.checkUpdaterStatus(apiService: api)
+                await prefs.fetchActiveStores(apiService: api)
             }
             .sheet(isPresented: $showingAuthSheet) {
                 AuthSheetView()
@@ -755,7 +778,7 @@ struct AccountView: View {
         .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 6, shadowY: 2)
     }
 
-    // MARK: - Monitored Stores (9 Stores)
+    // MARK: - Monitored Stores (Dynamic)
 
     private var monitoredStoresSection: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -763,7 +786,7 @@ struct AccountView: View {
                 Image(systemName: "building.2.fill")
                     .font(.system(size: 15))
                     .foregroundColor(.shopPurple)
-                Text("9 Negozi Partner Integrati")
+                Text("\(partnerStores.count) Negozi Partner Integrati")
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundColor(.shopDark)
                 Spacer()
