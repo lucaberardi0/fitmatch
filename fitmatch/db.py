@@ -68,6 +68,7 @@ class Database:
                     discount_pct REAL,
                     product_url TEXT NOT NULL,
                     image_url TEXT,
+                    available_sizes TEXT DEFAULT '[]',
                     in_stock INTEGER DEFAULT 1,
                     last_checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
@@ -257,12 +258,17 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_wishlist_collection ON wishlist(collection_name);
             """)
 
-            # Ensure gallery_images columns exist in local SQLite
+            # Ensure gallery_images and available_sizes columns exist in local SQLite
             for tbl in ["products", "store_offers"]:
                 try:
                     conn.execute(f"ALTER TABLE {tbl} ADD COLUMN gallery_images TEXT DEFAULT '[]'")
                 except Exception:
                     pass
+
+            try:
+                conn.execute("ALTER TABLE store_offers ADD COLUMN available_sizes TEXT DEFAULT '[]'")
+            except Exception:
+                pass
 
             try:
                 conn.execute("ALTER TABLE crawl_logs ADD COLUMN session_id TEXT")
@@ -320,13 +326,14 @@ class Database:
             prev_row = cur.fetchone()
             price_changed = (prev_row is None or abs(prev_row["current_price"] - offer.price) > 0.01)
 
+            sizes_json = json.dumps(offer.available_sizes or [])
             conn.execute("""
                 INSERT INTO store_offers (
                     id, product_id, store_id, store_name, raw_title,
                     current_price, original_price, discount_pct,
-                    product_url, image_url, gallery_images, in_stock, last_checked_at
+                    product_url, image_url, gallery_images, available_sizes, in_stock, last_checked_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
                     product_id = excluded.product_id,
                     raw_title = excluded.raw_title,
@@ -336,6 +343,7 @@ class Database:
                     product_url = excluded.product_url,
                     image_url = COALESCE(excluded.image_url, store_offers.image_url),
                     gallery_images = COALESCE(excluded.gallery_images, store_offers.gallery_images),
+                    available_sizes = excluded.available_sizes,
                     in_stock = excluded.in_stock,
                     last_checked_at = CURRENT_TIMESTAMP
             """, (
@@ -350,6 +358,7 @@ class Database:
                 offer.url,
                 clean_off_img,
                 gallery_json,
+                sizes_json,
                 1 if offer.in_stock else 0
             ))
 
@@ -585,13 +594,14 @@ class Database:
                 prev_row = cur.fetchone()
                 price_changed = (prev_row is None or abs(prev_row["current_price"] - offer.price) > 0.01)
 
+                sizes_json = json.dumps(offer.available_sizes or [])
                 conn.execute("""
                     INSERT INTO store_offers (
                         id, product_id, store_id, store_name, raw_title,
                         current_price, original_price, discount_pct,
-                        product_url, image_url, in_stock, last_checked_at
+                        product_url, image_url, available_sizes, in_stock, last_checked_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(id) DO UPDATE SET
                         product_id = excluded.product_id,
                         raw_title = excluded.raw_title,
@@ -600,6 +610,7 @@ class Database:
                         discount_pct = excluded.discount_pct,
                         product_url = excluded.product_url,
                         image_url = COALESCE(excluded.image_url, store_offers.image_url),
+                        available_sizes = excluded.available_sizes,
                         in_stock = excluded.in_stock,
                         last_checked_at = CURRENT_TIMESTAMP
                 """, (
@@ -613,6 +624,7 @@ class Database:
                     offer.discount_pct,
                     offer.url,
                     offer.image_url,
+                    sizes_json,
                     1 if offer.in_stock else 0
                 ))
 
@@ -904,7 +916,13 @@ class Database:
                 "top_savings": [dict(r) for r in top_savings]
             }
 
-    def search_indexed(self, query: str, category: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
+    def search_indexed(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        limit: int = 20,
+        exclude_ids: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """Fast SQL query on pre-indexed products and their store offers with optional category filter."""
         if self.use_supabase and self.supabase:
             try:
@@ -949,7 +967,7 @@ class Database:
 
             for prod in products:
                 offer_cur = conn.execute("""
-                    SELECT store_id, store_name, current_price, original_price, discount_pct, product_url, image_url, raw_title
+                    SELECT store_id, store_name, current_price, original_price, discount_pct, product_url, image_url, raw_title, available_sizes
                     FROM store_offers
                     WHERE product_id = ?
                     ORDER BY current_price ASC
@@ -957,6 +975,10 @@ class Database:
                 offers = []
                 for row in offer_cur.fetchall():
                     o = dict(row)
+                    try:
+                        o["available_sizes"] = json.loads(o.get("available_sizes") or "[]")
+                    except Exception:
+                        o["available_sizes"] = []
                     sid = o["store_id"].lower().strip()
                     rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
                     price = float(o["current_price"])
@@ -1151,7 +1173,7 @@ class Database:
             kept_products = []
             for prod in products:
                 offer_cur = conn.execute("""
-                    SELECT store_id, store_name, current_price, original_price, discount_pct, product_url, image_url, raw_title
+                    SELECT store_id, store_name, current_price, original_price, discount_pct, product_url, image_url, raw_title, available_sizes
                     FROM store_offers
                     WHERE product_id = ?
                     ORDER BY current_price ASC
@@ -1159,6 +1181,10 @@ class Database:
                 offers = []
                 for row in offer_cur.fetchall():
                     o = dict(row)
+                    try:
+                        o["available_sizes"] = json.loads(o.get("available_sizes") or "[]")
+                    except Exception:
+                        o["available_sizes"] = []
                     sid = o["store_id"].lower().strip()
                     rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
                     price = float(o["current_price"])

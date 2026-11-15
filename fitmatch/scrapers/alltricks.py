@@ -75,7 +75,7 @@ class AlltricksScraper(BaseScraper):
 
         def _get_sizes(cand: Dict[str, Any]) -> List[str]:
             try:
-                return self.fetch_sizes(cand["url"])
+                return self.fetch_sizes(cand["url"], title=cand["title"])
             except Exception:
                 return []
 
@@ -102,7 +102,7 @@ class AlltricksScraper(BaseScraper):
 
         return offers
 
-    def fetch_sizes(self, product_url: str) -> List[str]:
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
         """Fetch verified in-stock sizes from Alltricks product detail page."""
         try:
             html = self._fetch_html(product_url)
@@ -125,7 +125,7 @@ class AlltricksScraper(BaseScraper):
                 txt = opt.get("data-label") or opt.get_text(strip=True)
                 if txt and not any(w in txt.lower() for w in ["taglia", "select", "seleziona"]):
                     sizes.append(txt)
-            return normalize_sizes(sizes)
+            return self.normalize_sizes_for_product(sizes, title=title, url=product_url, soup=soup)
         except Exception as e:
             logger.debug(f"[Alltricks] fetch_sizes error on {product_url}: {e}")
             return []

@@ -2,13 +2,17 @@
 """
 Clean up invalid, out-of-date, and fake size runs across all store_offers in Supabase.
 """
+import os
 import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import argparse
 import logging
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any
 from fitmatch.supabase_client import SupabaseClient
 from fitmatch.models import normalize_sizes
+from fitmatch.matcher.normalizer import ProductNormalizer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("cleanup_sizes")
@@ -16,28 +20,37 @@ logger = logging.getLogger("cleanup_sizes")
 FAKE_ADIDAS_SET = {
     tuple(["40", "40.5", "41.5", "42", "42.5", "43.5", "44", "44.5", "45.5", "46", "46.5", "47.5"]),
     tuple(["40.5", "41.5", "42", "42.5", "43.5", "44", "44.5", "45.5", "46", "46.5", "47.5"]),
+    tuple(["40.5", "41.5", "42", "42.5", "43.5", "44", "44.5", "45.5", "46", "47.5"]),
     tuple(["36", "36.5", "37.5", "38", "38.5", "39.5", "40", "40.5", "41.5", "42"]),
 }
 FAKE_NENCINI_SET = {
     tuple(["40", "41", "42", "42.5", "43", "44", "44.5", "45"]),
     tuple(["37", "38", "38.5", "39", "40", "40.5", "41"]),
 }
+_NORMALIZER = ProductNormalizer()
 
 
-def clean_offer(sb: SupabaseClient, offer: Dict[str, Any]) -> bool:
+def clean_offer(sb: SupabaseClient, offer: Dict[str, Any], dry_run: bool = False) -> bool:
     oid = offer.get("id")
     if not oid:
         return False
     old_sizes = offer.get("available_sizes") or []
-    
-    # Check if known hardcoded fake size run
+    raw_title = offer.get("raw_title") or ""
+    purl = offer.get("product_url") or ""
+    store_id = (offer.get("store_id") or "").lower().strip()
+
     old_tuple = tuple(old_sizes)
-    if old_tuple in FAKE_ADIDAS_SET or old_tuple in FAKE_NENCINI_SET:
+    if (store_id == "adidas" and old_tuple in FAKE_ADIDAS_SET) or (store_id == "nencini" and old_tuple in FAKE_NENCINI_SET):
         new_sizes = []
     else:
-        new_sizes = normalize_sizes(old_sizes)
+        gender = _NORMALIZER.extract_gender(raw_title, purl)
+        category = _NORMALIZER.detect_article_type(raw_title) if raw_title else None
+        new_sizes = normalize_sizes(old_sizes, gender=gender, category=category)
 
     if new_sizes != old_sizes:
+        if dry_run:
+            logger.info(f"[DRY-RUN] Would update {oid} ({raw_title[:45]}): {old_sizes} -> {new_sizes}")
+            return True
         q_id = urllib.parse.quote(oid)
         res = sb._request(f"store_offers?id=eq.{q_id}", method="PATCH", data={"available_sizes": new_sizes})
         if res.get("status") in (200, 204):
@@ -50,6 +63,10 @@ def clean_offer(sb: SupabaseClient, offer: Dict[str, Any]) -> bool:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Clean up mismatched, non-footwear shoe sizes, and fake size runs in Supabase.")
+    parser.add_argument("--dry-run", action="store_true", help="Log updates without patching Supabase")
+    args = parser.parse_args()
+
     sb = SupabaseClient()
     offset = 0
     batch_size = 500
@@ -59,7 +76,7 @@ def main():
     logger.info("Starting database size cleanup...")
 
     while True:
-        endpoint = f"store_offers?select=id,store_id,raw_title,available_sizes&limit={batch_size}&offset={offset}"
+        endpoint = f"store_offers?select=id,store_id,raw_title,product_url,available_sizes&limit={batch_size}&offset={offset}"
         res = sb._request(endpoint)
         offers = res.get("data") or []
         if not offers:
@@ -69,7 +86,7 @@ def main():
         logger.info(f"Fetched batch offset {offset}: {len(offers)} offers")
 
         with ThreadPoolExecutor(max_workers=10) as ex:
-            results = list(ex.map(lambda o: clean_offer(sb, o), offers))
+            results = list(ex.map(lambda o: clean_offer(sb, o, dry_run=args.dry_run), offers))
 
         total_updated += sum(1 for r in results if r)
         offset += batch_size

@@ -1,9 +1,10 @@
 import re
 import urllib.parse
 import logging
-from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional, Dict, Any
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer, normalize_sizes
+from fitmatch.models import Offer, normalize_sizes, is_female_context
 
 logger = logging.getLogger("fitmatch.scraper.df_sport")
 
@@ -43,7 +44,7 @@ class DFSportScraper(BaseScraper):
             return []
 
         products = data.get("resources", {}).get("results", {}).get("products", [])
-        offers: List[Offer] = []
+        candidates: List[Dict[str, Any]] = []
 
         for p in products:
             title = p.get("title")
@@ -83,51 +84,93 @@ class DFSportScraper(BaseScraper):
             if img_url and img_url.startswith("//"):
                 img_url = "https:" + img_url
 
-            p_id = str(p.get("id") or "")
-            in_stock = bool(p.get("available", True))
-            sizes = self.fetch_sizes(clean_url)
+            candidates.append({
+                "p_id": str(p.get("id") or ""),
+                "full_title": full_title,
+                "brand": brand,
+                "price": price,
+                "orig_price": orig_price,
+                "clean_url": clean_url,
+                "img_url": img_url,
+                "in_stock": bool(p.get("available", True)),
+            })
+            if len(candidates) >= limit:
+                break
 
+        if not candidates:
+            return []
+
+        with ThreadPoolExecutor(max_workers=min(len(candidates), 6)) as executor:
+            sizes_list = list(executor.map(lambda c: self.fetch_sizes(c["clean_url"], title=c["full_title"]), candidates))
+
+        offers: List[Offer] = []
+        for c, sizes in zip(candidates, sizes_list):
             offers.append(
                 Offer(
                     store_id=self.store_id,
                     store_name=self.store_name,
-                    product_id=p_id if p_id else None,
-                    title=full_title,
-                    brand=brand,
-                    price=price,
-                    original_price=orig_price,
-                    url=clean_url,
-                    image_url=img_url,
-                    gallery_images=[img_url] if img_url else [],
+                    product_id=c["p_id"] if c["p_id"] else None,
+                    title=c["full_title"],
+                    brand=c["brand"],
+                    price=c["price"],
+                    original_price=c["orig_price"],
+                    url=c["clean_url"],
+                    image_url=c["img_url"],
+                    gallery_images=[c["img_url"]] if c["img_url"] else [],
                     available_sizes=sizes,
-                    in_stock=in_stock
+                    in_stock=c["in_stock"] and bool(sizes) if sizes is not None else c["in_stock"],
                 )
             )
 
-            if len(offers) >= limit:
-                break
-
         return offers
 
-    def fetch_sizes(self, product_url: str) -> List[str]:
-        """Fetch available in-stock sizes via Shopify product JSON endpoint."""
+    def _extract_variant_size(self, variant: Dict[str, Any], size_idx: Optional[int]) -> Optional[str]:
+        if size_idx is not None:
+            opts = variant.get("options")
+            if isinstance(opts, list) and len(opts) > size_idx and opts[size_idx]:
+                return str(opts[size_idx]).strip()
+            opt_val = variant.get(f"option{size_idx + 1}")
+            if opt_val:
+                return str(opt_val).strip()
+        v_title = variant.get("title")
+        if v_title and str(v_title).strip().lower() != "default title":
+            return str(v_title).strip()
+        return None
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Fetch real-time in-stock sizes via Shopify .js endpoint (which includes per-variant availability)."""
         try:
             clean_url = product_url.split("?")[0]
-            json_url = f"{clean_url}.json"
-            data = self._fetch_json(json_url)
+            js_url = f"{clean_url}.js"
+            data = self._fetch_json(js_url)
             if not data or not isinstance(data, dict):
                 return []
 
-            prod = data.get("product", {})
+            variants = data.get("variants") or []
+            if not isinstance(variants, list):
+                return []
+
+            options_meta = data.get("options") or []
+            size_idx: Optional[int] = None
+            for idx, opt in enumerate(options_meta):
+                opt_name = (opt.get("name") if isinstance(opt, dict) else str(opt)).lower()
+                if any(k in opt_name for k in ("tagli", "size", "misur", "numero")):
+                    size_idx = idx
+                    break
+
             sizes: List[str] = []
-            for v in prod.get("variants", []):
-                # Only include available sizes
-                if v.get("available") is False:
+            for v in variants:
+                if not isinstance(v, dict) or v.get("available") is not True:
                     continue
-                v_title = v.get("title")
-                if v_title and v_title.lower() != "default title" and v_title not in sizes:
-                    sizes.append(v_title)
-            return normalize_sizes(sizes)
+                sz = self._extract_variant_size(v, size_idx)
+                if sz and sz not in sizes:
+                    sizes.append(sz)
+
+            pdp_title = title or data.get("title") or ""
+            gender = "women" if is_female_context(title=pdp_title) else None
+            ptype = str(data.get("type") or "").lower()
+            category = "apparel" if any(k in ptype for k in ("abbigliamento", "apparel", "t-shirt", "magli", "pantalon", "giacc")) else None
+            return normalize_sizes(sizes, gender=gender, category=category)
         except Exception as e:
             logger.debug(f"[DFSport] fetch_sizes error on {product_url}: {e}")
             return []

@@ -107,6 +107,48 @@ struct DealsView: View {
             icon: "dumbbell.fill",
             accentColor: Color(red: 215/255, green: 50/255, blue: 120/255),
             bgTint: Color(red: 253/255, green: 240/255, blue: 248/255)
+        ),
+        DealCategoryFilter(
+            id: "calcio",
+            name: "Calcio & Calcetto",
+            icon: "soccerball",
+            accentColor: Color(red: 22/255, green: 145/255, blue: 70/255),
+            bgTint: Color(red: 238/255, green: 250/255, blue: 242/255)
+        ),
+        DealCategoryFilter(
+            id: "tennis",
+            name: "Tennis",
+            icon: "tennis.racket",
+            accentColor: Color(red: 215/255, green: 115/255, blue: 15/255),
+            bgTint: Color(red: 255/255, green: 247/255, blue: 236/255)
+        ),
+        DealCategoryFilter(
+            id: "basket",
+            name: "Basket",
+            icon: "basketball.fill",
+            accentColor: Color(red: 225/255, green: 82/255, blue: 25/255),
+            bgTint: Color(red: 255/255, green: 242/255, blue: 235/255)
+        ),
+        DealCategoryFilter(
+            id: "sci",
+            name: "Sci & Neve",
+            icon: "snowflake",
+            accentColor: Color(red: 14/255, green: 125/255, blue: 205/255),
+            bgTint: Color(red: 238/255, green: 247/255, blue: 255/255)
+        ),
+        DealCategoryFilter(
+            id: "nuoto",
+            name: "Nuoto",
+            icon: "figure.pool.swim",
+            accentColor: Color(red: 0/255, green: 155/255, blue: 185/255),
+            bgTint: Color(red: 236/255, green: 251/255, blue: 254/255)
+        ),
+        DealCategoryFilter(
+            id: "nutrizione",
+            name: "Nutrizione",
+            icon: "bolt.heart.fill",
+            accentColor: Color(red: 150/255, green: 65/255, blue: 200/255),
+            bgTint: Color(red: 248/255, green: 240/255, blue: 255/255)
         )
     ]
 

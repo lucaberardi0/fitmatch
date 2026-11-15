@@ -28,6 +28,19 @@ KNOWN_BRANDS = [
 
     # Padel & Tennis
     "bullpadel", "babolat", "head", "wilson", "nox", "starvie", "siux", "dunlop", "kuikma",
+    "yonex", "tecnifibre", "prince", "prokennex", "k-swiss", "lotto",
+
+    # Basketball & Team Sports
+    "jordan", "air jordan", "spalding", "molten", "anta", "way of wade", "li-ning", "peak", "and1",
+    "errea", "macron", "kappa", "givova", "umbro", "reusch", "uhlsport", "mikasa",
+
+    # Winter Sports & Ski / Snow
+    "atomic", "rossignol", "nordica", "fischer", "volkl", "völkl", "tecnica", "lange", "dalbello",
+    "smith", "uvex", "sweet protection", "burton", "k2", "ortovox", "black crows", "blizzard",
+    "dynastar", "elan", "colmar", "spyder",
+
+    # Swim & Triathlon
+    "arena", "speedo", "tyr", "jaked", "finis", "zoggs", "cressi", "aqua sphere",
 
     # Recovery, Fitness & Nutrition
     "therabody", "theragun", "hyperice", "compex", "enervit", "isostar", "sis", "maurten",
@@ -42,11 +55,18 @@ STORE_NAMES_LOWER = {
     "mister running", "misterrunning", "alltricks", "top4running", "maxi sport",
     "maxisport", "cisalfa", "cisalfa sport", "running warehouse", "runningwarehouse",
     "deporvillage", "sportler", "nencini", "nencini sport", "df sport specialist",
-    "tradeinn", "decathlon", "generic", "none"
+    "tradeinn", "decathlon", "sportit", "tennis-point", "tennis point",
+    "basketball store", "basketballstore", "nonsolosport", "intersport", "intersport italia",
+    "bshopzone", "generic", "none"
 }
 
 BRAND_ALIASES = {
     "on running": "On",
+    "air jordan": "Jordan",
+    "völkl": "Völkl",
+    "volkl": "Völkl",
+    "li-ning": "Li-Ning",
+    "k-swiss": "K-Swiss",
     "theragun": "Therabody",
     "north face": "The North Face",
     "the-north-face": "The North Face",
@@ -127,8 +147,15 @@ ICONIC_MODEL_BRANDS = {
     "active skin": "Salomon", "adv skin": "Salomon",
     # Oakley
     "sutro": "Oakley", "radar": "Oakley", "jawbreaker": "Oakley", "encoder": "Oakley",
-    # Bullpadel
+    # Bullpadel & Tennis
     "hack": "Bullpadel", "vertex": "Bullpadel", "flow": "Bullpadel", "indiga": "Bullpadel",
+    "pure drive": "Babolat", "pure aero": "Babolat", "pure strike": "Babolat",
+    "pro staff": "Wilson", "ezone": "Yonex", "vcore": "Yonex", "percept": "Yonex",
+    # Basketball
+    "lebron": "Nike", "giannis": "Nike", "sabrina": "Nike", "luka": "Jordan", "tatum": "Jordan",
+    "harden": "Adidas", "curry": "Under Armour", "way of wade": "Li-Ning",
+    # Winter Sports
+    "hawx": "Atomic", "redster": "Atomic", "speedmachine": "Nordica", "promachine": "Nordica",
     # Wahoo / Tacx
     "kickr": "Wahoo", "elemnt": "Wahoo", "flux": "Tacx", "neo": "Tacx"
 }
@@ -194,18 +221,39 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\bsutro\b", r"\bjawbreaker\b", r"\bradar\s+ev\b", r"\bshow\s+x\d\b"
     ]),
     ("racket", [
-        r"\bracchett[ae]\b", r"\bpala\b", r"\bpalas\b", r"\bracks?\b", r"\bpadel\b",
-        r"\bt-?fight\b", r"\btubo\s+palle\b", r"\bpall[ae]\s+(?:tennis|padel)\b"
+        r"\bpadel\b", r"\bpala\b", r"\bpalas\b", r"\bracchett[ae]\s*(?:da\s*)?padel\b",
+        r"\b(?:vertex|hack|at10|ml10|metalbone|adipower|technical\s+viper|air\s+viper|counter\s+viper)\b",
+        r"\btubo\s+palle\b", r"\bpall[ae]\s+padel\b", r"\bovergrip\b"
+    ]),
+    ("tennis", [
+        r"\bracchett[ae]\s*(?:da\s*)?tennis\b", r"\bpallin[ae]\s*(?:da\s*)?tennis\b", r"\bpall[ae]\s+tennis\b",
+        r"\bpure\s+(?:drive|aero|strike)\b", r"\bpro\s+staff\b", r"\bblade\s+(?:98|100|v\d)\b",
+        r"\bezone\b", r"\bvcore\b", r"\bpercept\b", r"\bt-?fight\b",
+        r"\bmatass[ae]\b", r"\bincordatur[ae]\b", r"\bborsone\s+tennis\b", r"\bantivibrazioni\b",
+        r"^(?!.*\b(?:scarp[ae]|shoes?|sneakers?|pantaloncin[oi]|shorts|gonna|magli[ae]|canott[ae])\b).*\btennis\b"
+    ]),
+    ("basketball", [
+        r"\b(?:pallon[ei]\s*(?:da\s*)?basket|canestro|tabellone\s+basket|spalding|molten)\b",
+        r"\b(?:canott[ae]|magli[ae])\s*(?:nba|basket)\b", r"\bway\s+of\s+wade\b",
+        r"^(?!.*\b(?:scarp[ae]|shoes?|sneakers?|pantaloncin[oi]|shorts|magli[ae]|felp[ae]|calz[ae])\b).*\b(?:basket(?:ball)?|pallacanestro)\b"
+    ]),
+    ("winter_sports", [
+        r"\bsci(?:alpinismo|are)?\b", r"\bsnowboard\b", r"\bscarpon[ei]\s+(?:da\s+)?sci\b",
+        r"\bmascher[ae]\s+(?:da\s+)?sci\b", r"\bcasc[oi]\s+(?:da\s+)?sci\b",
+        r"\battacch[oi]\s+sci\b", r"\bciaspole\b", r"\bpelli\s+di\s+foca\b", r"\barva\b",
+        r"\b(?:freeride|alpine\s+ski|hawx|redster|speedmachine|promachine|hero\s+world\s+cup)\b",
+        r"\b(?:giacc[ae]|pantalon[ei]|tuta)\s+(?:da\s+)?(?:sci|neve|snow)\b"
     ]),
     ("trainer", [
         r"\brull[oi]\b", r"\bsmart trainer\b", r"\bkickr\b", r"\bflux\b", r"\bsuito\b", r"\bdireto\b"
     ]),
     ("football_boots", [
         r"\bscarp[ae]\s*(?:da\s*)?calcio\b", r"\bscarp[ae]\s*(?:da\s*)?calcetto\b",
-        r"\bscarpin[oi]\b", r"\bcalcetto\b", r"\btop\s+sala\b", r"\btop\s+flex\b",
+        r"\bscarpin[oi]\b", r"\bcalcetto\b", r"\bfutsal\b",
+        r"\btop\s+sala\b", r"\btop\s+flex\b",
         r"\b(?:mercurial|superfly|vapor|tiempo|phantom|predator|copa\s*(?:pure|gloro|mundial)|kaiser\s*5|future\s*[789]|magnetico|f50|king\s+(?:ultimate|pro|match))\b",
         r"\b(?:fg|ag|mg|sg|tf|turf|indoor)\b.*\b(?:calcio|futsal|match|league|academy|pro|elite|select)\b",
-        r"\b(?:calcio|futsal|magnetico|predator|mercurial|tiempo|phantom)\b.*\b(?:fg|ag|mg|sg|tf|turf|indoor)\b",
+        r"\b(?:calcio|futsal|magnetico|predator|mercurial|tiempo|phantom|morelia)\b.*\b(?:fg|ag|mg|sg|tf|turf|indoor)\b",
     ]),
     ("jacket", [
         r"\bgiacc(?:a|he)\b", r"\bgiubbin[oi]\b", r"\bgiubbott[oi]\b", r"\bjackets?\b", r"\bjkt\b",
@@ -213,25 +261,27 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\banorak\b", r"\bshell\b", r"\bpiumin[oi]\b", r"\bcappott[oi]\b", r"\bparka\b",
         r"\bbetter\s+sweater\b", r"\bdown\s+hooded\b", r"\b2[\.,]5\s*layer\b"
     ]),
+    ("socks", [
+        r"\bcalz[ae]\b", r"\bcalzin[oi]\b", r"\bsocks?\b", r"\bcopriscarpe\b",
+        r"\bcushioned\s+ankle\b", r"\bgambalett[io]\b", r"\blight\s+crew\b"
+    ]),
     ("pants", [
-        r"\bpantalon[ie]\b", r"\bpantaloncin[oi]\b", r"\bshorts?\b", r"\btights?\b",
+        r"\bpantalon[ie]\b", r"\bpantaloncin[oi]\b", r"\bshorts\b", r"\btights?\b",
         r"\bleggings?\b", r"\bcapri\b", r"\bcalzamagli[ae]\b", r"\bbermuda\b", r"\bsprinter\b",
+        r"\btrack\s*pants?\b", r"\bsweatpants?\b", r"\bjoggers?\b",
         r"\bsalopette\b", r"\btuta\s+gara\b", r"\bciclista\s+seamless\b", r"\bcoscial[ei]\b",
         r"\bgonn[ae]\b", r"\bskirts?\b", r"\b2\s*in\s*1\b", r"\b2in1\b",
         r"(?<![\.,\d])\b[34579]\s*(?:inch|in\b|''|\´\´)", r"\badizero\s+pacer\b"
     ]),
     ("top", [
-        r"\bmagli[ae]\b", r"\bmagliett[ae]\b", r"\bt-?shirts?\b", r"\bcanott[ae]\b",
+        r"\bmagli[ae]\b", r"\bmagliett[ae]\b", r"\bt-?shirts?\b", r"\bshirts?\b", r"\bcanott[ae]\b",
         r"\bsinglets?\b", r"\bsnglt\b", r"\btank\b", r"\bcrop\b", r"\bcropped\b", r"\btee\b",
         r"\btops?\b(?!\s+(?:sala|flex|ten|gun))", r"\bfelp[ae]\b", r"\bhoodie\b", r"\blong\s*sleeve\b",
         r"\bshort\s*sleeve\b", r"\bsleeveless\b", r"\bmanic(?:a|he)\s+lung(?:a|he)\b",
         r"\bmanic(?:a|he)\s+cort(?:a|e)\b", r"\bjersey\b", r"\bpolo\b", r"\breggisen[oi]\b", r"\bbra\b",
         r"\b(?:home|away|3rd|third)\s+(?:replica|stadium|match)\b", r"\bsenza\s+maniche\b", r"\bbody\s+\d+\s*cm\b",
-        r"\b1\s*[/\s]\s*[24]\s*zip\b", r"\bhalf\s*zip\b", r"\bquarter\s*zip\b", r"\bpolare\b", r"\bfleece\b"
-    ]),
-    ("socks", [
-        r"\bcalz[ae]\b", r"\bcalzin[oi]\b", r"\bsocks?\b", r"\bcopriscarpe\b",
-        r"\bcushioned\s+ankle\b", r"\bgambalett[io]\b", r"\blight\s+crew\b"
+        r"\b1\s*[/\s]\s*[24]\s*zip\b", r"\bhalf\s*zip\b", r"\bquarter\s*zip\b", r"\bpolare\b", r"\bfleece\b",
+        r"\btech\s+fleece\b", r"\bdri[\s-]*fit\s+park\b"
     ]),
     ("gear", [
         r"\btheragun\b", r"\bpistola\s+(?:per\s+)?massaggi\b", r"\bstimolatore\s+muscolare\b",
@@ -249,7 +299,7 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\bscarp[ae]\b", r"\bshoes?\b", r"\bsneakers?\b", r"\bcalzatur[ae]\b",
         r"\bstival[ie]\b", r"\bstivalett[oi]\b", r"\bciabatt[ae]\b", r"\bchiodat[ae]\b",
         r"\bscarpon[ie]\b", r"\bscarpett[ae]\b", r"\bslide\b", r"\binfradito\b", r"\bklapki\b",
-        r"\b(?:adistar|superstar|stan\s+smith|shox|air\s+max|air\s+force|vomero|pegasus|ultraboost|supernova|adizero|boston|duramo|galaxy|gel[\s-]?(?:nimbus|kayano|cumulus|pulse|excite|contend|venture|sonoma|trabuco)|gt[\s-]?(?:1000|2000)|novablast|superblast|wave\s+(?:rider|sky|inspire|horizon|rebellion|daichi)|clifton|bondi|rincon|arahi|speedgoat|mach\s*\d|ghost\s*\d+|glycerin|adrenaline|cascadia|endorphin|kinvara|peregrine|triumph|cloudmonster|cloudsurfer|cloudrunner|cloudboom|cloudstratus|cloudflow|rebel\s*v\d|1080|880|860|deviate\s+nitro|velocity\s+nitro|magnify\s+nitro|foreverrun|lone\s+peak|torin|olympus|bushido|ultra\s+raptor|speedcross|sense\s+ride)\b"
+        r"\b(?:adistar|superstar|stan\s+smith|shox|air\s+max|air\s+force|vomero|pegasus|ultraboost|supernova|adizero|boston|duramo|galaxy|hyperboost|hyperwarp|velociti|kype|morelia|chuck\s+taylor|all\s+star|slip[\s-]*ins|suola|gel[\s-]?(?:nimbus|kayano|cumulus|pulse|excite|contend|venture|sonoma|trabuco|resolution)|gt[\s-]?(?:1000|2000)|novablast|superblast|court\s*ff|solution\s+speed|barricade|madrix|wave\s+(?:rider|sky|inspire|horizon|rebellion|daichi)|clifton|bondi|rincon|arahi|speedgoat|mach\s*\d|ghost\s*\d+|glycerin|adrenaline|cascadia|endorphin|kinvara|peregrine|triumph|cloudmonster|cloudsurfer|cloudrunner|cloudboom|cloudstratus|cloudflow|rebel\s*v\d|1080|880|860|deviate\s+nitro|velocity\s+nitro|magnify\s+nitro|foreverrun|lone\s+peak|torin|olympus|bushido|ultra\s+raptor|speedcross|sense\s+ride|alphafly|vaporfly|metaspeed|zoom\s+victory|nike\s+victory)\b"
     ])
 ]
 
@@ -420,13 +470,27 @@ class ProductNormalizer:
                 if brand_name in ("Garmin", "Polar", "Coros", "Suunto"):
                     if model_sub in ("hrm 200", "hrm 600", "hrm-pro"):
                         return "sensor"
-                    return "cycling" if model_sub == "edge" else "gps_watch"
+                    if model_sub == "edge":
+                        if "garmin" in tl or re.search(r"\bedge\s+(?:130|530|540|550|830|840|1030|1040|1050|explore|mtb)\b", tl):
+                            return "cycling"
+                        continue
+                    return "gps_watch"
                 if brand_name == "Oakley":
                     return "eyewear"
                 if brand_name == "Bullpadel":
-                    return "racket"
+                    if "bullpadel" in tl or "padel" in tl or "pala" in tl or "racchett" in tl:
+                        return "racket"
+                    continue
+                if brand_name in ("Babolat", "Wilson", "Yonex") and model_sub in ("pure drive", "pure aero", "pure strike", "pro staff", "ezone", "vcore", "percept"):
+                    return "tennis"
+                if model_sub in ("lebron", "giannis", "sabrina", "luka", "tatum", "harden", "curry", "way of wade"):
+                    return "basketball"
+                if model_sub in ("hawx", "redster", "speedmachine", "promachine"):
+                    return "winter_sports"
                 if brand_name in ("Wahoo", "Tacx"):
-                    return "trainer"
+                    if brand_name.lower() in tl or "trainer" in tl or "rullo" in tl or "rulli" in tl:
+                        return "trainer"
+                    continue
                 return "shoes"
         # Do NOT blindly dump unknown items (neckwear, bike parts, accessories) into 'shoes'
         if re.search(r"\b(run|running|runner|trail|gore[\s-]*tex|gtx|maratona|crossfit|hyrox|mtb\s*boa|flat\s*pedal|gravel\s*\w*\s*lace)\b", tl):

@@ -6,14 +6,21 @@ struct ProductBrandHelper {
     static let knownBrands = [
         "Nike", "Adidas", "Asics", "Hoka", "Brooks", "Saucony", "Puma", "Mizuno",
         "New Balance", "Salomon", "On", "Garmin", "Polar", "Suunto", "Coros",
-        "Under Armour", "La Sportiva", "Altra", "Compressport", "Oakley", "The North Face"
+        "Under Armour", "La Sportiva", "Altra", "Compressport", "Oakley", "The North Face",
+        "Jordan", "Babolat", "Wilson", "Head", "Yonex", "Tecnifibre", "Bullpadel", "Nox",
+        "Atomic", "Rossignol", "Nordica", "Fischer", "Scarpa", "Tecnica", "Dalbello", "Lange",
+        "Arena", "Speedo", "TYR", "Jaked", "Joma", "Diadora", "Lotto", "Uhlsport", "Reusch",
+        "Macron", "Errea", "Kappa", "Spalding", "Molten", "Li-Ning", "Way of Wade", "Anta",
+        "Maurten", "Enervit", "SiS", "NamedSport", "Dynafit", "Ortovox", "Black Diamond"
     ]
 
     static let knownStores: Set<String> = [
         "mister running", "misterrunning", "alltricks", "top4running", "maxi sport",
         "maxisport", "cisalfa", "cisalfa sport", "running warehouse", "runningwarehouse",
         "deporvillage", "sportler", "nencini", "nencini sport", "df sport specialist",
-        "tradeinn", "decathlon"
+        "tradeinn", "decathlon", "sportit", "tennis-point", "tennis point",
+        "basketball store", "basketballstore", "nonsolosport", "non solo sport",
+        "intersport", "bshopzone"
     ]
 
     static func extractBrand(from text: String, fallback: String? = nil) -> String {
@@ -235,17 +242,22 @@ struct Offer: Identifiable, Codable, Hashable {
         if let cost = shipping_cost { return cost }
         let s = store_id.lowercased()
         let threshold = (s.contains("cisalfa") || s.contains("maxi") || s.contains("nike")) ? 99.0 :
+                        s.contains("bshopzone") ? 100.0 :
                         s.contains("nencini") ? 100.0 :
+                        s.contains("nonsolosport") ? 89.99 :
                         s.contains("depor") ? 80.0 :
                         s.contains("top4") ? 75.0 :
                         s.contains("alltricks") ? 69.0 :
-                        s.contains("warehouse") ? 59.0 : 49.0
-        let standard = s.contains("cisalfa") ? 9.90 :
+                        s.contains("sportit") ? 59.90 :
+                        (s.contains("warehouse") || s.contains("tennis_point") || s.contains("intersport")) ? 59.0 :
+                        s.contains("basketball") ? 50.0 : 49.0
+        let standard = s.contains("warehouse") || s.contains("bshopzone") ? 10.00 :
+                       s.contains("cisalfa") ? 9.90 :
                        s.contains("maxi") ? 7.90 :
-                       s.contains("warehouse") ? 10.00 :
-                       s.contains("nencini") ? 5.90 :
-                       s.contains("nike") ? 5.00 :
-                       s.contains("sportler") ? 5.00 :
+                       s.contains("basketball") ? 6.90 :
+                       (s.contains("sportit") || s.contains("tennis_point")) ? 5.99 :
+                       (s.contains("nencini") || s.contains("intersport")) ? 5.90 :
+                       (s.contains("nike") || s.contains("sportler") || s.contains("nonsolosport")) ? 5.00 :
                        (s.contains("alltricks") || s.contains("depor")) ? 4.99 : 4.90
         return price >= threshold ? 0.0 : standard
     }
@@ -1163,6 +1175,52 @@ struct CategoryFilterMatcher {
             if exc.contains(where: { t.contains($0) }) { return false }
             if lcat == "cycling" { return true }
             let inc = ["ciclismo", "bicicletta", "bici", "e-bike", "ebike", "ciclocomputer", "edge 5", "edge 8", "edge 10", "edge explore", "karoo", "rullo", "smart trainer", "kickr", "flux", "tacx", "wahoo", "favero", "assioma", "kask", "castelli", "sportful", "santini", "assos", "northwave", "fizik", "salopette", "shimano", "campagnolo", "copertone", "mtb", "gravel", "pastiglie freno", "disco freno"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "calcio" || cat == "football_boots" {
+            let exc = ["scarpe running", "padel", "racchetta", "basket", "tennis", "sci "]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            if lcat == "football_boots" { return true }
+            let inc = ["calcio", "calcetto", "futsal", "scarpin", "mercurial", "superfly", "predator", "phantom", "tiempo", "copa pure", "top sala", "top flex", "parastinchi", "portiere", "uhlsport", "reusch"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "tennis" {
+            let exc = ["padel", "bullpadel", "nox ", "siux", "starvie", "calcio", "basket", "sci "]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            if lcat == "tennis" { return true }
+            let inc = ["tennis", "terra battuta", "babolat pure drive", "pure aero", "wilson blade", "pro staff", "clash", "yonex ezone", "vcore", "percept", "gel-resolution", "court ff", "nikecourt", "barricade", "head speed", "radical mp"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "basket" || cat == "basketball" {
+            let exc = ["calcio", "calcetto", "padel", "tennis", "running", "trail", "sci "]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            if lcat == "basketball" || lcat == "basketball_shoes" { return true }
+            let inc = ["basket", "basketball", "pallacanestro", "lebron", "kd ", "kobe", "luka", "curry", "giannis", "sabrina", "harden", "air jordan", "spalding", "molten", "canotta nba"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "sci" || cat == "winter_sports" {
+            let exc = ["scarpe running", "padel", "calcio", "basket", "tennis", "racchetta"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            if lcat == "winter_sports" { return true }
+            let inc = ["sci ", "da sci", "scarponi", "snowboard", "maschera sci", "casco sci", "attacchi sci", "atomic", "rossignol", "nordica", "dalbello", "tecnica mach", "fischer", "volkl", "burton", "scialpinismo", "alpinismo"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "nuoto" || cat == "swim" {
+            let exc = ["scarpe running", "bici", "padel", "calcio", "racchetta"]
+            if exc.contains(where: { t.contains($0) }) { return false }
+            if lcat == "swim" { return true }
+            let inc = ["nuoto", "piscina", "occhialini", "cuffia nuoto", "costume", "pinne", "muta", "arena", "speedo", "jaked", "tyr", "nabaiji", "pull buoy", "tavoletta"]
+            return inc.contains(where: { t.contains($0) })
+        }
+
+        if cat == "nutrizione" || cat == "nutrition" {
+            if lcat == "nutrition" { return true }
+            let inc = ["gel ", "energetico", "isotonic", "enervit", "maurten", "sis ", "namedsport", "barretta", "maltodestrin", "sali minerali", "integratore", "elettroliti", "proteine", "theragun", "compex", "hyperice", "massaggiante", "foam roller", "recupero"]
             return inc.contains(where: { t.contains($0) })
         }
 

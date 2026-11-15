@@ -84,16 +84,23 @@ class RunningWarehouseScraper(BaseScraper):
                 if img_url and "nw=210" in img_url:
                     img_url = img_url.replace("nw=210", "nw=500")
 
-                # In-stock sizes from search preview card
+                # In-stock sizes from search preview card: only trust explicit EU sizes (>= 32);
+                # ambiguous bare US numbers (< 32) trigger PDP fetch_sizes() to read authoritative data-eu.
                 sizes = []
                 m_sizes = re.search(r"Solo taglia\s*([0-9.,\s]+)", cell.text)
                 if m_sizes:
                     raw_s = m_sizes.group(1).split(",")
+                    parsed_vals = []
                     for s in raw_s:
                         cleaned = re.sub(r"[^0-9.]", "", s.strip().replace(",", "."))
                         if cleaned:
                             cleaned = re.sub(r"\.0$", "", cleaned)
-                            sizes.append(cleaned)
+                            try:
+                                parsed_vals.append((cleaned, float(cleaned)))
+                            except ValueError:
+                                pass
+                    if parsed_vals and all(v >= 32.0 for _, v in parsed_vals):
+                        sizes = [c for c, _ in parsed_vals]
 
                 gallery_urls = []
                 if img_url:
@@ -113,7 +120,7 @@ class RunningWarehouseScraper(BaseScraper):
                     "url": product_url,
                     "img_url": img_url,
                     "gallery_urls": gallery_urls,
-                    "sizes": normalize_sizes(sizes)
+                    "sizes": self.normalize_sizes_for_product(sizes, title=title, url=product_url)
                 })
                 if len(candidates) >= limit:
                     break
@@ -127,7 +134,12 @@ class RunningWarehouseScraper(BaseScraper):
         missing_indices = [i for i, c in enumerate(candidates) if not c["sizes"]]
         if missing_indices:
             with ThreadPoolExecutor(max_workers=min(len(missing_indices), 8)) as executor:
-                fetched_sizes = list(executor.map(lambda idx: self.fetch_sizes(candidates[idx]["url"]), missing_indices))
+                fetched_sizes = list(
+                    executor.map(
+                        lambda idx: self.fetch_sizes(candidates[idx]["url"], title=candidates[idx]["title"]),
+                        missing_indices,
+                    )
+                )
             for idx, s in zip(missing_indices, fetched_sizes):
                 candidates[idx]["sizes"] = s
 
@@ -151,7 +163,7 @@ class RunningWarehouseScraper(BaseScraper):
 
         return offers
 
-    def fetch_sizes(self, product_url: str) -> List[str]:
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
         """Fetch real-time in-stock sizes directly from the product detail page."""
         try:
             html = self._fetch_html(product_url)
@@ -189,13 +201,13 @@ class RunningWarehouseScraper(BaseScraper):
                                     found_eu = True
 
                 if not found_eu:
-                    # 3. Fallback regex on row text
+                    # 3. Fallback regex on row text (preserving unit and EU ranges like 47-50)
                     txt = row.text
-                    m = re.search(r"(?:US|EU)\s*([0-9]+(?:\.[0-9]+)?)", txt)
+                    m = re.search(r"((?:US|EU)\s*[0-9]+(?:[-/][0-9]+|\.[0-9]+)?)", txt, re.IGNORECASE)
                     if m:
                         val = re.sub(r"\.0$", "", m.group(1))
                         sizes.append(val)
 
-            return normalize_sizes(sizes)
+            return self.normalize_sizes_for_product(sizes, title=title, url=product_url, soup=soup)
         except Exception:
             return []

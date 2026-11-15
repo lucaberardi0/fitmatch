@@ -3,7 +3,8 @@ import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Dict
 from curl_cffi import requests
-from fitmatch.models import Offer
+from fitmatch.models import Offer, normalize_sizes, is_female_context
+from fitmatch.matcher.normalizer import ProductNormalizer
 
 logger = logging.getLogger("fitmatch.scraper")
 
@@ -40,7 +41,7 @@ class BaseScraper(ABC):
         """Search the store catalog for a given query and return a list of Offers."""
         pass
 
-    def fetch_sizes(self, product_url: str) -> List[str]:
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
         """Fetch available in-stock sizes from the product detail page."""
         return []
 
@@ -103,3 +104,28 @@ class BaseScraper(ABC):
             return round(float(cleaned), 2)
         except ValueError:
             return None
+
+    def normalize_sizes_for_product(
+        self,
+        raw_sizes: Any,
+        title: Optional[str] = None,
+        url: Optional[str] = None,
+        gender: Optional[str] = None,
+        category: Optional[str] = None,
+        soup: Any = None,
+    ) -> List[str]:
+        """Normalize sizes using resolved gender and product category context."""
+        resolved_title = title
+        if not resolved_title and soup is not None:
+            h1 = soup.find("h1")
+            if h1:
+                resolved_title = h1.get_text(" ", strip=True)
+        normalizer = getattr(self, "normalizer", None) or ProductNormalizer()
+        resolved_gender = gender
+        if not resolved_gender:
+            if is_female_context(title=resolved_title) or is_female_context(title=url):
+                resolved_gender = "women"
+            else:
+                resolved_gender = normalizer.extract_gender(resolved_title or "", url)
+        resolved_category = category or (normalizer.detect_article_type(resolved_title) if resolved_title else None)
+        return normalize_sizes(raw_sizes, gender=resolved_gender, category=resolved_category)

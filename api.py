@@ -815,8 +815,8 @@ def _execute_smart_search(
             products = brand_relaxed
             relaxed_brand = intent.brand
 
-    elif 1 <= len(products) <= 2 and intent.brand and not intent.is_off_topic:
-        # Scarcity supplementation (e.g. "Long sleeve Puma" has only 1-2 items in catalog):
+    elif 1 <= len(products) <= 3 and intent.brand and not intent.is_off_topic:
+        # Scarcity supplementation (e.g. "Long sleeve Puma" has only 1-3 items in catalog):
         # keep the exact brand items first and supplement with top multi-brand alternatives in the same category.
         cat_fallback_kws = QueryProductGuardrail.expand_keywords(
             raw_query=guardrail_query,

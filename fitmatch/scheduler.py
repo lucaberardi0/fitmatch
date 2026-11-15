@@ -349,7 +349,9 @@ class SyncScheduler:
         start_time = time.time()
         try:
             from scripts.enrich_database_sizes import run_enrichment_batch
-            counts = run_enrichment_batch(limit_per_store=limit_per_store, max_workers=5)
+            from scripts.verify_and_purge_offers import verify_and_purge_offers
+            counts = run_enrichment_batch(limit_per_store=limit_per_store, max_workers=5, refresh_stale_limit=30)
+            purge_stats = verify_and_purge_offers(batch_size=100, max_items=100, execute=True)
             total_enriched = sum(counts.values())
             elapsed = round(time.time() - start_time, 2)
 
@@ -358,15 +360,17 @@ class SyncScheduler:
                     session_id=session_id,
                     status="completed",
                     duration_seconds=elapsed,
-                    total_items_processed=total_enriched,
-                    total_items_updated=total_enriched,
-                    store_stats=counts
+                    total_items_processed=total_enriched + int(purge_stats.get("audited", 0)),
+                    total_items_updated=total_enriched + int(purge_stats.get("deleted", 0)) + int(purge_stats.get("marked_oos", 0)),
+                    store_stats=counts,
+                    metadata={"limit_per_store": limit_per_store, "purge": purge_stats}
                 )
 
             return {
                 "status": "success",
                 "total_enriched": total_enriched,
                 "by_store": counts,
+                "purge": purge_stats,
                 "duration_seconds": elapsed
             }
         except Exception as e:

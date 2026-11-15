@@ -1,7 +1,12 @@
 import urllib.parse
+import logging
 from typing import List, Optional
+from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer, normalize_sizes
+from fitmatch.models import Offer, normalize_sizes, is_female_context
+from fitmatch.matcher.normalizer import ProductNormalizer
+
+logger = logging.getLogger("fitmatch.scraper.top4running")
 
 
 class Top4RunningScraper(BaseScraper):
@@ -20,6 +25,10 @@ class Top4RunningScraper(BaseScraper):
     courier = "DPD / BRT"
     tracker_id = "214346-281297"  # Luigi's Box Italian catalog tracker ID
     api_url = "https://live.luigisbox.com/search"
+
+    def __init__(self, timeout: int = 12):
+        super().__init__(timeout=timeout)
+        self.normalizer = ProductNormalizer()
 
     def search(self, query: str, limit: int = 10) -> List[Offer]:
         params = {
@@ -66,7 +75,9 @@ class Top4RunningScraper(BaseScraper):
             pid = str(attrs.get("id") or attrs.get("producer_id") or h.get("identity_hash") or "")
 
             raw_sizes = attrs.get("sizes_eu") or attrs.get("sizes_default") or attrs.get("Size") or []
-            sizes = normalize_sizes(raw_sizes)
+            gender = "women" if is_female_context(title=full_title) or is_female_context(title=product_url) else self.normalizer.extract_gender(full_title, product_url)
+            category = self.normalizer.detect_article_type(full_title)
+            sizes = normalize_sizes(raw_sizes, gender=gender, category=category)
 
             offers.append(
                 Offer(
@@ -88,3 +99,33 @@ class Top4RunningScraper(BaseScraper):
                 break
 
         return offers
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Extract in-stock sizes from Top4Running PDP size selector."""
+        try:
+            html = self._fetch_html(product_url)
+            if not html:
+                return []
+            soup = BeautifulSoup(html, "html.parser")
+            sel = soup.select_one("select#js-detail-select-size, select[name='detail_size']")
+            if not sel:
+                return []
+            raw_sizes: List[str] = []
+            for opt in sel.select("option"):
+                val = (opt.get("value") or "").strip()
+                if not val or opt.has_attr("disabled"):
+                    continue
+                txt = opt.get_text(" ", strip=True)
+                if not txt:
+                    continue
+                # Format: '42½ EU | 8 UK | 9 US | 27 CM' -> take primary EU/apparel part
+                primary = txt.split("|")[0].strip()
+                if primary:
+                    raw_sizes.append(primary)
+            pdp_title = title or (soup.find("h1").get_text(strip=True) if soup.find("h1") else "")
+            gender = "women" if is_female_context(title=pdp_title) or is_female_context(title=product_url) else self.normalizer.extract_gender(pdp_title, product_url)
+            category = self.normalizer.detect_article_type(pdp_title) if pdp_title else None
+            return normalize_sizes(raw_sizes, gender=gender, category=category)
+        except Exception as e:
+            logger.debug(f"[Top4Running] fetch_sizes error on {product_url}: {e}")
+            return []

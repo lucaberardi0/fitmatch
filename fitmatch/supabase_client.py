@@ -11,7 +11,19 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 import certifi
 
-from fitmatch.models import Offer, STORE_SHIPPING_RULES, clean_image_url, normalize_sizes, extract_variant_title
+from fitmatch.models import (
+    Offer,
+    STORE_SHIPPING_RULES,
+    clean_image_url,
+    normalize_sizes,
+    extract_variant_title,
+    CLOTHING_ORDER,
+    is_female_context,
+    EU_TO_US_MEN,
+    US_TO_EU_MEN,
+    EU_TO_US_WOMEN,
+    US_TO_EU_WOMEN,
+)
 
 logger = logging.getLogger("fitmatch.supabase")
 
@@ -1107,7 +1119,9 @@ class SupabaseClient:
                 if u not in prod_gallery:
                     prod_gallery.append(u)
 
-            off_sizes = normalize_sizes(o.get("available_sizes"))
+            from fitmatch.models import is_female_context, CLOTHING_ORDER
+            off_gender = "women" if is_female_context(gender=p.get("gender"), title=o.get("raw_title") or c_name) else p.get("gender")
+            off_sizes = normalize_sizes(o.get("available_sizes"), gender=off_gender, category=p.get("category"))
             offers.append({
                 "store_id": o.get("store_id"),
                 "store_name": o.get("store_name"),
@@ -1150,9 +1164,9 @@ class SupabaseClient:
 
         def _size_sort_key(s):
             try:
-                return (0, float(s))
+                return (0, float(s), "")
             except ValueError:
-                return (1, s)
+                return (1, float(CLOTHING_ORDER.get(str(s).upper(), 99)), str(s))
 
         sorted_sizes = sorted(list(prod_all_sizes), key=_size_sort_key)
 
@@ -1291,25 +1305,27 @@ class SupabaseClient:
             except (ValueError, TypeError):
                 eff_min_price = None
 
-        norm_size = size.strip().replace(",", ".") if size else None
-        target_size_candidates = set()
-        if norm_size:
-            target_size_candidates.add(norm_size)
-            from fitmatch.models import EU_TO_US_MEN, US_TO_EU_MEN
-            if norm_size in EU_TO_US_MEN:
-                target_size_candidates.add(EU_TO_US_MEN[norm_size])
-            if norm_size in US_TO_EU_MEN:
-                target_size_candidates.add(US_TO_EU_MEN[norm_size])
+        from fitmatch.models import EU_TO_US_MEN, US_TO_EU_MEN, EU_TO_US_WOMEN, US_TO_EU_WOMEN, is_female_context, normalize_sizes
 
-        norm_pref_size = preferred_size.strip().replace(",", ".") if preferred_size else None
-        pref_size_candidates = set()
-        if norm_pref_size:
-            pref_size_candidates.add(norm_pref_size)
-            from fitmatch.models import EU_TO_US_MEN, US_TO_EU_MEN
-            if norm_pref_size in EU_TO_US_MEN:
-                pref_size_candidates.add(EU_TO_US_MEN[norm_pref_size])
-            if norm_pref_size in US_TO_EU_MEN:
-                pref_size_candidates.add(US_TO_EU_MEN[norm_pref_size])
+        def _build_size_candidates(sz: Optional[str], female: bool) -> set:
+            if not sz:
+                return set()
+            req = sz.strip().replace(",", ".").upper()
+            cands = {req}
+            eu_to_us = EU_TO_US_WOMEN if female else EU_TO_US_MEN
+            us_to_eu = US_TO_EU_WOMEN if female else US_TO_EU_MEN
+            if req in eu_to_us:
+                cands.add(eu_to_us[req])
+            if req in us_to_eu:
+                cands.add(us_to_eu[req])
+            return cands
+
+        req_female = is_female_context(gender=gender, title=eff_query_str)
+        norm_size = size.strip().replace(",", ".").upper() if size else None
+        target_size_candidates = _build_size_candidates(norm_size, req_female)
+
+        norm_pref_size = preferred_size.strip().replace(",", ".").upper() if preferred_size else None
+        pref_size_candidates = _build_size_candidates(norm_pref_size, req_female)
 
         keywords_to_query = [k for k in (target_keywords or [""]) if k.strip()][:8]
         if not keywords_to_query:
@@ -1430,10 +1446,8 @@ class SupabaseClient:
                 if req_g == "donna" and has_male_marker and not has_female_marker:
                     continue
 
-            # If product has explicit available sizes and size filter was requested
-            p_sizes = set(p.get("available_sizes") or [])
-            if target_size_candidates and p_sizes and not target_size_candidates.intersection(p_sizes):
-                continue
+            prod_female = req_female or is_female_context(gender=p.get("gender"), title=p.get("canonical_name"))
+            prod_size_cands = _build_size_candidates(norm_size, prod_female) if norm_size else set()
 
             matching_offers = []
             for o in p.get("offers", []):
@@ -1444,14 +1458,25 @@ class SupabaseClient:
                     continue
                 if eff_min_price is not None and o_price < eff_min_price:
                     continue
-                if target_size_candidates:
-                    off_sizes = set(o.get("available_sizes") or [])
-                    if off_sizes and not target_size_candidates.intersection(off_sizes):
+                if prod_size_cands:
+                    off_sizes = {str(s).strip().replace(",", ".").upper() for s in (o.get("available_sizes") or []) if s}
+                    if not off_sizes or not prod_size_cands.intersection(off_sizes):
                         continue
                 matching_offers.append(o)
 
             if matching_offers:
                 p["offers"] = matching_offers
+                # Recompute product-level available_sizes from surviving matching offers only
+                recomputed_sizes = []
+                for mo in matching_offers:
+                    for s in (mo.get("available_sizes") or []):
+                        if s not in recomputed_sizes:
+                            recomputed_sizes.append(s)
+                p["available_sizes"] = normalize_sizes(
+                    recomputed_sizes,
+                    gender="women" if prod_female else p.get("gender"),
+                    category=p.get("category"),
+                ) or recomputed_sizes
                 prices = [o["price"] for o in matching_offers]
                 p["best_price"] = min(prices)
                 p["max_price"] = max(prices)
@@ -1912,7 +1937,8 @@ class SupabaseClient:
             if not p_brand or p_brand.lower() in store_names_lower:
                 p_brand = inferred or ""
 
-            norm_sizes = normalize_sizes(o.get("available_sizes"))
+            off_gender = "women" if is_female_context(title=o.get("raw_title") or p_obj.get("canonical_name")) else None
+            norm_sizes = normalize_sizes(o.get("available_sizes"), gender=off_gender, category=p_obj.get("category"))
 
             prods.append({
                 "id": o.get("id"),
@@ -2158,7 +2184,11 @@ class SupabaseClient:
                 "discount_pct": disc,
                 "product_url": r.get("product_url"),
                 "image_url": clean_image_url(r.get("image_url")),
-                "available_sizes": normalize_sizes(r.get("available_sizes")),
+                "available_sizes": normalize_sizes(
+                    r.get("available_sizes"),
+                    gender=("women" if is_female_context(title=r.get("raw_title") or p_obj.get("canonical_name")) else None),
+                    category=p_obj.get("category"),
+                ),
                 "store_id": r.get("store_id"),
                 "store_name": r.get("store_name"),
                 "shipping_cost": ship_cost,

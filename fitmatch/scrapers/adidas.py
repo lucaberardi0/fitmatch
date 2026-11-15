@@ -72,7 +72,7 @@ class AdidasScraper(BaseScraper):
 
                 pid = str(p.get("productId") or p.get("modelId") or "")
                 raw_sizes = p.get("availableSizes", [])
-                sizes = normalize_sizes(raw_sizes)
+                sizes = self.normalize_sizes_for_product(raw_sizes, title=name, url=url)
                 in_stock = p.get("orderable", True)
 
                 offers.append(

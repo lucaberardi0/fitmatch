@@ -1,7 +1,7 @@
 import re
 import urllib.parse
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict
 import json
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
@@ -9,6 +9,9 @@ from fitmatch.models import Offer, normalize_sizes
 from fitmatch.matcher.normalizer import ProductNormalizer
 
 logger = logging.getLogger("fitmatch.scraper.decathlon")
+
+_RSC_URL_RE = re.compile(r'\\?"url\\?":\\?"(/p/[^\\"]+)\\?"')
+_RSC_SIZES_RE = re.compile(r'\\?"availableSizes\\?":(\[[^\]]*\])')
 
 
 class DecathlonScraper(BaseScraper):
@@ -40,21 +43,8 @@ class DecathlonScraper(BaseScraper):
         if not articles:
             return []
 
-        # Parse pre-rendered sizes from Next.js RSC state
-        url_to_sizes = {}
-        for sc in soup.find_all("script"):
-            if sc.string and "availableSizes" in sc.string:
-                matches = re.finditer(r"\\\"url\\\":\\\"(/p/[^\\\"]+)\\\".*?\\\"availableSizes\\\":(\[.*?\])", sc.string)
-                for m in matches:
-                    u = m.group(1).split("?")[0]
-                    raw_s = m.group(2).replace("\\\"", "\"")
-                    try:
-                        parsed = json.loads(raw_s)
-                        norm = normalize_sizes(parsed)
-                        if norm:
-                            url_to_sizes[u] = norm
-                    except Exception:
-                        pass
+        # Parse pre-rendered sizes from Next.js RSC state without crossing product boundaries
+        raw_url_to_sizes = self.extract_rsc_raw_sizes(soup)
 
         offers: List[Offer] = []
 
@@ -119,7 +109,10 @@ class DecathlonScraper(BaseScraper):
                 if len(parts) >= 2:
                     pid = parts[-1].split("?")[0]
 
-            sizes = url_to_sizes.get(clean_rel) or url_to_sizes.get(raw_href) or []
+            raw_sizes = raw_url_to_sizes.get(clean_rel) or raw_url_to_sizes.get(raw_href) or []
+            gender = self.normalizer.extract_gender(title, product_url)
+            category = self.normalizer.detect_article_type(title)
+            sizes = normalize_sizes(raw_sizes, gender=gender, category=category)
 
             offers.append(
                 Offer(
@@ -142,20 +135,53 @@ class DecathlonScraper(BaseScraper):
 
         return offers
 
-    def fetch_sizes(self, product_url: str) -> List[str]:
+    @staticmethod
+    def extract_rsc_raw_sizes(soup: BeautifulSoup) -> Dict[str, List[str]]:
+        """Extract raw availableSizes per product path strictly within each product's RSC slice."""
+        url_to_raw: Dict[str, List[str]] = {}
+        for sc in soup.find_all("script"):
+            text = sc.string
+            if not text or "availableSizes" not in text:
+                continue
+            url_matches = list(_RSC_URL_RE.finditer(text))
+            for idx, m in enumerate(url_matches):
+                u = m.group(1).split("?")[0]
+                next_start = url_matches[idx + 1].start() if idx + 1 < len(url_matches) else len(text)
+                chunk = text[m.end():min(next_start, m.end() + 2500)]
+                sm = _RSC_SIZES_RE.search(chunk)
+                if not sm:
+                    continue
+                raw_json = sm.group(1).replace('\\"', '"')
+                try:
+                    parsed = json.loads(raw_json)
+                    if isinstance(parsed, list):
+                        url_to_raw[u] = parsed
+                except Exception:
+                    continue
+        return url_to_raw
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
         """Fetch available in-stock sizes for Decathlon product."""
         try:
             html = self._fetch_html(product_url)
             if not html:
                 return []
             soup = BeautifulSoup(html, "html.parser")
-            for sc in soup.find_all("script"):
-                if sc.string and "availableSizes" in sc.string:
-                    m = re.search(r"\\\"availableSizes\\\":(\[.*?\])", sc.string)
-                    if m:
-                        raw = m.group(1).replace("\\\"", "\"")
-                        return normalize_sizes(json.loads(raw))
-            return []
+            path = urllib.parse.urlparse(product_url).path.split("?")[0]
+            raw_map = self.extract_rsc_raw_sizes(soup)
+            raw_sizes: Optional[List[str]] = raw_map.get(path)
+            if raw_sizes is None:
+                for sc in soup.find_all("script"):
+                    if sc.string and "availableSizes" in sc.string:
+                        m = _RSC_SIZES_RE.search(sc.string)
+                        if m:
+                            raw_sizes = json.loads(m.group(1).replace('\\"', '"'))
+                            break
+            if not raw_sizes:
+                return []
+            gender = self.normalizer.extract_gender(title or "", product_url)
+            category = self.normalizer.detect_article_type(title or "") if title else None
+            return normalize_sizes(raw_sizes, gender=gender, category=category)
         except Exception as e:
             logger.debug(f"[Decathlon] fetch_sizes error on {product_url}: {e}")
             return []

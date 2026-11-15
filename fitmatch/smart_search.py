@@ -1833,11 +1833,15 @@ class QueryProductGuardrail:
                 return "eyewear"
             if re.search(r"\b(gilet\s*(?:idratazione|trail)|zain[oi]|soft\s*flask|borracc(?:ia|e|ie)|sacca\s*idrica|active\s*skin|adv\s*skin|camelbak)\b", t):
                 return "hydration"
+            if re.search(r"\b(racchett[ae]\s*(?:da\s*)?tennis|pure\s*drive|pure\s*aero|yonex\s*(?:ezone|vcore|percept)|wilson\s*(?:blade|pro\s*staff|clash|ultra)|head\s*(?:speed|radical|gravity|extreme\s*mp)|tecnifibre\s*t[\s-]*fight|pallin[ae]\s*(?:da\s*)?tennis|borsone\s*tennis)\b", t):
+                return "tennis_racket"
+            if re.search(r"\b(scarpon[ei]\s*(?:da\s*)?sci|mascher[ae]\s*(?:da\s*)?sci|casc[oh]\s*(?:da\s*)?sci|attacch[oi]\s*sci|tavol[ae]\s*snowboard|snowboard|scialpinismo|sci\s*alpino|scarpon[ei]\s*snowboard|atomic\s*(?:hawx|redster|bent)|nordica\s*(?:speedmachine|promachine|dobermann)|rossignol\s*(?:hero|alltrack)|tecnica\s*mach|dalbello)\b", t) or (re.search(r"\bsci\b", t) and not re.search(r"\bscarp[ae]\s*(?:da\s*)?running\b", t)):
+                return "winter_sports"
             if re.search(r"\b(racchett[ae]|pala\s*padel|bullpadel|nox\s*at10|padel)\b", t) and not re.search(r"\bscarp[ae]\b", t):
                 return "padel_racket"
             if re.search(r"\b(rull[oi]|smart\s*trainer|wahoo\s*kickr|tacx\s*(?:flux|neo))\b", t):
                 return "smart_trainer"
-            if re.search(r"\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis)|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali|enervit|maurten)\b", t):
+            if re.search(r"\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis)|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali|enervit|maurten|namedsport)\b", t):
                 return "nutrition"
             # Sport-specific footwear BEFORE generic running shoes
             if re.search(
@@ -1845,6 +1849,8 @@ class QueryProductGuardrail:
                 t,
             ) or (re.search(r"\bcalcio\s*a\s*[57]\b", t) and not re.search(r"\b(magli[ae]|kit|pantaloncin[oi]|pallon[ei]|guant[oi])\b", t)):
                 return "football_boots"
+            if re.search(r"\b(pallon[ei]\s*(?:da\s*)?basket|canott[ae]\s*(?:da\s*)?basket|magli[ae]\s*(?:nba|basket)|spalding|molten)\b", t):
+                return "basketball"
             if re.search(r"\b(basket|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b", t) and not re.search(r"\b(magli[ae]|canott[ae]|pantaloncin[oi]|calz[ae]|pallon[ei]|canestro)\b", t):
                 return "basketball_shoes"
             if re.search(r"\b(tennis|terra\s*battuta|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b", t) and not re.search(r"\b(racchett[ae]|pallin[ae]|abbigliamento|pantaloncin[oi]|magli[ae])\b", t):
@@ -1903,7 +1909,12 @@ class QueryProductGuardrail:
                 "fitness": "shoes",
                 "football_boots": "football_boots",
                 "basketball_shoes": "basketball_shoes",
+                "basketball": "basketball",
                 "tennis_shoes": "tennis_shoes",
+                "tennis": "tennis_racket",
+                "winter_sports": "winter_sports",
+                "sci": "winter_sports",
+                "calcio": "football_boots",
                 "volleyball_shoes": "volleyball_shoes",
                 "swim": "swim",
                 "top": "top",
@@ -2222,13 +2233,30 @@ class QueryProductGuardrail:
             return bool(re.search(r"\b(pallavolo|volley|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner|spike)\b", full_text))
 
         if product_type == "swim":
-            if cat in {"running_shoes", "trail_running", "shoes", "football_boots", "top", "jacket", "pants", "socks", "gps_watch", "cycling", "racket", "padel", "nutrition"}:
+            if cat in {"running_shoes", "trail_running", "shoes", "football_boots", "top", "jacket", "pants", "socks", "gps_watch", "cycling", "racket", "padel", "nutrition", "winter_sports"}:
                 return False
             if re.search(r"\b(scarp[ae]|oakley|sutro|radar|jawbreaker|magli[ae]|pantaloncin[oi]|calz[ae]|ciclocomputer|orologi[o]?)\b", full_text):
                 return False
             if "occhialin" in q_lower or "goggles" in q_lower:
                 return bool(re.search(r"\b(occhialin[oi]|goggles|cobra\s*ultra|biofuse|futura|swipe|vengeance|aquapulse|python|tracks|air\s*speed|hydro|speedo|arena|tyr|nabaiji)\b", full_text)) and not re.search(r"\b(costum[ei]|boxer|slip|muta)\b", cname)
-            return cat == "swim" or bool(re.search(r"\b(nuot[ao]|occhialin[oi]|cuffi[ae]\s*nuoto|costum[ei]\s*(?:bagno|nuoto)|arena|speedo|tyr|nabaiji|fastskin|biofuse|cobra)\b", full_text))
+            return cat == "swim" or bool(re.search(r"\b(nuot[ao]|occhialin[oi]|cuffi[ae]\s*nuoto|costum[ei]\s*(?:bagno|nuoto)|arena|speedo|tyr|nabaiji|jaked|fastskin|biofuse|cobra)\b", full_text))
+
+        if product_type == "tennis_racket":
+            if cat in {"running_shoes", "trail_running", "shoes", "football_boots", "basketball", "winter_sports", "swim", "gps_watch", "cycling", "nutrition"}:
+                return False
+            if re.search(r"\b(scarp[ae]|bullpadel|nox\s*at10|siux|starvie)\b", full_text):
+                return False
+            return cat == "tennis" or bool(re.search(r"\b(racchett[ae]\s*(?:da\s*)?tennis|tennis|babolat\s*pure|wilson\s*(?:blade|pro\s*staff|clash|ultra)|yonex\s*(?:ezone|vcore|percept)|head\s*(?:speed|radical|gravity|extreme)|tecnifibre\s*t[\s-]*fight|pallin[ae]\s*tennis|borsone\s*tennis)\b", full_text))
+
+        if product_type == "basketball":
+            if cat in {"running_shoes", "trail_running", "shoes", "football_boots", "tennis", "padel", "winter_sports", "swim", "cycling", "gps_watch"}:
+                return False
+            return cat == "basketball" or bool(re.search(r"\b(basket|basketball|pallacanestro|canott[ae]\s*nba|spalding|molten|jordan|lebron|curry|luka|kobe)\b", full_text))
+
+        if product_type == "winter_sports":
+            if cat in {"running_shoes", "trail_running", "shoes", "football_boots", "basketball", "tennis", "padel", "swim", "cycling"}:
+                return False
+            return cat == "winter_sports" or bool(re.search(r"\b(sci\b|scarpon[ei]\s*sci|mascher[ae]\s*sci|casc[oh]\s*sci|attacch[oi]|snowboard|atomic|rossignol|nordica|fischer|volkl|dalbello|tecnica\s*mach|lange|burton|scialpinismo)\b", full_text))
 
         return True
 
@@ -2438,6 +2466,23 @@ class QueryProductGuardrail:
             archetype_models = [
                 "pallavolo", "volley", "asics spike", "sky elite", "wave lightning", "netburner"
             ]
+        elif product_type == "tennis_racket":
+            archetype_models = [
+                "babolat pure drive", "babolat pure aero", "wilson blade", "wilson pro staff",
+                "yonex ezone", "head speed", "racchetta tennis", "tennis"
+            ]
+        elif product_type == "basketball":
+            archetype_models = [
+                "basket", "jordan", "lebron", "spalding", "molten", "canotta nba", "nike basketball"
+            ]
+        elif product_type == "winter_sports":
+            archetype_models = [
+                "scarponi sci", "atomic", "rossignol", "nordica", "dalbello", "maschera sci", "casco sci"
+            ]
+        elif product_type == "nutrition":
+            archetype_models = [
+                "enervit", "maurten", "sis", "namedsport", "gel energetico", "barretta"
+            ]
         elif product_type == "shoes":
             if "hyrox" in q_low:
                 archetype_models = [
@@ -2573,6 +2618,12 @@ class QueryProductGuardrail:
             intent.category = "cycling"
         elif product_type == "nutrition":
             intent.category = "nutrition"
+        elif product_type == "tennis_racket":
+            intent.category = "tennis"
+        elif product_type == "basketball":
+            intent.category = "basketball"
+        elif product_type == "winter_sports":
+            intent.category = "winter_sports"
         elif product_type in ("basketball_shoes", "tennis_shoes", "volleyball_shoes"):
             intent.category = "shoes"
         elif product_type == "shoes":
@@ -5437,6 +5488,10 @@ class SmartSearchEngine:
         "apparel": "Abbigliamento",
         "fitness": "Fitness e palestra",
         "padel": "Padel",
+        "tennis": "Tennis",
+        "basketball": "Basket",
+        "winter_sports": "Sci & Sport Invernali",
+        "nutrition": "Nutrizione & Recovery",
         "football_boots": "Scarpe da calcio",
         "swim": "Nuoto",
         "eyewear": "Occhiali sportivi",

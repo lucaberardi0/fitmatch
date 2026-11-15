@@ -95,7 +95,7 @@ class MaxiSportScraper(BaseScraper):
 
         def _get_sizes(cand: Dict[str, Any]) -> List[str]:
             try:
-                return self.fetch_sizes(cand["product_url"])
+                return self.fetch_sizes(cand["product_url"], title=cand["title"])
             except Exception:
                 return []
 
@@ -122,8 +122,47 @@ class MaxiSportScraper(BaseScraper):
 
         return offers
 
-    def fetch_sizes(self, product_url: str) -> List[str]:
-        """Extract available sizes from Maxi Sport jsonConfig."""
+    @staticmethod
+    def _resolve_color_product_ids(cfg: Dict[str, Any], product_url: str) -> Optional[set]:
+        """Scope simple product IDs to the active colorway when a Magento jsonConfig exposes a color attribute."""
+        color_attr = None
+        color_attr_id = None
+        for attr_id, attr_data in (cfg.get("attributes") or {}).items():
+            label = str(attr_data.get("label", "")).lower()
+            code = str(attr_data.get("code", "")).lower()
+            if "colore" in label or "color" in label or "color" in code or "colore" in code:
+                color_attr = attr_data
+                color_attr_id = str(attr_id)
+                break
+
+        if not color_attr or len(color_attr.get("options") or []) <= 1:
+            return None
+
+        default_vals = cfg.get("defaultValues") or {}
+        selected_opt_id = str(default_vals.get(color_attr_id) or "")
+        if selected_opt_id:
+            for opt in color_attr.get("options", []):
+                if str(opt.get("id") or "") == selected_opt_id and opt.get("products"):
+                    return {str(pid) for pid in opt["products"]}
+
+        slug = urllib.parse.urlparse(product_url).path.rstrip("/").split("/")[-1].lower()
+        parts = slug.split("-")
+        if len(parts) >= 2:
+            # MaxiSport URLs typically end with -<style>-<colorCode>, reflected in cfg["sku"] as <style>_<colorCode>_<size>
+            tail_underscore = f"{parts[-2]}_{parts[-1]}"
+            tail_dash = f"{parts[-2]}-{parts[-1]}"
+            matched_ids = {
+                str(pid)
+                for pid, sku in (cfg.get("sku") or {}).items()
+                if tail_underscore in str(sku).lower() or tail_dash in str(sku).lower()
+            }
+            if matched_ids:
+                return matched_ids
+
+        return None
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Extract available sizes from Maxi Sport jsonConfig using gender/category context."""
         html = self._fetch_html(product_url)
         if not html:
             return []
@@ -135,15 +174,19 @@ class MaxiSportScraper(BaseScraper):
                 if m:
                     try:
                         cfg = json.loads(m.group(1))
+                        allowed_pids = self._resolve_color_product_ids(cfg, product_url)
                         for attr_id, attr_data in cfg.get("attributes", {}).items():
                             label = attr_data.get("label", "").lower()
                             if "taglia" in label or "size" in label:
-                                raw_sizes = [
-                                    opt["label"].strip().replace(",", ".")
-                                    for opt in attr_data.get("options", [])
-                                    if len(opt.get("products", [])) > 0
-                                ]
-                                return normalize_sizes(raw_sizes)
+                                raw_sizes = []
+                                for opt in attr_data.get("options", []):
+                                    opt_pids = {str(pid) for pid in (opt.get("products") or [])}
+                                    if not opt_pids:
+                                        continue
+                                    if allowed_pids is not None and not (opt_pids & allowed_pids):
+                                        continue
+                                    raw_sizes.append(opt["label"].strip().replace(",", "."))
+                                return self.normalize_sizes_for_product(raw_sizes, title=title, url=product_url, soup=soup)
                     except Exception:
                         pass
         return []

@@ -104,7 +104,7 @@ class NenciniSportScraper(BaseScraper):
 
         def _get_sizes(cand: Dict[str, Any]) -> List[str]:
             try:
-                return self.fetch_sizes(cand["product_url"])
+                return self.fetch_sizes(cand["product_url"], title=cand["title"])
             except Exception:
                 return []
 
@@ -131,7 +131,7 @@ class NenciniSportScraper(BaseScraper):
 
         return offers
 
-    def fetch_sizes(self, product_url: str) -> List[str]:
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
         """Extract verified in-stock sizes from Nencini product detail page."""
         self._ensure_session()
         html = self._fetch_html(product_url)
@@ -189,4 +189,4 @@ class NenciniSportScraper(BaseScraper):
                         txt = f"US {txt}"
                     in_stock_sizes.append(txt)
 
-        return normalize_sizes(in_stock_sizes)
+        return self.normalize_sizes_for_product(in_stock_sizes, title=title, url=product_url, soup=soup)

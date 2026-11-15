@@ -201,6 +201,12 @@ struct ShopStoreLogo: View {
         if s.contains("alltricks") { return "AT" }
         if s.contains("decathlon") { return "DC" }
         if s.contains("sportler") { return "SP" }
+        if s.contains("sportit") { return "SI" }
+        if s.contains("tennis-point") || s.contains("tennis_point") { return "TP" }
+        if s.contains("basketball") { return "BS" }
+        if s.contains("nonsolosport") { return "NS" }
+        if s.contains("intersport") { return "IS" }
+        if s.contains("bshopzone") { return "BZ" }
         if s.contains("nike") { return "NK" }
         if s.contains("adidas") { return "AD" }
         let words = storeName.components(separatedBy: " ").filter { !$0.isEmpty }
@@ -225,6 +231,12 @@ struct ShopStoreLogo: View {
         if s.contains("alltricks") { return Color(red: 0/255, green: 163/255, blue: 224/255) }
         if s.contains("decathlon") { return Color(red: 0/255, green: 130/255, blue: 200/255) }
         if s.contains("sportler") { return Color(red: 220/255, green: 30/255, blue: 40/255) }
+        if s.contains("sportit") { return Color(red: 230/255, green: 85/255, blue: 20/255) }
+        if s.contains("tennis-point") || s.contains("tennis_point") { return Color(red: 240/255, green: 120/255, blue: 0/255) }
+        if s.contains("basketball") { return Color(red: 200/255, green: 50/255, blue: 35/255) }
+        if s.contains("nonsolosport") { return Color(red: 18/255, green: 75/255, blue: 155/255) }
+        if s.contains("intersport") { return Color(red: 0/255, green: 60/255, blue: 145/255) }
+        if s.contains("bshopzone") { return Color(red: 25/255, green: 115/255, blue: 165/255) }
         if s.contains("nike") { return Color(red: 17/255, green: 17/255, blue: 17/255) }
         return .shopPurple
     }

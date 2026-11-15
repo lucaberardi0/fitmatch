@@ -1,7 +1,10 @@
+import json
 import logging
-from typing import List, Optional
+from typing import List, Optional, Any
+from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer, normalize_sizes
+from fitmatch.models import Offer, normalize_sizes, is_female_context
+from fitmatch.matcher.normalizer import ProductNormalizer
 
 logger = logging.getLogger("fitmatch.scraper.deporvillage")
 
@@ -15,6 +18,10 @@ class DeporvillageScraper(BaseScraper):
     app_id = "GFLCWVLLQY"
     api_key = "77b624f582d4304da3a6159f116575b0"
     index_name = "prod_product_IT_default"
+
+    def __init__(self, timeout: int = 12):
+        super().__init__(timeout=timeout)
+        self.normalizer = ProductNormalizer()
 
     def search(self, query: str, limit: int = 10) -> List[Offer]:
         url = f"https://{self.app_id}-dsn.algolia.net/1/indexes/{self.index_name}/query"
@@ -90,8 +97,15 @@ class DeporvillageScraper(BaseScraper):
             img_url = gallery_urls[0] if gallery_urls else None
 
             # Extract available sizes in stock
-            raw_sizes = h.get("sizes") or []
-            sizes = normalize_sizes(raw_sizes)
+            raw_sizes: List[str] = []
+            for s in (h.get("sizes") or []):
+                if isinstance(s, dict) and s.get("name"):
+                    raw_sizes.append(str(s["name"]).strip())
+                elif isinstance(s, str) and s.strip():
+                    raw_sizes.append(s.strip())
+            gender = "women" if is_female_context(title=full_title) or is_female_context(title=url_str) else self.normalizer.extract_gender(full_title, url_str)
+            category = self.normalizer.detect_article_type(full_title)
+            sizes = normalize_sizes(raw_sizes, gender=gender, category=category)
 
             pid = str(h.get("objectID") or h.get("id") or "")
 
@@ -115,3 +129,47 @@ class DeporvillageScraper(BaseScraper):
                 break
 
         return offers
+
+    def _collect_variants_from_ld(self, obj: Any) -> List[str]:
+        raw_sizes: List[str] = []
+        if isinstance(obj, list):
+            for item in obj:
+                raw_sizes.extend(self._collect_variants_from_ld(item))
+            return raw_sizes
+        if not isinstance(obj, dict):
+            return raw_sizes
+        if "@graph" in obj and isinstance(obj["@graph"], list):
+            raw_sizes.extend(self._collect_variants_from_ld(obj["@graph"]))
+        for v in (obj.get("hasVariant") or []):
+            if not isinstance(v, dict):
+                continue
+            offers = v.get("offers")
+            offer_list = offers if isinstance(offers, list) else ([offers] if isinstance(offers, dict) else [])
+            in_stock = any("InStock" in str(o.get("availability") or "") for o in offer_list if isinstance(o, dict))
+            if in_stock and v.get("size"):
+                raw_sizes.append(str(v["size"]).strip())
+        return raw_sizes
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Extract live in-stock sizes from Deporvillage PDP JSON-LD ProductGroup variants."""
+        try:
+            html = self._fetch_html(product_url)
+            if not html:
+                return []
+            soup = BeautifulSoup(html, "html.parser")
+            raw_sizes: List[str] = []
+            for sc in soup.find_all("script", type="application/ld+json"):
+                if not sc.string or "hasVariant" not in sc.string:
+                    continue
+                try:
+                    data = json.loads(sc.string)
+                    raw_sizes.extend(self._collect_variants_from_ld(data))
+                except Exception:
+                    continue
+            pdp_title = title or (soup.find("h1").get_text(strip=True) if soup.find("h1") else "")
+            gender = "women" if is_female_context(title=pdp_title) or is_female_context(title=product_url) else self.normalizer.extract_gender(pdp_title, product_url)
+            category = self.normalizer.detect_article_type(pdp_title) if pdp_title else None
+            return normalize_sizes(raw_sizes, gender=gender, category=category)
+        except Exception as e:
+            logger.debug(f"[Deporvillage] fetch_sizes error on {product_url}: {e}")
+            return []

@@ -20,6 +20,14 @@ from fitmatch.scrapers.nike import NikeScraper
 from fitmatch.scrapers.adidas import AdidasScraper
 from fitmatch.scrapers.tradeinn import TradeinnScraper
 from fitmatch.scrapers.df_sport import DFSportScraper
+from fitmatch.scrapers.shopify_stores import (
+    SportITScraper,
+    TennisPointScraper,
+    BasketballStoreScraper,
+    NonSoloSportScraper,
+    IntersportScraper,
+    BshopzoneScraper,
+)
 
 logger = logging.getLogger("fitmatch.crawler")
 
@@ -28,6 +36,50 @@ class CategoryCrawler:
     """Orchestrates comprehensive crawling of multi-store catalogs and indexes products in the database."""
 
     BATCH_SIZE = 40
+
+    SHOPIFY_CRAWL_CONFIG: Dict[str, Dict[str, List[str]]] = {
+        "sportit": {
+            "collections": [
+                "running", "padel", "tennis", "nuoto", "sci", "fitness",
+                "ciclismo", "trekking", "completi-calcio-abbigliamento", "felpe-calcio-abbigliamento",
+            ],
+            "queries": ["scarpe calcio", "scarpini", "running", "padel", "tennis", "nuoto", "sci", "fitness"],
+        },
+        "tennis_point": {
+            "collections": [
+                "racchette-da-tennis-babolat", "scarpe-da-tennis-adidas",
+                "scarpe-da-tennis-asics-court-ff", "scarpe-da-tennis-asics-gel-challenger",
+                "padel-racchette-da-padel-adidas", "padel-racchette-da-padel-babolat-counter-viper",
+            ],
+            "queries": ["tennis", "padel", "babolat", "wilson", "head", "yonex", "asics"],
+        },
+        "basketballstore": {
+            "collections": ["scarpe-basket", "abbigliamento-basket", "accessori-basket", "palloni-basket", "canotte-basket"],
+            "queries": ["jordan", "nike basket", "curry", "spalding", "lebron"],
+        },
+        "nonsolosport": {
+            "collections": [
+                "calcio", "calcetto", "basket", "abbigliamento-running",
+                "abbigliamento-sci", "abbigliamento-padel-e-tennis", "abbigliamento-trekking", "abbigliamento-training",
+            ],
+            "queries": ["scarpe calcio", "scarpe basket", "running", "sci", "nuoto"],
+        },
+        "intersport": {
+            "collections": [
+                "sci", "abbigliamento-basket", "abbigliamento-calcetto", "abbigliamento-ciclismo",
+                "abbigliamento-tennis", "abbigliamento-padel", "abbigliamento-fitness-e-palestra",
+                "abbigliamento-trekking", "nuoto",
+            ],
+            "queries": ["running", "salomon", "nike", "sci", "nuoto", "calcio"],
+        },
+        "bshopzone": {
+            "collections": [
+                "scarpe-trail-running", "scarpe-trekking", "scarpe-arrampicata",
+                "scarponi-sci", "caschi-sci", "sci-attacchi", "alpinismo", "running",
+            ],
+            "queries": ["scarpa", "nordica", "atomic", "salomon", "hoka"],
+        },
+    }
 
     def __init__(self, db: Optional[Database] = None):
         self.db = db or Database()
@@ -47,6 +99,12 @@ class CategoryCrawler:
         self.adidas = AdidasScraper()
         self.tradeinn = TradeinnScraper()
         self.df_sport = DFSportScraper()
+        self.sportit = SportITScraper()
+        self.tennis_point = TennisPointScraper()
+        self.basketballstore = BasketballStoreScraper()
+        self.nonsolosport = NonSoloSportScraper()
+        self.intersport = IntersportScraper()
+        self.bshopzone = BshopzoneScraper()
 
     def _flush_batch(self, batch: List[Dict[str, Any]]) -> int:
         """Helper to flush pending offers to DB in a single transaction."""
@@ -62,12 +120,37 @@ class CategoryCrawler:
         art_type = ProductNormalizer.detect_article_type(title)
         if art_type == "non_sport":
             return "non_sport"
-        if art_type in ("swim", "football_boots", "gps_watch", "eyewear", "hydration", "nutrition", "cycling", "case", "mount", "strap", "pack", "sensor", "socks", "top", "pants", "jacket"):
+        if art_type in (
+            "swim", "football_boots", "tennis", "basketball", "winter_sports",
+            "gps_watch", "eyewear", "hydration", "nutrition", "cycling",
+            "case", "mount", "strap", "pack", "sensor", "socks", "top", "pants", "jacket",
+        ):
             return art_type
         if art_type == "racket":
+            if any(w in tl for w in ["tennis", "pure drive", "pure aero", "blade ", "pro staff", "ezone", "vcore", "percept", "speed mp", "radical mp"]):
+                return "tennis"
             return "padel"
         if art_type == "trainer":
             return "cycling"
+        if any(w in tl for w in [
+            "scarponi sci", "maschera sci", "casco sci", "attacchi sci", "snowboard",
+            "atomic ", "rossignol", "nordica", "dalbello", "tecnica mach", "lange ", "head kore", "volkl", "blizzard ",
+        ]):
+            return "winter_sports"
+        if any(w in tl for w in [
+            "basket", "basketball", "pallacanestro", "lebron", "curry", "luka ", "giannis",
+            "kd ", "kobe ", "air jordan", "spalding", "molten", "canotta nba",
+        ]):
+            return "basketball"
+        if any(w in tl for w in [
+            "tennis", "terra battuta", "gel-resolution", "gel resolution", "court ff",
+            "barricade", "nikecourt", "babolat pure", "wilson blade", "pro staff", "yonex ezone",
+        ]):
+            return "tennis"
+        if any(w in tl for w in [
+            "calcio", "calcetto", "futsal", "parastinchi", "guanti portiere", "mercurial", "predator", "phantom", "copa pure",
+        ]):
+            return "football_boots"
         if any(w in tl for w in [
             "theragun", "hyperice", "massaggiante", "recupero", "loop band", "elastico", "elastici",
             "manubri", "kettlebell", "foam roller", "tappetino", "pesi", "corda saltare", "compex",
@@ -105,7 +188,10 @@ class CategoryCrawler:
             "https://www.cisalfasport.it/it-it/sport/tennis-padel/",
             "https://www.cisalfasport.it/it-it/sport/ciclismo/",
             "https://www.cisalfasport.it/it-it/sport/training-palestra/",
-            "https://www.cisalfasport.it/it-it/sport/calcio/scarpe-calcio/"
+            "https://www.cisalfasport.it/it-it/sport/calcio/scarpe-calcio/",
+            "https://www.cisalfasport.it/it-it/sport/basket/",
+            "https://www.cisalfasport.it/it-it/sport/sci-e-snowboard/",
+            "https://www.cisalfasport.it/it-it/sport/nuoto/",
         ]
         page_size = 36
         total_indexed = 0
@@ -397,7 +483,9 @@ class CategoryCrawler:
                         pid = str(p.get("id")) if p.get("id") else None
 
                         raw_sizes = p.get("sizes", [])
-                        sizes = normalize_sizes(raw_sizes)
+                        gender = self.normalizer.extract_gender(name, url)
+                        category = self._detect_category(name)
+                        sizes = normalize_sizes(raw_sizes, gender=gender, category=category)
 
                         offer = Offer(
                             store_id=self.misterrunning.store_id,
@@ -461,6 +549,11 @@ class CategoryCrawler:
             "https://www.nencinisport.it/it/sport/outdoor/scarpe/",
             "https://www.nencinisport.it/it/sport/ciclismo/",
             "https://www.nencinisport.it/it/sport/padel/",
+            "https://www.nencinisport.it/it/sport/tennis/",
+            "https://www.nencinisport.it/it/sport/calcio/",
+            "https://www.nencinisport.it/it/sport/basket/",
+            "https://www.nencinisport.it/it/sport/sci/",
+            "https://www.nencinisport.it/it/sport/nuoto/",
             "https://www.nencinisport.it/it/sneakers/"
         ]
         total_indexed = 0
@@ -625,7 +718,9 @@ class CategoryCrawler:
                     product_url = urllib.parse.urljoin(self.top4running.base_url, raw_url)
                     pid = str(h.get("id") or attrs.get("id") or "")
                     raw_sizes = attrs.get("sizes_eu") or attrs.get("sizes_default") or attrs.get("Size") or []
-                    sizes = normalize_sizes(raw_sizes)
+                    gender = self.normalizer.extract_gender(full_title, product_url)
+                    category = self._detect_category(full_title)
+                    sizes = normalize_sizes(raw_sizes, gender=gender, category=category)
 
                     offer = Offer(
                         store_id=self.top4running.store_id,
@@ -643,9 +738,7 @@ class CategoryCrawler:
 
                     cluster_key = self.normalizer.extract_cluster_key(offer)
                     canonical_base, _ = self.normalizer.clean_title(offer.title)
-                    gender = self.normalizer.extract_gender(offer.title, offer.url)
                     canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
-                    category = self._detect_category(offer.title)
 
                     batch.append({
                         "cluster_key": cluster_key,
@@ -826,7 +919,8 @@ class CategoryCrawler:
         queries = [
             "", "running", "trail running", "trekking", "outdoor", "giacca gore-tex",
             "garmin", "polar", "suunto", "hoka", "asics", "salomon", "zaino idratazione",
-            "maglia termica", "shorts running"
+            "maglia termica", "shorts running",
+            "calcio", "tennis", "basket", "sci", "scarponi sci", "nuoto", "enervit", "maurten"
         ]
 
         for q in queries:
@@ -901,7 +995,9 @@ class CategoryCrawler:
                                 sizes.append(str(s["name"]).strip())
                             elif isinstance(s, str):
                                 sizes.append(s.strip())
-                    sizes = normalize_sizes(sizes)
+                    gender = self.normalizer.extract_gender(full_title, url_str)
+                    category = self._detect_category(full_title)
+                    sizes = normalize_sizes(sizes, gender=gender, category=category)
 
                     pid = str(h.get("objectID") or h.get("id") or "")
 
@@ -922,9 +1018,7 @@ class CategoryCrawler:
 
                     cluster_key = self.normalizer.extract_cluster_key(offer)
                     canonical_base, _ = self.normalizer.clean_title(offer.title)
-                    gender = self.normalizer.extract_gender(offer.title, offer.url)
                     canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
-                    category = self._detect_category(offer.title)
 
                     batch.append({
                         "cluster_key": cluster_key,
@@ -1066,10 +1160,14 @@ class CategoryCrawler:
             "https://www.decathlon.it/tutti-gli-sport/ciclismo/accessori-bici",
             "https://www.decathlon.it/tutti-gli-sport/fitness-palestra",
             "https://www.decathlon.it/tutti-gli-sport/padel",
+            "https://www.decathlon.it/tutti-gli-sport/tennis",
+            "https://www.decathlon.it/tutti-gli-sport/basket",
+            "https://www.decathlon.it/tutti-gli-sport/sci-e-snowboard",
             "https://www.decathlon.it/tutti-gli-sport/calcio/scarpe-calcio",
             "https://www.decathlon.it/search?Ntt=scarpe+calcetto",
             "https://www.decathlon.it/tutti-gli-sport/nuoto",
             "https://www.decathlon.it/search?Ntt=occhialini+nuoto",
+            "https://www.decathlon.it/search?Ntt=gel+energetici+running",
         ]
 
         for cat_url in cat_urls:
@@ -1080,22 +1178,7 @@ class CategoryCrawler:
                 continue
 
             soup = BeautifulSoup(html, "html.parser")
-
-            url_to_sizes = {}
-            import re, json
-            for sc in soup.find_all("script"):
-                if sc.string and "availableSizes" in sc.string:
-                    matches = re.finditer(r"\\\"url\\\":\\\"(/p/[^\\\"]+)\\\".*?\\\"availableSizes\\\":(\[.*?\])", sc.string)
-                    for m in matches:
-                        u = m.group(1).split("?")[0]
-                        raw_s = m.group(2).replace("\\\"", "\"")
-                        try:
-                            parsed = json.loads(raw_s)
-                            norm = normalize_sizes(parsed)
-                            if norm:
-                                url_to_sizes[u] = norm
-                        except Exception:
-                            pass
+            raw_url_to_sizes = self.decathlon.extract_rsc_raw_sizes(soup)
 
             articles = soup.find_all("article")
             for art in articles:
@@ -1117,7 +1200,10 @@ class CategoryCrawler:
                     raw_href = link_el["href"]
                     product_url = urllib.parse.urljoin(self.decathlon.base_url, raw_href)
                     clean_rel = raw_href.split("?")[0]
-                    sizes = url_to_sizes.get(clean_rel) or url_to_sizes.get(raw_href) or []
+                    raw_sizes = raw_url_to_sizes.get(clean_rel) or raw_url_to_sizes.get(raw_href) or []
+                    gender = self.normalizer.extract_gender(title, product_url)
+                    category = self._detect_category(title)
+                    sizes = normalize_sizes(raw_sizes, gender=gender, category=category)
 
                     # Prices
                     price_blocks = art.select(".vp-price-amount, [class*='price-amount']")
@@ -1203,6 +1289,7 @@ class CategoryCrawler:
                     break
 
                 soup = BeautifulSoup(html, "html.parser")
+                raw_url_to_sizes = self.decathlon.extract_rsc_raw_sizes(soup)
                 articles = soup.find_all("article")
                 if not articles:
                     break
@@ -1223,7 +1310,13 @@ class CategoryCrawler:
                         link_el = art.find("a", href=lambda h: h and "/p/" in h)
                         if not link_el or not link_el.get("href"):
                             continue
-                        product_url = urllib.parse.urljoin(self.decathlon.base_url, link_el["href"])
+                        raw_href = link_el["href"]
+                        product_url = urllib.parse.urljoin(self.decathlon.base_url, raw_href)
+                        clean_rel = raw_href.split("?")[0]
+                        raw_sizes = raw_url_to_sizes.get(clean_rel) or raw_url_to_sizes.get(raw_href) or []
+                        gender = self.normalizer.extract_gender(title, product_url)
+                        category = self._detect_category(title)
+                        sizes = normalize_sizes(raw_sizes, gender=gender, category=category)
 
                         price_blocks = art.select(".vp-price-amount, [class*='price-amount']")
                         price = None
@@ -1265,6 +1358,7 @@ class CategoryCrawler:
                             original_price=orig_price,
                             url=product_url,
                             image_url=img_url,
+                            available_sizes=sizes,
                             in_stock=True
                         )
 
@@ -1429,7 +1523,11 @@ class CategoryCrawler:
 
                         pid = str(p.get("productId") or p.get("modelId") or "")
                         raw_sizes = p.get("availableSizes", [])
-                        sizes = [str(s).strip() for s in raw_sizes if s]
+                        gender = self.normalizer.extract_gender(name, url) or default_gender
+                        category = self._detect_category(name)
+                        if category == "running_shoes" and fallback_cat != "running_shoes":
+                            category = fallback_cat
+                        sizes = normalize_sizes(raw_sizes, gender=gender, category=category)
                         in_stock = p.get("orderable", True)
 
                         offer = Offer(
@@ -1448,11 +1546,7 @@ class CategoryCrawler:
 
                         cluster_key = self.normalizer.extract_cluster_key(offer)
                         canonical_base, _ = self.normalizer.clean_title(offer.title)
-                        gender = self.normalizer.extract_gender(offer.title, offer.url) or default_gender
                         canonical = f"Adidas {canonical_base.title()}" if not canonical_base.lower().startswith("adidas") else canonical_base.title()
-                        category = self._detect_category(offer.title)
-                        if category == "running_shoes" and fallback_cat != "running_shoes":
-                            category = fallback_cat
 
                         batch.append({
                             "cluster_key": cluster_key,
@@ -1491,7 +1585,9 @@ class CategoryCrawler:
         logger.info(f"[Tradeinn] Starting catalog crawl (target: {max_items} items)...")
         queries = [
             "running", "scarpe running", "trail running", "garmin", "smartwatch",
-            "bullpadel", "racchetta padel", "ciclismo", "rullo", "oakley"
+            "bullpadel", "racchetta padel", "racchetta tennis", "babolat pure drive",
+            "scarpe calcio", "mercurial", "scarponi sci", "atomic", "occhialini nuoto",
+            "ciclismo", "rullo", "oakley", "enervit"
         ]
         total_indexed = 0
         batch: List[Dict[str, Any]] = []
@@ -1538,7 +1634,8 @@ class CategoryCrawler:
         logger.info(f"[DF Sport Specialist] Starting catalog crawl (target: {max_items} items)...")
         queries = [
             "running", "trail running", "scarpe", "garmin", "smartwatch",
-            "padel", "ciclismo", "trekking", "salewa", "asics", "hoka"
+            "padel", "tennis", "calcio", "basket", "sci", "scarponi sci",
+            "nuoto", "ciclismo", "trekking", "salewa", "asics", "hoka"
         ]
         total_indexed = 0
         batch: List[Dict[str, Any]] = []
@@ -1579,6 +1676,140 @@ class CategoryCrawler:
         logger.info(f"[DF Sport Specialist] Indexed {total_indexed} products in {round(duration, 1)}s.")
         return total_indexed
 
+    def crawl_sportler(self, max_items: int = 500) -> int:
+        """Crawl Sportler catalog across running, outdoor, cycling and trail queries."""
+        start_time = time.time()
+        logger.info(f"[Sportler] Starting catalog crawl (target: {max_items} items)...")
+        queries = [
+            "running", "trail running", "scarpe running", "scarpa trekking",
+            "garmin", "hoka", "asics", "salomon", "la sportiva", "ciclismo"
+        ]
+        total_indexed = 0
+        seen_urls = set()
+        batch: List[Dict[str, Any]] = []
+
+        for q in queries:
+            try:
+                offers = self.sportler.search(q, limit=min(max_items - total_indexed, 40))
+                for offer in offers:
+                    if offer.url in seen_urls:
+                        continue
+                    seen_urls.add(offer.url)
+                    brand = self.normalizer.extract_brand(offer.title, offer.brand)
+                    cleaned_title, _ = self.normalizer.clean_title(offer.title, brand)
+                    category = self._detect_category(offer.title)
+                    gender = self.normalizer.extract_gender(offer.title, offer.url)
+                    cluster_key = self.normalizer.extract_cluster_key(offer)
+                    canonical = f"{brand} {cleaned_title}".strip() if brand else cleaned_title
+
+                    batch.append({
+                        "cluster_key": cluster_key,
+                        "canonical_name": canonical,
+                        "brand": brand,
+                        "category": category,
+                        "gender": gender,
+                        "offer": offer,
+                    })
+                    total_indexed += 1
+                    if len(batch) >= self.BATCH_SIZE:
+                        self._flush_batch(batch)
+
+                    if total_indexed >= max_items:
+                        break
+            except Exception as e:
+                logger.debug(f"[Sportler] Crawl query {q} error: {e}")
+            if total_indexed >= max_items:
+                break
+
+        self._flush_batch(batch)
+        duration = time.time() - start_time
+        self.db.record_crawl_log("sportler", "catalog", total_indexed, duration, session_id=self.current_session_id)
+        logger.info(f"[Sportler] Indexed {total_indexed} products in {round(duration, 1)}s.")
+        return total_indexed
+
+    def _crawl_shopify_store(self, scraper, max_items: int = 500) -> int:
+        """Shared crawler for Shopify stores using verified collection feeds + search queries."""
+        start_time = time.time()
+        cfg = self.SHOPIFY_CRAWL_CONFIG.get(scraper.store_id, {})
+        collections = cfg.get("collections", [])
+        queries = cfg.get("queries", [])
+        logger.info(f"[{scraper.store_name}] Starting catalog crawl (target: {max_items} items)...")
+
+        total_indexed = 0
+        seen_urls = set()
+        batch: List[Dict[str, Any]] = []
+
+        def _index_offers(offers: List[Offer]) -> None:
+            nonlocal total_indexed
+            for offer in offers:
+                if total_indexed >= max_items:
+                    break
+                if not offer.url or offer.url in seen_urls:
+                    continue
+                seen_urls.add(offer.url)
+                brand = self.normalizer.extract_brand(offer.title, offer.brand)
+                cleaned_title, _ = self.normalizer.clean_title(offer.title, brand)
+                category = self._detect_category(offer.title)
+                if category == "non_sport":
+                    continue
+                gender = self.normalizer.extract_gender(offer.title, offer.url)
+                cluster_key = self.normalizer.extract_cluster_key(offer)
+                canonical = f"{brand} {cleaned_title}".strip() if brand else cleaned_title
+                batch.append({
+                    "cluster_key": cluster_key,
+                    "canonical_name": canonical,
+                    "brand": brand,
+                    "category": category,
+                    "gender": gender,
+                    "offer": offer,
+                })
+                total_indexed += 1
+                if len(batch) >= self.BATCH_SIZE:
+                    self._flush_batch(batch)
+
+        per_collection_cap = max(25, min(60, max_items // max(len(collections), 1) + 10))
+        for col in collections:
+            if total_indexed >= max_items:
+                break
+            try:
+                offers = scraper.fetch_collection_offers(col, limit=per_collection_cap)
+                _index_offers(offers)
+            except Exception as e:
+                logger.debug(f"[{scraper.store_name}] Collection '{col}' crawl error: {e}")
+
+        for q in queries:
+            if total_indexed >= max_items:
+                break
+            try:
+                offers = scraper.search(q, limit=min(max_items - total_indexed, 30))
+                _index_offers(offers)
+            except Exception as e:
+                logger.debug(f"[{scraper.store_name}] Query '{q}' crawl error: {e}")
+
+        self._flush_batch(batch)
+        duration = time.time() - start_time
+        self.db.record_crawl_log(scraper.store_id, "catalog", total_indexed, duration, session_id=self.current_session_id)
+        logger.info(f"[{scraper.store_name}] Indexed {total_indexed} products in {round(duration, 1)}s.")
+        return total_indexed
+
+    def crawl_sportit(self, max_items: int = 500) -> int:
+        return self._crawl_shopify_store(self.sportit, max_items=max_items)
+
+    def crawl_tennis_point(self, max_items: int = 500) -> int:
+        return self._crawl_shopify_store(self.tennis_point, max_items=max_items)
+
+    def crawl_basketballstore(self, max_items: int = 500) -> int:
+        return self._crawl_shopify_store(self.basketballstore, max_items=max_items)
+
+    def crawl_nonsolosport(self, max_items: int = 500) -> int:
+        return self._crawl_shopify_store(self.nonsolosport, max_items=max_items)
+
+    def crawl_intersport(self, max_items: int = 500) -> int:
+        return self._crawl_shopify_store(self.intersport, max_items=max_items)
+
+    def crawl_bshopzone(self, max_items: int = 500) -> int:
+        return self._crawl_shopify_store(self.bshopzone, max_items=max_items)
+
     def crawl_store(self, store_id: str, max_items: int = 500, session_id: Optional[str] = None) -> int:
         """Crawl a specific store by its ID."""
         crawlers = {
@@ -1591,11 +1822,18 @@ class CategoryCrawler:
             "deporvillage": self.crawl_deporvillage,
             "alltricks": self.crawl_alltricks,
             "decathlon": self.crawl_decathlon,
+            "sportler": self.crawl_sportler,
             "nike": self.crawl_nike,
             "adidas": self.crawl_adidas,
             "tradeinn": self.crawl_tradeinn,
             "df_sportspecialist": self.crawl_df_sport,
             "df_sport": self.crawl_df_sport,
+            "sportit": self.crawl_sportit,
+            "tennis_point": self.crawl_tennis_point,
+            "basketballstore": self.crawl_basketballstore,
+            "nonsolosport": self.crawl_nonsolosport,
+            "intersport": self.crawl_intersport,
+            "bshopzone": self.crawl_bshopzone,
         }
         crawler_fn = crawlers.get(store_id.lower())
         if not crawler_fn:
@@ -1627,10 +1865,17 @@ class CategoryCrawler:
             ("deporvillage", self.crawl_deporvillage),
             ("alltricks", self.crawl_alltricks),
             ("decathlon", self.crawl_decathlon),
+            ("sportler", self.crawl_sportler),
             ("nike", self.crawl_nike),
             ("adidas", self.crawl_adidas),
             ("tradeinn", self.crawl_tradeinn),
             ("df_sportspecialist", self.crawl_df_sport),
+            ("sportit", self.crawl_sportit),
+            ("tennis_point", self.crawl_tennis_point),
+            ("basketballstore", self.crawl_basketballstore),
+            ("nonsolosport", self.crawl_nonsolosport),
+            ("intersport", self.crawl_intersport),
+            ("bshopzone", self.crawl_bshopzone),
         ]
 
         target_stores = all_stores

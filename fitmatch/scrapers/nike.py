@@ -3,10 +3,10 @@ import json
 import logging
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
-from fitmatch.models import Offer, normalize_sizes
+from fitmatch.models import Offer, normalize_sizes, is_female_context
 
 logger = logging.getLogger("fitmatch.scraper.nike")
 
@@ -127,7 +127,7 @@ class NikeScraper(BaseScraper):
 
             # Concurrently fetch sizes for all candidate items
             with ThreadPoolExecutor(max_workers=min(len(candidates), 8)) as executor:
-                sizes_list = list(executor.map(lambda c: self.fetch_sizes(c["url"]), candidates))
+                sizes_list = list(executor.map(lambda c: self.fetch_sizes(c["url"], title=c["title"]), candidates))
 
             for c, sizes in zip(candidates, sizes_list):
                 offers.append(
@@ -144,7 +144,7 @@ class NikeScraper(BaseScraper):
                         image_url=c["image_url"],
                         gallery_images=c["gallery_images"],
                         available_sizes=sizes,
-                        in_stock=True
+                        in_stock=bool(sizes)
                     )
                 )
 
@@ -153,8 +153,53 @@ class NikeScraper(BaseScraper):
             logger.error(f"[Nike] Error parsing search wall: {e}")
             return []
 
-    def fetch_sizes(self, product_url: str) -> List[str]:
-        """Fetch available in-stock sizes directly from the Nike PDP structured state."""
+    def _fetch_in_stock_gtins(self, style_color: str) -> Optional[Set[str]]:
+        """Query Nike deliver/available_gtins/v3 for EU real-time stock by GTIN."""
+        if not style_color:
+            return None
+        url = (
+            "https://api.nike.com/deliver/available_gtins/v3"
+            f"?filter=styleColor({urllib.parse.quote(style_color)})&filter=merchGroup(EU)"
+        )
+        data = self._fetch_json(url)
+        if not isinstance(data, dict) or not isinstance(data.get("objects"), list):
+            return None
+        return {
+            str(obj["gtin"])
+            for obj in data["objects"]
+            if isinstance(obj, dict)
+            and obj.get("gtin")
+            and obj.get("available") is True
+            and obj.get("level") != "OOS"
+        }
+
+    def _extract_style_color(self, sp: Dict[str, Any], product_url: str) -> Optional[str]:
+        sc = sp.get("styleColor")
+        if sc:
+            return str(sc).strip()
+        m = re.search(r"/([A-Z0-9]{5,10}-[A-Z0-9]{2,5})(?:[/?#]|$)", product_url)
+        return m.group(1) if m else None
+
+    def _detect_nike_context(self, sp: Dict[str, Any], title: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+        genders = [str(g).upper() for g in (sp.get("genders") or ([sp.get("gender")] if sp.get("gender") else []))]
+        gender: Optional[str] = None
+        if "WOMEN" in genders and "MEN" not in genders:
+            gender = "women"
+        elif is_female_context(title=title):
+            gender = "women"
+
+        ptype = str(sp.get("productType") or "").strip().lower()
+        category: Optional[str] = None
+        if ptype == "apparel":
+            category = "apparel"
+        elif ptype == "equipment":
+            category = "gear"
+        elif ptype == "footwear":
+            category = "shoes"
+        return gender, category
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Fetch verified EU in-stock sizes from Nike PDP state intersected with deliver/available_gtins."""
         try:
             html = self._fetch_html(product_url)
             if not html:
@@ -168,15 +213,35 @@ class NikeScraper(BaseScraper):
             data = json.loads(tag.string)
             sp = data.get("props", {}).get("pageProps", {}).get("selectedProduct") or {}
             sizes_raw = sp.get("sizes") or []
+            if not sizes_raw:
+                return []
+
+            style_color = self._extract_style_color(sp, product_url)
+            in_stock_gtins = self._fetch_in_stock_gtins(style_color) if style_color else None
+            if in_stock_gtins is None:
+                # GTIN stock could not be verified: do not falsely mark catalog sizes as available
+                return []
 
             active_sizes = []
             for s in sizes_raw:
-                if isinstance(s, dict) and s.get("status") == "ACTIVE":
-                    label = s.get("localizedLabel") or s.get("label")
-                    if label:
-                        active_sizes.append(str(label))
+                if not isinstance(s, dict) or s.get("status") != "ACTIVE":
+                    continue
+                s_gtins = {
+                    str(g.get("gtin"))
+                    for g in (s.get("gtins") or [])
+                    if isinstance(g, dict) and g.get("gtin")
+                }
+                if s.get("gtin"):
+                    s_gtins.add(str(s["gtin"]))
+                if not (s_gtins & in_stock_gtins):
+                    continue
+                label = s.get("localizedLabel") or s.get("label")
+                if label:
+                    active_sizes.append(str(label))
 
-            return normalize_sizes(active_sizes)
+            pdp_title = title or sp.get("title") or sp.get("subTitle")
+            gender, category = self._detect_nike_context(sp, pdp_title)
+            return normalize_sizes(active_sizes, gender=gender, category=category)
         except Exception as e:
             logger.warning(f"[Nike] Error fetching sizes for {product_url}: {e}")
             return []

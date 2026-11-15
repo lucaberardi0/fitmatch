@@ -140,3 +140,34 @@ def test_iconic_model_brand_inference_and_cross_gender_clustering(normalizer):
     assert groups_super[0].cross_store_savings == 71.0
 
 
+def test_article_type_edge_and_apparel_isolation(normalizer):
+    assert normalizer.detect_article_type("adidas Hyperboost Edge Scarpe Running") == "shoes"
+    assert normalizer.detect_article_type("Garmin Edge 840 Ciclocomputer GPS") == "cycling"
+    assert normalizer.detect_article_type("Asics Court FF 3 Clay Scarpe Tennis") == "shoes"
+    assert normalizer.detect_article_type("UYN Biking Shirt Manica Corta") == "top"
+    assert normalizer.detect_article_type("Nike Tech Fleece Track Pants Uomo") == "pants"
+
+
+def test_new_categories_brands_and_sizes(normalizer):
+    from fitmatch.models import normalize_sizes, STORE_SHIPPING_RULES
+
+    # Tennis & Winter Sports brand extraction
+    assert normalizer.extract_brand("Racchetta Babolat Pure Drive 2025") == "Babolat"
+    assert normalizer.extract_brand("Scarponi Sci Atomic Hawx Prime 110 S") == "Atomic"
+    assert normalizer.extract_brand("Pallone Basket Spalding TF-1000") == "Spalding"
+
+    # Article types for new categories (shoes still stay 'shoes' when explicit scarpe tennis)
+    assert normalizer.detect_article_type("Racchetta Tennis Yonex Ezone 100") == "tennis"
+    assert normalizer.detect_article_type("Scarponi Sci Nordica Speedmachine 3 110") == "winter_sports"
+    assert normalizer.detect_article_type("Canotta NBA Chicago Bulls Swingman") == "basketball"
+
+    # Grip sizes for tennis/padel and Mondopoint for ski boots
+    assert normalize_sizes(["L1", "2", "L3", "4"]) == ["L1", "L2", "L3", "L4"]
+    assert normalize_sizes(["24.5", "25,5", "27.0"], category="winter_sports") == ["24.5", "25.5", "27"]
+
+    # Verified shipping rules on newly integrated stores
+    assert STORE_SHIPPING_RULES["sportit"]["free_threshold"] == 59.90
+    assert STORE_SHIPPING_RULES["tennis_point"]["standard"] == 5.99
+    assert STORE_SHIPPING_RULES["bshopzone"]["free_threshold"] == 100.0
+
+

@@ -37,7 +37,7 @@ class ComparisonService:
             scraper = self.scrapers_by_id.get(offer.store_id)
             if scraper:
                 try:
-                    sizes = scraper.fetch_sizes(offer.url)
+                    sizes = scraper.fetch_sizes(offer.url, title=offer.title)
                     if sizes:
                         offer.available_sizes = sizes
                 except Exception:

@@ -100,7 +100,7 @@ class CisalfaScraper(BaseScraper):
 
         def _get_sizes(cand: Dict[str, Any]) -> List[str]:
             try:
-                return self.fetch_sizes(cand["product_url"])
+                return self.fetch_sizes(cand["product_url"], title=cand["title"])
             except Exception:
                 return []
 
@@ -127,7 +127,7 @@ class CisalfaScraper(BaseScraper):
 
         return offers
 
-    def fetch_sizes(self, product_url: str) -> List[str]:
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
         """Extract available sizes from Cisalfa product detail page."""
         html = self._fetch_html(product_url)
         if not html:
@@ -138,4 +138,4 @@ class CisalfaScraper(BaseScraper):
             val = el.get("data-display-value")
             if val:
                 sizes.append(val.strip().replace(",", "."))
-        return normalize_sizes(sizes)
+        return self.normalize_sizes_for_product(sizes, title=title, url=product_url, soup=soup)
