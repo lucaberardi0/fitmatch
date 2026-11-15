@@ -15,6 +15,7 @@ extension Color {
     static let shopYellow = Color(red: 255/255, green: 179/255, blue: 0/255)
     static let shopOrange = Color(red: 255/255, green: 122/255, blue: 0/255)
     static let shopRed = Color(red: 235/255, green: 52/255, blue: 62/255)
+    static let shopSurfaceElevated = Color(red: 242/255, green: 243/255, blue: 247/255)
 
     init?(hex: String) {
         var cleanHex = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
@@ -27,6 +28,130 @@ extension Color {
         let b = Double((intVal >> 8) & 0xFF) / 255.0
         let a = Double(intVal & 0xFF) / 255.0
         self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
+    }
+}
+
+// MARK: - Unified Design Tokens & Layout Modifiers
+
+enum ShopLayout {
+    /// Horizontal outer margin used across all screens, carousels, and sheets
+    static let screenPadding: CGFloat = 16
+    /// Vertical gap between distinct sections on a screen
+    static let sectionSpacing: CGFloat = 20
+    /// Vertical gap between cards or medium blocks
+    static let cardSpacing: CGFloat = 16
+    /// Vertical/horizontal gap between related list items
+    static let compactSpacing: CGFloat = 12
+    /// Tight element spacing (chips, inline metadata)
+    static let tightSpacing: CGFloat = 8
+    /// Two-column product grid spacing
+    static let gridColumnSpacing: CGFloat = 12
+    static let gridRowSpacing: CGFloat = 16
+
+    /// Standard internal padding for elevated surface cards
+    static let cardPadding: CGFloat = 16
+    /// Compact internal padding for dense list/notification cards
+    static let compactCardPadding: CGFloat = 14
+
+    /// Unified corner radius tiers
+    static let largeCardRadius: CGFloat = 24
+    static let cardRadius: CGFloat = 20
+    static let mediumRadius: CGFloat = 16
+    static let smallRadius: CGFloat = 12
+
+    /// Standard control sizes & header chrome
+    static let headerTopPadding: CGFloat = 8
+    static let headerBottomPadding: CGFloat = 10
+    static let headerButtonSize: CGFloat = 42
+    static let navButtonSize: CGFloat = 40
+    static let searchPillHeight: CGFloat = 42
+
+    /// Scroll bottom clearances
+    static let bottomDockClearance: CGFloat = 104
+    static let bottomFilterDockClearance: CGFloat = 136
+    static let bottomDetailClearance: CGFloat = 40
+    static let toastBottomOffset: CGFloat = 88
+}
+
+struct ShopCardModifier: ViewModifier {
+    var padding: CGFloat = ShopLayout.cardPadding
+    var cornerRadius: CGFloat = ShopLayout.cardRadius
+    var background: Color = .white
+    var borderColor: Color = .shopBorder
+    var borderWidth: CGFloat = 1
+    var shadowOpacity: Double = 0.03
+    var shadowRadius: CGFloat = 8
+    var shadowY: CGFloat = 3
+
+    func body(content: Content) -> some View {
+        content
+            .padding(padding)
+            .background(background)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(borderColor, lineWidth: borderWidth)
+            )
+            .shadow(color: Color.black.opacity(shadowOpacity), radius: shadowRadius, x: 0, y: shadowY)
+    }
+}
+
+struct ShopNavCircleModifier: ViewModifier {
+    var size: CGFloat = ShopLayout.navButtonSize
+    var background: Color = .white
+    var showBorder: Bool = true
+
+    func body(content: Content) -> some View {
+        content
+            .frame(width: size, height: size)
+            .background(background)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(showBorder ? Color.shopBorder : Color.clear, lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+    }
+}
+
+extension View {
+    func shopCard(
+        padding: CGFloat = ShopLayout.cardPadding,
+        cornerRadius: CGFloat = ShopLayout.cardRadius,
+        background: Color = .white,
+        borderColor: Color = .shopBorder,
+        borderWidth: CGFloat = 1,
+        shadowOpacity: Double = 0.03,
+        shadowRadius: CGFloat = 8,
+        shadowY: CGFloat = 3
+    ) -> some View {
+        modifier(
+            ShopCardModifier(
+                padding: padding,
+                cornerRadius: cornerRadius,
+                background: background,
+                borderColor: borderColor,
+                borderWidth: borderWidth,
+                shadowOpacity: shadowOpacity,
+                shadowRadius: shadowRadius,
+                shadowY: shadowY
+            )
+        )
+    }
+
+    func shopNavCircle(
+        size: CGFloat = ShopLayout.navButtonSize,
+        background: Color = .white,
+        showBorder: Bool = true
+    ) -> some View {
+        modifier(ShopNavCircleModifier(size: size, background: background, showBorder: showBorder))
+    }
+
+    func shopHeaderBarPadding() -> some View {
+        self
+            .padding(.horizontal, ShopLayout.screenPadding)
+            .padding(.top, ShopLayout.headerTopPadding)
+            .padding(.bottom, ShopLayout.headerBottomPadding)
     }
 }
 
@@ -153,6 +278,77 @@ struct ShopStoreLogo: View {
                         .foregroundColor(.shopPurple)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Unified Motion Curves, Interactive Press & Transition Helpers
+
+enum ShopMotion {
+    /// Tab bar and major root view switches
+    static let tabSwitch = Animation.spring(response: 0.34, dampingFraction: 0.88)
+    /// Horizontal sub-tab pill and filter indicator glide
+    static let pillSlide = Animation.spring(response: 0.32, dampingFraction: 0.82)
+    /// Tactile card & CTA press response
+    static let cardPress = Animation.interactiveSpring(response: 0.24, dampingFraction: 0.78)
+    /// Async image cross-dissolve reveal
+    static let imageFade = Animation.easeOut(duration: 0.26)
+    /// Gallery paging, thumbnail sync, and expandable sections
+    static let gallerySpring = Animation.spring(response: 0.38, dampingFraction: 0.85)
+    /// Interactive grid reflow when filtering or sorting
+    static let gridReflow = Animation.spring(response: 0.36, dampingFraction: 0.86)
+}
+
+/// Tactile micro-scale press feedback for cards and navigation links.
+struct ShopCardPressStyle: ButtonStyle {
+    var scale: CGFloat = 0.968
+    var pressedOpacity: Double = 0.94
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1.0)
+            .opacity(configuration.isPressed ? pressedOpacity : 1.0)
+            .animation(ShopMotion.cardPress, value: configuration.isPressed)
+    }
+}
+
+extension View {
+    /// Applies subtle iOS 17+ interactive horizontal carousel scale and opacity curves.
+    func shopCarouselTransition() -> some View {
+        self.scrollTransition(.interactive, axis: .horizontal) { content, phase in
+            content
+                .scaleEffect(phase.isIdentity ? 1.0 : 0.965)
+                .opacity(phase.isIdentity ? 1.0 : 0.86)
+        }
+    }
+
+    /// Standard subtle fade + slight scale transition for state swaps (skeleton -> content, category filters).
+    func shopFadeScaleTransition() -> some View {
+        self.transition(
+            .asymmetric(
+                insertion: .opacity.combined(with: .scale(scale: 0.975)),
+                removal: .opacity
+            )
+        )
+    }
+
+    /// Safe wrapper for iOS 18+ hero zoom transition source; no-op on iOS 17.
+    @ViewBuilder
+    func shopMatchedTransitionSource<ID: Hashable>(id: ID, in namespace: Namespace.ID?) -> some View {
+        if #available(iOS 18.0, *), let namespace {
+            self.matchedTransitionSource(id: id, in: namespace)
+        } else {
+            self
+        }
+    }
+
+    /// Safe wrapper for iOS 18+ fluid zoom navigation transition; falls back to standard push on iOS 17.
+    @ViewBuilder
+    func shopZoomNavigationTransition<ID: Hashable>(sourceID: ID?, in namespace: Namespace.ID?) -> some View {
+        if #available(iOS 18.0, *), let sourceID, let namespace {
+            self.navigationTransition(.zoom(sourceID: sourceID, in: namespace))
+        } else {
+            self
         }
     }
 }

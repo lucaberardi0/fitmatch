@@ -41,7 +41,7 @@ struct RecentlyViewedView: View {
                 emptyStateView
             } else {
                 ScrollView(showsIndicators: false) {
-                    LazyVGrid(columns: columns, spacing: 12) {
+                    LazyVGrid(columns: columns, spacing: ShopLayout.gridRowSpacing) {
                         ForEach(displayedActivities) { item in
                             if item.type == .store {
                                 storeCard(item: item)
@@ -50,16 +50,16 @@ struct RecentlyViewedView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                    .padding(.bottom, 90)
+                    .padding(.horizontal, ShopLayout.screenPadding)
+                    .padding(.top, 8)
+                    .padding(.bottom, ShopLayout.bottomDetailClearance)
                 }
                 .refreshable {
                     await recentManager.syncFromDatabase()
                 }
             }
         }
-        .background(Color.white.ignoresSafeArea())
+        .background(Color.shopSurface.ignoresSafeArea())
         .navigationBarHidden(true)
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
@@ -146,9 +146,7 @@ struct RecentlyViewedView: View {
                     .frame(width: 40, height: 40)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
+        .shopHeaderBarPadding()
     }
 
     // MARK: - Product Card (Matching Shopify Shop Style)
@@ -160,8 +158,12 @@ struct RecentlyViewedView: View {
 
         return ZStack {
             // Card background
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(red: 242/255, green: 243/255, blue: 245/255))
+            RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
+                .fill(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
+                        .stroke(Color.shopBorder, lineWidth: 1)
+                )
 
             // Center Product Image
             if let imgUrl = product.image_url ?? item.imageUrl, let url = URL(string: imgUrl), !imgUrl.isEmpty {
@@ -374,6 +376,7 @@ struct RecentlyViewedView: View {
 
             FitMatchEmptyStateView(
                 icon: "clock.arrow.circlepath",
+                illustrationName: "empty_recently_viewed",
                 accentColor: .shopPurple,
                 badgeText: "CRONOLOGIA FITMATCH",
                 title: "Nessun prodotto consultato di recente",

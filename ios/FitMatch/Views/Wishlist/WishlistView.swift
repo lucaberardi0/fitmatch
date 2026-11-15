@@ -62,13 +62,11 @@ struct WishlistView: View {
                 NavigationStack {
                     VStack(spacing: 0) {
                         headerBar
-                            .padding(.horizontal, 16)
-                            .padding(.top, 6)
-                            .padding(.bottom, 10)
+                            .shopHeaderBarPadding()
 
                         mainContent
                     }
-                    .background(Color(red: 245/255, green: 246/255, blue: 248/255).ignoresSafeArea())
+                    .background(Color.shopSurface.ignoresSafeArea())
                 }
             }
         }
@@ -130,7 +128,7 @@ struct WishlistView: View {
     private var mainContent: some View {
         ScrollViewReader { scrollProxy in
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: ShopLayout.sectionSpacing) {
                     Color.clear.frame(height: 0).id("wishlist_top")
 
                     if wishlist.isSyncingDatabase && wishlist.items.isEmpty {
@@ -139,11 +137,11 @@ struct WishlistView: View {
                 } else if wishlist.items.isEmpty {
                     // Empty Saved State
                     emptySavedState
-                        .padding(.top, 40)
+                        .padding(.top, 32)
                 } else {
                     // 1. Collections Section Header & Horizontal Carousel
                     collectionsSection
-                        .padding(.top, 4)
+                        .padding(.top, 2)
 
                     // 2. Active Filter Banner
                     filterHeaderBanner
@@ -151,18 +149,18 @@ struct WishlistView: View {
                     // 3. Saved Products 2-Column Grid
                     if displayItems.isEmpty {
                         emptyFilteredState
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
                             .padding(.top, 10)
                     } else {
                         savedProductsGrid
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
                     }
                 }
 
-                Spacer(minLength: 120)
+                Spacer(minLength: ShopLayout.bottomDockClearance)
             }
         }
-        .background(Color(red: 245/255, green: 246/255, blue: 248/255))
+        .background(Color.shopSurface)
         .scrollDismissesKeyboard(.interactively)
         .refreshable {
             await wishlist.syncWithDatabase()
@@ -198,21 +196,11 @@ struct WishlistView: View {
                     .shadow(color: Color.black.opacity(0.06), radius: 14, x: 0, y: 6)
 
                 VStack(spacing: 10) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.shopPurple.opacity(0.16), Color.shopPurple.opacity(0.06)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 74, height: 74)
-
-                        Image(systemName: "figure.run")
-                            .font(.system(size: 34, weight: .semibold))
-                            .foregroundColor(.shopPurple)
-                    }
+                    Image("empty_wishlist")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 110, height: 110)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
                     HStack(spacing: 6) {
                         Text("42 EU")
@@ -325,10 +313,10 @@ struct WishlistView: View {
                     if totalCols > 0 {
                         Text("\(totalCols)")
                             .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                            .foregroundColor(Color.shopPurple)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
-                            .background(Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.1))
+                            .background(Color.shopPurple.opacity(0.1))
                             .clipShape(Capsule())
                     }
                 }
@@ -344,10 +332,10 @@ struct WishlistView: View {
                         Text("Nuova")
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                     }
-                    .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                    .foregroundColor(Color.shopPurple)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.1))
+                    .background(Color.shopPurple.opacity(0.1))
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -365,11 +353,12 @@ struct WishlistView: View {
                         onTap: {
                             let gen = UIImpactFeedbackGenerator(style: .light)
                             gen.impactOccurred()
-                            withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                            withAnimation(ShopMotion.pillSlide) {
                                 selectedCollectionFilter = "Tutti"
                             }
                         }
                     )
+                    .shopCarouselTransition()
 
                     // 2. User-Created Collections
                     ForEach(wishlist.getAvailableCollections(), id: \.name) { col in
@@ -383,7 +372,7 @@ struct WishlistView: View {
                             onTap: {
                                 let gen = UIImpactFeedbackGenerator(style: .light)
                                 gen.impactOccurred()
-                                withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                                withAnimation(ShopMotion.pillSlide) {
                                     if isSelected {
                                         selectedCollectionFilter = "Tutti"
                                     } else {
@@ -409,12 +398,14 @@ struct WishlistView: View {
                                 }
                             }
                         )
+                        .shopCarouselTransition()
                     }
 
                     // 3. "Crea nuova collezione" Card
                     ShopCreateCollectionCard {
                         showingCreateCollectionSheet = true
                     }
+                    .shopCarouselTransition()
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 4)
@@ -440,7 +431,7 @@ struct WishlistView: View {
                 HStack(spacing: 7) {
                     Image(systemName: "folder.fill")
                         .font(.system(size: 13))
-                        .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                        .foregroundColor(Color.shopPurple)
 
                     Text(selectedCollectionFilter)
                         .font(.system(size: 17, weight: .bold, design: .rounded))
@@ -469,7 +460,7 @@ struct WishlistView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Color(red: 99/255, green: 59/255, blue: 238/255))
+                        .background(Color.shopPurple)
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -487,10 +478,10 @@ struct WishlistView: View {
                             Text("Mostra tutti (\(wishlist.items.count))")
                                 .font(.system(size: 12.5, weight: .bold, design: .rounded))
                         }
-                        .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                        .foregroundColor(Color.shopPurple)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.1))
+                        .background(Color.shopPurple.opacity(0.1))
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -506,6 +497,7 @@ struct WishlistView: View {
     private var emptyFilteredState: some View {
         FitMatchEmptyStateView(
             icon: "folder.badge.plus",
+            illustrationName: "empty_collection",
             accentColor: .shopPurple,
             badgeText: "COLLEZIONE VUOTA",
             title: "Nessun modello in «\(selectedCollectionFilter)»",
@@ -558,8 +550,10 @@ struct WishlistView: View {
                         }
                     }
                 )
+                .transition(.scale(scale: 0.95).combined(with: .opacity))
             }
         }
+        .animation(ShopMotion.gridReflow, value: displayItems.map(\.id))
     }
 
     // MARK: - Header Bar (Avatar "L", Search Bar, Bell)
@@ -597,12 +591,12 @@ struct WishlistView: View {
                 }
             }
             .padding(.horizontal, 14)
-            .frame(height: 44)
+            .frame(height: ShopLayout.searchPillHeight)
             .background(Color.white)
-            .cornerRadius(22)
+            .cornerRadius(ShopLayout.searchPillHeight / 2)
             .overlay(
-                RoundedRectangle(cornerRadius: 22)
-                    .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                RoundedRectangle(cornerRadius: ShopLayout.searchPillHeight / 2)
+                    .stroke(Color.shopBorder, lineWidth: 1)
             )
 
             Button(action: {
@@ -616,7 +610,7 @@ struct WishlistView: View {
                         .frame(width: 42, height: 42)
                         .overlay(
                             Circle()
-                                .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                                .stroke(Color.shopBorder, lineWidth: 1)
                         )
 
                     Image(systemName: "bell.fill")
@@ -668,7 +662,7 @@ struct ShopAllSavedCard: View {
                                 } else {
                                     Image(systemName: "heart.fill")
                                         .font(.system(size: 24))
-                                        .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                                        .foregroundColor(Color.shopPurple)
                                 }
                             }
                             .frame(width: 132, height: 88)
@@ -700,7 +694,7 @@ struct ShopAllSavedCard: View {
                         VStack {
                             Image(systemName: "heart.fill")
                                 .font(.system(size: 26))
-                                .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                                .foregroundColor(Color.shopPurple)
                         }
                         .frame(width: 132, height: 88)
                     }
@@ -713,7 +707,7 @@ struct ShopAllSavedCard: View {
                         .padding(.vertical, 3)
                         .background(
                             Capsule()
-                                .fill(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.white)
+                                .fill(isSelected ? Color.shopPurple : Color.white)
                         )
                         .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1)
                         .padding(6)
@@ -723,7 +717,7 @@ struct ShopAllSavedCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Tutti i salvati")
                         .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                        .foregroundColor(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.shopDark)
+                        .foregroundColor(isSelected ? Color.shopPurple : Color.shopDark)
                         .lineLimit(1)
 
                     Text(totalCount == 1 ? "1 articolo" : "\(totalCount) articoli")
@@ -735,16 +729,16 @@ struct ShopAllSavedCard: View {
             .padding(6)
             .background(
                 RoundedRectangle(cornerRadius: 18)
-                    .fill(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.05) : Color.white)
+                    .fill(isSelected ? Color.shopPurple.opacity(0.05) : Color.white)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18)
                     .stroke(
-                        isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color(red: 235/255, green: 236/255, blue: 240/255),
+                        isSelected ? Color.shopPurple : Color(red: 235/255, green: 236/255, blue: 240/255),
                         lineWidth: isSelected ? 2 : 1
                     )
             )
-            .shadow(color: isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.12) : Color.black.opacity(0.03), radius: isSelected ? 6 : 2, x: 0, y: 2)
+            .shadow(color: isSelected ? Color.shopPurple.opacity(0.12) : Color.black.opacity(0.03), radius: isSelected ? 6 : 2, x: 0, y: 2)
             .frame(width: 144)
         }
         .buttonStyle(.plain)
@@ -829,7 +823,7 @@ struct ShopCollectionCard: View {
                         .padding(.vertical, 3)
                         .background(
                             Capsule()
-                                .fill(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.white)
+                                .fill(isSelected ? Color.shopPurple : Color.white)
                         )
                         .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1)
                         .padding(6)
@@ -839,7 +833,7 @@ struct ShopCollectionCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(collection.name)
                         .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                        .foregroundColor(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.shopDark)
+                        .foregroundColor(isSelected ? Color.shopPurple : Color.shopDark)
                         .lineLimit(1)
 
                     Text(collection.item_count == 1 ? "1 articolo" : "\(collection.item_count) articoli")
@@ -851,16 +845,16 @@ struct ShopCollectionCard: View {
             .padding(6)
             .background(
                 RoundedRectangle(cornerRadius: 18)
-                    .fill(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.05) : Color.white)
+                    .fill(isSelected ? Color.shopPurple.opacity(0.05) : Color.white)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18)
                     .stroke(
-                        isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color(red: 235/255, green: 236/255, blue: 240/255),
+                        isSelected ? Color.shopPurple : Color(red: 235/255, green: 236/255, blue: 240/255),
                         lineWidth: isSelected ? 2 : 1
                     )
             )
-            .shadow(color: isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.12) : Color.black.opacity(0.03), radius: isSelected ? 6 : 2, x: 0, y: 2)
+            .shadow(color: isSelected ? Color.shopPurple.opacity(0.12) : Color.black.opacity(0.03), radius: isSelected ? 6 : 2, x: 0, y: 2)
             .frame(width: 144)
         }
         .buttonStyle(.plain)
@@ -904,7 +898,7 @@ struct ShopCreateCollectionCard: View {
                         .overlay(
                             Image(systemName: "plus")
                                 .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                                .foregroundColor(Color.shopPurple)
                         )
                 }
 
@@ -991,6 +985,7 @@ struct ShopSavedProductCard: View {
                                         .scaledToFit()
                                         .padding(12)
                                         .frame(maxWidth: .infinity, maxHeight: 180)
+                                        .transition(.opacity)
                                 case .failure:
                                     Image(systemName: "photo")
                                         .font(.system(size: 30))
@@ -1014,7 +1009,7 @@ struct ShopSavedProductCard: View {
                     .contentShape(Rectangle())
                     .clipShape(RoundedRectangle(cornerRadius: 18))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ShopCardPressStyle())
 
                 // Subtle border matching DealsView and FollowingView
                 RoundedRectangle(cornerRadius: 18)
@@ -1046,7 +1041,7 @@ struct ShopSavedProductCard: View {
                                     .font(.system(size: 10, weight: .bold, design: .rounded))
                                     .lineLimit(1)
                             }
-                            .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                            .foregroundColor(Color.shopPurple)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3.5)
                             .background(Color.white.opacity(0.95))
@@ -1170,7 +1165,7 @@ struct CreateCollectionSheet: View {
                 .foregroundColor(
                     collectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? Color(uiColor: .tertiaryLabel)
-                    : Color(red: 99/255, green: 59/255, blue: 238/255)
+                    : Color.shopPurple
                 )
                 .disabled(collectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -1225,7 +1220,7 @@ struct CreateCollectionSheet: View {
 
             Spacer()
         }
-        .padding(20)
+        .padding(ShopLayout.screenPadding)
         .presentationDetents([.height(280)])
         .presentationDragIndicator(.visible)
     }
@@ -1258,6 +1253,7 @@ struct AddToCollectionSheet: View {
                 if wishlist.items.isEmpty {
                     FitMatchEmptyStateView(
                         icon: "heart.text.square",
+                        illustrationName: "empty_wishlist",
                         accentColor: .shopPurple,
                         badgeText: "NESSUN PREFERITO",
                         title: "Salva prima qualche modello",
@@ -1282,12 +1278,12 @@ struct AddToCollectionSheet: View {
                                     // Product Image Box with Selection Button
                                     ZStack(alignment: .bottomTrailing) {
                                         RoundedRectangle(cornerRadius: 18)
-                                            .fill(isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.06) : Color(red: 243/255, green: 243/255, blue: 246/255))
+                                            .fill(isSelected ? Color.shopPurple.opacity(0.06) : Color(red: 243/255, green: 243/255, blue: 246/255))
                                             .frame(height: 168)
                                             .overlay(
                                                 RoundedRectangle(cornerRadius: 18)
                                                     .stroke(
-                                                        isSelected ? Color(red: 99/255, green: 59/255, blue: 238/255) : Color.black.opacity(0.05),
+                                                        isSelected ? Color.shopPurple : Color.black.opacity(0.05),
                                                         lineWidth: isSelected ? 2 : 1
                                                     )
                                             )
@@ -1336,7 +1332,7 @@ struct AddToCollectionSheet: View {
                                                 Circle()
                                                     .fill(
                                                         isSelected
-                                                        ? Color(red: 99/255, green: 59/255, blue: 238/255)
+                                                        ? Color.shopPurple
                                                         : Color.black.opacity(0.35)
                                                     )
                                                     .frame(width: 34, height: 34)
@@ -1390,8 +1386,9 @@ struct AddToCollectionSheet: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.top, 14)
+                        .padding(.bottom, 28)
                     }
                 }
             }
@@ -1404,7 +1401,7 @@ struct AddToCollectionSheet: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.shopDark)
                             .frame(width: 36, height: 36)
-                            .background(Color(red: 242/255, green: 242/255, blue: 246/255))
+                            .background(Color.shopSurfaceElevated)
                             .clipShape(Circle())
                     }
                 }
@@ -1419,7 +1416,7 @@ struct AddToCollectionSheet: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 7)
-                            .background(Color(red: 99/255, green: 59/255, blue: 238/255))
+                            .background(Color.shopPurple)
                             .clipShape(Capsule())
                     }
                 }

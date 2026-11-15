@@ -66,7 +66,7 @@ final class TabCoordinator: ObservableObject {
             searchSource = fromSource
             let gen = UIImpactFeedbackGenerator(style: .light)
             gen.impactOccurred()
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+            withAnimation(ShopMotion.tabSwitch) {
                 selectedTab = index
             }
         } else {
@@ -83,7 +83,7 @@ final class TabCoordinator: ObservableObject {
         let target = previousTab ?? 0
         let gen = UIImpactFeedbackGenerator(style: .light)
         gen.impactOccurred()
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+        withAnimation(ShopMotion.tabSwitch) {
             selectedTab = target
         }
         previousTab = nil
@@ -107,16 +107,26 @@ struct MainTabView: View {
             ZStack {
                 HomeView(selectedTab: $coordinator.selectedTab)
                     .opacity(coordinator.selectedTab == 0 ? 1 : 0)
+                    .scaleEffect(coordinator.selectedTab == 0 ? 1.0 : 0.988)
+                    .offset(x: coordinator.selectedTab == 0 ? 0 : -14)
                     .allowsHitTesting(coordinator.selectedTab == 0)
+                    .accessibilityHidden(coordinator.selectedTab != 0)
 
                 SearchView()
                     .opacity(coordinator.selectedTab == 1 ? 1 : 0)
+                    .scaleEffect(coordinator.selectedTab == 1 ? 1.0 : 0.988)
+                    .offset(x: coordinator.selectedTab == 1 ? 0 : (coordinator.selectedTab < 1 ? 14 : -14))
                     .allowsHitTesting(coordinator.selectedTab == 1)
+                    .accessibilityHidden(coordinator.selectedTab != 1)
 
                 WishlistView(selectedTab: $coordinator.selectedTab)
                     .opacity(coordinator.selectedTab == 2 ? 1 : 0)
+                    .scaleEffect(coordinator.selectedTab == 2 ? 1.0 : 0.988)
+                    .offset(x: coordinator.selectedTab == 2 ? 0 : 14)
                     .allowsHitTesting(coordinator.selectedTab == 2)
+                    .accessibilityHidden(coordinator.selectedTab != 2)
             }
+            .animation(ShopMotion.tabSwitch, value: coordinator.selectedTab)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Floating Island Dock (Hidden when entering Detail pages or when typing in search)
@@ -126,6 +136,7 @@ struct MainTabView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: tabVisibility.isHidden)
         .sheet(item: $notifManager.deepLinkProduct) { prod in
             ProductDetailView(product: prod)
         }
@@ -143,6 +154,7 @@ struct MainTabView: View {
 struct ShopFloatingIslandDock: View {
     @Binding var selectedTab: Int
     @ObservedObject private var wishlist = WishlistManager.shared
+    @Namespace private var dockNamespace
 
     var body: some View {
         HStack(spacing: 34) {
@@ -240,18 +252,19 @@ struct ShopFloatingIslandDock: View {
             ZStack {
                 if selectedTab == index {
                     Circle()
-                        .fill(Color.black.opacity(0.04))
+                        .fill(Color.black.opacity(0.055))
                         .frame(width: 44, height: 44)
-                        .transition(.scale.combined(with: .opacity))
+                        .matchedGeometryEffect(id: "dock_active_pill", in: dockNamespace)
                 }
 
                 content
                     .foregroundColor(selectedTab == index ? Color(red: 20/255, green: 20/255, blue: 24/255) : Color(red: 140/255, green: 140/255, blue: 150/255))
                     .scaleEffect(selectedTab == index ? 1.06 : 1.0)
+                    .animation(ShopMotion.pillSlide, value: selectedTab)
             }
             .frame(width: 48, height: 48)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ShopCardPressStyle(scale: 0.90, pressedOpacity: 0.85))
     }
 }

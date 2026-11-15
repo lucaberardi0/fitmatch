@@ -42,9 +42,7 @@ struct NotificationsView: View {
             VStack(spacing: 0) {
                 // MARK: - 1. Pinned Top Header Bar
                 headerBar
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                    .padding(.bottom, 12)
+                    .shopHeaderBarPadding()
 
                 // MARK: - 2. Filter Pills Bar (Tutte | Cali prezzo | Nuovi drop | Promozioni)
                 filterPillsBar
@@ -52,23 +50,23 @@ struct NotificationsView: View {
 
                 // MARK: - 3. Content Area
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 16) {
+                    VStack(spacing: ShopLayout.cardSpacing) {
                         // Push Authorization Banner if disabled
                         if !notifManager.isAuthorized {
                             pushPermissionCard
-                                .padding(.horizontal, 16)
+                                .padding(.horizontal, ShopLayout.screenPadding)
                         }
 
                         // Intelligent System Status & Live Actions Card
                         intelligentSystemCard
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
 
                         // Notification Cards Feed
                         if filteredNotifications.isEmpty {
                             emptyStateView
-                                .padding(.top, 30)
+                                .padding(.top, 24)
                         } else {
-                            LazyVStack(spacing: 12) {
+                            LazyVStack(spacing: ShopLayout.compactSpacing) {
                                 ForEach(filteredNotifications) { notif in
                                     NotificationCard(
                                         notification: notif,
@@ -84,10 +82,10 @@ struct NotificationsView: View {
                                     )
                                 }
                             }
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
                         }
 
-                        Spacer(minLength: 80)
+                        Spacer(minLength: ShopLayout.bottomDetailClearance)
                     }
                     .padding(.top, 4)
                 }
@@ -95,7 +93,7 @@ struct NotificationsView: View {
                     await notifManager.checkIntelligentNotifications(force: true)
                 }
             }
-            .background(Color(red: 245/255, green: 246/255, blue: 248/255).ignoresSafeArea())
+            .background(Color.shopSurface.ignoresSafeArea())
             .navigationBarHidden(true)
             .sheet(item: $selectedProduct) { prod in
                 ProductDetailView(product: prod)
@@ -146,7 +144,7 @@ struct NotificationsView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(Color(red: 99/255, green: 59/255, blue: 238/255))
+                        .background(Color.shopPurple)
                         .clipShape(Capsule())
                 }
             }
@@ -166,10 +164,10 @@ struct NotificationsView: View {
                         Text("Lette tutte")
                             .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                     }
-                    .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                    .foregroundColor(Color.shopPurple)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.1))
+                    .background(Color.shopPurple.opacity(0.1))
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -337,10 +335,10 @@ struct NotificationsView: View {
                         Text(notifManager.isChecking ? "Controllo in corso..." : "Verifica prezzi adesso")
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                     }
-                    .foregroundColor(Color(red: 99/255, green: 59/255, blue: 238/255))
+                    .foregroundColor(Color.shopPurple)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
-                    .background(Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.08))
+                    .background(Color.shopPurple.opacity(0.08))
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -383,6 +381,7 @@ struct NotificationsView: View {
 
         return FitMatchEmptyStateView(
             icon: selectedFilter.icon,
+            illustrationName: "empty_notifications",
             accentColor: iconColor,
             badgeText: "AVVISI IN TEMPO REALE",
             title: titleText,
@@ -472,7 +471,7 @@ struct NotificationCard: View {
 
                     if !notification.isRead {
                         Circle()
-                            .fill(Color(red: 99/255, green: 59/255, blue: 238/255))
+                            .fill(Color.shopPurple)
                             .frame(width: 8, height: 8)
                     }
                 }
@@ -574,7 +573,7 @@ struct NotificationCard: View {
             .cornerRadius(18)
             .overlay(
                 RoundedRectangle(cornerRadius: 18)
-                    .stroke(notification.isRead ? Color.black.opacity(0.04) : Color(red: 99/255, green: 59/255, blue: 238/255).opacity(0.2), lineWidth: notification.isRead ? 1 : 1.5)
+                    .stroke(notification.isRead ? Color.black.opacity(0.04) : Color.shopPurple.opacity(0.2), lineWidth: notification.isRead ? 1 : 1.5)
             )
             .shadow(color: Color.black.opacity(0.03), radius: 5, x: 0, y: 2)
         }

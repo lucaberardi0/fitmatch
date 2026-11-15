@@ -50,7 +50,7 @@ struct FollowingView: View {
     var body: some View {
         ScrollViewReader { scrollProxy in
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: ShopLayout.sectionSpacing) {
                     Color.clear.frame(height: 0).id("following_top")
 
                     if isLoading && showcases.isEmpty {
@@ -59,21 +59,21 @@ struct FollowingView: View {
                 } else if followedManager.followedStores.isEmpty {
                     // MARK: - Empty State
                     emptyFollowedBanner
-                        .padding(.horizontal, 16)
-                        .padding(.top, 4)
+                        .padding(.horizontal, ShopLayout.screenPadding)
+                        .padding(.top, 2)
 
                     suggestedBrandsFeed
                 } else {
                     // MARK: - Followed State (Matching Reference Image)
                     // 1. Followed Stores Avatars Row (Circular store logos, clean)
                     followedStoriesRow
-                        .padding(.top, 6)
+                        .padding(.top, 4)
 
                     // 2. Followed Stores Products Carousels
                     followedStoresFeed
                 }
 
-                Spacer(minLength: 120)
+                Spacer(minLength: ShopLayout.bottomDockClearance)
             }
         }
         .refreshable {
@@ -214,6 +214,7 @@ struct FollowingView: View {
                     } else if products.isEmpty {
                         FitMatchInlineEmptyRow(
                             icon: "bag.badge.questionmark",
+                            illustrationName: "empty_following_stores",
                             accentColor: .shopPurple,
                             title: "Vetrina negozio in aggiornamento",
                             subtitle: "Apri la scheda di \(store.store_name) per vedere tutte le offerte e le taglie disponibili",
@@ -229,6 +230,7 @@ struct FollowingView: View {
                                         product: prod,
                                         matchedProduct: matched
                                     )
+                                    .shopCarouselTransition()
                                 }
                             }
                             .padding(.horizontal, 16)
@@ -260,6 +262,7 @@ struct FollowingView: View {
     private var emptyFollowedBanner: some View {
         FitMatchEmptyStateView(
             icon: "storefront.fill",
+            illustrationName: "empty_following_stores",
             accentColor: .shopPurple,
             badgeText: "NEGOZI PARTNER",
             title: "Non segui ancora nessun negozio sportivo",
@@ -330,14 +333,14 @@ struct FollowedHorizontalProductCard: View {
     var body: some View {
         NavigationLink(destination: ProductDetailView(product: matchedProduct)) {
             VStack(alignment: .leading, spacing: 4) {
-                // Product Image Box: Soft Gray Rounded Container (Matching Reference Image)
+                // Product Image Box: Crisp White Card on Shop Surface
                 ZStack(alignment: .bottomTrailing) {
-                    RoundedRectangle(cornerRadius: 18)
-                        .fill(Color(red: 247/255, green: 247/255, blue: 249/255))
+                    RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                        .fill(Color.white)
                         .frame(width: 165, height: 170)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 18)
-                                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                                .stroke(Color.shopBorder, lineWidth: 1)
                         )
 
                     // Product Image centered with comfortable padding

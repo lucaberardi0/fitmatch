@@ -125,39 +125,41 @@ struct ShopHomeSkeletonView: View {
                 }
                 .padding(.horizontal, 16)
             }
-            .padding(.bottom, 12)
+            .padding(.bottom, ShopLayout.compactSpacing)
 
             // Scrollable Content
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 16) {
+                VStack(spacing: ShopLayout.sectionSpacing) {
                     // 1. Top Carousel Cards Skeleton (with Card 2 peeking on right edge)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            let cardWidth = max(UIScreen.main.bounds.width - 56, 320)
-                            ShopSkeletonBlock(cornerRadius: 24, width: cardWidth, height: 180)
-                            ShopSkeletonBlock(cornerRadius: 24, width: cardWidth, height: 180)
+                            let cardWidth = max(UIScreen.main.bounds.width - 56, 310)
+                            let thumbSize = (cardWidth - (ShopLayout.cardPadding * 2) - 20) / 3
+                            let cardHeight = max(164, thumbSize + (ShopLayout.cardPadding * 2) + 14 + 32)
+                            ShopSkeletonBlock(cornerRadius: ShopLayout.largeCardRadius, width: cardWidth, height: cardHeight)
+                            ShopSkeletonBlock(cornerRadius: ShopLayout.largeCardRadius, width: cardWidth, height: cardHeight)
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                     }
-                    .padding(.top, 4)
+                    .padding(.top, 2)
 
                     // 2. Large Tall Feed Card Skeleton (Store Showcase)
                     ShopSkeletonBlock(
-                        cornerRadius: 24,
-                        width: UIScreen.main.bounds.width - 32,
+                        cornerRadius: ShopLayout.largeCardRadius,
+                        width: UIScreen.main.bounds.width - (ShopLayout.screenPadding * 2),
                         height: 390
                     )
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, ShopLayout.screenPadding)
 
                     // 3. Third Bottom Card Peeking
                     ShopSkeletonBlock(
-                        cornerRadius: 24,
-                        width: UIScreen.main.bounds.width - 32,
+                        cornerRadius: ShopLayout.largeCardRadius,
+                        width: UIScreen.main.bounds.width - (ShopLayout.screenPadding * 2),
                         height: 220
                     )
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, ShopLayout.screenPadding)
 
-                    Spacer(minLength: 120)
+                    Spacer(minLength: ShopLayout.bottomDockClearance)
                 }
             }
         }
@@ -861,7 +863,7 @@ struct ShopSearchDeepDiveSkeletonView: View {
                     ShopSkeletonTextLine(width: 270, height: 13, cornerRadius: 5)
                     ShopSkeletonTextLine(width: 185, height: 13, cornerRadius: 5)
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.screenPadding)
                 .opacity(0.82)
 
                 // 3. Curated Horizontal Carousel Preview (Matches ShopThemedCarouselCard)
@@ -870,7 +872,7 @@ struct ShopSearchDeepDiveSkeletonView: View {
                         ShopSkeletonTextLine(width: 175, height: 16, cornerRadius: 6)
                         ShopSkeletonTextLine(width: 230, height: 11, cornerRadius: 4)
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShopLayout.screenPadding)
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 14) {
@@ -878,7 +880,7 @@ struct ShopSearchDeepDiveSkeletonView: View {
                             ShopThemedCarouselSkeletonCard()
                             ShopThemedCarouselSkeletonCard()
                         }
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                     }
                     .disabled(true)
                 }
@@ -890,20 +892,20 @@ struct ShopSearchDeepDiveSkeletonView: View {
                         ShopSkeletonTextLine(width: 145, height: 16, cornerRadius: 6)
                         ShopSkeletonTextLine(width: 195, height: 11, cornerRadius: 4)
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShopLayout.screenPadding)
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 14) {
                             ShopComparativeSkeletonCard()
                             ShopComparativeSkeletonCard()
                         }
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                     }
                     .disabled(true)
                 }
                 .opacity(0.76)
 
-                Spacer(minLength: 130)
+                Spacer(minLength: ShopLayout.bottomFilterDockClearance)
             }
         }
     }
@@ -1033,7 +1035,7 @@ struct ShopWishlistSkeletonView: View {
 
 struct ShopFollowingSkeletonView: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 26) {
+        VStack(alignment: .leading, spacing: ShopLayout.sectionSpacing) {
             // 1. Stories Avatar Row Skeleton
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {

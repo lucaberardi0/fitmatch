@@ -18,6 +18,7 @@ struct ProductCardView: View {
                                     .resizable()
                                     .scaledToFit()
                                     .padding(10)
+                                    .transition(.opacity)
                             case .failure:
                                 imagePlaceholder
                             case .empty:

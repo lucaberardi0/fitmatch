@@ -126,6 +126,7 @@ struct WishlistButton: View {
 
 struct FitMatchEmptyStateView: View {
     let icon: String
+    var illustrationName: String? = nil
     var accentColor: Color = .shopPurple
     var badgeText: String? = nil
     let title: String
@@ -143,28 +144,40 @@ struct FitMatchEmptyStateView: View {
 
     var body: some View {
         let content = VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(accentColor.opacity(0.08))
-                    .frame(width: 84, height: 84)
-
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [accentColor.opacity(0.16), accentColor.opacity(0.07)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 60, height: 60)
+            if let imgName = illustrationName, UIImage(named: imgName) != nil {
+                Image(imgName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 124, height: 124)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(accentColor.opacity(0.18), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(showsCardBackground ? Color.clear : Color.shopBorder, lineWidth: 1)
                     )
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(accentColor.opacity(0.08))
+                        .frame(width: 84, height: 84)
 
-                Image(systemName: icon)
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundColor(accentColor)
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [accentColor.opacity(0.16), accentColor.opacity(0.07)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 60, height: 60)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(accentColor.opacity(0.18), lineWidth: 1)
+                        )
+
+                    Image(systemName: icon)
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundColor(accentColor)
+                }
             }
 
             VStack(spacing: 8) {
@@ -290,6 +303,7 @@ struct FitMatchEmptyStateView: View {
 
 struct FitMatchInlineEmptyRow: View {
     let icon: String
+    var illustrationName: String? = nil
     var accentColor: Color = .shopPurple
     let title: String
     let subtitle: String
@@ -297,18 +311,30 @@ struct FitMatchInlineEmptyRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(accentColor.opacity(0.10))
+            if let imgName = illustrationName {
+                Image(imgName)
+                    .resizable()
+                    .scaledToFill()
                     .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(accentColor.opacity(0.14), lineWidth: 1)
+                            .stroke(Color.shopBorder, lineWidth: 1)
                     )
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(accentColor.opacity(0.10))
+                        .frame(width: 48, height: 48)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(accentColor.opacity(0.14), lineWidth: 1)
+                        )
 
-                Image(systemName: icon)
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundColor(accentColor)
+                    Image(systemName: icon)
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundColor(accentColor)
+                }
             }
 
             VStack(alignment: .leading, spacing: 3) {

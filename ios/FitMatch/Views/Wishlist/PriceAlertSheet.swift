@@ -65,9 +65,13 @@ struct PriceAlertSheet: View {
                             }
                         }
                     }
-                    .padding(14)
-                    .background(Color(.systemGray6).opacity(0.6))
-                    .cornerRadius(16)
+                    .padding(ShopLayout.compactCardPadding)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                            .stroke(Color.shopBorder, lineWidth: 1)
+                    )
 
                     // Notification Permission Warning if not authorized
                     if !notifications.isAuthorized {
@@ -190,19 +194,19 @@ struct PriceAlertSheet: View {
                             }
                         }
                     }
-                    .padding(16)
-                    .background(Color(.systemBackground))
-                    .cornerRadius(18)
+                    .padding(ShopLayout.cardPadding)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: ShopLayout.cardRadius, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(Color(.systemGray5), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: ShopLayout.cardRadius, style: .continuous)
+                            .stroke(Color.shopBorder, lineWidth: 1)
                     )
 
                     // Simulation Test Button
                     VStack(alignment: .leading, spacing: 8) {
                         Text("COLLAUDO NOTIFICA:")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.shopTextMuted)
 
                         Button(action: {
                             // Ensure in wishlist first
@@ -214,23 +218,27 @@ struct PriceAlertSheet: View {
                         }) {
                             HStack {
                                 Image(systemName: "bolt.fill")
-                                    .foregroundColor(.yellow)
+                                    .foregroundColor(.shopYellow)
                                 Text("Simula Calo Prezzo Subito (Test)")
                                     .font(.system(size: 13, weight: .bold))
                                 Spacer()
                                 Image(systemName: "arrow.up.forward.app")
                                     .font(.system(size: 12))
                             }
-                            .foregroundColor(.primary)
-                            .padding(12)
-                            .background(Color(.systemGray6))
-                            .cornerRadius(12)
+                            .foregroundColor(.shopDark)
+                            .padding(ShopLayout.compactCardPadding)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                                    .stroke(Color.shopBorder, lineWidth: 1)
+                            )
                         }
 
                         if showSuccessBanner {
                             Text("✓ Notifica inviata! Controlla la tendina delle notifiche.")
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.green)
+                                .foregroundColor(.shopGreen)
                                 .padding(.horizontal, 4)
                         }
                     }
@@ -239,17 +247,18 @@ struct PriceAlertSheet: View {
                     // Save Button
                     Button(action: saveSettings) {
                         Text("Salva Notifica Prezzo")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
                             .background(Color.shopPurple)
-                            .cornerRadius(25)
+                            .clipShape(Capsule())
                     }
-                    .padding(.top, 10)
+                    .padding(.top, 6)
                 }
-                .padding(16)
+                .padding(ShopLayout.screenPadding)
             }
+            .background(Color.shopSurface.ignoresSafeArea())
             .navigationTitle("Alert Prezzo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

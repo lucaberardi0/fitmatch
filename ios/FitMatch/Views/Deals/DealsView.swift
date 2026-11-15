@@ -22,6 +22,7 @@ struct DealsView: View {
     @State private var dealsCache: [String: [StoreShowcase]] = [:]
     @State private var isCategorySwitching = false
     @State private var showingCategoriesSheet = false
+    @Namespace private var dealsCatNamespace
 
     init(embedded: Bool = false, onSelectPerTe: (() -> Void)? = nil) {
         self.embedded = embedded
@@ -127,23 +128,32 @@ struct DealsView: View {
                         dealsSpotlightCard
 
                         // MARK: - 4. Store Deals Sections in 2-Column Grid (Matching Image 2 & 3)
-                        if isCategorySwitching || (isLoading && showcases.isEmpty) {
-                            ShopDealsSkeletonView()
-                                .transition(.opacity)
-                        } else if showcases.isEmpty {
-                            emptyStateView
-                        } else {
-                            if selectedCategory != "tutti" {
-                                categoryCountHeader
-                            }
+                        Group {
+                            if isCategorySwitching || (isLoading && showcases.isEmpty) {
+                                ShopDealsSkeletonView()
+                                    .shopFadeScaleTransition()
+                            } else if showcases.isEmpty {
+                                emptyStateView
+                                    .shopFadeScaleTransition()
+                            } else {
+                                VStack(spacing: 20) {
+                                    if selectedCategory != "tutti" {
+                                        categoryCountHeader
+                                    }
 
-                            ForEach(showcases) { showcase in
-                                storeDealsSection(showcase: showcase)
+                                    ForEach(showcases) { showcase in
+                                        storeDealsSection(showcase: showcase)
+                                    }
+                                }
+                                .shopFadeScaleTransition()
                             }
                         }
+                        .animation(ShopMotion.gridReflow, value: selectedCategory)
+                        .animation(.easeOut(duration: 0.24), value: isCategorySwitching)
+                        .animation(ShopMotion.gridReflow, value: showcases.map(\.id))
 
                         // Spacer for bottom dock and floating filter pill
-                        Color.clear.frame(height: 140)
+                        Color.clear.frame(height: ShopLayout.bottomFilterDockClearance)
                     }
                 }
                 .refreshable {
@@ -181,27 +191,46 @@ struct DealsView: View {
 
     private var heroBannerSection: some View {
         ZStack(alignment: .bottomLeading) {
-            // Elegant gradient background with soft winter/deals aesthetic
-            LinearGradient(
-                colors: [
-                    Color(red: 255/255, green: 105/255, blue: 80/255),
-                    Color(red: 240/255, green: 70/255, blue: 95/255),
-                    Color(red: 160/255, green: 40/255, blue: 105/255)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            if UIImage(named: "deals_hero_banner") != nil {
+                Image("deals_hero_banner")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 195)
+                    .clipped()
+                    .overlay(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 185/255, green: 42/255, blue: 82/255).opacity(0.75),
+                                Color(red: 185/255, green: 42/255, blue: 82/255).opacity(0.25),
+                                .clear
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+            } else {
+                // Fallback gradient background
+                LinearGradient(
+                    colors: [
+                        Color(red: 255/255, green: 105/255, blue: 80/255),
+                        Color(red: 240/255, green: 70/255, blue: 95/255),
+                        Color(red: 160/255, green: 40/255, blue: 105/255)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
 
-            // Stylized background graphics
-            VStack {
-                HStack {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 68, weight: .ultraLight))
+                            .foregroundColor(.white.opacity(0.18))
+                            .offset(x: -12, y: 16)
+                    }
                     Spacer()
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 68, weight: .ultraLight))
-                        .foregroundColor(.white.opacity(0.18))
-                        .offset(x: -12, y: 16)
                 }
-                Spacer()
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -220,20 +249,21 @@ struct DealsView: View {
                 .clipShape(Capsule())
 
                 Text("Scopri le migliori offerte,\na prezzi imperdibili")
-                    .font(.system(size: 25, weight: .heavy, design: .rounded))
+                    .font(.system(size: 24, weight: .heavy, design: .rounded))
                     .foregroundColor(.white)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text("Fino all'80% di sconto reale dai migliori negozi partner")
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundColor(.white.opacity(0.92))
+                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.94))
             }
             .padding(20)
+            .padding(.trailing, 56)
         }
         .frame(height: 195)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .padding(.horizontal, 16)
+        .clipShape(RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous))
+        .padding(.horizontal, ShopLayout.screenPadding)
         .shadow(color: Color(red: 240/255, green: 70/255, blue: 95/255).opacity(0.20), radius: 14, x: 0, y: 6)
     }
 
@@ -260,8 +290,17 @@ struct DealsView: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8.5)
                             .background(
-                                Capsule()
-                                    .fill(isSelected ? Color(red: 22/255, green: 22/255, blue: 26/255) : Color.white)
+                                ZStack {
+                                    Capsule()
+                                        .fill(Color.white)
+
+                                    if isSelected {
+                                        Capsule()
+                                            .fill(Color(red: 22/255, green: 22/255, blue: 26/255))
+                                            .shadow(color: Color.black.opacity(0.12), radius: 5, x: 0, y: 2)
+                                            .matchedGeometryEffect(id: "deals_cat_pill", in: dealsCatNamespace)
+                                    }
+                                }
                             )
                             .overlay(
                                 Capsule()
@@ -270,9 +309,8 @@ struct DealsView: View {
                                         lineWidth: 1
                                     )
                             )
-                            .shadow(color: isSelected ? Color.black.opacity(0.12) : Color.black.opacity(0.02), radius: isSelected ? 5 : 2, x: 0, y: isSelected ? 2 : 1)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ShopCardPressStyle(scale: 0.96, pressedOpacity: 0.92))
                         .id(cat.id)
                     }
                 }
@@ -310,14 +348,34 @@ struct DealsView: View {
             selectCategory("running")
         }) {
             ZStack(alignment: .bottomLeading) {
-                LinearGradient(
-                    colors: [
-                        Color(red: 24/255, green: 40/255, blue: 75/255),
-                        Color(red: 45/255, green: 80/255, blue: 135/255)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+                if UIImage(named: "deals_running_spotlight") != nil {
+                    Image("deals_running_spotlight")
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 132)
+                        .clipped()
+                        .overlay(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 14/255, green: 24/255, blue: 52/255).opacity(0.75),
+                                    Color(red: 14/255, green: 24/255, blue: 52/255).opacity(0.22),
+                                    .clear
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                } else {
+                    LinearGradient(
+                        colors: [
+                            Color(red: 24/255, green: 40/255, blue: 75/255),
+                            Color(red: 45/255, green: 80/255, blue: 135/255)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
 
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -327,14 +385,14 @@ struct DealsView: View {
 
                         Text("Dai top brand alle scarpe da gara al miglior prezzo.")
                             .font(.system(size: 12.5, weight: .medium))
-                            .foregroundColor(.white.opacity(0.85))
+                            .foregroundColor(.white.opacity(0.88))
                             .lineLimit(1)
                     }
 
                     Spacer()
 
                     Circle()
-                        .fill(Color.white.opacity(0.20))
+                        .fill(Color.white.opacity(0.22))
                         .frame(width: 38, height: 38)
                         .overlay(
                             Image(systemName: "arrow.right")
@@ -342,11 +400,11 @@ struct DealsView: View {
                                 .foregroundColor(.white)
                         )
                 }
-                .padding(18)
+                .padding(ShopLayout.cardPadding)
             }
-            .frame(height: 125)
-            .clipShape(RoundedRectangle(cornerRadius: 22))
-            .padding(.horizontal, 16)
+            .frame(height: 132)
+            .clipShape(RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous))
+            .padding(.horizontal, ShopLayout.screenPadding)
             .shadow(color: Color(red: 24/255, green: 40/255, blue: 75/255).opacity(0.16), radius: 10, x: 0, y: 4)
         }
         .buttonStyle(.plain)
@@ -451,11 +509,11 @@ struct DealsView: View {
                 .clipShape(Capsule())
                 .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 5)
                 .overlay(
-                    Capsule().stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 0.9)
+                    Capsule().stroke(Color.shopBorder, lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
-            .padding(.bottom, 85) // Floats cleanly above the bottom dock
+            .padding(.bottom, ShopLayout.toastBottomOffset) // Floats cleanly above the bottom dock
         }
     }
 
@@ -479,6 +537,7 @@ struct DealsView: View {
         let activeCategory = categories.first(where: { $0.id == selectedCategory })
         return FitMatchEmptyStateView(
             icon: activeCategory?.icon ?? "tag.slash",
+            illustrationName: "empty_deals",
             accentColor: activeCategory?.accentColor ?? .shopPurple,
             badgeText: "STATO CATEGORIA",
             title: "Nessuno sconto attivo in \(categoryTitle(for: selectedCategory))",
@@ -527,10 +586,12 @@ struct DealsView: View {
         }
         do {
             let sc = try await api.getDealsShowcases(category: category == "tutti" ? nil : category)
+            let prefetchUrls = sc.flatMap { $0.products.prefix(6) }.compactMap { URL(string: $0.image_url ?? "") }
+            ImageCacheManager.shared.prefetch(urls: prefetchUrls)
             await MainActor.run {
                 self.dealsCache[category] = sc
                 guard self.selectedCategory == category else { return }
-                withAnimation(.easeInOut(duration: 0.25)) {
+                withAnimation(ShopMotion.gridReflow) {
                     self.showcases = sc
                 }
             }
@@ -585,6 +646,7 @@ struct ShopDealGridCard: View {
                                     .frame(maxWidth: .infinity)
                                     .frame(height: 180)
                                     .padding(8)
+                                    .transition(.opacity)
                             case .failure:
                                 Image(systemName: "photo")
                                     .font(.system(size: 28))
@@ -692,7 +754,7 @@ struct ShopDealGridCard: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ShopCardPressStyle())
         .contextMenu {
             let isSaved = wishlist.isFavorite(matchedProduct.canonical_name)
             Button(action: {

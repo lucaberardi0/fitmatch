@@ -76,6 +76,7 @@ struct StoreShowcaseCard: View {
                                                         .resizable()
                                                         .scaledToFit()
                                                         .padding(6)
+                                                        .transition(.opacity)
                                                 } else if phase.error != nil {
                                                     Image(systemName: "tag.fill")
                                                         .font(.system(size: 24))
@@ -134,7 +135,8 @@ struct StoreShowcaseCard: View {
                                 }
                             }
                         }
-                        .buttonStyle(PlainButtonStyle())
+                        .buttonStyle(ShopCardPressStyle())
+                        .shopCarouselTransition()
                     }
                 }
             }

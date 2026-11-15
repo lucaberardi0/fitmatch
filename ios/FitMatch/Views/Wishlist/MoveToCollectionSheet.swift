@@ -18,9 +18,9 @@ struct MoveToCollectionSheet: View {
             VStack(spacing: 0) {
                 // Header Product Summary
                 productHeader
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 16)
-                    .background(Color(red: 247/255, green: 248/255, blue: 250/255))
+                    .padding(.horizontal, ShopLayout.screenPadding)
+                    .padding(.vertical, ShopLayout.cardPadding)
+                    .background(Color.shopSurface)
 
                 Divider()
 
@@ -29,15 +29,16 @@ struct MoveToCollectionSheet: View {
                     VStack(alignment: .leading, spacing: 14) {
                         Text("SELEZIONA COLLEZIONE")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                            .foregroundColor(.shopTextMuted)
                             .tracking(0.8)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                            .padding(.top, ShopLayout.cardPadding)
 
-                        VStack(spacing: 8) {
+                        VStack(spacing: ShopLayout.tightSpacing) {
                             if wishlist.getAvailableCollections().isEmpty {
                                 FitMatchInlineEmptyRow(
                                     icon: "folder.badge.plus",
+                                    illustrationName: "empty_collection",
                                     accentColor: .shopPurple,
                                     title: "Nessuna collezione ancora creata",
                                     subtitle: "Raggruppa i tuoi prodotti per sport o obiettivo (es. «Gara 10K», «Padel») qui sotto."
@@ -57,39 +58,39 @@ struct MoveToCollectionSheet: View {
                                     HStack(spacing: 12) {
                                         ZStack {
                                             RoundedRectangle(cornerRadius: 10)
-                                                .fill(Color(red: 240/255, green: 240/255, blue: 245/255))
+                                                .fill(Color.shopSurfaceElevated)
                                                 .frame(width: 36, height: 36)
 
                                             Image(systemName: "folder.badge.minus")
                                                 .font(.system(size: 15))
-                                                .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                                                .foregroundColor(.shopTextMuted)
                                         }
 
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text("Nessuna collezione")
                                                 .font(.system(size: 15, weight: .medium, design: .rounded))
-                                                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                                                .foregroundColor(.shopDark)
 
                                             Text("Rimuovi dalla collezione attuale")
                                                 .font(.system(size: 12))
-                                                .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                                                .foregroundColor(.shopTextMuted)
                                         }
 
                                         Spacer()
                                     }
-                                    .padding(.horizontal, 14)
+                                    .padding(.horizontal, ShopLayout.compactCardPadding)
                                     .padding(.vertical, 10)
                                     .background(Color.white)
-                                    .cornerRadius(14)
+                                    .cornerRadius(ShopLayout.mediumRadius)
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 14)
-                                            .stroke(Color(red: 235/255, green: 236/255, blue: 240/255), lineWidth: 1)
+                                        RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                                            .stroke(Color.shopBorder, lineWidth: 1)
                                     )
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, ShopLayout.screenPadding)
 
                         // New Collection Creator
                         VStack(spacing: 12) {
@@ -97,7 +98,7 @@ struct MoveToCollectionSheet: View {
                                 HStack(spacing: 10) {
                                     Image(systemName: "folder.badge.plus")
                                         .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(Color(red: 92/255, green: 60/255, blue: 245/255))
+                                        .foregroundColor(.shopPurple)
 
                                     TextField("Nome collezione (es. Maratona)...", text: $newCollectionName)
                                         .font(.system(size: 15))
@@ -108,16 +109,16 @@ struct MoveToCollectionSheet: View {
                                             createNewAndAssign()
                                         }
                                         .font(.system(size: 14, weight: .bold))
-                                        .foregroundColor(Color(red: 92/255, green: 60/255, blue: 245/255))
+                                        .foregroundColor(.shopPurple)
                                     }
                                 }
-                                .padding(.horizontal, 16)
+                                .padding(.horizontal, ShopLayout.cardPadding)
                                 .padding(.vertical, 12)
-                                .background(Color(red: 243/255, green: 244/255, blue: 247/255))
-                                .cornerRadius(14)
+                                .background(Color.shopSurface)
+                                .cornerRadius(ShopLayout.mediumRadius)
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .stroke(Color(red: 92/255, green: 60/255, blue: 245/255).opacity(0.3), lineWidth: 1)
+                                    RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                                        .stroke(Color.shopPurple.opacity(0.3), lineWidth: 1)
                                 )
                             } else {
                                 Button(action: {
@@ -128,23 +129,23 @@ struct MoveToCollectionSheet: View {
                                     HStack(spacing: 10) {
                                         Image(systemName: "plus.circle.fill")
                                             .font(.system(size: 18, weight: .semibold))
-                                            .foregroundColor(Color(red: 92/255, green: 60/255, blue: 245/255))
+                                            .foregroundColor(.shopPurple)
 
                                         Text("Nuova collezione...")
                                             .font(.system(size: 15, weight: .semibold))
-                                            .foregroundColor(Color(red: 92/255, green: 60/255, blue: 245/255))
+                                            .foregroundColor(.shopPurple)
 
                                         Spacer()
                                     }
-                                    .padding(.horizontal, 16)
+                                    .padding(.horizontal, ShopLayout.cardPadding)
                                     .padding(.vertical, 12)
-                                    .background(Color(red: 245/255, green: 243/255, blue: 255/255))
-                                    .cornerRadius(14)
+                                    .background(Color.shopPurpleLight)
+                                    .cornerRadius(ShopLayout.mediumRadius)
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.top, 4)
                         .padding(.bottom, 30)
                     }
@@ -266,20 +267,20 @@ struct MoveToCollectionSheet: View {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(Color(red: 92/255, green: 60/255, blue: 245/255))
+                        .foregroundColor(.shopPurple)
                 } else {
                     Circle()
                         .stroke(Color(red: 220/255, green: 220/255, blue: 225/255), lineWidth: 1.5)
                         .frame(width: 20, height: 20)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, ShopLayout.compactCardPadding)
             .padding(.vertical, 10)
-            .background(isSelected ? Color(red: 245/255, green: 243/255, blue: 255/255) : Color.white)
-            .cornerRadius(14)
+            .background(isSelected ? Color.shopPurpleLight : Color.white)
+            .cornerRadius(ShopLayout.mediumRadius)
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(isSelected ? Color(red: 92/255, green: 60/255, blue: 245/255).opacity(0.4) : Color(red: 235/255, green: 236/255, blue: 240/255), lineWidth: 1)
+                RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                    .stroke(isSelected ? Color.shopPurple.opacity(0.4) : Color.shopBorder, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -306,7 +307,7 @@ struct MoveToCollectionSheet: View {
 
     private func iconColor(for name: String) -> Color {
         switch name.lowercased() {
-        case "tutti": return Color(red: 92/255, green: 60/255, blue: 245/255)
+        case "tutti": return .shopPurple
         case "scarpe da corsa": return Color(red: 245/255, green: 110/255, blue: 40/255)
         case "smartwatch & gps": return Color(red: 40/255, green: 130/255, blue: 245/255)
         case "trail & outdoor": return Color(red: 34/255, green: 160/255, blue: 95/255)

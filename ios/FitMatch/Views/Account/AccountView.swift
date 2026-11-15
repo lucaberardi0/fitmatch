@@ -84,7 +84,7 @@ struct AccountView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
             }
-            .background(Color(red: 247/255, green: 248/255, blue: 250/255))
+            .background(Color.shopSurface)
             .navigationTitle("Profilo & Misure")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -204,10 +204,7 @@ struct AccountView: View {
 
             Spacer()
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(22)
-        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 6, shadowY: 2)
     }
 
     // MARK: - Supabase Production Cloud Card & Apple/Email Auth
@@ -381,10 +378,7 @@ struct AccountView: View {
                 }
             }
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(22)
-        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 6, shadowY: 2)
     }
 
     // MARK: - Personal Savings & Monitored Stats Overview
@@ -553,10 +547,7 @@ struct AccountView: View {
                 }
             }
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(22)
-        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 6, shadowY: 2)
     }
 
     // MARK: - Automated Price Sync & Background Updater Section
@@ -657,10 +648,7 @@ struct AccountView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             }
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(22)
-        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 6, shadowY: 2)
     }
 
     // MARK: - Favorite Sports & Categories
@@ -709,10 +697,7 @@ struct AccountView: View {
                 }
             }
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(22)
-        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 6, shadowY: 2)
     }
 
     // MARK: - Favorite Brands Section
@@ -767,10 +752,7 @@ struct AccountView: View {
                 .padding(.vertical, 2)
             }
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(22)
-        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 6, shadowY: 2)
     }
 
     // MARK: - Monitored Stores (9 Stores)
@@ -846,10 +828,7 @@ struct AccountView: View {
             .background(Color.shopSurface)
             .cornerRadius(16)
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(22)
-        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 6, shadowY: 2)
     }
 
     // MARK: - Settings & Cache
@@ -972,10 +951,7 @@ struct AccountView: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, 6)
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(22)
-        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 6, shadowY: 2)
     }
 }
 
@@ -1182,9 +1158,9 @@ struct AuthSheetView: View {
                     }
                     .padding(.top, 4)
                 }
-                .padding(20)
+                .padding(ShopLayout.screenPadding)
             }
-            .background(Color(red: 247/255, green: 248/255, blue: 250/255))
+            .background(Color.shopSurface)
             .navigationTitle(isRegistering ? "Registrazione" : "Accedi")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

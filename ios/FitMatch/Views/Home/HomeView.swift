@@ -48,6 +48,8 @@ struct HomeView: View {
     @State private var toastMessage: String? = nil
     @State private var hiddenStoreIdToUndo: String? = nil
     @State private var navigatingStore: StoreShowcase? = nil
+    @State private var subTabDirection: Int = 1
+    @Namespace private var subTabNamespace
 
     var body: some View {
         NavigationStack {
@@ -55,9 +57,7 @@ struct HomeView: View {
                 VStack(spacing: 0) {
                     // MARK: - 1. Pinned Top Header: Avatar "L" | Search Bar "Cerca" | Bell
                     topHeaderBar
-                        .padding(.horizontal, 16)
-                        .padding(.top, 6)
-                        .padding(.bottom, 10)
+                        .shopHeaderBarPadding()
 
                     if isLoading && showcases.isEmpty {
                         // MARK: - Shopify Shop Skeleton Loading Screen
@@ -67,37 +67,66 @@ struct HomeView: View {
                     } else {
                         // MARK: - 2. Sub-Navigation Pills: Per te | Offerte | Segui già | Salvati
                         subNavigationPills
-                            .padding(.bottom, 12)
+                            .padding(.bottom, ShopLayout.compactSpacing)
 
                         // MARK: - 3. Content Area based on Active Sub-Tab
-                        Group {
+                        ZStack {
                             switch activeSubTab {
                             case .perTe:
                                 perTeContent
+                                    .transition(
+                                        .asymmetric(
+                                            insertion: .move(edge: subTabDirection >= 0 ? .trailing : .leading).combined(with: .opacity),
+                                            removal: .move(edge: subTabDirection >= 0 ? .leading : .trailing).combined(with: .opacity)
+                                        )
+                                    )
                             case .offerte:
                                 DealsView(embedded: true, onSelectPerTe: {
-                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                    subTabDirection = -1
+                                    withAnimation(ShopMotion.pillSlide) {
                                         activeSubTab = .perTe
                                     }
                                 })
+                                .transition(
+                                    .asymmetric(
+                                        insertion: .move(edge: subTabDirection >= 0 ? .trailing : .leading).combined(with: .opacity),
+                                        removal: .move(edge: subTabDirection >= 0 ? .leading : .trailing).combined(with: .opacity)
+                                    )
+                                )
                             case .seguiGia:
                                 FollowingView(onGoShopping: {
-                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                    subTabDirection = -1
+                                    withAnimation(ShopMotion.pillSlide) {
                                         activeSubTab = .perTe
                                     }
                                 })
+                                .transition(
+                                    .asymmetric(
+                                        insertion: .move(edge: subTabDirection >= 0 ? .trailing : .leading).combined(with: .opacity),
+                                        removal: .move(edge: subTabDirection >= 0 ? .leading : .trailing).combined(with: .opacity)
+                                    )
+                                )
                             case .salvati:
                                 WishlistView(selectedTab: $selectedTab, embedded: true, onSelectPerTe: {
-                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                    subTabDirection = -1
+                                    withAnimation(ShopMotion.pillSlide) {
                                         activeSubTab = .perTe
                                     }
                                 })
+                                .transition(
+                                    .asymmetric(
+                                        insertion: .move(edge: subTabDirection >= 0 ? .trailing : .leading).combined(with: .opacity),
+                                        removal: .move(edge: subTabDirection >= 0 ? .leading : .trailing).combined(with: .opacity)
+                                    )
+                                )
                             }
                         }
+                        .animation(ShopMotion.pillSlide, value: activeSubTab)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                .background(Color(red: 245/255, green: 246/255, blue: 248/255).ignoresSafeArea())
+                .animation(.easeOut(duration: 0.28), value: isLoading)
+                .background(Color.shopSurface.ignoresSafeArea())
 
                 // MARK: - Floating Toast Notification (Undo Hide Store, Confirmation)
                 if let msg = toastMessage {
@@ -135,8 +164,8 @@ struct HomeView: View {
                     .background(Color(red: 28/255, green: 28/255, blue: 34/255))
                     .cornerRadius(18)
                     .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 4)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 82)
+                    .padding(.horizontal, ShopLayout.screenPadding)
+                    .padding(.bottom, ShopLayout.toastBottomOffset)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -208,12 +237,12 @@ struct HomeView: View {
                     Spacer()
                 }
                 .padding(.horizontal, 14)
-                .frame(height: 44)
+                .frame(height: ShopLayout.searchPillHeight)
                 .background(Color.white)
-                .cornerRadius(22)
+                .cornerRadius(ShopLayout.searchPillHeight / 2)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 22)
-                        .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: ShopLayout.searchPillHeight / 2)
+                        .stroke(Color.shopBorder, lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
@@ -230,7 +259,7 @@ struct HomeView: View {
                         .frame(width: 42, height: 42)
                         .overlay(
                             Circle()
-                                .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                                .stroke(Color.shopBorder, lineWidth: 1)
                         )
 
                     Image(systemName: "bell.fill")
@@ -267,13 +296,14 @@ struct HomeView: View {
                             let gen = UIImpactFeedbackGenerator(style: .light)
                             gen.impactOccurred()
                             if tab == .salvati {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                                withAnimation(ShopMotion.tabSwitch) {
                                     selectedTab = 2
                                 }
                             } else if activeSubTab == tab {
                                 TabCoordinator.shared.triggerScrollToTop(for: 0)
                             } else {
-                                withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                                subTabDirection = tab.rawValue >= activeSubTab.rawValue ? 1 : -1
+                                withAnimation(ShopMotion.pillSlide) {
                                     activeSubTab = tab
                                     scrollProxy.scrollTo(tab.id, anchor: .center)
                                 }
@@ -324,14 +354,17 @@ struct HomeView: View {
                             .padding(.horizontal, 15)
                             .padding(.vertical, 8.5)
                             .background(
-                                Capsule()
-                                    .fill(isSelected ? Color.white : Color.white.opacity(0.68))
-                                    .shadow(
-                                        color: isSelected ? Color.black.opacity(0.06) : Color.black.opacity(0.015),
-                                        radius: isSelected ? 6 : 2,
-                                        x: 0,
-                                        y: isSelected ? 2 : 1
-                                    )
+                                ZStack {
+                                    Capsule()
+                                        .fill(Color.white.opacity(0.68))
+
+                                    if isSelected {
+                                        Capsule()
+                                            .fill(Color.white)
+                                            .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
+                                            .matchedGeometryEffect(id: "home_subtab_pill", in: subTabNamespace)
+                                    }
+                                }
                             )
                             .overlay(
                                 Capsule()
@@ -344,7 +377,7 @@ struct HomeView: View {
                             )
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ShopCardPressStyle(scale: 0.96, pressedOpacity: 0.92))
                         .id(tab.id)
                     }
                 }
@@ -370,49 +403,49 @@ struct HomeView: View {
     private var perTeContent: some View {
         ScrollViewReader { scrollProxy in
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 16) {
+                VStack(spacing: ShopLayout.sectionSpacing) {
                     Color.clear.frame(height: 0).id("home_per_te_top")
 
                     // MARK: 1. Top Carousel of Summary Cards: "Visti di recente" & "Elementi salvati" (Screenshots 1 & 2)
                     topSummaryCardsCarousel
-                        .padding(.top, 4)
+                        .padding(.top, 2)
 
                 // MARK: 2. Real Database Partner Stores (Ranked & Personalized)
                 let currentShowcases = personalizedShowcases
 
                 if isLoading && currentShowcases.isEmpty {
-                    VStack(spacing: 16) {
+                    VStack(spacing: ShopLayout.cardSpacing) {
                         ShopSkeletonBlock(
-                            cornerRadius: 24,
-                            width: UIScreen.main.bounds.width - 32,
+                            cornerRadius: ShopLayout.largeCardRadius,
+                            width: UIScreen.main.bounds.width - (ShopLayout.screenPadding * 2),
                             height: 390
                         )
                         ShopSkeletonBlock(
-                            cornerRadius: 24,
-                            width: UIScreen.main.bounds.width - 32,
+                            cornerRadius: ShopLayout.largeCardRadius,
+                            width: UIScreen.main.bounds.width - (ShopLayout.screenPadding * 2),
                             height: 220
                         )
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                 } else {
                     ForEach(Array(currentShowcases.enumerated()), id: \.element.id) { index, sc in
                         if sc.card_theme == "olive" || sc.card_theme == "colored" || (sc.accent_color != nil && sc.card_theme != "grid" && sc.card_theme != "white") || (sc.card_theme == nil && index % 4 == 0) {
                             // Accent / Colored Card (driven by database card_theme or accent_color)
                             oliveShopStoreCard(showcase: sc)
-                                .padding(.horizontal, 16)
+                                .padding(.horizontal, ShopLayout.screenPadding)
                         } else if sc.card_theme == "grid" || (sc.card_theme == nil && index % 4 == 2 && sc.products.count >= 4) {
                             // 2-Column Grid Card (driven by database card_theme == "grid")
                             gridShopStoreCard(showcase: sc)
-                                .padding(.horizontal, 16)
+                                .padding(.horizontal, ShopLayout.screenPadding)
                         } else {
                             // Clean White Horizontal Carousel Card (driven by database card_theme == "white")
                             whiteShopStoreCard(showcase: sc)
-                                .padding(.horizontal, 16)
+                                .padding(.horizontal, ShopLayout.screenPadding)
                         }
                     }
                 }
 
-                Spacer(minLength: 120)
+                Spacer(minLength: ShopLayout.bottomDockClearance)
             }
         }
         .refreshable {
@@ -444,9 +477,21 @@ struct HomeView: View {
     }
 
     // Card 1: Visti di recente (Screenshot 1)
+    private var summaryCardWidth: CGFloat {
+        max(UIScreen.main.bounds.width - 56, 310)
+    }
+
+    private var summaryThumbSize: CGFloat {
+        (summaryCardWidth - (ShopLayout.cardPadding * 2) - 20) / 3
+    }
+
+    private var summaryCardHeight: CGFloat {
+        max(164, summaryThumbSize + (ShopLayout.cardPadding * 2) + 14 + 32)
+    }
+
     private var recentlyViewedSummaryCard: some View {
-        let cardWidth = max(UIScreen.main.bounds.width - 56, 320)
-        let thumbSize = (cardWidth - 32 - 20) / 3
+        let cardWidth = summaryCardWidth
+        let thumbSize = summaryThumbSize
 
         return VStack(alignment: .leading, spacing: 14) {
             // Header: Title + Circular Chevron Button (Pushes RecentlyViewedView)
@@ -454,17 +499,17 @@ struct HomeView: View {
                 HStack {
                     Text("Visti di recente")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                        .foregroundColor(.shopDark)
 
                     Spacer()
 
                     Circle()
-                        .fill(Color(red: 244/255, green: 245/255, blue: 248/255))
+                        .fill(Color.shopSurface)
                         .frame(width: 32, height: 32)
                         .overlay(
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(Color(red: 70/255, green: 70/255, blue: 75/255))
+                                .foregroundColor(.shopTextMuted)
                         )
                 }
             }
@@ -475,6 +520,7 @@ struct HomeView: View {
             if items.isEmpty {
                 FitMatchInlineEmptyRow(
                     icon: "clock.arrow.circlepath",
+                    illustrationName: "empty_recently_viewed",
                     accentColor: .shopPurple,
                     title: "Nessun modello consultato",
                     subtitle: "Scarpe da running, smartwatch GPS e attrezzatura visti appariranno qui"
@@ -484,11 +530,11 @@ struct HomeView: View {
                     ForEach(items) { prod in
                         NavigationLink(destination: ProductDetailView(product: prod)) {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 18)
-                                    .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
+                                RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                                    .fill(Color.shopSurface)
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 18)
-                                            .stroke(Color.black.opacity(0.04), lineWidth: 1)
+                                        RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                                            .stroke(Color.shopBorder, lineWidth: 1)
                                     )
 
                                 if let imgUrl = prod.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
@@ -509,29 +555,23 @@ struct HomeView: View {
                                 }
                             }
                             .frame(width: thumbSize, height: thumbSize)
-                            .clipShape(RoundedRectangle(cornerRadius: 18))
+                            .clipShape(RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
                     Spacer(minLength: 0)
                 }
             }
+            Spacer(minLength: 0)
         }
-        .padding(16)
-        .frame(width: cardWidth, height: 162)
-        .background(Color.white)
-        .cornerRadius(24)
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+        .frame(width: cardWidth, height: summaryCardHeight - (ShopLayout.cardPadding * 2), alignment: .topLeading)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.largeCardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
     }
 
     // Card 2: Elementi salvati (Screenshot 2)
     private var savedItemsSummaryCard: some View {
-        let cardWidth = max(UIScreen.main.bounds.width - 56, 320)
-        let thumbSize = (cardWidth - 32 - 20) / 3
+        let cardWidth = summaryCardWidth
+        let thumbSize = summaryThumbSize
 
         return VStack(alignment: .leading, spacing: 14) {
             // Header: Title + Circular Chevron Button (switches to Salvati tab)
@@ -545,17 +585,17 @@ struct HomeView: View {
                 HStack {
                     Text("Elementi salvati")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                        .foregroundColor(.shopDark)
 
                     Spacer()
 
                     Circle()
-                        .fill(Color(red: 244/255, green: 245/255, blue: 248/255))
+                        .fill(Color.shopSurface)
                         .frame(width: 32, height: 32)
                         .overlay(
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(Color(red: 70/255, green: 70/255, blue: 75/255))
+                                .foregroundColor(.shopTextMuted)
                         )
                 }
             }
@@ -573,6 +613,7 @@ struct HomeView: View {
                 }) {
                     FitMatchInlineEmptyRow(
                         icon: "heart",
+                        illustrationName: "empty_wishlist",
                         accentColor: .shopRed,
                         title: "Nessun modello monitorato",
                         subtitle: "Salva scarpe o orologi GPS per seguire taglie e cali di prezzo",
@@ -585,11 +626,11 @@ struct HomeView: View {
                     ForEach(saved) { item in
                         NavigationLink(destination: ProductDetailView(product: item.toMatchedProduct())) {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 18)
-                                    .fill(Color(red: 245/255, green: 246/255, blue: 249/255))
+                                RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                                    .fill(Color.shopSurface)
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 18)
-                                            .stroke(Color.black.opacity(0.04), lineWidth: 1)
+                                        RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                                            .stroke(Color.shopBorder, lineWidth: 1)
                                     )
 
                                 if let imgUrl = item.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
@@ -606,27 +647,90 @@ struct HomeView: View {
                                 } else {
                                     Image(systemName: "heart.fill")
                                         .font(.system(size: 20))
-                                        .foregroundColor(Color(red: 239/255, green: 68/255, blue: 68/255).opacity(0.4))
+                                        .foregroundColor(Color.shopRed.opacity(0.4))
                                 }
                             }
                             .frame(width: thumbSize, height: thumbSize)
-                            .clipShape(RoundedRectangle(cornerRadius: 18))
+                            .clipShape(RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
                     Spacer(minLength: 0)
                 }
             }
+            Spacer(minLength: 0)
         }
-        .padding(16)
-        .frame(width: cardWidth, height: 162)
-        .background(Color.white)
-        .cornerRadius(24)
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+        .frame(width: cardWidth, height: summaryCardHeight - (ShopLayout.cardPadding * 2), alignment: .topLeading)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.largeCardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
+    }
+
+    // MARK: - Shared Store Card Chrome
+
+    private func shopStoreCardHeader(showcase: StoreShowcase, isDarkBackground: Bool) -> some View {
+        HStack(spacing: 12) {
+            NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
+                HStack(spacing: 12) {
+                    ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 44)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(showcase.store_name)
+                                .font(.system(size: 17, weight: .bold, design: .rounded))
+                                .foregroundColor(isDarkBackground ? .white : .shopDark)
+
+                            if followedManager.isFollowing(storeId: showcase.store_id) {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 9.5, weight: .bold))
+                                    Text("Segui già")
+                                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(isDarkBackground ? Color.white.opacity(0.22) : Color.shopPurple.opacity(0.12))
+                                .foregroundColor(isDarkBackground ? .white : .shopPurple)
+                                .clipShape(Capsule())
+                            }
+                        }
+
+                        Text(showcase.formattedRatingWithReviews)
+                            .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                            .foregroundColor(isDarkBackground ? .white.opacity(0.92) : .shopTextMuted)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            storeContextMenu(showcase: showcase, isDarkBackground: isDarkBackground)
+        }
+        .padding(.horizontal, ShopLayout.cardPadding)
+        .padding(.top, ShopLayout.cardPadding)
+    }
+
+    private func shopStoreCardFooter(showcase: StoreShowcase, isDarkBackground: Bool) -> some View {
+        NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
+            HStack {
+                Text("Acquista tutto")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(isDarkBackground ? .white : .shopDark)
+
+                Spacer()
+
+                Circle()
+                    .fill(isDarkBackground ? Color.white.opacity(0.24) : Color.shopSurfaceElevated)
+                    .frame(width: ShopLayout.navButtonSize, height: ShopLayout.navButtonSize)
+                    .overlay(
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(isDarkBackground ? .white : .shopDark)
+                    )
+            }
+            .padding(.horizontal, ShopLayout.cardPadding)
+            .padding(.bottom, ShopLayout.cardPadding)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 2. Olive / Accent Shop Store Card (Driven by Database card_theme & accent_color)
@@ -639,225 +743,62 @@ struct HomeView: View {
             return Color(red: 98/255, green: 125/255, blue: 86/255) // #627D56 authentic olive fallback
         }()
 
-        return VStack(alignment: .leading, spacing: 16) {
-            // Header: Avatar + Store Name + Rating + Three-dots Menu
-            HStack(spacing: 12) {
-                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                    HStack(spacing: 12) {
-                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 46)
+        return VStack(alignment: .leading, spacing: ShopLayout.cardSpacing) {
+            shopStoreCardHeader(showcase: showcase, isDarkBackground: true)
 
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 6) {
-                                Text(showcase.store_name)
-                                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                                    .foregroundColor(.white)
-
-                                if followedManager.isFollowing(storeId: showcase.store_id) {
-                                    HStack(spacing: 3) {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 9.5, weight: .bold))
-                                        Text("Segui già")
-                                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                                    }
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.white.opacity(0.22))
-                                    .foregroundColor(.white)
-                                    .clipShape(Capsule())
-                                }
-                            }
-
-                            Text(showcase.formattedRatingWithReviews)
-                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
-                                .foregroundColor(.white.opacity(0.92))
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                // Three-Dots Interactive Context Menu (Screenshot 3)
-                storeContextMenu(showcase: showcase, isDarkBackground: true)
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
-
-            // Horizontal Carousel of Pure White Product Cards (Screenshot 1)
+            // Horizontal Carousel of Pure White Product Cards
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+                HStack(spacing: ShopLayout.compactSpacing) {
                     ForEach(showcase.products) { prod in
                         let matched = prod.toMatchedProduct(storeId: showcase.store_id, storeName: showcase.store_name)
                         cleanProductCard(product: prod, matchedProduct: matched, cardBg: .white)
+                            .shopCarouselTransition()
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.cardPadding)
             }
 
-            // Bottom Row: "Acquista tutto" + Circular Arrow Button
-            NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                HStack {
-                    Text("Acquista tutto")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-
-                    Spacer()
-
-                    Circle()
-                        .fill(Color.white.opacity(0.24))
-                        .frame(width: 40, height: 40)
-                        .overlay(
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.white)
-                        )
-                }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 18)
-            }
-            .buttonStyle(.plain)
+            shopStoreCardFooter(showcase: showcase, isDarkBackground: true)
         }
         .background(cardBgColor)
-        .cornerRadius(26)
+        .clipShape(RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous))
         .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 3)
     }
 
     // MARK: - 3. Clean White Horizontal Carousel Store Card (Screenshots 1 & 5: PeakPulse / dripuniqueuk)
 
     private func whiteShopStoreCard(showcase: StoreShowcase) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Header: Avatar + Store Name + Rating + Three-dots Menu
-            HStack(spacing: 12) {
-                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                    HStack(spacing: 12) {
-                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 46)
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 6) {
-                                Text(showcase.store_name)
-                                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                                    .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
-
-                                if followedManager.isFollowing(storeId: showcase.store_id) {
-                                    HStack(spacing: 3) {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 9.5, weight: .bold))
-                                        Text("Segui già")
-                                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                                    }
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.shopPurple.opacity(0.12))
-                                    .foregroundColor(.shopPurple)
-                                    .clipShape(Capsule())
-                                }
-                            }
-
-                            Text(showcase.formattedRatingWithReviews)
-                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
-                                .foregroundColor(Color(red: 45/255, green: 45/255, blue: 50/255))
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                // Three-Dots Interactive Context Menu (Screenshot 3)
-                storeContextMenu(showcase: showcase, isDarkBackground: false)
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
+        VStack(alignment: .leading, spacing: ShopLayout.cardSpacing) {
+            shopStoreCardHeader(showcase: showcase, isDarkBackground: false)
 
             // Horizontal Carousel of Clean Light Neutral Product Cards
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+                HStack(spacing: ShopLayout.compactSpacing) {
                     ForEach(showcase.products) { prod in
                         let matched = prod.toMatchedProduct(storeId: showcase.store_id, storeName: showcase.store_name)
-                        cleanProductCard(product: prod, matchedProduct: matched, cardBg: Color(red: 242/255, green: 243/255, blue: 246/255))
+                        cleanProductCard(product: prod, matchedProduct: matched, cardBg: Color.shopSurface)
+                            .shopCarouselTransition()
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.cardPadding)
             }
 
-            // Bottom Row: "Acquista tutto" + Circular Arrow Button
-            NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                HStack {
-                    Text("Acquista tutto")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
-
-                    Spacer()
-
-                    Circle()
-                        .fill(Color(red: 242/255, green: 243/255, blue: 246/255))
-                        .frame(width: 40, height: 40)
-                        .overlay(
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
-                        )
-                }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 18)
-            }
-            .buttonStyle(.plain)
+            shopStoreCardFooter(showcase: showcase, isDarkBackground: false)
         }
         .background(Color.white)
-        .cornerRadius(26)
+        .clipShape(RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 26)
-                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+            RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
+                .stroke(Color.shopBorder, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.03), radius: 10, x: 0, y: 3)
+        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 3)
     }
 
     // MARK: - 4. 2-Column Grid Store Card (Screenshot 4: il Numero Diez Style)
 
     private func gridShopStoreCard(showcase: StoreShowcase) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Header: Avatar + Store Name + Rating + Three-dots Menu
-            HStack(spacing: 12) {
-                NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                    HStack(spacing: 12) {
-                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 46)
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 6) {
-                                Text(showcase.store_name)
-                                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                                    .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
-
-                                if followedManager.isFollowing(storeId: showcase.store_id) {
-                                    HStack(spacing: 3) {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 9.5, weight: .bold))
-                                        Text("Segui già")
-                                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                                    }
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.shopPurple.opacity(0.12))
-                                    .foregroundColor(.shopPurple)
-                                    .clipShape(Capsule())
-                                }
-                            }
-
-                            Text(showcase.formattedRatingWithReviews)
-                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
-                                .foregroundColor(Color(red: 45/255, green: 45/255, blue: 50/255))
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                // Three-Dots Interactive Context Menu (Screenshot 3)
-                storeContextMenu(showcase: showcase, isDarkBackground: false)
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
+        VStack(alignment: .leading, spacing: ShopLayout.cardSpacing) {
+            shopStoreCardHeader(showcase: showcase, isDarkBackground: false)
 
             // 2-Column Grid of 6 Items (Screenshot 4)
             let items = Array(showcase.products.prefix(6))
@@ -867,38 +808,17 @@ struct HomeView: View {
                     cleanProductGridItem(product: prod, matchedProduct: matched)
                 }
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, ShopLayout.cardPadding)
 
-            // Bottom Row: "Acquista tutto" + Circular Arrow Button
-            NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                HStack {
-                    Text("Acquista tutto")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
-
-                    Spacer()
-
-                    Circle()
-                        .fill(Color(red: 242/255, green: 243/255, blue: 246/255))
-                        .frame(width: 40, height: 40)
-                        .overlay(
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
-                        )
-                }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 18)
-            }
-            .buttonStyle(.plain)
+            shopStoreCardFooter(showcase: showcase, isDarkBackground: false)
         }
         .background(Color.white)
-        .cornerRadius(26)
+        .clipShape(RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 26)
-                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+            RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
+                .stroke(Color.shopBorder, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.03), radius: 10, x: 0, y: 3)
+        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 3)
     }
 
     // MARK: - Store Context Menu (Screenshot 3: Visita il negozio | Segui | Non mi interessa | Segnala negozio)
@@ -1004,6 +924,7 @@ struct HomeView: View {
                                     .scaledToFit()
                                     .frame(width: 120, height: 120)
                                     .clipped()
+                                    .transition(.opacity)
                             } else {
                                 ShopSkeletonBlock(cornerRadius: 12, width: 120, height: 120)
                             }
@@ -1074,7 +995,7 @@ struct HomeView: View {
             .frame(width: 138, height: 178)
             .clipShape(RoundedRectangle(cornerRadius: 18))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ShopCardPressStyle())
     }
 
     // MARK: - 2-Column Grid Product Item (Screenshot 4)
@@ -1102,6 +1023,7 @@ struct HomeView: View {
                                     .scaledToFit()
                                     .frame(maxWidth: .infinity, maxHeight: 118)
                                     .clipped()
+                                    .transition(.opacity)
                             } else {
                                 ShopSkeletonBlock(cornerRadius: 12)
                                     .frame(maxWidth: .infinity, maxHeight: 118)
@@ -1173,7 +1095,7 @@ struct HomeView: View {
                 .frame(height: 180)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ShopCardPressStyle())
     }
 
     // MARK: - Helpers

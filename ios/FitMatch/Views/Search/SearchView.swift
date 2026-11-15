@@ -152,9 +152,11 @@ struct SearchView: View {
                 if hasSearched || !searchResults.isEmpty {
                     // Results View: Dual-Mode (AI Deep Dive vs Classic)
                     resultsContainerView
+                        .shopFadeScaleTransition()
                 } else {
                     // Search Typing / History View
                     searchTypingHistoryView
+                        .transition(.opacity)
                 }
 
                 if feedbackSubmittedToast {
@@ -166,7 +168,7 @@ struct SearchView: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(.white)
                         }
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.vertical, 10)
                         .background(Color.shopDark.opacity(0.92))
                         .cornerRadius(22)
@@ -178,6 +180,7 @@ struct SearchView: View {
                     .zIndex(100)
                 }
             }
+            .animation(ShopMotion.tabSwitch, value: hasSearched || !searchResults.isEmpty)
             .navigationDestination(item: $selectedRecentProduct) { prod in
                 ProductDetailView(product: prod, openedFromSearch: true)
             }
@@ -302,7 +305,7 @@ struct SearchView: View {
 
                         Spacer()
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.top, 4)
 
                     // Section 1: "Visti di recente >" (Screenshot 1 & 2 top)
@@ -317,7 +320,7 @@ struct SearchView: View {
                         emptyHistoryPlaceholder
                     }
 
-                    Spacer(minLength: 160)
+                    Spacer(minLength: 150)
                 }
                 .padding(.top, 10)
             }
@@ -350,22 +353,16 @@ struct SearchView: View {
     }
 
     private var emptyHistoryPlaceholder: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "sparkle.magnifyingglass")
-                .font(.system(size: 38))
-                .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
-                .padding(.top, 40)
-            Text("Cosa vorresti cercare?")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundColor(.shopDark)
-            Text("Digita un prodotto, una marca o una categoria per confrontare i prezzi dei migliori negozi di sport.")
-                .font(.system(size: 13.5))
-                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        FitMatchEmptyStateView(
+            icon: "sparkle.magnifyingglass",
+            illustrationName: "empty_search",
+            accentColor: .shopPurple,
+            badgeText: "CERCA & CONFRONTA",
+            title: "Cosa vorresti cercare?",
+            subtitle: "Digita un prodotto, una marca o una categoria per confrontare i prezzi dei migliori negozi di sport."
+        )
+        .padding(.horizontal, ShopLayout.screenPadding)
+        .padding(.top, 16)
         .contentShape(Rectangle())
         .onTapGesture {
             hideAllKeyboards()
@@ -380,7 +377,7 @@ struct SearchView: View {
         if isAnyKeyboardFocused && (keyboardObserver.isKeyboardVisible || keyboardObserver.effectiveKeyboardOffset > 0) {
             return keyboardObserver.effectiveKeyboardOffset + 8
         } else {
-            return 98
+            return 90
         }
     }
 
@@ -421,17 +418,18 @@ struct SearchView: View {
                 }
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, ShopLayout.screenPadding)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
+                HStack(spacing: ShopLayout.compactSpacing) {
                     ForEach(recentManager.recentlyViewedProducts) { prod in
                         RecentlyViewedCard(product: prod) {
                             selectedRecentProduct = prod
                         }
+                        .shopCarouselTransition()
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, ShopLayout.screenPadding)
             }
         }
     }
@@ -454,14 +452,14 @@ struct SearchView: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, ShopLayout.screenPadding)
 
             VStack(spacing: 10) {
                 ForEach(savedChatSessions.prefix(5)) { session in
                     savedChatSessionRow(session)
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, ShopLayout.screenPadding)
         }
     }
 
@@ -889,7 +887,7 @@ struct SearchView: View {
                     Text(rootQuery.isEmpty ? (searchText.isEmpty ? "Cerca prodotto..." : searchText) : rootQuery)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.shopDark)
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.vertical, 10)
                         .background(Color(red: 243/255, green: 243/255, blue: 245/255))
                         .cornerRadius(22)
@@ -1037,7 +1035,7 @@ struct SearchView: View {
                         .cornerRadius(20)
                         .shadow(color: Color.shopPurple.opacity(0.18), radius: 6, y: 3)
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, 10)
                 .padding(.bottom, 2)
             }
@@ -1056,7 +1054,7 @@ struct SearchView: View {
                         .font(.system(size: 15, weight: .bold))
                         .foregroundColor(.shopDark)
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, turn.isFollowUp ? 4 : 8)
             } else {
                 Button(action: {
@@ -1077,7 +1075,7 @@ struct SearchView: View {
                     }
                 }
                 .buttonStyle(PlainButtonStyle())
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, turn.isFollowUp ? 4 : 8)
             }
 
@@ -1091,7 +1089,7 @@ struct SearchView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.vertical, 2)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -1114,13 +1112,13 @@ struct SearchView: View {
                         RoundedRectangle(cornerRadius: 16)
                             .stroke(Color.black.opacity(0.06), lineWidth: 1)
                     )
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                 } else {
                     Text(LocalizedStringKey(turn.conversationalSummary))
                         .font(.system(size: 15.5, weight: .regular))
                         .foregroundColor(.shopDark)
                         .lineSpacing(4.5)
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                 }
             }
             }
@@ -1132,12 +1130,12 @@ struct SearchView: View {
                         Text(section.title)
                             .font(.system(size: 18.5, weight: .bold))
                             .foregroundColor(.shopDark)
-                            .padding(.horizontal, 18)
+                            .padding(.horizontal, ShopLayout.screenPadding)
 
                         Text(section.subtitle)
                             .font(.system(size: 12.5, weight: .regular))
                             .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                            .padding(.horizontal, 18)
+                            .padding(.horizontal, ShopLayout.screenPadding)
                             .padding(.bottom, 4)
 
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -1148,7 +1146,7 @@ struct SearchView: View {
                                     }
                                 }
                             }
-                            .padding(.horizontal, 18)
+                            .padding(.horizontal, ShopLayout.screenPadding)
                             .padding(.vertical, 4)
                         }
                     }
@@ -1159,12 +1157,12 @@ struct SearchView: View {
                     Text("I Modelli Selezionati")
                         .font(.system(size: 18.5, weight: .bold))
                         .foregroundColor(.shopDark)
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
 
                     Text("Tutti i prodotti trovati per la tua ricerca")
                         .font(.system(size: 12.5, weight: .regular))
                         .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.bottom, 4)
 
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -1175,7 +1173,7 @@ struct SearchView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.vertical, 4)
                     }
                 }
@@ -1188,12 +1186,12 @@ struct SearchView: View {
                     Text(turn.comparativeCards.first?.section_title ?? "Confronto rapido")
                         .font(.system(size: 18.5, weight: .bold))
                         .foregroundColor(.shopDark)
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
 
                     Text("Scegli in base all'uso principale")
                         .font(.system(size: 12.5, weight: .regular))
                         .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.bottom, 4)
 
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -1204,7 +1202,7 @@ struct SearchView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.vertical, 4)
                     }
                 }
@@ -1218,7 +1216,7 @@ struct SearchView: View {
                     ShopSpotlightCardView(spotlight: spot) {
                         selectedRecentProduct = spot.product
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.top, 10)
                 }
                 .id(turn.id == conversationTurns.first?.id ? "spotlight_section" : "spotlight_section_\(turn.id)")
@@ -1233,7 +1231,7 @@ struct SearchView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, 14)
                 .id("followups_section")
             }
@@ -1245,7 +1243,7 @@ struct SearchView: View {
             if turn.id != conversationTurns.last?.id {
                 Divider()
                     .background(Color.black.opacity(0.08))
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.top, 12)
             }
         }
@@ -1356,7 +1354,7 @@ struct SearchView: View {
                 .stroke(Color.black.opacity(0.06), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
-        .padding(.horizontal, 18)
+        .padding(.horizontal, ShopLayout.screenPadding)
         .padding(.top, 4)
     }
 
@@ -1381,7 +1379,7 @@ struct SearchView: View {
                         .cornerRadius(20)
                         .shadow(color: Color.shopPurple.opacity(0.18), radius: 6, y: 3)
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, 10)
             }
 
@@ -1392,7 +1390,7 @@ struct SearchView: View {
                 steps: thinkingSteps,
                 startedAt: thinkingStartedAt
             )
-            .padding(.horizontal, 18)
+            .padding(.horizontal, ShopLayout.screenPadding)
 
             // Subtle Preview Strip below Follow-Up Card
             VStack(alignment: .leading, spacing: 14) {
@@ -1401,7 +1399,7 @@ struct SearchView: View {
                         .frame(maxWidth: .infinity)
                     ShopSkeletonTextLine(width: 210, height: 12, cornerRadius: 5)
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.screenPadding)
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 14) {
@@ -1409,7 +1407,7 @@ struct SearchView: View {
                         ShopThemedCarouselSkeletonCard()
                         ShopThemedCarouselSkeletonCard()
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                 }
                 .disabled(true)
             }
@@ -1440,7 +1438,7 @@ struct SearchView: View {
         .padding(.vertical, 12)
         .background(Color(red: 254/255, green: 242/255, blue: 242/255))
         .cornerRadius(14)
-        .padding(.horizontal, 18)
+        .padding(.horizontal, ShopLayout.screenPadding)
         .padding(.top, 4)
     }
 
@@ -1450,7 +1448,7 @@ struct SearchView: View {
             Text("L'IA può commettere errori, ricontrolla le risposte.")
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, 6)
 
             HStack(spacing: 0) {
@@ -1502,7 +1500,7 @@ struct SearchView: View {
             }
             .background(Color(red: 242/255, green: 243/255, blue: 246/255))
             .cornerRadius(12)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, ShopLayout.screenPadding)
         }
     }
 
@@ -1525,7 +1523,7 @@ struct SearchView: View {
                 }
             }
             .buttonStyle(PlainButtonStyle())
-            .padding(.horizontal, 18)
+            .padding(.horizontal, ShopLayout.screenPadding)
             .padding(.top, 8)
 
             if showAiExplanation && !activeChips.isEmpty {
@@ -1537,7 +1535,7 @@ struct SearchView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.vertical, 2)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -1548,7 +1546,7 @@ struct SearchView: View {
                     .font(.system(size: 15.5, weight: .regular))
                     .foregroundColor(.shopDark)
                     .lineSpacing(4.5)
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShopLayout.screenPadding)
             }
 
             if !curatedSections.isEmpty {
@@ -1557,12 +1555,12 @@ struct SearchView: View {
                         Text(section.title)
                             .font(.system(size: 18.5, weight: .bold))
                             .foregroundColor(.shopDark)
-                            .padding(.horizontal, 18)
+                            .padding(.horizontal, ShopLayout.screenPadding)
 
                         Text(section.subtitle)
                             .font(.system(size: 12.5, weight: .regular))
                             .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                            .padding(.horizontal, 18)
+                            .padding(.horizontal, ShopLayout.screenPadding)
                             .padding(.bottom, 4)
 
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -1573,7 +1571,7 @@ struct SearchView: View {
                                     }
                                 }
                             }
-                            .padding(.horizontal, 18)
+                            .padding(.horizontal, ShopLayout.screenPadding)
                             .padding(.vertical, 4)
                         }
                     }
@@ -1584,12 +1582,12 @@ struct SearchView: View {
                     Text("I Modelli Selezionati")
                         .font(.system(size: 18.5, weight: .bold))
                         .foregroundColor(.shopDark)
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
 
                     Text("Tutti i prodotti trovati per la tua ricerca")
                         .font(.system(size: 12.5, weight: .regular))
                         .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.bottom, 4)
 
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -1600,7 +1598,7 @@ struct SearchView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.vertical, 4)
                     }
                 }
@@ -1612,12 +1610,12 @@ struct SearchView: View {
                     Text(comparativeCards.first?.section_title ?? "Confronto rapido")
                         .font(.system(size: 18.5, weight: .bold))
                         .foregroundColor(.shopDark)
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
 
                     Text("Scegli in base all'uso principale")
                         .font(.system(size: 12.5, weight: .regular))
                         .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.bottom, 4)
 
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -1628,7 +1626,7 @@ struct SearchView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.vertical, 4)
                     }
                 }
@@ -1641,7 +1639,7 @@ struct SearchView: View {
                     ShopSpotlightCardView(spotlight: spot) {
                         selectedRecentProduct = spot.product
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.top, 10)
                 }
                 .id("spotlight_section")
@@ -1655,7 +1653,7 @@ struct SearchView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, 14)
                 .id("followups_section")
             }
@@ -1700,6 +1698,7 @@ struct SearchView: View {
             Spacer()
             FitMatchEmptyStateView(
                 icon: "sparkles",
+                illustrationName: "empty_search",
                 accentColor: .shopPurple,
                 badgeText: "MOTORE SPORTIVO IA",
                 title: "Nessuna corrispondenza per questa ricerca",
@@ -2013,6 +2012,7 @@ struct SearchView: View {
                     Spacer()
                     FitMatchEmptyStateView(
                         icon: "magnifyingglass",
+                        illustrationName: "empty_search",
                         accentColor: .shopPurple,
                         badgeText: "CATALOGO FITMATCH",
                         title: "Nessun prodotto trovato",
@@ -3229,7 +3229,7 @@ struct FollowUpQuestionSheet: View {
                             .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, 12)
 
                 // Quick Answer Options
@@ -3268,7 +3268,7 @@ struct FollowUpQuestionSheet: View {
                             .buttonStyle(PlainButtonStyle())
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.vertical, 2)
                 }
 
@@ -3292,7 +3292,7 @@ struct FollowUpQuestionSheet: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color(red: 245/255, green: 245/255, blue: 248/255))
+                        .background(Color.shopSurface)
                         .cornerRadius(20)
 
                         if !customAnswerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -3307,7 +3307,7 @@ struct FollowUpQuestionSheet: View {
                             .transition(.scale.combined(with: .opacity))
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.bottom, 10)
                 }
             }
@@ -3617,6 +3617,7 @@ struct ShopProductThumbnail: View {
                             image.resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .padding(5)
+                                .transition(.opacity)
                         case .empty:
                             ShopSkeletonBlock(cornerRadius: cornerRadius, width: size.width, height: size.height)
                         default:
@@ -3675,6 +3676,7 @@ struct RecentlyViewedCard: View {
                                     image.resizable()
                                         .aspectRatio(contentMode: .fit)
                                         .frame(width: 104, height: 94)
+                                        .transition(.opacity)
                                 case .empty:
                                     ShopSkeletonBlock(cornerRadius: 12, width: 88, height: 80)
                                 default:
@@ -3753,7 +3755,7 @@ struct RecentlyViewedCard: View {
             }
             .frame(width: 136, height: 140)
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(ShopCardPressStyle())
     }
 
     private func formatEuro(_ price: Double) -> String {
@@ -3787,20 +3789,20 @@ struct ShopVisualSearchSheet: View {
                         .foregroundColor(.shopDark)
                     Text("Inquadra una scarpa o capo per trovare le migliori offerte multinegozio")
                         .font(.system(size: 14))
-                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                        .foregroundColor(.shopTextMuted)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                 }
                 .padding(.top, 20)
 
                 // Viewfinder Frame
                 ZStack {
-                    RoundedRectangle(cornerRadius: 24)
-                        .fill(Color(red: 245/255, green: 245/255, blue: 248/255))
+                    RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
+                        .fill(Color.shopSurface)
                         .frame(height: 250)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 24)
-                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
+                                .stroke(Color.shopBorder, lineWidth: 1)
                         )
 
                     if let model = recognizedModel, let sample = sampleModels.first(where: { $0.0 == model }) {
@@ -3837,7 +3839,7 @@ struct ShopVisualSearchSheet: View {
                             .shadow(color: .shopPurple, radius: 8)
                     }
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, ShopLayout.screenPadding)
 
                 if let model = recognizedModel {
                     VStack(spacing: 8) {
@@ -3865,7 +3867,7 @@ struct ShopVisualSearchSheet: View {
                                 .background(Color.shopPurple)
                                 .cornerRadius(14)
                         }
-                        .padding(.horizontal, 24)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.top, 4)
                     }
                     .transition(.opacity)
@@ -3873,8 +3875,8 @@ struct ShopVisualSearchSheet: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Oppure prova con questi modelli popolari:")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
-                            .padding(.horizontal, 24)
+                            .foregroundColor(.shopTextMuted)
+                            .padding(.horizontal, ShopLayout.screenPadding)
 
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
@@ -3895,12 +3897,12 @@ struct ShopVisualSearchSheet: View {
                                         }
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
-                                        .background(Color(red: 244/255, green: 244/255, blue: 247/255))
+                                        .background(Color.shopSurface)
                                         .cornerRadius(10)
                                     }
                                 }
                             }
-                            .padding(.horizontal, 24)
+                            .padding(.horizontal, ShopLayout.screenPadding)
                         }
                     }
                 }
@@ -3982,8 +3984,8 @@ struct ShopSearchFeedbackSheet: View {
                         .font(.system(size: 15.5, weight: .semibold))
                         .foregroundColor(.shopDark)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
+                .padding(.horizontal, ShopLayout.screenPadding)
+                .padding(.top, ShopLayout.cardPadding)
 
                 // Overall Feedback Type Indicator & Toggle
                 HStack(spacing: 8) {
@@ -4002,7 +4004,7 @@ struct ShopSearchFeedbackSheet: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)
-                        .background(currentFeedbackType == "positive" ? Color.green.opacity(0.15) : Color(red: 242/255, green: 243/255, blue: 246/255))
+                        .background(currentFeedbackType == "positive" ? Color.green.opacity(0.15) : Color.shopSurfaceElevated)
                         .foregroundColor(currentFeedbackType == "positive" ? Color.green : Color(red: 120/255, green: 120/255, blue: 130/255))
                         .cornerRadius(18)
                         .overlay(
@@ -4027,7 +4029,7 @@ struct ShopSearchFeedbackSheet: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)
-                        .background(currentFeedbackType == "negative" ? Color.red.opacity(0.15) : Color(red: 242/255, green: 243/255, blue: 246/255))
+                        .background(currentFeedbackType == "negative" ? Color.red.opacity(0.15) : Color.shopSurfaceElevated)
                         .foregroundColor(currentFeedbackType == "negative" ? Color.red : Color(red: 120/255, green: 120/255, blue: 130/255))
                         .cornerRadius(18)
                         .overlay(
@@ -4039,7 +4041,7 @@ struct ShopSearchFeedbackSheet: View {
 
                     Spacer()
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, ShopLayout.screenPadding)
 
                 // Horizontal Product Carousel (Screenshot 2)
                 if !products.isEmpty {
@@ -4061,14 +4063,14 @@ struct ShopSearchFeedbackSheet: View {
                                 )
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, ShopLayout.screenPadding)
                     }
                 }
 
                 // Comment Text Field (Screenshot 2: "Dicci come stiamo andando")
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color(red: 220/255, green: 220/255, blue: 226/255), lineWidth: 1)
+                        .stroke(Color.shopBorder, lineWidth: 1)
                         .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
 
                     if commentText.isEmpty {
@@ -4087,7 +4089,7 @@ struct ShopSearchFeedbackSheet: View {
                         .scrollContentBackground(.hidden)
                 }
                 .frame(height: 94)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, ShopLayout.screenPadding)
 
                 // Invia Button (Screenshot 2: Full-width black button)
                 Button(action: {
@@ -4109,7 +4111,7 @@ struct ShopSearchFeedbackSheet: View {
                     .cornerRadius(26)
                 }
                 .disabled(isSubmitting)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, 4)
 
                 Spacer(minLength: 12)

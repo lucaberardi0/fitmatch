@@ -83,16 +83,16 @@ struct ModelCompareView: View {
                         comparisonDetails(comp)
                     }
 
-                    Spacer(minLength: 60)
+                    Spacer(minLength: ShopLayout.bottomDetailClearance)
                 }
-                .padding(.vertical, 16)
+                .padding(.vertical, ShopLayout.cardSpacing)
             }
             .task {
                 if autoStart && comparisonResult == nil && !isLoading {
                     runComparison()
                 }
             }
-            .background(Color(red: 247/255, green: 247/255, blue: 250/255).ignoresSafeArea())
+            .background(Color.shopSurface.ignoresSafeArea())
             .navigationTitle("Confronto Modelli IA")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -125,7 +125,7 @@ struct ModelCompareView: View {
                 .foregroundColor(.white.opacity(0.92))
                 .lineSpacing(2)
         }
-        .padding(18)
+        .padding(ShopLayout.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             LinearGradient(
@@ -134,9 +134,9 @@ struct ModelCompareView: View {
                 endPoint: .bottomTrailing
             )
         )
-        .cornerRadius(20)
+        .clipShape(RoundedRectangle(cornerRadius: ShopLayout.cardRadius, style: .continuous))
         .shadow(color: Color.shopPurple.opacity(0.2), radius: 10, x: 0, y: 4)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, ShopLayout.screenPadding)
     }
 
     private var presetChips: some View {

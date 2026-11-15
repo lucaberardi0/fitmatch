@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import ImageIO
+import CryptoKit
 
 // MARK: - Production-Grade Ultra-Fast Two-Tier Image Cache (Memory + Disk + Off-Thread Decoding)
 
@@ -55,18 +56,23 @@ public final class ImageCacheManager {
 
     // MARK: - Fast Synchronous L1 Lookup (0ms overhead)
 
-    public func cachedImage(for url: URL?) -> UIImage? {
+    public func cachedImage(for url: URL?, maxPixelSize: CGFloat = 800) -> UIImage? {
         guard let url = url else { return nil }
-        let key = cacheKey(for: url) as NSString
-        return memoryCache.object(forKey: key)
+        let baseKey = cacheKey(for: url)
+        if maxPixelSize > 1200,
+           let hiRes = memoryCache.object(forKey: "\(baseKey)_hi" as NSString) {
+            return hiRes
+        }
+        return memoryCache.object(forKey: baseKey as NSString)
     }
 
     // MARK: - Asynchronous Load (Memory -> Disk -> Network with Background Decompression)
 
     public func loadImage(for url: URL?, maxPixelSize: CGFloat = 800) async -> UIImage? {
         guard let url = url else { return nil }
-        let key = cacheKey(for: url)
-        let keyNs = key as NSString
+        let baseKey = cacheKey(for: url)
+        let memKey = maxPixelSize > 1200 ? "\(baseKey)_hi" : baseKey
+        let keyNs = memKey as NSString
 
         // 1. Check L1 Memory Cache
         if let memoryHit = memoryCache.object(forKey: keyNs) {
@@ -75,7 +81,7 @@ public final class ImageCacheManager {
 
         // 2. Check Deduplication Queue
         lock.lock()
-        if let existingTask = inFlightTasks[key] {
+        if let existingTask = inFlightTasks[memKey] {
             lock.unlock()
             return await existingTask.value
         }
@@ -84,8 +90,8 @@ public final class ImageCacheManager {
         let task = Task<UIImage?, Never>(priority: .userInitiated) { [weak self] in
             guard let self = self else { return nil }
 
-            // Check L2 Disk Cache
-            let diskPath = self.diskCacheURL.appendingPathComponent(key)
+            // Check L2 Disk Cache (stores raw untouched image bytes so high-res zoom decodes locally)
+            let diskPath = self.diskCacheURL.appendingPathComponent(baseKey)
             if let data = try? Data(contentsOf: diskPath),
                let image = self.decodeAndDecompress(data: data, maxPixelSize: maxPixelSize) {
                 let cost = Int(image.size.width * image.size.height * 4)
@@ -123,13 +129,13 @@ public final class ImageCacheManager {
             }
         }
 
-        inFlightTasks[key] = task
+        inFlightTasks[memKey] = task
         lock.unlock()
 
         let result = await task.value
 
         lock.lock()
-        inFlightTasks.removeValue(forKey: key)
+        inFlightTasks.removeValue(forKey: memKey)
         lock.unlock()
 
         return result
@@ -137,12 +143,11 @@ public final class ImageCacheManager {
 
     // MARK: - Proactive Batch Prefetching
 
-    public func prefetch(urls: [URL?]) {
+    public func prefetch(urls: [URL?], maxPixelSize: CGFloat = 800) {
         for url in urls.compactMap({ $0 }) {
-            let key = cacheKey(for: url) as NSString
-            if memoryCache.object(forKey: key) == nil {
+            if cachedImage(for: url, maxPixelSize: maxPixelSize) == nil {
                 Task(priority: .utility) {
-                    _ = await self.loadImage(for: url)
+                    _ = await self.loadImage(for: url, maxPixelSize: maxPixelSize)
                 }
             }
         }
@@ -171,8 +176,8 @@ public final class ImageCacheManager {
     // MARK: - Safe Deterministic Cache Key (SHA256)
 
     private func cacheKey(for url: URL) -> String {
-        let string = url.absoluteString
-        return "\(string.hashValue)"
+        let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 }
 
@@ -185,6 +190,7 @@ public struct ShopAsyncImage<Content: View, Placeholder: View>: View {
     private let placeholder: () -> Placeholder
 
     @State private var uiImage: UIImage?
+    @State private var loadedURL: URL?
     @State private var hasFailed: Bool = false
 
     public init(
@@ -199,8 +205,9 @@ public struct ShopAsyncImage<Content: View, Placeholder: View>: View {
         self.placeholder = placeholder
 
         // Synchronous L1 cache hit: if already loaded in memory, render IMMEDIATELY with 0ms delay!
-        if let cached = ImageCacheManager.shared.cachedImage(for: url) {
+        if let cached = ImageCacheManager.shared.cachedImage(for: url, maxPixelSize: maxPixelSize) {
             _uiImage = State(initialValue: cached)
+            _loadedURL = State(initialValue: url)
         }
     }
 
@@ -208,20 +215,44 @@ public struct ShopAsyncImage<Content: View, Placeholder: View>: View {
         ZStack {
             if let image = uiImage {
                 content(Image(uiImage: image))
-                    .transition(.opacity)
+                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
             } else if hasFailed {
                 placeholder()
+                    .transition(.opacity)
             } else {
                 placeholder()
+                    .transition(.opacity)
             }
         }
+        .animation(ShopMotion.imageFade, value: loadedURL?.absoluteString ?? (hasFailed ? "failed" : "loading"))
         .task(id: url) {
-            if uiImage == nil, let url = url {
-                if let loaded = await ImageCacheManager.shared.loadImage(for: url, maxPixelSize: maxPixelSize) {
-                    withAnimation(.easeOut(duration: 0.22)) {
-                        self.uiImage = loaded
-                    }
-                } else {
+            guard let url = url else {
+                uiImage = nil
+                loadedURL = nil
+                hasFailed = false
+                return
+            }
+            if loadedURL == url, uiImage != nil { return }
+
+            if let cached = ImageCacheManager.shared.cachedImage(for: url, maxPixelSize: maxPixelSize) {
+                withAnimation(ShopMotion.imageFade) {
+                    self.uiImage = cached
+                    self.loadedURL = url
+                    self.hasFailed = false
+                }
+                return
+            }
+
+            if let loaded = await ImageCacheManager.shared.loadImage(for: url, maxPixelSize: maxPixelSize) {
+                guard !Task.isCancelled else { return }
+                withAnimation(ShopMotion.imageFade) {
+                    self.uiImage = loaded
+                    self.loadedURL = url
+                    self.hasFailed = false
+                }
+            } else {
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.18)) {
                     self.hasFailed = true
                 }
             }
@@ -237,6 +268,7 @@ public struct ShopCachedAsyncImage<Content: View>: View {
     private let content: (AsyncImagePhase) -> Content
 
     @State private var phase: AsyncImagePhase
+    @State private var loadedURL: URL?
 
     public init(
         url: URL?,
@@ -248,29 +280,63 @@ public struct ShopCachedAsyncImage<Content: View>: View {
         self.content = content
 
         // Instant synchronous hit check
-        if let cached = ImageCacheManager.shared.cachedImage(for: url) {
+        if let cached = ImageCacheManager.shared.cachedImage(for: url, maxPixelSize: maxPixelSize) {
             _phase = State(initialValue: .success(Image(uiImage: cached)))
+            _loadedURL = State(initialValue: url)
         } else {
             _phase = State(initialValue: .empty)
+            _loadedURL = State(initialValue: nil)
+        }
+    }
+
+    private var animationKey: String {
+        switch phase {
+        case .success:
+            return "success-\(loadedURL?.absoluteString ?? "")"
+        case .failure:
+            return "failure-\(url?.absoluteString ?? "")"
+        case .empty:
+            return "empty-\(url?.absoluteString ?? "")"
+        @unknown default:
+            return "unknown"
         }
     }
 
     public var body: some View {
         content(phase)
+            .animation(ShopMotion.imageFade, value: animationKey)
             .task(id: url) {
-                if case .success = phase { return }
                 guard let url = url else {
                     phase = .empty
+                    loadedURL = nil
+                    return
+                }
+                if loadedURL == url, case .success = phase { return }
+
+                // Instant L1 check on URL updates (e.g. reused views or variant switches)
+                if let cached = ImageCacheManager.shared.cachedImage(for: url, maxPixelSize: maxPixelSize) {
+                    withAnimation(ShopMotion.imageFade) {
+                        self.phase = .success(Image(uiImage: cached))
+                        self.loadedURL = url
+                    }
                     return
                 }
 
+                if loadedURL != url {
+                    self.phase = .empty
+                }
+
                 if let img = await ImageCacheManager.shared.loadImage(for: url, maxPixelSize: maxPixelSize) {
-                    withAnimation(.easeOut(duration: 0.22)) {
+                    guard !Task.isCancelled else { return }
+                    withAnimation(ShopMotion.imageFade) {
                         self.phase = .success(Image(uiImage: img))
+                        self.loadedURL = url
                     }
                 } else {
-                    withAnimation(.easeOut(duration: 0.15)) {
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeOut(duration: 0.18)) {
                         self.phase = .failure(URLError(.cannotDecodeContentData))
+                        self.loadedURL = url
                     }
                 }
             }

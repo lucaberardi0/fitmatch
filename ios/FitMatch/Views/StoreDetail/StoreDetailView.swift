@@ -88,21 +88,19 @@ struct StoreDetailView: View {
         VStack(spacing: 0) {
             // MARK: - Top Navigation Bar (Screenshot 1: Back, Search, Hamburger)
             topNavigationBar
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
+                .shopHeaderBarPadding()
                 .background(Color.white)
 
             Divider()
-                .background(Color(red: 238/255, green: 239/255, blue: 242/255))
+                .background(Color.shopBorder)
 
             // MARK: - Main Scroll Content
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     // Store Hero Header (Screenshot 1: Store Name, Star + Rating, Follow Button)
                     storeHeroHeader
-                        .padding(.top, 24)
-                        .padding(.bottom, 24)
+                        .padding(.top, 20)
+                        .padding(.bottom, 20)
 
                     if isLoading {
                         ShopStoreDetailSkeletonView()
@@ -112,13 +110,13 @@ struct StoreDetailView: View {
                     } else {
                         // Section Header: "Tutti i prodotti" + Circular Filter Button
                         catalogHeaderSection
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                            .padding(.bottom, ShopLayout.cardSpacing)
 
                         // 2-Column Product Grid (Screenshot 1)
                         productCatalogGrid
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 120)
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                            .padding(.bottom, ShopLayout.bottomDetailClearance)
                     }
                 }
             }
@@ -128,7 +126,7 @@ struct StoreDetailView: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
-        .navigationBarHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showStoreInfoSheet) {
             Group {
                 if let details = storeDetails {
@@ -238,11 +236,11 @@ struct StoreDetailView: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.shopDark)
-                    .frame(width: 42, height: 42)
-                    .background(Color(red: 246/255, green: 247/255, blue: 249/255))
+                    .frame(width: ShopLayout.navButtonSize, height: ShopLayout.navButtonSize)
+                    .background(Color.shopSurface)
                     .clipShape(Circle())
                     .overlay(
-                        Circle().stroke(Color(red: 230/255, green: 231/255, blue: 235/255), lineWidth: 0.8)
+                        Circle().stroke(Color.shopBorder, lineWidth: 1)
                     )
             }
             .buttonStyle(.plain)
@@ -266,11 +264,11 @@ struct StoreDetailView: View {
                 }
             }
             .padding(.horizontal, 14)
-            .frame(height: 42)
-            .background(Color(red: 246/255, green: 247/255, blue: 249/255))
+            .frame(height: ShopLayout.navButtonSize)
+            .background(Color.shopSurface)
             .clipShape(Capsule())
             .overlay(
-                Capsule().stroke(Color(red: 230/255, green: 231/255, blue: 235/255), lineWidth: 0.8)
+                Capsule().stroke(Color.shopBorder, lineWidth: 1)
             )
 
             // Circle Hamburger Menu Button (Opens Store Info Sheet)
@@ -280,11 +278,11 @@ struct StoreDetailView: View {
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.shopDark)
-                    .frame(width: 42, height: 42)
-                    .background(Color(red: 246/255, green: 247/255, blue: 249/255))
+                    .frame(width: ShopLayout.navButtonSize, height: ShopLayout.navButtonSize)
+                    .background(Color.shopSurface)
                     .clipShape(Circle())
                     .overlay(
-                        Circle().stroke(Color(red: 230/255, green: 231/255, blue: 235/255), lineWidth: 0.8)
+                        Circle().stroke(Color.shopBorder, lineWidth: 1)
                     )
             }
             .buttonStyle(.plain)
@@ -444,6 +442,7 @@ struct StoreDetailView: View {
                 let hasQuery = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 FitMatchEmptyStateView(
                     icon: "magnifyingglass",
+                    illustrationName: "empty_search",
                     accentColor: .shopPurple,
                     badgeText: "CATALOGO NEGOZIO",
                     title: hasQuery ? "Nessun risultato su \(storeDisplay)" : "Nessun articolo in questa selezione",
@@ -466,9 +465,10 @@ struct StoreDetailView: View {
                         NavigationLink(destination: ProductDetailView(product: matched)) {
                             productCardView(item: item, matched: matched)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ShopCardPressStyle())
                     }
                 }
+                .animation(ShopMotion.gridReflow, value: filteredProducts.map(\.id))
             }
         }
     }
@@ -493,6 +493,7 @@ struct StoreDetailView: View {
                                             .resizable()
                                             .scaledToFit()
                                             .padding(14)
+                                            .transition(.opacity)
                                     case .failure:
                                         Image(systemName: "shoe")
                                             .font(.system(size: 36))
@@ -854,10 +855,10 @@ struct StoreInfoSheetView: View {
                     actionButtonsSection
                         .padding(.bottom, 40)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
+                .padding(.horizontal, ShopLayout.screenPadding)
+                .padding(.top, ShopLayout.screenPadding)
             }
-            .background(Color(red: 247/255, green: 248/255, blue: 250/255).ignoresSafeArea())
+            .background(Color.shopSurface.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -980,10 +981,7 @@ struct StoreInfoSheetView: View {
                 }
             }
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(20)
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
     }
 
     // MARK: - 2. Section "Recensioni" (Screenshot 2)
@@ -1159,10 +1157,7 @@ struct StoreInfoSheetView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(20)
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
     }
 
     // MARK: - 3. Section "Sedi" (Screenshot 2)
@@ -1192,10 +1187,7 @@ struct StoreInfoSheetView: View {
             .background(Color(red: 246/255, green: 247/255, blue: 249/255))
             .cornerRadius(14)
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(20)
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
     }
 
     // MARK: - 4. Section "Informative" (Screenshot 3)
@@ -1259,10 +1251,7 @@ struct StoreInfoSheetView: View {
             .background(Color(red: 246/255, green: 247/255, blue: 249/255))
             .cornerRadius(16)
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(20)
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
     }
 
     private func policyRow(title: String, systemIcon: String, action: @escaping () -> Void) -> some View {
@@ -1359,10 +1348,7 @@ struct StoreInfoSheetView: View {
             .background(Color(red: 246/255, green: 247/255, blue: 249/255))
             .cornerRadius(16)
         }
-        .padding(18)
-        .background(Color.white)
-        .cornerRadius(20)
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
     }
 
     private func contactRow(title: String, value: String?, systemIcon: String, action: @escaping () -> Void) -> some View {

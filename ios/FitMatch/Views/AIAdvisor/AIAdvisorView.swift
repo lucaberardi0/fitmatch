@@ -32,7 +32,7 @@ struct AIAdvisorView: View {
                             .font(.system(size: 13))
                             .foregroundColor(.white.opacity(0.92))
                     }
-                    .padding(18)
+                    .padding(ShopLayout.cardPadding)
                     .background(
                         LinearGradient(
                             colors: [Color.shopPurple, Color.shopDark],
@@ -40,8 +40,8 @@ struct AIAdvisorView: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .cornerRadius(20)
-                    .padding(.horizontal, 16)
+                    .clipShape(RoundedRectangle(cornerRadius: ShopLayout.cardRadius, style: .continuous))
+                    .padding(.horizontal, ShopLayout.screenPadding)
 
                     // Versus Mode Navigation Card
                     NavigationLink(destination: ModelCompareView()) {
@@ -238,18 +238,22 @@ struct AIAdvisorView: View {
                         .padding(.horizontal, 16)
                     }
                 }
-                .padding(.vertical, 16)
+                .padding(.vertical, ShopLayout.cardSpacing)
             }
             .navigationTitle("Coach IA 🤖")
-            .background(Color(.systemBackground))
+            .background(Color.shopSurface.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
                 // Input Bar
                 HStack(spacing: 10) {
                     TextField("Chiedi al Coach (es. peso, asfalto, budget)...", text: $promptText)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .background(Color(.systemGray6))
-                        .cornerRadius(24)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .stroke(Color.shopBorder, lineWidth: 1)
+                        )
 
                     Button(action: askAdvisor) {
                         Image(systemName: "arrow.up.circle.fill")

@@ -47,7 +47,12 @@ struct ProductDetailView: View {
     @State private var selectedSize: String? = nil
     @State private var selectedVariant: String? = nil
     @State private var selectedImageIndex: Int = 0
+    @State private var scrolledImageIndex: Int? = 0
+    @State private var showingFullScreenGallery: Bool = false
+    @State private var inlineZoomScale: CGFloat = 1.0
+    @State private var inlineZoomAnchor: UnitPoint = .center
     @State private var showDoubleTapHeart: Bool = false
+    @Namespace private var galleryThumbNamespace
 
     // Collapsible Accordion States (Shopify Shop Style)
     @State private var isExpandedSizes: Bool = false
@@ -211,82 +216,85 @@ struct ProductDetailView: View {
             VStack(spacing: 0) {
                 // Top Fixed Navigation Bar
                 topNavigationBar
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 10)
+                    .shopHeaderBarPadding()
                     .background(Color.white)
 
                 Divider()
-                    .background(Color(red: 238/255, green: 239/255, blue: 242/255))
+                    .background(Color.shopBorder)
 
                 // Main Scrollable Page
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
                         // 1. Store Header Profile Row (Screenshot 1)
                         storeHeaderRow
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
                             .padding(.top, 14)
                             .padding(.bottom, 12)
 
                         // 2. Hero Product Image Showcase Card (Screenshot 1)
                         heroImageCard
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                            .padding(.bottom, displayedImages.count > 1 ? 10 : ShopLayout.cardSpacing)
+
+                        if displayedImages.count > 1 {
+                            galleryThumbnailStrip
+                                .padding(.bottom, ShopLayout.cardSpacing)
+                        }
 
                         // 3. Product Title, Heart & Share Actions (Screenshot 1)
                         titleAndActionRow
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                            .padding(.bottom, ShopLayout.tightSpacing)
 
                         // 4. Stock Badge (Screenshot 1)
                         stockBadgeRow
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
                             .padding(.bottom, 10)
 
                         // 5. Price & Shipping Subtext (Screenshot 1 & 2)
                         priceAndShippingSection
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 20)
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                            .padding(.bottom, ShopLayout.sectionSpacing)
 
                         // 6. Size Selection Pills (Screenshot 1 & 2)
                         if !allSizes.isEmpty {
                             sizeSelectionSection
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 20)
+                                .padding(.horizontal, ShopLayout.screenPadding)
+                                .padding(.bottom, ShopLayout.sectionSpacing)
                         }
 
                         // 7. Color Selection (only if real variants exist in database)
                         if !availableVariants.isEmpty {
                             colorSelectionSection
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 20)
+                                .padding(.horizontal, ShopLayout.screenPadding)
+                                .padding(.bottom, ShopLayout.sectionSpacing)
                         }
 
                         // 8. CTA Buttons: Acquista & Preferiti
                         ctaButtonsSection
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 24)
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                            .padding(.bottom, 22)
 
                         Divider()
-                            .background(Color(red: 235/255, green: 236/255, blue: 240/255))
-                            .padding(.horizontal, 16)
+                            .background(Color.shopBorder)
+                            .padding(.horizontal, ShopLayout.screenPadding)
 
                         // 10. Accordion: Descrizione (Screenshot 2 & 3)
                         descriptionAccordion
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
 
                         // 11. Accordion: Consegna e resi (Screenshot 3)
                         deliveryAccordion
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
 
                         // 12. Andamento Prezzi e Offerte Partner (Directly visible & non-collapsible)
                         partnerOffersSection
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, ShopLayout.screenPadding)
 
                         // 13. Section: Potrebbe piacerti anche (Screenshot 3 & 4)
                         recommendationsSection
-                            .padding(.top, 24)
-                            .padding(.bottom, 140) // Space for bottom dock
+                            .padding(.top, ShopLayout.sectionSpacing)
+                            .padding(.bottom, ShopLayout.bottomDetailClearance)
                     }
                 }
             }
@@ -349,6 +357,14 @@ struct ProductDetailView: View {
                 offer: currentOffer
             )
         }
+        .fullScreenCover(isPresented: $showingFullScreenGallery) {
+            FullScreenProductGalleryView(
+                images: displayedImages,
+                selectedIndex: $selectedImageIndex,
+                productTitle: product.cleanTitle
+            )
+            .presentationBackground(.clear)
+        }
         .onAppear {
             TabBarVisibilityManager.shared.hide(for: "product_detail")
             RecentActivityManager.shared.recordProductView(product)
@@ -357,6 +373,8 @@ struct ProductDetailView: View {
             TabBarVisibilityManager.shared.show(for: "product_detail")
         }
         .task {
+            let galleryUrls = displayedImages.compactMap { URL(string: $0) }
+            ImageCacheManager.shared.prefetch(urls: galleryUrls, maxPixelSize: 1200)
             await loadPriceHistory()
             await loadRelatedProducts()
         }
@@ -371,10 +389,10 @@ struct ProductDetailView: View {
                 dismiss()
             }) {
                 Circle()
-                    .fill(Color(red: 246/255, green: 247/255, blue: 249/255))
-                    .frame(width: 40, height: 40)
+                    .fill(Color.shopSurface)
+                    .frame(width: ShopLayout.navButtonSize, height: ShopLayout.navButtonSize)
                     .overlay(
-                        Circle().stroke(Color(red: 232/255, green: 233/255, blue: 237/255), lineWidth: 0.8)
+                        Circle().stroke(Color.shopBorder, lineWidth: 1)
                     )
                     .overlay(
                         Image(systemName: "chevron.left")
@@ -409,11 +427,11 @@ struct ProductDetailView: View {
                     Spacer()
                 }
                 .padding(.horizontal, 14)
-                .frame(height: 40)
-                .background(Color(red: 246/255, green: 247/255, blue: 249/255))
+                .frame(height: ShopLayout.navButtonSize)
+                .background(Color.shopSurface)
                 .clipShape(Capsule())
                 .overlay(
-                    Capsule().stroke(Color(red: 232/255, green: 233/255, blue: 237/255), lineWidth: 0.8)
+                    Capsule().stroke(Color.shopBorder, lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
@@ -425,10 +443,10 @@ struct ProductDetailView: View {
                 showingShareSheet = true
             }) {
                 Circle()
-                    .fill(Color(red: 246/255, green: 247/255, blue: 249/255))
-                    .frame(width: 40, height: 40)
+                    .fill(Color.shopSurface)
+                    .frame(width: ShopLayout.navButtonSize, height: ShopLayout.navButtonSize)
                     .overlay(
-                        Circle().stroke(Color(red: 232/255, green: 233/255, blue: 237/255), lineWidth: 0.8)
+                        Circle().stroke(Color.shopBorder, lineWidth: 1)
                     )
                     .overlay(
                         Image(systemName: "square.and.arrow.up")
@@ -525,50 +543,104 @@ struct ProductDetailView: View {
             Color(red: 244/255, green: 244/255, blue: 246/255) // #F4F4F6 Shop Canvas
 
             if displayedImages.count > 1 {
-                TabView(selection: $selectedImageIndex) {
-                    ForEach(Array(displayedImages.enumerated()), id: \.offset) { index, imgUrl in
-                        if let url = URL(string: imgUrl) {
-                            ShopCachedAsyncImage(url: url, maxPixelSize: 1200) { phase in
-                                if let image = phase.image {
-                                    image
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(height: 290)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 20)
-                                        .padding(.horizontal, 16)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 0) {
+                        ForEach(Array(displayedImages.enumerated()), id: \.offset) { index, imgUrl in
+                            Group {
+                                if let url = URL(string: imgUrl) {
+                                    ShopCachedAsyncImage(url: url, maxPixelSize: 1200) { phase in
+                                        if let image = phase.image {
+                                            image
+                                                .resizable()
+                                                .scaledToFit()
+                                                .frame(height: 290)
+                                                .frame(maxWidth: .infinity)
+                                                .padding(.vertical, 20)
+                                                .padding(.horizontal, 16)
+                                                .scaleEffect(index == selectedImageIndex ? inlineZoomScale : 1.0, anchor: inlineZoomAnchor)
+                                                .transition(.opacity)
+                                        } else {
+                                            ShopSkeletonBlock(cornerRadius: 24, height: 290)
+                                                .frame(maxWidth: .infinity)
+                                        }
+                                    }
                                 } else {
-                                    ShopSkeletonBlock(cornerRadius: 24, height: 290)
-                                        .frame(maxWidth: .infinity)
+                                    Color.clear
                                 }
                             }
-                            .tag(index)
+                            .frame(height: 330)
+                            .containerRelativeFrame(.horizontal)
+                            .scrollTransition(.interactive, axis: .horizontal) { content, phase in
+                                content
+                                    .scaleEffect(phase.isIdentity ? 1.0 : 0.92)
+                                    .opacity(phase.isIdentity ? 1.0 : 0.65)
+                            }
+                            .id(index)
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .frame(height: 330)
+                .scrollTargetBehavior(.paging)
+                .scrollPosition(id: $scrolledImageIndex)
+                .scrollDisabled(inlineZoomScale > 1.02)
+                .onChange(of: scrolledImageIndex) { _, newValue in
+                    if let idx = newValue, idx != selectedImageIndex {
+                        withAnimation(ShopMotion.gallerySpring) {
+                            selectedImageIndex = idx
                         }
                     }
                 }
-                .frame(height: 330)
-                .tabViewStyle(.page(indexDisplayMode: .never))
-
-                // Modern Pill Indicator Dots
-                HStack(spacing: 5) {
-                    ForEach(0..<min(displayedImages.count, 7), id: \.self) { idx in
-                        Capsule()
-                            .fill(selectedImageIndex == idx ? Color.shopDark : Color.black.opacity(0.18))
-                            .frame(width: selectedImageIndex == idx ? 16 : 6, height: 6)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedImageIndex)
-                    }
-                    if displayedImages.count > 7 {
-                        Text("+\(displayedImages.count - 7)")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.secondary)
+                .onChange(of: selectedImageIndex) { _, newValue in
+                    if scrolledImageIndex != newValue {
+                        withAnimation(ShopMotion.gallerySpring) {
+                            scrolledImageIndex = newValue
+                        }
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Color.white.opacity(0.85))
-                .clipShape(Capsule())
-                .shadow(color: Color.black.opacity(0.04), radius: 3, x: 0, y: 1)
+
+                // Bottom Overlay: Modern Pill Indicator Dots + Fullscreen Expand Button
+                ZStack {
+                    HStack(spacing: 5) {
+                        ForEach(0..<min(displayedImages.count, 7), id: \.self) { idx in
+                            Capsule()
+                                .fill(selectedImageIndex == idx ? Color.shopDark : Color.black.opacity(0.18))
+                                .frame(width: selectedImageIndex == idx ? 16 : 6, height: 6)
+                                .animation(ShopMotion.pillSlide, value: selectedImageIndex)
+                        }
+                        if displayedImages.count > 7 {
+                            Text("+\(displayedImages.count - 7)")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.white.opacity(0.88))
+                    .clipShape(Capsule())
+                    .shadow(color: Color.black.opacity(0.04), radius: 3, x: 0, y: 1)
+
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            showingFullScreenGallery = true
+                        }) {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 11.5, weight: .bold))
+                                .foregroundColor(.shopDark)
+                                .frame(width: 30, height: 30)
+                                .background(Color.white.opacity(0.9))
+                                .clipShape(Circle())
+                                .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1)
+                        }
+                        .buttonStyle(ShopCardPressStyle(scale: 0.90))
+                    }
+                    .padding(.horizontal, 12)
+                }
                 .padding(.bottom, 12)
+                .opacity(inlineZoomScale > 1.04 ? 0 : 1)
+                .animation(.easeOut(duration: 0.16), value: inlineZoomScale > 1.04)
             } else if let firstImg = displayedImages.first ?? product.image_url, let url = URL(string: firstImg) {
                 ShopCachedAsyncImage(url: url, maxPixelSize: 1200) { phase in
                     if let image = phase.image {
@@ -579,17 +651,55 @@ struct ProductDetailView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 20)
                             .padding(.horizontal, 16)
+                            .scaleEffect(inlineZoomScale, anchor: inlineZoomAnchor)
+                            .transition(.opacity)
                     } else {
                         ShopSkeletonBlock(cornerRadius: 24, height: 290)
                             .frame(maxWidth: .infinity)
                     }
                 }
                 .frame(height: 330)
+                .overlay(alignment: .bottomTrailing) {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        showingFullScreenGallery = true
+                    }) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 11.5, weight: .bold))
+                            .foregroundColor(.shopDark)
+                            .frame(width: 30, height: 30)
+                            .background(Color.white.opacity(0.9))
+                            .clipShape(Circle())
+                            .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1)
+                    }
+                    .buttonStyle(ShopCardPressStyle(scale: 0.90))
+                    .padding(12)
+                    .opacity(inlineZoomScale > 1.04 ? 0 : 1)
+                }
             } else {
                 Rectangle()
                     .fill(Color(red: 244/255, green: 244/255, blue: 246/255))
                     .frame(height: 330)
                     .frame(maxWidth: .infinity)
+            }
+
+            if inlineZoomScale > 1.04 {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Text(String(format: "%.1fx", inlineZoomScale))
+                            .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.shopDark.opacity(0.82))
+                            .clipShape(Capsule())
+                            .padding(12)
+                    }
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
             }
 
             if showDoubleTapHeart {
@@ -609,6 +719,21 @@ struct ProductDetailView: View {
                 .stroke(Color(red: 236/255, green: 237/255, blue: 240/255), lineWidth: 0.8)
         )
         .contentShape(Rectangle())
+        .simultaneousGesture(
+            MagnifyGesture()
+                .onChanged { value in
+                    guard !displayedImages.isEmpty || product.image_url != nil else { return }
+                    inlineZoomAnchor = value.startAnchor
+                    let raw = value.magnification
+                    inlineZoomScale = raw > 2.8 ? 2.8 + (raw - 2.8) * 0.25 : max(0.96, raw)
+                }
+                .onEnded { _ in
+                    withAnimation(ShopMotion.gallerySpring) {
+                        inlineZoomScale = 1.0
+                        inlineZoomAnchor = .center
+                    }
+                }
+        )
         .onTapGesture(count: 2) {
             let gen = UIImpactFeedbackGenerator(style: .medium)
             gen.impactOccurred()
@@ -621,6 +746,11 @@ struct ProductDetailView: View {
                     showDoubleTapHeart = false
                 }
             }
+        }
+        .onTapGesture(count: 1) {
+            guard !displayedImages.isEmpty || product.image_url != nil else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showingFullScreenGallery = true
         }
         .contextMenu {
             let isSaved = wishlist.isFavorite(product.canonical_name)
@@ -635,12 +765,79 @@ struct ProductDetailView: View {
                 )
             }
 
+            Button(action: { showingFullScreenGallery = true }) {
+                Label("Espandi galleria immagini", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
+
             Button(action: { showingComparisonSheet = true }) {
                 Label("Confronta con altri modelli", systemImage: "square.split.2x1")
             }
 
             Button(action: { showingShareSheet = true }) {
                 Label("Condividi prodotto", systemImage: "square.and.arrow.up")
+            }
+        }
+    }
+
+    private var galleryThumbnailStrip: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Array(displayedImages.enumerated()), id: \.offset) { idx, imgUrl in
+                        let isSelected = selectedImageIndex == idx
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            withAnimation(ShopMotion.gallerySpring) {
+                                selectedImageIndex = idx
+                                scrolledImageIndex = idx
+                            }
+                        }) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color.shopSurface)
+
+                                if let url = URL(string: imgUrl) {
+                                    ShopCachedAsyncImage(url: url, maxPixelSize: 280) { phase in
+                                        if let image = phase.image {
+                                            image
+                                                .resizable()
+                                                .scaledToFit()
+                                                .padding(5)
+                                                .transition(.opacity)
+                                        } else {
+                                            ShopSkeletonBlock(cornerRadius: 12)
+                                        }
+                                    }
+                                }
+                            }
+                            .frame(width: 54, height: 54)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color.shopBorder, lineWidth: 1)
+                            )
+                            .overlay {
+                                if isSelected {
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(Color.shopPurple, lineWidth: 2)
+                                        .matchedGeometryEffect(id: "detail_thumb_ring", in: galleryThumbNamespace)
+                                }
+                            }
+                            .opacity(isSelected ? 1.0 : 0.74)
+                            .scaleEffect(isSelected ? 1.0 : 0.96)
+                            .animation(ShopMotion.pillSlide, value: selectedImageIndex)
+                        }
+                        .buttonStyle(ShopCardPressStyle(scale: 0.94))
+                        .id(idx)
+                    }
+                }
+                .padding(.horizontal, ShopLayout.screenPadding)
+                .padding(.vertical, 2)
+            }
+            .onChange(of: selectedImageIndex) { _, newIndex in
+                withAnimation(ShopMotion.gallerySpring) {
+                    proxy.scrollTo(newIndex, anchor: .center)
+                }
             }
         }
     }
@@ -739,18 +936,22 @@ struct ProductDetailView: View {
                 Text(currentOffer?.formattedPrice ?? product.formattedBestPrice)
                     .font(.system(size: 26, weight: .bold, design: .rounded))
                     .foregroundColor(.shopDark)
+                    .contentTransition(.numericText())
 
                 if let current = currentOffer, let orig = current.formattedOriginalPrice {
                     Text(orig)
                         .font(.system(size: 16))
                         .strikethrough()
                         .foregroundColor(.shopTextMuted)
+                        .contentTransition(.numericText())
                 }
 
                 if let current = currentOffer, let badge = current.discountBadge {
                     DiscountBadge(discountText: badge)
+                        .transition(.scale(scale: 0.85).combined(with: .opacity))
                 }
             }
+            .animation(ShopMotion.pillSlide, value: currentOffer?.id ?? "")
 
             Text("Spedizione calcolata al check-out")
                 .font(.system(size: 13.5, weight: .regular))
@@ -1525,7 +1726,7 @@ struct ProductDetailView: View {
                             NavigationLink(destination: ProductDetailView(product: item)) {
                                 ShopRelatedProductCard(product: item)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(ShopCardPressStyle())
                         }
                     }
                     .padding(.horizontal, 16)
@@ -1586,9 +1787,14 @@ struct ProductDetailView: View {
         }
 
         let filtered = fetched.filter { $0.id != product.id && $0.canonical_name != product.canonical_name }
+        let limited = Array(filtered.prefix(8))
+        let prefetchUrls = limited.compactMap { URL(string: $0.image_url ?? "") }
+        ImageCacheManager.shared.prefetch(urls: prefetchUrls, maxPixelSize: 400)
         await MainActor.run {
-            self.relatedProducts = Array(filtered.prefix(8))
-            self.isLoadingRelated = false
+            withAnimation(ShopMotion.gridReflow) {
+                self.relatedProducts = limited
+                self.isLoadingRelated = false
+            }
         }
     }
 }
@@ -2096,4 +2302,498 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Fullscreen Interactive Product Gallery (Native UIScrollView Pinch/Pan, Anchor Double-Tap, Drag-to-Dismiss)
+
+private struct FullScreenProductGalleryView: View {
+    let images: [String]
+    @Binding var selectedIndex: Int
+    let productTitle: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var scrolledIndex: Int?
+    @State private var dragOffset: CGSize = .zero
+    @State private var activeZoomScale: CGFloat = 1.0
+    @State private var resetZoomTrigger: UUID = UUID()
+    @State private var showChrome: Bool = true
+    @Namespace private var fsThumbNamespace
+
+    private var isZoomed: Bool {
+        activeZoomScale > 1.03
+    }
+
+    var body: some View {
+        let dragProgress = min(abs(dragOffset.height) / 260.0, 1.0)
+
+        ZStack {
+            // Translucent blurred dark backdrop so ProductDetailView peeks smoothly during vertical drag-to-dismiss
+            Color.black
+                .opacity(max(0.15, 0.94 - dragProgress * 0.72))
+                .background(.ultraThinMaterial.opacity(max(0.0, 1.0 - dragProgress)))
+                .ignoresSafeArea()
+
+            // Main Paging & Zoomable Stage
+            Group {
+                if images.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 0) {
+                            ForEach(Array(images.enumerated()), id: \.offset) { idx, imgUrl in
+                                ZoomableRemoteImagePage(
+                                    urlString: imgUrl,
+                                    isActive: idx == selectedIndex,
+                                    resetToken: resetZoomTrigger,
+                                    onZoomScaleChanged: { newScale in
+                                        if idx == selectedIndex {
+                                            activeZoomScale = newScale
+                                        }
+                                    },
+                                    onSingleTap: {
+                                        withAnimation(.easeOut(duration: 0.2)) {
+                                            showChrome.toggle()
+                                        }
+                                    }
+                                )
+                                .containerRelativeFrame(.horizontal)
+                                .scrollTransition(.interactive, axis: .horizontal) { content, phase in
+                                    content
+                                        .scaleEffect(phase.isIdentity ? 1.0 : 0.92)
+                                        .opacity(phase.isIdentity ? 1.0 : 0.55)
+                                }
+                                .id(idx)
+                            }
+                        }
+                        .scrollTargetLayout()
+                    }
+                    .scrollTargetBehavior(.paging)
+                    .scrollPosition(id: $scrolledIndex)
+                    .scrollDisabled(isZoomed)
+                } else if let first = images.first {
+                    ZoomableRemoteImagePage(
+                        urlString: first,
+                        isActive: true,
+                        resetToken: resetZoomTrigger,
+                        onZoomScaleChanged: { newScale in
+                            activeZoomScale = newScale
+                        },
+                        onSingleTap: {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                showChrome.toggle()
+                            }
+                        }
+                    )
+                }
+            }
+            .offset(y: dragOffset.height)
+            .scaleEffect(max(0.84, 1.0 - dragProgress * 0.14))
+
+            // Top & Bottom Floating Chrome
+            if showChrome {
+                VStack(spacing: 0) {
+                    // Header bar
+                    HStack(spacing: 10) {
+                        Text(productTitle)
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white.opacity(0.95))
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        if images.count > 1 {
+                            Text("\(min(selectedIndex + 1, images.count)) / \(images.count)")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                                .contentTransition(.numericText())
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Color.white.opacity(0.16))
+                                .clipShape(Capsule())
+                        }
+
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: 36, height: 36)
+                                .background(Color.white.opacity(0.20))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(ShopCardPressStyle(scale: 0.90))
+                    }
+                    .padding(.horizontal, ShopLayout.screenPadding)
+                    .padding(.vertical, 12)
+
+                    Spacer()
+
+                    // Zoom scale pill / Gesture hint
+                    VStack(spacing: 12) {
+                        if isZoomed {
+                            Button(action: {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                resetZoomTrigger = UUID()
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                                        .font(.system(size: 11, weight: .bold))
+                                    Text(String(format: "%.1fx • Reimposta", activeZoomScale))
+                                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(Color.black.opacity(0.65))
+                                .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(ShopCardPressStyle(scale: 0.94))
+                            .transition(.scale(scale: 0.9).combined(with: .opacity))
+                        } else {
+                            Text("Pizzica o fai doppio tap per zoomare")
+                                .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                                .foregroundColor(.white.opacity(0.75))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                                .background(Color.black.opacity(0.4))
+                                .clipShape(Capsule())
+                                .transition(.opacity)
+                        }
+
+                        // Fullscreen Bottom Thumbnail Strip
+                        if images.count > 1 {
+                            ScrollViewReader { proxy in
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(Array(images.enumerated()), id: \.offset) { idx, imgUrl in
+                                            let isSelected = selectedIndex == idx
+                                            Button(action: {
+                                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                                withAnimation(ShopMotion.gallerySpring) {
+                                                    resetZoomTrigger = UUID()
+                                                    selectedIndex = idx
+                                                    scrolledIndex = idx
+                                                }
+                                            }) {
+                                                ZStack {
+                                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                        .fill(Color.white)
+
+                                                    if let url = URL(string: imgUrl) {
+                                                        ShopCachedAsyncImage(url: url, maxPixelSize: 280) { phase in
+                                                            if let image = phase.image {
+                                                                image
+                                                                    .resizable()
+                                                                    .scaledToFit()
+                                                                    .padding(4)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                .frame(width: 48, height: 48)
+                                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                                .overlay {
+                                                    if isSelected {
+                                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                            .stroke(Color.shopPurple, lineWidth: 2.5)
+                                                            .matchedGeometryEffect(id: "fs_thumb_ring", in: fsThumbNamespace)
+                                                    }
+                                                }
+                                                .opacity(isSelected ? 1.0 : 0.65)
+                                                .scaleEffect(isSelected ? 1.04 : 0.95)
+                                            }
+                                            .buttonStyle(ShopCardPressStyle(scale: 0.92))
+                                            .id(idx)
+                                        }
+                                    }
+                                    .padding(.horizontal, ShopLayout.screenPadding)
+                                    .padding(.vertical, 4)
+                                }
+                                .onChange(of: selectedIndex) { _, newIndex in
+                                    withAnimation(ShopMotion.gallerySpring) {
+                                        proxy.scrollTo(newIndex, anchor: .center)
+                                    }
+                                }
+                                .onAppear {
+                                    proxy.scrollTo(selectedIndex, anchor: .center)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.bottom, 20)
+                }
+                .opacity(1.0 - dragProgress)
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: showChrome)
+        .animation(ShopMotion.pillSlide, value: isZoomed)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onChanged { value in
+                    guard !isZoomed else { return }
+                    if abs(value.translation.height) > abs(value.translation.width) * 1.2 {
+                        dragOffset = value.translation
+                    }
+                }
+                .onEnded { value in
+                    guard !isZoomed else { return }
+                    if abs(value.translation.height) > 120 || abs(value.predictedEndTranslation.height) > 320 {
+                        dismiss()
+                    } else {
+                        withAnimation(ShopMotion.gallerySpring) {
+                            dragOffset = .zero
+                        }
+                    }
+                }
+        )
+        .onAppear {
+            scrolledIndex = selectedIndex
+            let hiResUrls = images.compactMap { URL(string: $0) }
+            ImageCacheManager.shared.prefetch(urls: hiResUrls, maxPixelSize: 2400)
+        }
+        .onChange(of: scrolledIndex) { _, newValue in
+            if let idx = newValue, idx != selectedIndex {
+                withAnimation(ShopMotion.gallerySpring) {
+                    selectedIndex = idx
+                    activeZoomScale = 1.0
+                    resetZoomTrigger = UUID()
+                }
+            }
+        }
+    }
+}
+
+/// Loads up to 2400px image from cache/network (showing cached preview immediately) and renders inside a native zoomable UIScrollView.
+private struct ZoomableRemoteImagePage: View {
+    let urlString: String
+    let isActive: Bool
+    let resetToken: UUID
+    let onZoomScaleChanged: (CGFloat) -> Void
+    let onSingleTap: () -> Void
+
+    @State private var uiImage: UIImage?
+
+    var body: some View {
+        let url = URL(string: urlString)
+
+        ZStack {
+            if let image = uiImage {
+                NativeZoomableImageView(
+                    image: image,
+                    isActive: isActive,
+                    resetToken: resetToken,
+                    onZoomScaleChanged: onZoomScaleChanged,
+                    onSingleTap: onSingleTap
+                )
+                .ignoresSafeArea()
+            } else {
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.2)
+            }
+        }
+        .task(id: urlString) {
+            guard let url else { return }
+            if let hiRes = ImageCacheManager.shared.cachedImage(for: url, maxPixelSize: 2400) {
+                uiImage = hiRes
+                return
+            }
+            if let preview = ImageCacheManager.shared.cachedImage(for: url, maxPixelSize: 1200) {
+                uiImage = preview
+            }
+            if let fullImg = await ImageCacheManager.shared.loadImage(for: url, maxPixelSize: 2400) {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.uiImage = fullImg
+                }
+            }
+        }
+    }
+}
+
+/// UIKit UIScrollView subclass ensuring image bounds re-center immediately on first layout & size changes.
+private final class CenteringZoomScrollView: UIScrollView {
+    var onLayout: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+}
+
+/// UIKit UIScrollView wrapper delivering native pinch-to-zoom, focal-point double-tap zoom, rubber-banding, and momentum panning.
+private struct NativeZoomableImageView: UIViewRepresentable {
+    let image: UIImage
+    let isActive: Bool
+    let resetToken: UUID
+    let onZoomScaleChanged: (CGFloat) -> Void
+    let onSingleTap: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onZoomScaleChanged: onZoomScaleChanged, onSingleTap: onSingleTap)
+    }
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = CenteringZoomScrollView()
+        scrollView.delegate = context.coordinator
+        scrollView.minimumZoomScale = 1.0
+        scrollView.maximumZoomScale = 4.5
+        scrollView.bouncesZoom = true
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.backgroundColor = .clear
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.decelerationRate = .fast
+
+        // Clean bright showcase card container inside zoom canvas for transparent/studio product shots
+        let imageView = UIImageView(image: image)
+        imageView.contentMode = .scaleAspectFit
+        imageView.backgroundColor = .white
+        imageView.layer.cornerRadius = 20
+        imageView.layer.cornerCurve = .continuous
+        imageView.clipsToBounds = true
+        scrollView.addSubview(imageView)
+
+        context.coordinator.scrollView = scrollView
+        context.coordinator.imageView = imageView
+        context.coordinator.lastResetToken = resetToken
+        scrollView.onLayout = { [weak coordinator = context.coordinator] in
+            coordinator?.layoutImageIfNeeded()
+        }
+
+        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        scrollView.addGestureRecognizer(doubleTap)
+
+        let singleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleSingleTap(_:)))
+        singleTap.numberOfTapsRequired = 1
+        singleTap.require(toFail: doubleTap)
+        scrollView.addGestureRecognizer(singleTap)
+
+        return scrollView
+    }
+
+    func updateUIView(_ scrollView: UIScrollView, context: Context) {
+        context.coordinator.onZoomScaleChanged = onZoomScaleChanged
+        context.coordinator.onSingleTap = onSingleTap
+
+        if let imageView = context.coordinator.imageView {
+            if imageView.image !== image {
+                imageView.image = image
+            }
+            context.coordinator.layoutImageIfNeeded()
+        }
+
+        if context.coordinator.lastResetToken != resetToken {
+            context.coordinator.lastResetToken = resetToken
+            if scrollView.zoomScale > 1.01 {
+                scrollView.setZoomScale(1.0, animated: true)
+            }
+        }
+
+        if !isActive && scrollView.zoomScale > 1.01 {
+            scrollView.setZoomScale(1.0, animated: false)
+        }
+    }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        weak var scrollView: UIScrollView?
+        weak var imageView: UIImageView?
+        var onZoomScaleChanged: (CGFloat) -> Void
+        var onSingleTap: () -> Void
+        var lastResetToken: UUID = UUID()
+        private var lastBoundsSize: CGSize = .zero
+
+        init(onZoomScaleChanged: @escaping (CGFloat) -> Void, onSingleTap: @escaping () -> Void) {
+            self.onZoomScaleChanged = onZoomScaleChanged
+            self.onSingleTap = onSingleTap
+        }
+
+        func layoutImageIfNeeded() {
+            guard let scrollView, let imageView, let img = imageView.image else { return }
+            let boundsSize = scrollView.bounds.size
+            guard boundsSize.width > 0, boundsSize.height > 0 else { return }
+
+            if boundsSize != lastBoundsSize || imageView.frame.size == .zero {
+                lastBoundsSize = boundsSize
+                let maxWidth = max(boundsSize.width - 28, 100)
+                let maxHeight = max(boundsSize.height * 0.68, 200)
+                let aspect = img.size.width / max(img.size.height, 1)
+
+                var fitWidth = maxWidth
+                var fitHeight = fitWidth / max(aspect, 0.2)
+                if fitHeight > maxHeight {
+                    fitHeight = maxHeight
+                    fitWidth = fitHeight * aspect
+                }
+
+                // Ensure a minimum clean stage for square/wide product photography
+                fitWidth = max(fitWidth, min(maxWidth, boundsSize.width - 32))
+                fitHeight = max(fitHeight, min(maxHeight, 360))
+
+                scrollView.zoomScale = 1.0
+                imageView.frame = CGRect(x: 0, y: 0, width: fitWidth, height: fitHeight)
+                scrollView.contentSize = imageView.frame.size
+                centerImage()
+            }
+        }
+
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+            imageView
+        }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            centerImage()
+            onZoomScaleChanged(scrollView.zoomScale)
+        }
+
+        func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+            centerImage()
+            onZoomScaleChanged(scale)
+        }
+
+        private func centerImage() {
+            guard let scrollView, let imageView else { return }
+            let boundsSize = scrollView.bounds.size
+            var frameToCenter = imageView.frame
+
+            if frameToCenter.size.width < boundsSize.width {
+                frameToCenter.origin.x = (boundsSize.width - frameToCenter.size.width) * 0.5
+            } else {
+                frameToCenter.origin.x = 0
+            }
+
+            if frameToCenter.size.height < boundsSize.height {
+                frameToCenter.origin.y = (boundsSize.height - frameToCenter.size.height) * 0.5
+            } else {
+                frameToCenter.origin.y = 0
+            }
+
+            imageView.frame = frameToCenter
+        }
+
+        @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            guard let scrollView, let imageView else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+            if scrollView.zoomScale > 1.2 {
+                scrollView.setZoomScale(1.0, animated: true)
+            } else {
+                let targetScale: CGFloat = 2.6
+                let point = gesture.location(in: imageView)
+                let width = scrollView.bounds.size.width / targetScale
+                let height = scrollView.bounds.size.height / targetScale
+                let zoomRect = CGRect(
+                    x: point.x - width * 0.5,
+                    y: point.y - height * 0.5,
+                    width: width,
+                    height: height
+                )
+                scrollView.zoom(to: zoomRect, animated: true)
+            }
+        }
+
+        @objc func handleSingleTap(_ gesture: UITapGestureRecognizer) {
+            onSingleTap()
+        }
+    }
 }
