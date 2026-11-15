@@ -16,8 +16,8 @@ class Top4RunningScraper(BaseScraper):
     store_name = "Top4Running"
     base_url = "https://top4running.it"
     rating = 4.8
-    review_count = 950
-    formatted_review_count = "950"
+    review_count = 7900
+    formatted_review_count = "7,9K"
     card_theme = "grid"
     accent_color = "#00B9F1"
     free_shipping_threshold = 75.00

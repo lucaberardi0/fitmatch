@@ -29,8 +29,9 @@ struct IntelligentPromoGenerator {
             if let t = products.compactMap({ $0.free_shipping_threshold }).first(where: { $0 > 0 }) {
                 return Int(t.rounded())
             }
-            if let rule = DynamicCatalogRegistry.shared.shippingRule(for: showcase.store_id), rule.threshold > 0 {
-                return Int(rule.threshold.rounded())
+            if let rule = DynamicCatalogRegistry.shared.shippingRule(for: showcase.store_id),
+               let t = rule.threshold, t > 0 {
+                return Int(t.rounded())
             }
             // Store fallback shipping rule known values
             let sid = showcase.store_id.lowercased()
@@ -38,10 +39,10 @@ struct IntelligentPromoGenerator {
             if sid == "top4running" { return 75 }
             if sid == "alltricks" { return 69 }
             if sid == "misterrunning" { return 49 }
-            if sid == "decathlon" { return 50 }
+            if sid == "decathlon" { return 60 }
             if sid == "cisalfa" { return 99 }
             if sid == "maxisport" { return 99 }
-            if sid == "nencini" { return 100 }
+            if sid == "nencini" || sid == "sportler" || sid == "df_sportspecialist" { return 100 }
             if sid == "runningwarehouse" { return 59 }
             return nil
         }()

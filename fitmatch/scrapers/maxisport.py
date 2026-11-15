@@ -10,6 +10,13 @@ class MaxiSportScraper(BaseScraper):
     store_id = "maxisport"
     store_name = "Maxi Sport"
     base_url = "https://www.maxisport.com"
+    rating = 3.9
+    review_count = 1500
+    formatted_review_count = "1,5K"
+    accent_color = "#F58220"
+    free_shipping_threshold = 99.0
+    standard_shipping_cost = 7.90
+    courier = "GLS / DHL"
 
     def search(self, query: str, limit: int = 10) -> List[Offer]:
         search_url = f"{self.base_url}/catalogsearch/result/"

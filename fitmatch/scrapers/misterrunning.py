@@ -13,6 +13,13 @@ class MisterRunningScraper(BaseScraper):
     store_id = "misterrunning"
     store_name = "Mister Running"
     base_url = "https://www.misterrunning.com"
+    rating = 4.9
+    review_count = 37250
+    formatted_review_count = "37,2K"
+    accent_color = "#0072CE"
+    free_shipping_threshold = 49.0
+    standard_shipping_cost = 4.90
+    courier = "DHL / UPS"
     clerk_key = "lZ8DVtTLdHkHHx3YPe8lEvCOalU8FPiN"
     api_url = "https://api.clerk.io/v2/search/search"
 

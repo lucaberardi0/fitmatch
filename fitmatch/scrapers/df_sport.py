@@ -18,14 +18,14 @@ class DFSportScraper(BaseScraper):
     store_id = "df_sportspecialist"
     store_name = "DF Sport Specialist"
     base_url = "https://www.df-sportspecialist.it"
-    rating = 4.8
-    review_count = 5400
-    formatted_review_count = "5,4K"
+    rating = 4.6
+    review_count = 38000
+    formatted_review_count = "38K"
     card_theme = "grid"
     accent_color = "#E30613"
-    free_shipping_threshold = 60.0
-    standard_shipping_cost = 5.90
-    courier = "GLS / BRT"
+    free_shipping_threshold = 100.0
+    standard_shipping_cost = 8.00
+    courier = "Corriere Espresso"
 
     def search(self, query: str, limit: int = 10) -> List[Offer]:
         clean_query = query.strip()

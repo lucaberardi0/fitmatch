@@ -18,8 +18,8 @@ def test_df_sport_scraper_instantiation_and_registry():
 def test_df_sport_shipping_rules():
     assert "df_sportspecialist" in STORE_SHIPPING_RULES
     rule = STORE_SHIPPING_RULES["df_sportspecialist"]
-    assert rule["standard"] == 5.90
-    assert rule["free_threshold"] == 60.0
+    assert rule["standard"] == 8.00
+    assert rule["free_threshold"] == 100.0
     assert "courier" in rule
 
 

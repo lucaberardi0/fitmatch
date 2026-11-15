@@ -310,24 +310,24 @@ STORE_SHIPPING_RULES = {
     "cisalfa": {"standard": 9.90, "free_threshold": 99.0, "courier": "BRT / GLS"},
     "maxisport": {"standard": 7.90, "free_threshold": 99.0, "courier": "GLS / DHL"},
     "misterrunning": {"standard": 4.90, "free_threshold": 49.0, "courier": "DHL / UPS"},
-    "nencini": {"standard": 5.90, "free_threshold": 100.0, "courier": "BRT Espresso"},
+    "nencini": {"standard": 5.90, "free_threshold": 100.0, "courier": "BRT / UPS / DHL"},
     "top4running": {"standard": 4.90, "free_threshold": 75.0, "courier": "DPD / BRT"},
-    "runningwarehouse": {"standard": 10.00, "free_threshold": 59.0, "courier": "UPS Standard"},
+    "runningwarehouse": {"standard": 10.00, "free_threshold": 59.0, "courier": "UPS / FedEx / DHL"},
     "deporvillage": {"standard": 4.99, "free_threshold": 80.0, "courier": "GLS / DPD"},
     "alltricks": {"standard": 4.99, "free_threshold": 69.0, "courier": "Bartolini (BRT)"},
-    "decathlon": {"standard": 3.99, "free_threshold": 50.0, "courier": "Corriere Espresso"},
-    "sportler": {"standard": 5.00, "free_threshold": 50.0, "courier": "GLS / DPD"},
+    "decathlon": {"standard": 4.99, "free_threshold": 60.0, "courier": "Corriere Espresso"},
+    "sportler": {"standard": 4.95, "free_threshold": 100.0, "courier": "SDA / Corriere Espresso"},
     "nike": {"standard": 5.00, "free_threshold": 99.0, "courier": "UPS / DPD"},
-    "adidas": {"standard": 4.99, "free_threshold": 50.0, "courier": "DHL / GLS"},
-    "tradeinn": {"standard": 4.99, "free_threshold": 150.0, "courier": "Poste / GLS / DPD"},
-    "df_sportspecialist": {"standard": 5.90, "free_threshold": 60.0, "courier": "GLS / BRT"},
-    "df_sport": {"standard": 5.90, "free_threshold": 60.0, "courier": "GLS / BRT"},
-    "sportit": {"standard": 5.99, "free_threshold": 59.90, "courier": "GLS / BRT"},
+    "adidas": {"standard": 4.99, "free_threshold": 50.0, "courier": "Poste / BRT"},
+    "tradeinn": {"standard": 4.99, "free_threshold": None, "courier": "DHL / UPS / GLS / Poste"},
+    "df_sportspecialist": {"standard": 8.00, "free_threshold": 100.0, "courier": "Corriere Espresso"},
+    "df_sport": {"standard": 8.00, "free_threshold": 100.0, "courier": "Corriere Espresso"},
+    "sportit": {"standard": 5.99, "free_threshold": 59.90, "courier": "GLS / DHL / InPost"},
     "tennis_point": {"standard": 5.99, "free_threshold": 59.0, "courier": "DHL / UPS"},
-    "basketballstore": {"standard": 6.90, "free_threshold": 50.0, "courier": "GLS / BRT"},
-    "nonsolosport": {"standard": 5.00, "free_threshold": 89.99, "courier": "GLS / BRT"},
+    "basketballstore": {"standard": 6.90, "free_threshold": 50.0, "courier": "BRT / UPS / Poste"},
+    "nonsolosport": {"standard": 5.00, "free_threshold": 89.99, "courier": "BRT"},
     "intersport": {"standard": 5.90, "free_threshold": 59.0, "courier": "GLS / BRT"},
-    "bshopzone": {"standard": 10.00, "free_threshold": 100.0, "courier": "GLS / BRT"},
+    "bshopzone": {"standard": 10.00, "free_threshold": 100.0, "courier": "BRT / SDA / GLS"},
 }
 
 
@@ -406,9 +406,10 @@ class Offer(BaseModel):
     @property
     def shipping_cost(self) -> float:
         rule = STORE_SHIPPING_RULES.get(self.store_id.lower().strip(), {"standard": 4.90, "free_threshold": 50.0})
-        if self.price >= rule["free_threshold"]:
+        threshold = rule.get("free_threshold")
+        if threshold is not None and self.price >= threshold:
             return 0.0
-        return rule["standard"]
+        return rule.get("standard", 4.90)
 
     @computed_field
     @property
@@ -429,9 +430,9 @@ class Offer(BaseModel):
 
     @computed_field
     @property
-    def free_shipping_threshold(self) -> float:
+    def free_shipping_threshold(self) -> Optional[float]:
         rule = STORE_SHIPPING_RULES.get(self.store_id.lower().strip(), {"free_threshold": 50.0})
-        return rule["free_threshold"]
+        return rule.get("free_threshold")
 
     @computed_field
     @property

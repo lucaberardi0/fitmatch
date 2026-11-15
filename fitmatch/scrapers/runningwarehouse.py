@@ -13,6 +13,13 @@ class RunningWarehouseScraper(BaseScraper):
     store_id = "runningwarehouse"
     store_name = "Running Warehouse Europe"
     base_url = "https://www.runningwarehouse.eu"
+    rating = 3.5
+    review_count = 32
+    formatted_review_count = "32"
+    accent_color = "#0A378C"
+    free_shipping_threshold = 59.0
+    standard_shipping_cost = 10.00
+    courier = "UPS / FedEx / DHL"
 
     def __init__(self, timeout: int = 12):
         super().__init__(timeout=timeout)

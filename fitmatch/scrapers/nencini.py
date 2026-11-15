@@ -12,6 +12,13 @@ class NenciniSportScraper(BaseScraper):
     store_id = "nencini"
     store_name = "Nencini Sport"
     base_url = "https://www.nencinisport.it"
+    rating = 4.8
+    review_count = 170000
+    formatted_review_count = "170K"
+    accent_color = "#008C46"
+    free_shipping_threshold = 100.0
+    standard_shipping_cost = 5.90
+    courier = "BRT / UPS / DHL"
 
     def _ensure_session(self):
         """Warm up session on homepage to receive the required CSRF / security cookies."""

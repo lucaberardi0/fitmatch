@@ -19,7 +19,7 @@ def test_tradeinn_shipping_rules():
     assert "tradeinn" in STORE_SHIPPING_RULES
     rule = STORE_SHIPPING_RULES["tradeinn"]
     assert rule["standard"] == 4.99
-    assert rule["free_threshold"] == 150.0
+    assert rule["free_threshold"] is None
     assert "courier" in rule
 
 

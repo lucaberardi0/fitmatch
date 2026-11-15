@@ -36,6 +36,14 @@ def test_get_stores_returns_dynamic_catalog_metadata():
     if "top4running" in by_id:
         assert by_id["top4running"]["country"] == "EU"
     assert by_id["sportit"]["country"] == "IT"
+    assert by_id["decathlon"]["free_shipping_threshold"] == 60.0
+    assert by_id["decathlon"]["standard_shipping_cost"] == 4.99
+    assert by_id["sportler"]["free_shipping_threshold"] == 100.0
+    assert by_id["sportler"]["standard_shipping_cost"] == 4.95
+    assert by_id["df_sportspecialist"]["free_shipping_threshold"] == 100.0
+    assert by_id["df_sportspecialist"]["standard_shipping_cost"] == 8.00
+    assert by_id["tradeinn"]["free_shipping_threshold"] is None
+    assert "Sped. da" in by_id["tradeinn"]["subtitle"]
 
     cat_ids = {c["id"] for c in data["categories"]}
     for expected_cat in ("tutti", "running", "calcio", "tennis", "basket", "sci", "nuoto", "nutrizione"):

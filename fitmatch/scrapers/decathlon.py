@@ -20,6 +20,13 @@ class DecathlonScraper(BaseScraper):
     store_id = "decathlon"
     store_name = "Decathlon"
     base_url = "https://www.decathlon.it"
+    rating = 1.5
+    review_count = 2690
+    formatted_review_count = "2,7K"
+    accent_color = "#0082C8"
+    free_shipping_threshold = 60.0
+    standard_shipping_cost = 4.99
+    courier = "Corriere Espresso"
 
     def __init__(self, timeout: int = 14):
         super().__init__(timeout=timeout)

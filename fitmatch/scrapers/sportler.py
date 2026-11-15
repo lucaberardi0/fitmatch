@@ -18,6 +18,13 @@ class SportlerScraper(BaseScraper):
     store_id = "sportler"
     store_name = "Sportler"
     base_url = "https://www.sportler.com"
+    rating = 3.6
+    review_count = 400
+    formatted_review_count = "400"
+    accent_color = "#DC1E28"
+    free_shipping_threshold = 100.0
+    standard_shipping_cost = 4.95
+    courier = "SDA / Corriere Espresso"
     suggest_url = "https://www.sportler.com/it/FactFinderSuggestRequestProxy"
 
     def __init__(self, timeout: int = 12):

@@ -81,13 +81,13 @@ final class DynamicCatalogRegistry {
         return nil
     }
 
-    func shippingRule(for storeId: String) -> (threshold: Double, standard: Double)? {
+    func shippingRule(for storeId: String) -> (threshold: Double?, standard: Double)? {
         guard let item = storeItem(for: storeId) else { return nil }
         if item.free_shipping_threshold == nil && item.standard_shipping_cost == nil {
             return nil
         }
         return (
-            threshold: item.free_shipping_threshold ?? 49.0,
+            threshold: item.free_shipping_threshold,
             standard: item.standard_shipping_cost ?? 4.90
         )
     }
@@ -409,30 +409,38 @@ struct Offer: Identifiable, Codable, Hashable {
     var calculatedShippingCost: Double {
         if let cost = shipping_cost { return cost }
         if let rule = DynamicCatalogRegistry.shared.shippingRule(for: store_id) {
-            let threshold = free_shipping_threshold ?? rule.threshold
-            return price >= threshold ? 0.0 : rule.standard
+            if let threshold = free_shipping_threshold ?? rule.threshold, price >= threshold {
+                return 0.0
+            }
+            return rule.standard
         }
         let s = store_id.lowercased()
-        let threshold = free_shipping_threshold ?? (
+        let threshold: Double? = free_shipping_threshold ?? (
+                        s.contains("tradeinn") ? nil :
                         (s.contains("cisalfa") || s.contains("maxi") || s.contains("nike")) ? 99.0 :
-                        s.contains("bshopzone") ? 100.0 :
-                        s.contains("nencini") ? 100.0 :
+                        (s.contains("bshopzone") || s.contains("nencini") || s.contains("sportler") || s.contains("df_sport")) ? 100.0 :
                         s.contains("nonsolosport") ? 89.99 :
                         s.contains("depor") ? 80.0 :
                         s.contains("top4") ? 75.0 :
                         s.contains("alltricks") ? 69.0 :
+                        s.contains("decathlon") ? 60.0 :
                         s.contains("sportit") ? 59.90 :
                         (s.contains("warehouse") || s.contains("tennis_point") || s.contains("intersport")) ? 59.0 :
-                        s.contains("basketball") ? 50.0 : 49.0)
+                        (s.contains("basketball") || s.contains("adidas")) ? 50.0 : 49.0)
         let standard = s.contains("warehouse") || s.contains("bshopzone") ? 10.00 :
                        s.contains("cisalfa") ? 9.90 :
+                       s.contains("df_sport") ? 8.00 :
                        s.contains("maxi") ? 7.90 :
                        s.contains("basketball") ? 6.90 :
                        (s.contains("sportit") || s.contains("tennis_point")) ? 5.99 :
                        (s.contains("nencini") || s.contains("intersport")) ? 5.90 :
-                       (s.contains("nike") || s.contains("sportler") || s.contains("nonsolosport")) ? 5.00 :
-                       (s.contains("alltricks") || s.contains("depor")) ? 4.99 : 4.90
-        return price >= threshold ? 0.0 : standard
+                       (s.contains("nike") || s.contains("nonsolosport")) ? 5.00 :
+                       (s.contains("alltricks") || s.contains("depor") || s.contains("decathlon") || s.contains("tradeinn") || s.contains("adidas")) ? 4.99 :
+                       s.contains("sportler") ? 4.95 : 4.90
+        if let threshold, price >= threshold {
+            return 0.0
+        }
+        return standard
     }
 
     var calculatedTotalPrice: Double {

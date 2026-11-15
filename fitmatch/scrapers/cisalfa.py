@@ -10,6 +10,13 @@ class CisalfaScraper(BaseScraper):
     store_id = "cisalfa"
     store_name = "Cisalfa Sport"
     base_url = "https://www.cisalfasport.it"
+    rating = 2.6
+    review_count = 1850
+    formatted_review_count = "1,8K"
+    accent_color = "#E31C25"
+    free_shipping_threshold = 99.0
+    standard_shipping_cost = 9.90
+    courier = "BRT / GLS"
 
     def search(self, query: str, limit: int = 10) -> List[Offer]:
         search_url = f"{self.base_url}/it-it/search"

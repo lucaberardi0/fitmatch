@@ -337,6 +337,9 @@ def get_stores():
             t_num = float(free_thresh)
             t_str = f"{int(t_num)}" if t_num.is_integer() else f"{t_num:.2f}"
             sub_parts.append(f"Gratis da €{t_str}")
+        elif std_cost is not None:
+            s_num = float(std_cost)
+            sub_parts.append(f"Sped. da €{s_num:.2f}")
         subtitle = " · ".join(sub_parts) if sub_parts else (base_url.replace("https://www.", "").replace("https://", "").rstrip("/") or "Partner verificato")
 
         return {

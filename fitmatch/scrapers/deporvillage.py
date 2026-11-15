@@ -15,6 +15,13 @@ class DeporvillageScraper(BaseScraper):
     store_id = "deporvillage"
     store_name = "Deporvillage"
     base_url = "https://www.deporvillage.it"
+    rating = 4.5
+    review_count = 486000
+    formatted_review_count = "486K"
+    accent_color = "#E84311"
+    free_shipping_threshold = 80.0
+    standard_shipping_cost = 4.99
+    courier = "GLS / DPD"
     app_id = "GFLCWVLLQY"
     api_key = "77b624f582d4304da3a6159f116575b0"
     index_name = "prod_product_IT_default"

@@ -20,14 +20,14 @@ class TradeinnScraper(BaseScraper):
     store_id = "tradeinn"
     store_name = "Tradeinn"
     base_url = "https://www.tradeinn.com"
-    rating = 4.7
-    review_count = 18500
-    formatted_review_count = "18,5K"
+    rating = 3.3
+    review_count = 52300
+    formatted_review_count = "52,3K"
     card_theme = "white"
     accent_color = "#F25A24"
-    free_shipping_threshold = 150.0
+    free_shipping_threshold = None
     standard_shipping_cost = 4.99
-    courier = "Poste / GLS / DPD"
+    courier = "DHL / UPS / GLS / Poste"
 
     SEARCH_ENDPOINT = "https://www.tradeinn.com/listado.php"
 

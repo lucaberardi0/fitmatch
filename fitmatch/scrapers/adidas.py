@@ -13,6 +13,13 @@ class AdidasScraper(BaseScraper):
     store_id = "adidas"
     store_name = "Adidas"
     base_url = "https://www.adidas.it"
+    rating = 1.5
+    review_count = 603
+    formatted_review_count = "603"
+    accent_color = "#111111"
+    free_shipping_threshold = 50.0
+    standard_shipping_cost = 4.99
+    courier = "Poste / BRT"
     taxonomy_api_url = "https://www.adidas.it/api/search/taxonomy"
 
     def __init__(self, timeout: int = 15):

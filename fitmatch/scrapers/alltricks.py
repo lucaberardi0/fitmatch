@@ -15,6 +15,13 @@ class AlltricksScraper(BaseScraper):
     store_id = "alltricks"
     store_name = "Alltricks"
     base_url = "https://www.alltricks.it"
+    rating = 4.2
+    review_count = 1323
+    formatted_review_count = "1,3K"
+    accent_color = "#00A3E0"
+    free_shipping_threshold = 69.0
+    standard_shipping_cost = 4.99
+    courier = "Bartolini (BRT)"
     api_key = "key_PQ0WloSnsVtffWIN"
     api_base = "https://ac.cnstrc.com/search"
 
