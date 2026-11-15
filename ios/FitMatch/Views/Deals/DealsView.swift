@@ -473,8 +473,8 @@ struct DealsView: View {
 
     private func storeDealsSection(showcase: StoreShowcase) -> some View {
         let promoText = showcase.dynamicPromoSubtitle(category: selectedCategory)
-        let reviewCount = StoreRatingHelper.reviewCount(for: showcase.store_name)
-        let rating = StoreRatingHelper.rating(for: showcase.store_name)
+        let reviewCount = showcase.review_count ?? StoreRatingHelper.reviewCount(for: showcase.store_name, storeId: showcase.store_id)
+        let rating = !showcase.rating.isEmpty ? showcase.rating.replacingOccurrences(of: ".", with: ",") : StoreRatingHelper.rating(for: showcase.store_name, storeId: showcase.store_id)
 
         return VStack(alignment: .leading, spacing: 14) {
             // Header: Store Logo with Red Ring + Name + Coral Subtitle + Ellipsis

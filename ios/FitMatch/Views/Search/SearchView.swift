@@ -99,19 +99,10 @@ struct SearchView: View {
         var list = searchResults
 
         if let country = selectedFilterCountry {
-            if country == "IT" {
-                let itStores = ["cisalfa", "maxi", "mister", "nencini", "decathlon", "sportler", "nike"]
-                list = list.filter { prod in
-                    prod.offers.contains { off in
-                        itStores.contains(where: { off.store_id.lowercased().contains($0) })
-                    }
-                }
-            } else if country == "EU" {
-                let euStores = ["top4", "depor", "alltricks", "warehouse"]
-                list = list.filter { prod in
-                    prod.offers.contains { off in
-                        euStores.contains(where: { off.store_id.lowercased().contains($0) })
-                    }
+            let target = country.uppercased()
+            list = list.filter { prod in
+                prod.offers.contains { off in
+                    DynamicCatalogRegistry.shared.storeCountry(for: off.store_id, storeName: off.store_name) == target
                 }
             }
         }

@@ -248,6 +248,31 @@ struct ShopStoreLogo: View {
         return .shopPurple
     }
 
+    var remoteLogoURL: URL? {
+        guard let raw = DynamicCatalogRegistry.shared.storeItem(for: storeName)?.logo_url,
+              !raw.isEmpty else { return nil }
+        return URL(string: raw)
+    }
+
+    @ViewBuilder
+    private var initialsBadge: some View {
+        Circle()
+            .fill(brandColor)
+            .frame(width: size, height: size)
+            .overlay(
+                hasRedRing ?
+                    Circle()
+                        .stroke(Color(red: 225/255, green: 55/255, blue: 45/255), lineWidth: 1.6)
+                    : nil
+            )
+        Text(initials)
+            .font(.system(size: initials.count > 4 ? size * 0.22 : (initials.count > 2 ? size * 0.32 : size * 0.42), weight: .black, design: .rounded))
+            .foregroundColor(brandColor == Color(red: 235/255, green: 235/255, blue: 230/255) ? .black : .white)
+            .minimumScaleFactor(0.5)
+            .lineLimit(1)
+            .padding(.horizontal, 2)
+    }
+
     var body: some View {
         HStack(spacing: 5) {
             ZStack {
@@ -266,22 +291,20 @@ struct ShopStoreLogo: View {
                         .scaledToFit()
                         .frame(width: size * 0.84, height: size * 0.84)
                         .clipShape(Circle())
+                } else if let logoURL = remoteLogoURL {
+                    ShopCachedAsyncImage(url: logoURL) { phase in
+                        if let img = phase.image {
+                            img
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: size * 0.84, height: size * 0.84)
+                                .clipShape(Circle())
+                        } else {
+                            initialsBadge
+                        }
+                    }
                 } else {
-                    Circle()
-                        .fill(brandColor)
-                        .frame(width: size, height: size)
-                        .overlay(
-                            hasRedRing ?
-                                Circle()
-                                    .stroke(Color(red: 225/255, green: 55/255, blue: 45/255), lineWidth: 1.6)
-                                : nil
-                        )
-                    Text(initials)
-                        .font(.system(size: initials.count > 4 ? size * 0.22 : (initials.count > 2 ? size * 0.32 : size * 0.42), weight: .black, design: .rounded))
-                        .foregroundColor(brandColor == Color(red: 235/255, green: 235/255, blue: 230/255) ? .black : .white)
-                        .minimumScaleFactor(0.5)
-                        .lineLimit(1)
-                        .padding(.horizontal, 2)
+                    initialsBadge
                 }
             }
 

@@ -130,17 +130,19 @@ class UserPreferencesManager: ObservableObject {
         guard !preferences.selectedSports.isEmpty else { return false }
         let combined = "\(title) \(category ?? "")".lowercased()
 
+        let dynamicCats = DynamicCatalogRegistry.shared.cachedCategories
+
         for sport in preferences.selectedSports {
             let s = sport.lowercased()
             if s.contains("corsa") || s.contains("running") {
                 if combined.contains("running") || combined.contains("corsa") || combined.contains("zoom") || combined.contains("gel") || combined.contains("pegasus") || combined.contains("clifton") {
                     return true
                 }
-            } else if s.contains("trail") {
-                if combined.contains("trail") || combined.contains("outdoor") || combined.contains("gore-tex") || combined.contains("gtx") {
+            } else if s.contains("trail") || s.contains("outdoor") || s.contains("trekking") {
+                if combined.contains("trail") || combined.contains("outdoor") || combined.contains("gore-tex") || combined.contains("gtx") || combined.contains("trekking") {
                     return true
                 }
-            } else if s.contains("fitness") || s.contains("palestra") {
+            } else if s.contains("fitness") || s.contains("palestra") || s.contains("gym") {
                 if combined.contains("training") || combined.contains("fitness") || combined.contains("gym") || combined.contains("crossfit") {
                     return true
                 }
@@ -148,10 +150,43 @@ class UserPreferencesManager: ObservableObject {
                 if combined.contains("padel") || combined.contains("tennis") || combined.contains("racchetta") {
                     return true
                 }
-            } else if s.contains("ciclismo") || s.contains("bici") {
+            } else if s.contains("ciclismo") || s.contains("bici") || s.contains("cycling") {
                 if combined.contains("cycling") || combined.contains("ciclismo") || combined.contains("bike") || combined.contains("bici") {
                     return true
                 }
+            } else if s.contains("calcio") || s.contains("calcetto") {
+                if CategoryFilterMatcher.matches(title: title, category: "calcio", dbCategory: category) {
+                    return true
+                }
+            } else if s.contains("basket") {
+                if CategoryFilterMatcher.matches(title: title, category: "basket", dbCategory: category) {
+                    return true
+                }
+            } else if s.contains("sci") || s.contains("neve") {
+                if CategoryFilterMatcher.matches(title: title, category: "sci", dbCategory: category) {
+                    return true
+                }
+            } else if s.contains("nuoto") {
+                if CategoryFilterMatcher.matches(title: title, category: "nuoto", dbCategory: category) {
+                    return true
+                }
+            } else if s.contains("nutrizione") {
+                if CategoryFilterMatcher.matches(title: title, category: "nutrizione", dbCategory: category) {
+                    return true
+                }
+            }
+
+            // Dynamic match for any backend-added sport/category
+            if let dyn = dynamicCats.first(where: {
+                let dName = $0.name.lowercased()
+                let dId = $0.id.lowercased()
+                return dName == s || dId == s || s.contains(dId) || dName.contains(s)
+            }) {
+                if CategoryFilterMatcher.matches(title: title, category: dyn.id, dbCategory: category) {
+                    return true
+                }
+            } else if combined.contains(s) {
+                return true
             }
         }
         return false

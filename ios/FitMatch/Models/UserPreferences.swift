@@ -71,6 +71,9 @@ struct ActiveStoreItem: Codable, Identifiable, Hashable {
     let free_shipping_threshold: Double?
     let standard_shipping_cost: Double?
     let courier: String?
+    let country: String?
+    let logo_url: String?
+    let is_new: Bool?
     let subtitle: String?
 
     var computedInitials: String {

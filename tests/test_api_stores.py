@@ -31,6 +31,11 @@ def test_get_stores_returns_dynamic_catalog_metadata():
         assert entry["standard_shipping_cost"] is not None
         assert entry["courier"]
         assert entry["subtitle"]
+        assert entry["country"] in ("IT", "EU")
+
+    if "top4running" in by_id:
+        assert by_id["top4running"]["country"] == "EU"
+    assert by_id["sportit"]["country"] == "IT"
 
     cat_ids = {c["id"] for c in data["categories"]}
     for expected_cat in ("tutti", "running", "calcio", "tennis", "basket", "sci", "nuoto", "nutrizione"):
@@ -53,6 +58,9 @@ def test_get_stores_surfaces_db_only_store_without_code_change():
         "free_shipping_threshold": 65.0,
         "standard_shipping_cost": 5.5,
         "courier": "DHL Express",
+        "country": "EU",
+        "logo_url": "https://www.nuovonegoziodb.it/logo.png",
+        "is_new": True,
     }
     with patch("api.db.get_stores", return_value=[fake_db_store]):
         response = client.get("/api/stores")
@@ -66,5 +74,8 @@ def test_get_stores_surfaces_db_only_store_without_code_change():
     assert added["free_shipping_threshold"] == 65.0
     assert added["standard_shipping_cost"] == 5.5
     assert added["courier"] == "DHL Express"
+    assert added["country"] == "EU"
+    assert added["logo_url"] == "https://www.nuovonegoziodb.it/logo.png"
+    assert added["is_new"] is True
     assert "DHL Express" in added["subtitle"]
     assert "65" in added["subtitle"]

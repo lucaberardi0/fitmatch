@@ -20,14 +20,32 @@ struct AccountView: View {
     ]
     private let apparelSizes = ["XS", "S", "M", "L", "XL", "XXL"]
 
-    private let availableSports = [
+    private let fallbackSports = [
         ("Running Corsa", "figure.run"),
         ("Trail Running", "mountain.2.fill"),
         ("Ciclismo & GPS", "bicycle"),
         ("Fitness & Palestra", "dumbbell.fill"),
         ("Outdoor & Trekking", "tent.fill"),
-        ("Padel & Tennis", "tennis.racket")
+        ("Padel & Tennis", "tennis.racket"),
+        ("Calcio & Calcetto", "soccerball"),
+        ("Basket", "basketball.fill"),
+        ("Sci & Neve", "snowflake"),
+        ("Nuoto", "figure.pool.swim"),
+        ("Nutrizione", "bolt.heart.fill")
     ]
+
+    private var availableSports: [(String, String)] {
+        let nonSportIds: Set<String> = ["tutti", "donna", "uomo", "abbigliamento", "smartwatch", "accessori"]
+        var seenIds: Set<String> = ["running", "outdoor", "cycling", "fitness", "padel", "calcio", "tennis", "basket", "sci", "nuoto", "nutrizione"]
+        var merged = fallbackSports
+        for cat in prefs.dynamicCategories {
+            let cid = cat.id.lowercased()
+            if nonSportIds.contains(cid) || seenIds.contains(cid) { continue }
+            seenIds.insert(cid)
+            merged.append((cat.name, cat.icon?.isEmpty == false ? cat.icon! : "sportscourt.fill"))
+        }
+        return merged
+    }
 
     private let fallbackBrands = [
         "Nike", "Asics", "Garmin", "Salomon", "Hoka", "Brooks", "New Balance", "Under Armour", "Polar", "Oakley"
@@ -818,7 +836,7 @@ struct AccountView: View {
                                     .font(.system(size: 14, weight: .bold))
                                     .foregroundColor(.shopDark)
 
-                                if store.0 == "decathlon" {
+                                if DynamicCatalogRegistry.shared.storeItem(for: store.0)?.is_new == true {
                                     Text("NOVITÀ")
                                         .font(.system(size: 9, weight: .black))
                                         .foregroundColor(.white)

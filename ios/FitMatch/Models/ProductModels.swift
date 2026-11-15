@@ -99,6 +99,24 @@ final class DynamicCatalogRegistry {
         return categoriesById[low]
     }
 
+    func storeCountry(for storeId: String, storeName: String? = nil) -> String {
+        if let item = storeItem(for: storeId) ?? storeName.flatMap({ storeItem(for: $0) }) {
+            if let country = item.country?.trimmingCharacters(in: .whitespacesAndNewlines), !country.isEmpty {
+                return country.uppercased()
+            }
+            let url = item.base_url.lowercased()
+            if url.contains(".eu") || url.contains(".es") || url.contains(".de") || url.contains(".fr") {
+                return "EU"
+            }
+        }
+        let s = storeId.lowercased()
+        let euFallback = ["top4", "depor", "alltricks", "warehouse", "tradeinn"]
+        if euFallback.contains(where: { s.contains($0) }) {
+            return "EU"
+        }
+        return "IT"
+    }
+
     var cachedStores: [ActiveStoreItem] {
         lock.lock()
         defer { lock.unlock() }

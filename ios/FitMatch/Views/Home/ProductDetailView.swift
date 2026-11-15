@@ -4,7 +4,19 @@ import Charts
 // MARK: - Store Rating & Review Statistics Helper
 
 struct StoreRatingHelper {
-    static func rating(for storeName: String) -> String {
+    private static let italianCountFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.locale = Locale(identifier: "it_IT")
+        return f
+    }()
+
+    static func rating(for storeName: String, storeId: String? = nil) -> String {
+        if let item = DynamicCatalogRegistry.shared.storeItem(for: storeId ?? storeName)
+            ?? DynamicCatalogRegistry.shared.storeItem(for: storeName),
+           let r = item.rating, r > 0 {
+            return String(format: "%.1f", r).replacingOccurrences(of: ".", with: ",")
+        }
         let s = storeName.lowercased()
         if s.contains("one block") { return "4,8" }
         if s.contains("top4") { return "4,9" }
@@ -22,7 +34,16 @@ struct StoreRatingHelper {
         return "4,8"
     }
 
-    static func reviewCount(for storeName: String) -> String {
+    static func reviewCount(for storeName: String, storeId: String? = nil) -> String {
+        if let item = DynamicCatalogRegistry.shared.storeItem(for: storeId ?? storeName)
+            ?? DynamicCatalogRegistry.shared.storeItem(for: storeName) {
+            if let formatted = item.formatted_review_count, !formatted.isEmpty {
+                return formatted
+            }
+            if let count = item.review_count, count > 0 {
+                return italianCountFormatter.string(from: NSNumber(value: count)) ?? "\(count)"
+            }
+        }
         let s = storeName.lowercased()
         if s.contains("one block") { return "657" }
         if s.contains("top4") { return "1.240" }
@@ -1492,8 +1513,8 @@ struct ProductDetailView: View {
                     let hasSize = item.hasSize
                     let isSelected = (index == selectedOfferIndex)
                     let isBest = (offer.price == (currentOffer?.price ?? product.best_price))
-                    let rating = StoreRatingHelper.rating(for: offer.store_name)
-                    let reviews = StoreRatingHelper.reviewCount(for: offer.store_name)
+                    let rating = StoreRatingHelper.rating(for: offer.store_name, storeId: offer.store_id)
+                    let reviews = StoreRatingHelper.reviewCount(for: offer.store_name, storeId: offer.store_id)
                     let outboundUrl = APIService.shared.outboundRedirectURL(
                         targetUrl: offer.url,
                         storeId: offer.store_id,

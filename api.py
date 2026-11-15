@@ -316,6 +316,19 @@ def get_stores():
         if std_cost is None:
             std_cost = rule.get("standard")
         courier = (db_row or {}).get("courier") or (getattr(scraper_obj, "courier", None) if scraper_obj is not None else None) or rule.get("courier")
+        logo_url = (db_row or {}).get("logo_url") or (getattr(scraper_obj, "logo_url", None) if scraper_obj is not None else None)
+        is_new = bool((db_row or {}).get("is_new") or (getattr(scraper_obj, "is_new", False) if scraper_obj is not None else False))
+        country = (db_row or {}).get("country") or (getattr(scraper_obj, "country", None) if scraper_obj is not None else None)
+        if not country:
+            lower_url = str(base_url or "").lower()
+            if sid in {"top4running", "deporvillage", "alltricks", "runningwarehouse", "tradeinn"}:
+                country = "EU"
+            elif ".it" in lower_url:
+                country = "IT"
+            elif any(tld in lower_url for tld in (".eu", ".es", ".de", ".fr")):
+                country = "EU"
+            else:
+                country = "IT"
 
         sub_parts = []
         if courier:
@@ -338,6 +351,9 @@ def get_stores():
             "free_shipping_threshold": float(free_thresh) if free_thresh is not None else None,
             "standard_shipping_cost": float(std_cost) if std_cost is not None else None,
             "courier": courier,
+            "country": str(country).upper(),
+            "logo_url": logo_url,
+            "is_new": is_new,
             "subtitle": subtitle,
         }
 

@@ -24,10 +24,13 @@ struct IntelligentPromoGenerator {
         }
         let topBrand = mostFrequent(in: brands)
 
-        // 3. Extract authentic free shipping threshold (if available from products or store data)
+        // 3. Extract authentic free shipping threshold (product -> DynamicCatalogRegistry -> fallback)
         let freeThreshold: Int? = {
             if let t = products.compactMap({ $0.free_shipping_threshold }).first(where: { $0 > 0 }) {
                 return Int(t.rounded())
+            }
+            if let rule = DynamicCatalogRegistry.shared.shippingRule(for: showcase.store_id), rule.threshold > 0 {
+                return Int(rule.threshold.rounded())
             }
             // Store fallback shipping rule known values
             let sid = showcase.store_id.lowercased()
