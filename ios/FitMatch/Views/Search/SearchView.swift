@@ -1123,8 +1123,9 @@ struct SearchView: View {
                         .padding(.horizontal, 18)
                 }
             }
+            }
 
-            // 3. Thematic Curated Carousels
+            // 3. Thematic Curated Carousels (shown both on standard search turns and below Q&A advice cards)
             if !turn.curatedSections.isEmpty {
                 ForEach(turn.curatedSections) { section in
                     VStack(alignment: .leading, spacing: 6) {
@@ -1182,7 +1183,7 @@ struct SearchView: View {
             }
 
             // 4. Comparative Spec Cards
-            if !turn.comparativeCards.isEmpty {
+            if !turn.isConversationalAdvice && !turn.comparativeCards.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(turn.comparativeCards.first?.section_title ?? "Confronto rapido")
                         .font(.system(size: 18.5, weight: .bold))
@@ -1212,7 +1213,7 @@ struct SearchView: View {
             }
 
             // 5. Spotlight / Best Deal Card
-            if let spot = turn.spotlight {
+            if !turn.isConversationalAdvice, let spot = turn.spotlight {
                 VStack(alignment: .leading, spacing: 6) {
                     ShopSpotlightCardView(spotlight: spot) {
                         selectedRecentProduct = spot.product
@@ -1221,7 +1222,6 @@ struct SearchView: View {
                     .padding(.top, 10)
                 }
                 .id(turn.id == conversationTurns.first?.id ? "spotlight_section" : "spotlight_section_\(turn.id)")
-            }
             }
 
             // 6. Follow-Up Suggestion Pills (Shown for the latest turn when not loading)

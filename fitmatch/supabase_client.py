@@ -831,6 +831,8 @@ class SupabaseClient:
         "jacket": ["jacket", "apparel", "top"],
         "pants": ["pants", "apparel"],
         "socks": ["socks", "apparel", "gear"],
+        "sensor": ["sensor", "strap", "gear", "gps_watch"],
+        "heart_rate_monitor": ["sensor", "strap", "gear", "gps_watch"],
         "gps_watch": ["gps_watch", "sensor", "gear"],
         "eyewear": ["eyewear", "gear"],
         "hydration": ["hydration", "pack", "gear", "bag"],
@@ -1309,7 +1311,7 @@ class SupabaseClient:
             if norm_pref_size in US_TO_EU_MEN:
                 pref_size_candidates.add(US_TO_EU_MEN[norm_pref_size])
 
-        keywords_to_query = [k for k in (target_keywords or [""]) if k.strip()][:4]
+        keywords_to_query = [k for k in (target_keywords or [""]) if k.strip()][:8]
         if not keywords_to_query:
             keywords_to_query = [""]
         from concurrent.futures import ThreadPoolExecutor
@@ -1323,7 +1325,7 @@ class SupabaseClient:
                 gender=gender,
             )
 
-        with ThreadPoolExecutor(max_workers=min(4, max(1, len(keywords_to_query)))) as executor:
+        with ThreadPoolExecutor(max_workers=min(6, max(1, len(keywords_to_query)))) as executor:
             kw_batches = list(executor.map(_fetch_kw, keywords_to_query))
 
         for prods in kw_batches:
@@ -1464,6 +1466,16 @@ class SupabaseClient:
             " ",
             q_str_low
         )
+        q_str_no_filters = re.sub(
+            r"(?<![\d\.,])\b(?:3[5-9]|4[0-9])[\.,](?:5|3|7|2|8)\b",
+            " ",
+            q_str_no_filters
+        )
+        if norm_size:
+            q_str_no_filters = re.sub(rf"\b{re.escape(norm_size)}\b", " ", q_str_no_filters)
+            for part in norm_size.split("."):
+                if part:
+                    q_str_no_filters = re.sub(rf"\b{re.escape(part)}\b", " ", q_str_no_filters)
         raw_query_model_digits = set(re.findall(r"\b\d+\b", q_str_no_filters))
         wants_trail = bool(re.search(r"\b(trail|sterrato|montagna|sentier[oi]|fango|bosco|skyrunning)\b", q_str_low))
         wants_waterproof = bool(re.search(r"\b(gtx|gore[\s-]*tex|impermeabil[ei]|pioggia|invern[oa]|waterproof|shield)\b", q_str_low))
@@ -1522,7 +1534,12 @@ class SupabaseClient:
                         score -= 75.0  # Penalize mismatched generation/model numbers on specific SKU queries
 
             # Domain-specific relevance boosts
-            if detected_product_type == "gps_watch":
+            if detected_product_type == "heart_rate_monitor":
+                if pcat == "sensor":
+                    score += 120.0
+                if re.search(r"\b(polar\s*h10|polar\s*h9|hrm[\s-]*(?:200|600|pro|dual|fit|swim|belt)|coros\s*heart\s*rate|trackr\s*hr|fascia\s*cardio|cardiofrequenzimetro|verity\s*sense)\b", combined_text):
+                    score += 160.0
+            elif detected_product_type == "gps_watch":
                 if wants_hr_strap:
                     if re.search(r"\b(fascia|hrm|h10|h9|verity|cardiofrequenzimetro)\b", combined_text):
                         score += 150.0
@@ -1723,6 +1740,11 @@ class SupabaseClient:
                         existing["max_price"] = max(prices)
                         existing["highest_price"] = max(prices)
                         existing["cross_store_savings"] = round(max(prices) - min(prices), 2) if len(prices) > 1 else 0.0
+                        merged_sizes = set(existing.get("available_sizes") or []) | set(p.get("available_sizes") or [])
+                        existing["available_sizes"] = sorted(
+                            list(merged_sizes),
+                            key=lambda s: (0, float(s)) if str(s).replace(".", "", 1).isdigit() else (1, str(s)),
+                        )
                         duplicate_found = True
                         break
                     else:

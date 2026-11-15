@@ -592,7 +592,7 @@ def _execute_smart_search(
         limit=limit
     )
     cached_resp = None if (is_more_examples or conversation_history or session_context is not None or eff_resolved_context) else cache_manager.get_search_response(cache_key)
-    if cached_resp is not None:
+    if cached_resp is not None and (cached_resp.get("results") or cached_resp.get("is_off_topic") or cached_resp.get("is_unsafe")):
         cached_count = len(cached_resp.get("results") or [])
         _emit_step("cache", "done", "Risposta rapida dalla cache", f"{cached_count} modelli già verificati pronti")
         return _persist_smart_search_turn(
@@ -695,78 +695,227 @@ def _execute_smart_search(
             context_query=eff_resolved_context,
         )
 
-    # Extra safety filter: ensure every returned product satisfies product-type guardrails
-    if products and detected_product_type:
-        guardrail_query = f"{eff_resolved_context} {q}".strip() if eff_resolved_context else q
-        products = [
-            p for p in products
-            if QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=guardrail_query)
-        ]
+    guardrail_query = f"{eff_resolved_context} {q}".strip() if eff_resolved_context else q
 
-    # Strict Price Guardrail: ensure every offer and product strictly respects eff_max_price
-    if products and eff_max_price is not None:
-        filtered_by_price = []
-        for p in products:
-            valid_offers = [o for o in (p.get("offers") or []) if float(o.get("price") or 0.0) <= float(eff_max_price)]
-            if valid_offers:
-                p["offers"] = valid_offers
-                prices = [float(o["price"]) for o in valid_offers]
-                p["best_price"] = min(prices)
-                p["highest_price"] = max(prices)
-                p["cross_store_savings"] = round(p["highest_price"] - p["best_price"], 2) if len(prices) > 1 else 0.0
-                if p["best_price"] <= float(eff_max_price):
-                    filtered_by_price.append(p)
-        products = filtered_by_price
+    def _apply_hard_guardrails(prod_list: list) -> list:
+        out = list(prod_list or [])
+        # 1. Product-Type Guardrail
+        if out and detected_product_type:
+            out = [
+                p for p in out
+                if QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=guardrail_query)
+            ]
+        # 2. Strict Price Guardrail
+        if out and eff_max_price is not None:
+            filtered_by_price = []
+            for p in out:
+                valid_offers = [o for o in (p.get("offers") or []) if float(o.get("price") or 0.0) <= float(eff_max_price)]
+                if valid_offers:
+                    p["offers"] = valid_offers
+                    prices = [float(o["price"]) for o in valid_offers]
+                    p["best_price"] = min(prices)
+                    p["highest_price"] = max(prices)
+                    p["cross_store_savings"] = round(p["highest_price"] - p["best_price"], 2) if len(prices) > 1 else 0.0
+                    if p["best_price"] <= float(eff_max_price):
+                        filtered_by_price.append(p)
+            out = filtered_by_price
+        # 3. Strict Gender Guardrail
+        if out and intent.gender in ("Uomo", "Donna"):
+            req_g = intent.gender.lower()
+            filtered_by_gender = []
+            for p in out:
+                p_g = (p.get("gender") or "unisex").lower()
+                is_dual = ("uomo" in p_g and "donna" in p_g)
+                if p_g not in ("unisex", "") and not is_dual and req_g not in p_g and p_g not in req_g:
+                    continue
+                cname = (p.get("canonical_name") or "").lower()
+                offer_probe = " ".join(
+                    f"{(o.get('title') or '')} {(o.get('raw_title') or '')} {(o.get('url') or '')}"
+                    for o in (p.get("offers") or [])[:4]
+                ).lower()
+                probe = f"{cname} {offer_probe}"
+                has_f = bool(re.search(r"(?:\b(?:donna|donne|wmns|woman|women|womens|femme|lady|ladies|damen|mujer)\b|/(?:donna|woman|women|womens|wmns|femme)/)", probe))
+                has_m = bool(re.search(r"(?:\b(?:uomo|uomini|men|mens|homme|herren|hombre)\b|/(?:uomo|men|mens|homme)/)", probe))
+                if req_g == "uomo" and has_f and not has_m:
+                    continue
+                if req_g == "donna" and has_m and not has_f:
+                    continue
+                filtered_by_gender.append(p)
+            out = filtered_by_gender
+        return out
 
-    # Strict Gender Guardrail (checks product gender, canonical_name, offer titles, and offer URLs)
-    if products and intent.gender in ("Uomo", "Donna"):
-        req_g = intent.gender.lower()
-        filtered_by_gender = []
-        for p in products:
-            p_g = (p.get("gender") or "unisex").lower()
-            is_dual = ("uomo" in p_g and "donna" in p_g)
-            if p_g not in ("unisex", "") and not is_dual and req_g not in p_g and p_g not in req_g:
-                continue
-            cname = (p.get("canonical_name") or "").lower()
-            offer_probe = " ".join(
-                f"{(o.get('title') or '')} {(o.get('raw_title') or '')} {(o.get('url') or '')}"
-                for o in (p.get("offers") or [])[:4]
-            ).lower()
-            probe = f"{cname} {offer_probe}"
-            has_f = bool(re.search(r"(?:\b(?:donna|donne|wmns|woman|women|womens|femme|lady|ladies|damen|mujer)\b|/(?:donna|woman|women|womens|wmns|femme)/)", probe))
-            has_m = bool(re.search(r"(?:\b(?:uomo|uomini|men|mens|homme|herren|hombre)\b|/(?:uomo|men|mens|homme)/)", probe))
-            if req_g == "uomo" and has_f and not has_m:
-                continue
-            if req_g == "donna" and has_m and not has_f:
-                continue
-            filtered_by_gender.append(p)
-        products = filtered_by_gender
+    products = _apply_hard_guardrails(products)
 
-    # Relevance-preserving re-ranking: prioritize exact gender match and specific model match without discarding relevance_score
-    if products and (intent.target_keywords or intent.gender in ("Uomo", "Donna")):
-        spec_kws = [
-            k.lower().strip() for k in (intent.target_keywords or [])[:2]
-            if k.strip() and k.lower().strip() not in QueryProductGuardrail.GENERIC_CATEGORY_KEYWORDS
-        ]
+    # Zero-Result & Scarcity Relaxation: ensure the user ALWAYS receives the best available catalog products
+    relaxed_size: Optional[str] = None
+    relaxed_brand: Optional[str] = None
+    supplemental_brand_alts: list = []
+
+    if not products and eff_size:
+        size_relaxed = db.search_smart(
+            target_keywords=intent.target_keywords,
+            category=eff_category,
+            brand=intent.brand,
+            gender=intent.gender,
+            max_price=eff_max_price,
+            min_price=intent.min_price,
+            size=None,
+            store_id=eff_store,
+            limit=limit,
+            raw_query=q,
+            preferred_size=eff_size,
+            context_query=eff_resolved_context,
+        )
+        size_relaxed = _apply_hard_guardrails(size_relaxed)
+        if size_relaxed:
+            products = size_relaxed
+            relaxed_size = eff_size
+
+    if not products and intent.brand:
+        cat_fallback_kws = QueryProductGuardrail.expand_keywords(
+            raw_query=guardrail_query,
+            product_type=detected_product_type,
+            brand=None,
+            existing_keywords=[],
+        )
+        brand_relaxed = db.search_smart(
+            target_keywords=cat_fallback_kws,
+            category=eff_category,
+            brand=None,
+            gender=intent.gender,
+            max_price=eff_max_price,
+            min_price=intent.min_price,
+            size=eff_size,
+            store_id=eff_store,
+            limit=limit,
+            raw_query=q,
+            preferred_size=eff_pref_size,
+            context_query=eff_resolved_context,
+        )
+        brand_relaxed = _apply_hard_guardrails(brand_relaxed)
+        if not brand_relaxed and eff_size:
+            brand_relaxed = db.search_smart(
+                target_keywords=cat_fallback_kws,
+                category=eff_category,
+                brand=None,
+                gender=intent.gender,
+                max_price=eff_max_price,
+                min_price=intent.min_price,
+                size=None,
+                store_id=eff_store,
+                limit=limit,
+                raw_query=q,
+                preferred_size=eff_size,
+                context_query=eff_resolved_context,
+            )
+            brand_relaxed = _apply_hard_guardrails(brand_relaxed)
+            if brand_relaxed:
+                relaxed_size = eff_size
+        if brand_relaxed:
+            products = brand_relaxed
+            relaxed_brand = intent.brand
+
+    elif 1 <= len(products) <= 2 and intent.brand and not intent.is_off_topic:
+        # Scarcity supplementation (e.g. "Long sleeve Puma" has only 1-2 items in catalog):
+        # keep the exact brand items first and supplement with top multi-brand alternatives in the same category.
+        cat_fallback_kws = QueryProductGuardrail.expand_keywords(
+            raw_query=guardrail_query,
+            product_type=detected_product_type,
+            brand=None,
+            existing_keywords=[],
+        )
+        raw_alts = db.search_smart(
+            target_keywords=cat_fallback_kws,
+            category=eff_category,
+            brand=None,
+            gender=intent.gender,
+            max_price=eff_max_price,
+            min_price=intent.min_price,
+            size=eff_size if not relaxed_size else None,
+            store_id=eff_store,
+            limit=16,
+            raw_query=q,
+            preferred_size=eff_pref_size,
+            context_query=eff_resolved_context,
+        )
+        raw_alts = _apply_hard_guardrails(raw_alts)
+        existing_ids = {p.get("id") or p.get("canonical_name") for p in products}
+        req_b_low = intent.brand.lower().strip()
+        seen_alt_brands = set()
+        for ap in raw_alts:
+            ap_id = ap.get("id") or ap.get("canonical_name")
+            ap_brand = (ap.get("brand") or "").lower().strip()
+            if ap_id in existing_ids or req_b_low in ap_brand:
+                continue
+            if ap_brand not in seen_alt_brands or len(supplemental_brand_alts) < 4:
+                seen_alt_brands.add(ap_brand)
+                supplemental_brand_alts.append(ap)
+                existing_ids.add(ap_id)
+            if len(supplemental_brand_alts) >= 6:
+                break
+        if supplemental_brand_alts:
+            products = list(products) + supplemental_brand_alts
+
+    # Diversity-preserving re-ranking: prioritize exact gender & primary brand while interleaving across brands/model families
+    if products:
         req_g_sort = (intent.gender or "").lower().strip()
+        req_b_sort = (intent.brand or "").lower().strip() if not relaxed_brand else ""
+        _FAM_NOISE = {
+            "uomo", "donna", "unisex", "plus", "premium", "se", "tr", "gtx", "gore", "tex",
+            "wide", "medium", "music", "solar", "scarpe", "scarpa", "running", "corsa", "maglia", "t", "shirt"
+        }
 
-        def _relevance_sort_key(p):
-            pname = (p.get("canonical_name") or "").lower()
+        def _prod_brand_key(p: dict) -> str:
+            return (p.get("brand") or "").lower().strip() or "generic"
+
+        def _prod_family_key(p: dict) -> str:
+            pb = _prod_brand_key(p)
+            cname = (p.get("canonical_name") or "").lower()
+            toks = [t for t in re.findall(r"\b[a-z0-9]+\b", cname) if t not in _FAM_NOISE and t not in pb.split() and len(t) > 1]
+            if not toks:
+                return f"{pb}:{cname[:12]}"
+            if toks[0] in ("adizero", "forerunner", "fenix", "wave", "fresh", "deviate", "velocity", "gel") and len(toks) >= 2:
+                return f"{pb}:{toks[0]}:{toks[1]}"
+            return f"{pb}:{toks[0]}"
+
+        def _base_sort_key(p: dict):
             pg = (p.get("gender") or "unisex").lower()
             is_dual = ("uomo" in pg and "donna" in pg)
-            if req_g_sort in ("uomo", "donna"):
-                g_rank = 0 if (req_g_sort in pg and not is_dual) else 1
-            else:
-                g_rank = 0
-            kw_rank = 99
-            for rank, kw in enumerate(spec_kws):
-                if kw in pname:
-                    kw_rank = rank
-                    break
+            g_rank = 0 if (req_g_sort not in ("uomo", "donna") or (req_g_sort in pg and not is_dual)) else 1
+            pb = _prod_brand_key(p)
+            b_rank = 0 if (not req_b_sort or req_b_sort in pb or req_b_sort in (p.get("canonical_name") or "").lower()) else 1
             rel_s = float(p.get("relevance_score") or 0.0)
-            return (g_rank, kw_rank, -rel_s, float(p.get("best_price") or 0.0))
+            return (b_rank, g_rank, -rel_s, float(p.get("best_price") or 0.0))
 
-        products.sort(key=_relevance_sort_key)
+        products.sort(key=_base_sort_key)
+
+        # Interleave across brands (when generic multi-brand search) or across model families (when brand-specific)
+        is_generic_multi_brand = (not req_b_sort) and len(intent.target_keywords or []) >= 2
+        tier_primary = [p for p in products if _base_sort_key(p)[:2] == (0, 0)]
+        tier_secondary = [p for p in products if _base_sort_key(p)[:2] != (0, 0)]
+
+        def _interleave_candidates(cand_list: list, by_brand: bool) -> list:
+            if len(cand_list) <= 2:
+                return cand_list
+            r1, r2, rest = [], [], []
+            seen_r1, seen_r2 = set(), set()
+            seen_fam = set()
+            for p in cand_list:
+                fk = _prod_family_key(p)
+                bk = _prod_brand_key(p) if by_brand else fk
+                if bk not in seen_r1 and fk not in seen_fam:
+                    seen_r1.add(bk)
+                    seen_fam.add(fk)
+                    r1.append(p)
+                elif bk not in seen_r2 and fk not in seen_fam:
+                    seen_r2.add(bk)
+                    seen_fam.add(fk)
+                    r2.append(p)
+                else:
+                    rest.append(p)
+            return r1 + r2 + rest
+
+        products = _interleave_candidates(tier_primary, by_brand=is_generic_multi_brand) + _interleave_candidates(tier_secondary, by_brand=True)
 
     if products:
         unique_stores = {
@@ -885,6 +1034,33 @@ def _execute_smart_search(
             logger.warning(f"[search_smart] Stage-2 grounded synthesis warning: {e}")
             _emit_step("synthesis", "done", "Analisi tecnica completata")
 
+    # Apply transparent explanations when scarcity/relaxation was triggered
+    cat_it_label = smart_engine._CATEGORY_IT_LABELS.get(eff_category or "", "prodotti sportivi").lower()
+    if relaxed_brand and products:
+        top_names = [f"**{p.get('canonical_name')}**" for p in products[:2] if p.get("canonical_name")]
+        names_str = f" (tra cui {', '.join(top_names)})" if top_names else ""
+        intent.conversational_header = f"Alternative a {relaxed_brand} — {smart_engine._CATEGORY_IT_LABELS.get(eff_category or '', 'Catalogo')}"
+        intent.conversational_summary = (
+            f"Al momento non ci sono {cat_it_label} **{relaxed_brand}** disponibili nei negozi partner, "
+            f"ma ecco le **migliori alternative equivalenti** in catalogo{names_str} confrontate al miglior prezzo:"
+        )
+        intent.explanation = intent.conversational_summary
+    elif supplemental_brand_alts and intent.brand:
+        brand_prods = [p for p in products if p not in supplemental_brand_alts]
+        b_names = [f"**{p.get('canonical_name')}** (€{float(p.get('best_price') or 0):.2f})" for p in brand_prods[:2] if p.get("canonical_name")]
+        if b_names and intent.source != "openrouter_grounded":
+            intent.conversational_summary = (
+                f"Ho trovato {' e '.join(b_names)} di **{intent.brand}** disponibili in catalogo, "
+                f"affiancate dalle migliori alternative equivalenti di altri brand tecnici per offrirti un confronto completo:"
+            )
+            intent.explanation = intent.conversational_summary
+    if relaxed_size and products and f"{relaxed_size}" not in (intent.conversational_summary or ""):
+        intent.conversational_summary = (
+            f"{(intent.conversational_summary or '').rstrip()} "
+            f"*(Nota: la disponibilità esatta della taglia **{relaxed_size}** varia per colore; ti mostro i modelli compatibili al miglior prezzo)*."
+        ).strip()
+        intent.explanation = intent.conversational_summary
+
     # Live Multi-Store Federated Search:
     # If indexed catalog returns 0 products for this smart query, launch background multi-store scrapers
     # and return fast recommendations without freezing the HTTP response!
@@ -911,6 +1087,26 @@ def _execute_smart_search(
         "salomon", "garmin", "mizuno", "odlo", "new balance", "on", "reebok", "oakley",
         "coros", "suunto", "polar", "bullpadel", "nox", "babolat", "head"
     ]
+    PROPRIETARY_LINE_TO_BRAND = {
+        "adizero": "adidas",
+        "supernova": "adidas",
+        "ultraboost": "adidas",
+        "terrex": "adidas",
+        "dri-fit": "nike",
+        "pegasus": "nike",
+        "vomero": "nike",
+        "vaporfly": "nike",
+        "alphafly": "nike",
+        "warmalite": "mizuno",
+        "fujitrail": "asics",
+        "novablast": "asics",
+        "nimbus": "asics",
+        "kayano": "asics",
+        "cumulus": "asics",
+        "bonatti": "salomon",
+        "zeroweight": "odlo",
+        "active warm": "odlo",
+    }
 
     def _product_matches_section(p: dict, sec_kws: list, sec_brand_lock: Optional[str], sec_title_sub: str = "") -> bool:
         name_lower = (p.get("canonical_name") or "").lower()
@@ -931,7 +1127,7 @@ def _execute_smart_search(
         if is_apparel_sec:
             if p_cat in ("shoes", "running_shoes", "trail_running", "gps_watch", "cycling", "eyewear", "padel", "racket"):
                 return False
-            if not re.search(r"\b(magli[ae]|t[\s-]*shirt|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet|pantaloncin[oi]|shorts?|leggings|tights|giacc(?:a|he)|jacket|antivento|gilet|felp[ae]|hoodie|calz[ae]|top|tee\b)\b", combined):
+            if not re.search(r"\b(magli[ae]|t[\s-]*shirt|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet|pantaloncin[oi]|shorts?|leggings|tights|giacc(?:a|he)|jacket|antivento|gilet|felp[ae]|hoodie|calz[ae]|top|tee\b|zip)\b", combined):
                 return False
         elif is_shoe_sec:
             if not QueryProductGuardrail.is_product_compatible(p, "shoes", raw_query=q):
@@ -954,13 +1150,19 @@ def _execute_smart_search(
         if not sec_kws:
             return True
 
-        # Strip the query's own global brand or generic words if there are more specific section keywords
-        q_brand_low = (intent.brand or "").lower().strip()
-        specific_sec_kws = [
-            k for k in sec_kws
-            if k not in QueryProductGuardrail.GENERIC_CATEGORY_KEYWORDS
-            and k != q_brand_low
-        ]
+        # Strip the query's own global brand, generic words, or competing brand keywords when intent.brand is set
+        q_brand_low = (intent.brand or "").lower().strip() if not relaxed_brand else ""
+        specific_sec_kws = []
+        for k in sec_kws:
+            if k in QueryProductGuardrail.GENERIC_CATEGORY_KEYWORDS or k == q_brand_low:
+                continue
+            if q_brand_low:
+                if any(b != q_brand_low and re.search(rf"\b{re.escape(b)}\b", k) for b in SECTION_BRAND_NAMES):
+                    continue
+                owner_brand = PROPRIETARY_LINE_TO_BRAND.get(k)
+                if owner_brand and owner_brand != q_brand_low:
+                    continue
+            specific_sec_kws.append(k)
         if not specific_sec_kws:
             return True
 
@@ -970,7 +1172,26 @@ def _execute_smart_search(
     curated_sections_out = []
     used_product_ids = set()
 
-    if intent.curated_sections and products:
+    if supplemental_brand_alts and intent.brand and not relaxed_brand:
+        brand_prods = [p for p in products if p not in supplemental_brand_alts]
+        if brand_prods:
+            curated_sections_out.append({
+                "id": "sec_brand_primary",
+                "title": f"Modelli {intent.brand} Disponibili",
+                "subtitle": f"Tutti i prodotti {intent.brand} trovati al miglior prezzo verificato.",
+                "products": brand_prods[:8],
+            })
+            for bp in brand_prods[:8]:
+                used_product_ids.add(bp.get("id"))
+        curated_sections_out.append({
+            "id": "sec_brand_alternatives",
+            "title": "Alternative Consigliate di Altri Brand",
+            "subtitle": "I migliori modelli equivalenti selezionati tra gli store partner.",
+            "products": supplemental_brand_alts[:8],
+        })
+        for ap in supplemental_brand_alts[:8]:
+            used_product_ids.add(ap.get("id"))
+    elif intent.curated_sections and products:
         for sec_def in intent.curated_sections:
             sec_prods = []
             sec_kws = [k.lower().strip() for k in (sec_def.keywords or []) if k.strip()]
@@ -1366,8 +1587,8 @@ def _execute_smart_search(
             " · ".join(curation_parts),
         )
 
-    # Store full curated response into L1 memory & L2 disk cache (20-min TTL) for non-session single-turn queries
-    if not is_more_examples and not conversation_history and session_context is None and not eff_resolved_context:
+    # Store full curated response into L1 memory & L2 disk cache (20-min TTL) for non-session single-turn queries with results
+    if products and not is_more_examples and not conversation_history and session_context is None and not eff_resolved_context:
         cache_manager.set_search_response(cache_key, result_data)
     return _persist_smart_search_turn(
         result_data,

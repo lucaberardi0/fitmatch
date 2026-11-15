@@ -1920,10 +1920,22 @@ class SupabaseManager: ObservableObject {
                 switch cat {
                 case "gps_watch":
                     params.append("category=eq.gps_watch")
+                case "sensor", "heart_rate_monitor":
+                    params.append("category=in.(sensor,strap,gear,gps_watch)")
                 case "running_shoes", "shoes":
                     params.append("category=in.(running_shoes,shoes,fitness)")
+                case "trail_running":
+                    params.append("category=in.(trail_running,running_shoes,shoes)")
                 case "football_boots":
                     params.append("category=in.(football_boots,shoes)")
+                case "top":
+                    params.append("category=in.(top,apparel)")
+                case "pants":
+                    params.append("category=in.(pants,apparel)")
+                case "jacket":
+                    params.append("category=in.(jacket,apparel,top)")
+                case "socks":
+                    params.append("category=in.(socks,apparel,gear)")
                 case "swim":
                     params.append("category=in.(swim,gear)")
                 case "padel":

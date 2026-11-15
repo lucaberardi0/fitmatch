@@ -20,7 +20,7 @@ KNOWN_BRANDS = [
 
     # Electronics & Optics
     "garmin", "polar", "suunto", "coros", "amazfit", "wahoo", "bryton", "igpsport", "oakley", "bliz",
-    "rudy project", "100%", "shokz", "aftershokz", "apple", "huawei",
+    "rudy project", "100%", "shokz", "aftershokz", "huawei",
 
     # Cycling & Helmets
     "shimano", "poc", "kask", "abus", "castelli", "sportful", "santini", "giro",
@@ -30,7 +30,7 @@ KNOWN_BRANDS = [
     "bullpadel", "babolat", "head", "wilson", "nox", "starvie", "siux", "dunlop", "kuikma",
 
     # Recovery, Fitness & Nutrition
-    "therabody", "theragun", "hyperice", "compex", "enervit", "sis", "maurten",
+    "therabody", "theragun", "hyperice", "compex", "enervit", "isostar", "sis", "maurten",
     "named sport", "powerbar", "ethic sport", "226ers", "leone 1947",
 
     # Decathlon Brands
@@ -75,12 +75,14 @@ NON_SPORT_JUNK_PATTERNS = [
     r"\bgarlando\b", r"\bcalciobalilla\b", r"\bbiliardino\b", r"\bparrucca\b", r"\batosa\b",
     r"\bdrake\s*2\s*tex\s*pants\b", r"\bfly\s*racing\b", r"\bkenny\s+(?:casco\s+moto|mascherina)\b",
     r"\bbarbie\b", r"\bbambol[ae]\b", r"\bposter\b", r"\baction\s+figure\b", r"\bfunko\b",
+    r"\biphone\s*\d+\b", r"\bbirkenstock\b",
 ]
 
 ICONIC_MODEL_BRANDS = {
     # Adidas
     "supernova": "Adidas", "adizero": "Adidas", "adios": "Adidas", "boston": "Adidas",
     "takumi": "Adidas", "terrex": "Adidas", "ultraboost": "Adidas", "sl20": "Adidas", "dropset": "Adidas",
+    "hyperboost": "Adidas", "evo sl": "Adidas",
     # Nike
     "pegasus": "Nike", "vomero": "Nike", "alphafly": "Nike", "vaporfly": "Nike",
     "invincible": "Nike", "streakfly": "Nike", "infinity": "Nike", "wildhorse": "Nike",
@@ -90,7 +92,7 @@ ICONIC_MODEL_BRANDS = {
     # Under Armour
     "tribase": "Under Armour",
     # Puma
-    "deviate nitro": "Puma", "velocity nitro": "Puma", "magnify nitro": "Puma", "foreverrun": "Puma", "fast-r": "Puma",
+    "deviate nitro": "Puma", "velocity nitro": "Puma", "magnify nitro": "Puma", "magmax": "Puma", "foreverrun": "Puma", "fast-r": "Puma",
     # Asics
     "nimbus": "Asics", "cumulus": "Asics", "kayano": "Asics", "novablast": "Asics",
     "superblast": "Asics", "metaspeed": "Asics", "magic speed": "Asics", "trabuco": "Asics",
@@ -100,7 +102,7 @@ ICONIC_MODEL_BRANDS = {
     "cascadia": "Brooks", "launch": "Brooks", "catamount": "Brooks", "caldera": "Brooks",
     # Hoka
     "clifton": "Hoka", "bondi": "Hoka", "speedgoat": "Hoka", "mach": "Hoka",
-    "arahi": "Hoka", "challenger": "Hoka", "cielo": "Hoka", "rocket x": "Hoka",
+    "arahi": "Hoka", "challenger": "Hoka", "cielo": "Hoka", "rocket x": "Hoka", "mafate": "Hoka",
     # Saucony
     "endorphin": "Saucony", "triumph": "Saucony", "ride": "Saucony", "guide": "Saucony",
     "kinvara": "Saucony", "peregrine": "Saucony", "tempus": "Saucony",
@@ -114,7 +116,7 @@ ICONIC_MODEL_BRANDS = {
     "sc elite": "New Balance", "supercomp": "New Balance",
     # Garmin
     "forerunner": "Garmin", "fenix": "Garmin", "epix": "Garmin", "instinct": "Garmin",
-    "venu": "Garmin", "vivoactive": "Garmin", "edge": "Garmin",
+    "venu": "Garmin", "vivoactive": "Garmin", "edge": "Garmin", "hrm 200": "Garmin", "hrm 600": "Garmin", "hrm-pro": "Garmin",
     # Polar
     "vantage": "Polar", "grit x": "Polar", "pacer": "Polar", "ignite": "Polar",
     # Coros & Suunto
@@ -149,7 +151,10 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\bpacks?\b", r"\bbundles?\b", r"\bset\b", r"\bkit\b", r"\bcoppia\b", r"\bduo\b"
     ]),
     ("sensor", [
-        r"\bfascia cardio\b", r"\bhrm\b", r"\bsensore\b", r"\bspeed sensor\b", r"\bcadence\b"
+        r"\bfascia\s+cardio\b", r"\bfascia\s+hrm\b", r"\bhrm\b",
+        r"\bsensore\s+(?:cardio|cardiaco|frequenza|velocit|cadenza|potenza|falcata)\b",
+        r"\bspeed\s+sensor\b", r"\bcadence\s+sensor\b", r"\bheart\s+rate\s+monitor\b",
+        r"\btrackr\s+hr\b", r"\btickr\b", r"\bpolar\s+(?:h10|h9|verity|oh1)\b"
     ]),
     ("cycling", [
         r"\bciclocomputer\b", r"\bbike\s+computer\b", r"\bcontachilometri\b", r"\bcontatore\b",
@@ -203,32 +208,30 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\b(?:calcio|futsal|magnetico|predator|mercurial|tiempo|phantom)\b.*\b(?:fg|ag|mg|sg|tf|turf|indoor)\b",
     ]),
     ("jacket", [
-        r"\bgiacc(?:a|he)\b", r"\bgiubbin[oi]\b", r"\bgiubbott[oi]\b", r"\bjackets?\b",
+        r"\bgiacc(?:a|he)\b", r"\bgiubbin[oi]\b", r"\bgiubbott[oi]\b", r"\bjackets?\b", r"\bjkt\b",
         r"\bantivento\b", r"\bwindbreaker\b", r"\bwindstopper\b", r"\bgilet\b", r"\bvest\b",
         r"\banorak\b", r"\bshell\b", r"\bpiumin[oi]\b", r"\bcappott[oi]\b", r"\bparka\b",
-        r"\bbetter\s+sweater\b"
+        r"\bbetter\s+sweater\b", r"\bdown\s+hooded\b", r"\b2[\.,]5\s*layer\b"
     ]),
     ("pants", [
         r"\bpantalon[ie]\b", r"\bpantaloncin[oi]\b", r"\bshorts?\b", r"\btights?\b",
         r"\bleggings?\b", r"\bcapri\b", r"\bcalzamagli[ae]\b", r"\bbermuda\b", r"\bsprinter\b",
-        r"\bsalopette\b", r"\btuta\s+gara\b", r"\bciclista\s+seamless\b"
+        r"\bsalopette\b", r"\btuta\s+gara\b", r"\bciclista\s+seamless\b", r"\bcoscial[ei]\b",
+        r"\bgonn[ae]\b", r"\bskirts?\b", r"\b2\s*in\s*1\b", r"\b2in1\b",
+        r"(?<![\.,\d])\b[34579]\s*(?:inch|in\b|''|\´\´)", r"\badizero\s+pacer\b"
     ]),
     ("top", [
         r"\bmagli[ae]\b", r"\bmagliett[ae]\b", r"\bt-?shirts?\b", r"\bcanott[ae]\b",
-        r"\bsinglets?\b", r"\btops?\b(?!\s+(?:sala|flex|ten|gun))", r"\bfelp[ae]\b", r"\bhoodie\b", r"\blong\s+sleeve\b",
-        r"\bshort\s+sleeve\b", r"\bsleeveless\b", r"\bmanic(?:a|he)\s+lung(?:a|he)\b",
+        r"\bsinglets?\b", r"\bsnglt\b", r"\btank\b", r"\bcrop\b", r"\bcropped\b", r"\btee\b",
+        r"\btops?\b(?!\s+(?:sala|flex|ten|gun))", r"\bfelp[ae]\b", r"\bhoodie\b", r"\blong\s*sleeve\b",
+        r"\bshort\s*sleeve\b", r"\bsleeveless\b", r"\bmanic(?:a|he)\s+lung(?:a|he)\b",
         r"\bmanic(?:a|he)\s+cort(?:a|e)\b", r"\bjersey\b", r"\bpolo\b", r"\breggisen[oi]\b", r"\bbra\b",
-        r"\b(?:home|away|3rd|third)\s+(?:replica|stadium|match)\b", r"\bsenza\s+maniche\b", r"\bbody\s+\d+\s*cm\b"
+        r"\b(?:home|away|3rd|third)\s+(?:replica|stadium|match)\b", r"\bsenza\s+maniche\b", r"\bbody\s+\d+\s*cm\b",
+        r"\b1\s*[/\s]\s*[24]\s*zip\b", r"\bhalf\s*zip\b", r"\bquarter\s*zip\b", r"\bpolare\b", r"\bfleece\b"
     ]),
     ("socks", [
         r"\bcalz[ae]\b", r"\bcalzin[oi]\b", r"\bsocks?\b", r"\bcopriscarpe\b",
-        r"\bcushioned\s+ankle\b", r"\bgambalett[io]\b"
-    ]),
-    ("shoes", [
-        r"\bscarp[ae]\b", r"\bshoes?\b", r"\bsneakers?\b", r"\bcalzatur[ae]\b",
-        r"\bstival[ie]\b", r"\bstivalett[oi]\b", r"\bciabatt[ae]\b", r"\bchiodat[ae]\b",
-        r"\bscarpon[ie]\b", r"\bscarpett[ae]\b", r"\bslide\b", r"\binfradito\b", r"\bklapki\b",
-        r"\b(?:adistar|superstar|stan\s+smith|shox|air\s+max|air\s+force|vomero|pegasus|ultraboost|supernova|adizero|boston|duramo|galaxy|gel[\s-]?(?:nimbus|kayano|cumulus|pulse|excite|contend|venture|sonoma|trabuco)|gt[\s-]?(?:1000|2000)|novablast|superblast|wave\s+(?:rider|sky|inspire|horizon|rebellion|daichi)|clifton|bondi|rincon|arahi|speedgoat|mach\s*\d|ghost\s*\d+|glycerin|adrenaline|cascadia|endorphin|kinvara|peregrine|triumph|cloudmonster|cloudsurfer|cloudrunner|cloudboom|cloudstratus|cloudflow|rebel\s*v\d|1080|880|860|deviate\s+nitro|velocity\s+nitro|magnify\s+nitro|foreverrun|lone\s+peak|torin|olympus|bushido|ultra\s+raptor|speedcross|sense\s+ride)\b"
+        r"\bcushioned\s+ankle\b", r"\bgambalett[io]\b", r"\blight\s+crew\b"
     ]),
     ("gear", [
         r"\btheragun\b", r"\bpistola\s+(?:per\s+)?massaggi\b", r"\bstimolatore\s+muscolare\b",
@@ -239,7 +242,14 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\btelo\b", r"\basciugaman[oi]\b", r"\bmanubri[o]?\b", r"\bkettlebell\b",
         r"\bcintur[ae]\b", r"\bbastoncini\b", r"\bshampoo\b", r"\bsterzo\b",
         r"\bpignoni\b", r"\bguarnitura\b", r"\bpedal[ei]\b", r"\bcoperton[ei]\b",
-        r"\bnippl[oi]\b", r"\btacchett[ae]\b", r"\bparastinchi\b", r"\bpallone\b", r"\bthermonet\b"
+        r"\bnippl[oi]\b", r"\btacchett[ae]\b", r"\bparastinchi\b", r"\bpallone\b", r"\bthermonet\b",
+        r"\bmarsupi[oi]\b", r"\brun\s+belt\b", r"\bborson[ei]\b", r"\btravel\s+bag\b", r"\bduffel\b"
+    ]),
+    ("shoes", [
+        r"\bscarp[ae]\b", r"\bshoes?\b", r"\bsneakers?\b", r"\bcalzatur[ae]\b",
+        r"\bstival[ie]\b", r"\bstivalett[oi]\b", r"\bciabatt[ae]\b", r"\bchiodat[ae]\b",
+        r"\bscarpon[ie]\b", r"\bscarpett[ae]\b", r"\bslide\b", r"\binfradito\b", r"\bklapki\b",
+        r"\b(?:adistar|superstar|stan\s+smith|shox|air\s+max|air\s+force|vomero|pegasus|ultraboost|supernova|adizero|boston|duramo|galaxy|gel[\s-]?(?:nimbus|kayano|cumulus|pulse|excite|contend|venture|sonoma|trabuco)|gt[\s-]?(?:1000|2000)|novablast|superblast|wave\s+(?:rider|sky|inspire|horizon|rebellion|daichi)|clifton|bondi|rincon|arahi|speedgoat|mach\s*\d|ghost\s*\d+|glycerin|adrenaline|cascadia|endorphin|kinvara|peregrine|triumph|cloudmonster|cloudsurfer|cloudrunner|cloudboom|cloudstratus|cloudflow|rebel\s*v\d|1080|880|860|deviate\s+nitro|velocity\s+nitro|magnify\s+nitro|foreverrun|lone\s+peak|torin|olympus|bushido|ultra\s+raptor|speedcross|sense\s+ride)\b"
     ])
 ]
 
@@ -310,11 +320,26 @@ class ProductNormalizer:
         ambiguous_brands = {"scarpa", "elite", "on", "head", "polar"}
         is_junk = cls.is_non_sport_junk(lower_title)
 
-        # 1. Check non-ambiguous known brands in the title first (longest match first)
+        # 1. Check non-ambiguous known brands in the main title (before colorway dash) first, earliest position wins
         primary_brands = [b for b in KNOWN_BRANDS if b not in ambiguous_brands]
+        main_part = re.split(r"\s+[-–—|]\s+", lower_title)[0]
+        best_match: Optional[Tuple[int, int, str]] = None
+        for b in primary_brands:
+            m = re.search(rf"\b{re.escape(b)}\b", main_part)
+            if m:
+                cand = (m.start(), -len(b), b)
+                if best_match is None or cand < best_match:
+                    best_match = cand
+        if best_match:
+            b = best_match[2]
+            return BRAND_ALIASES.get(b, b.title())
+
         for b in sorted(primary_brands, key=len, reverse=True):
             if re.search(rf"\b{re.escape(b)}\b", lower_title):
                 return BRAND_ALIASES.get(b, b.title())
+
+        if re.search(r"\bapple\s+(?:watch|series\s+\d+)\b", lower_title):
+            return "Apple"
 
         # 2. Check existing_brand if valid and not a store name or ambiguous false positive
         if existing_brand:
@@ -329,8 +354,11 @@ class ProductNormalizer:
         # 3. Check iconic model mapping (skip if item is motorcycle/marine/bike-headset junk)
         is_bike_headset = any(w in lower_title for w in ("sterzo", "chris king", "headset", "nothreadset", "griplock", "is42"))
         if not is_junk:
+            is_birkenstock_clog = any(w in lower_title for w in ("birkenstock", "suede", "oiled", "eva", "ciabatt", "zoccol"))
             for model_sub, brand_name in ICONIC_MODEL_BRANDS.items():
                 if model_sub == "dropset" and is_bike_headset:
+                    continue
+                if model_sub == "boston" and is_birkenstock_clog:
                     continue
                 if re.search(rf"\b{re.escape(model_sub)}\b", lower_title):
                     return brand_name
@@ -366,7 +394,7 @@ class ProductNormalizer:
                 return "Head"
 
         if re.search(r"\bpolar\b", lower_title):
-            if not any(w in lower_title for w in ("felpa", "pile", "giacca", "fleece", "lacoste", "columbia", "cardigan", "scaldacollo")):
+            if not any(w in lower_title for w in ("felpa", "pile", "giacca", "fleece", "lacoste", "columbia", "cardigan", "scaldacollo", "casco", "kask", "poc", "roxy", "cappuccio", "rain", "polar white", "cinghia")):
                 return "Polar"
 
         if existing_brand and existing_brand.strip().lower() not in STORE_NAMES_LOWER and existing_brand.strip().lower() != "elite":
@@ -390,6 +418,8 @@ class ProductNormalizer:
         for model_sub, brand_name in ICONIC_MODEL_BRANDS.items():
             if re.search(rf"\b{re.escape(model_sub)}\b", tl):
                 if brand_name in ("Garmin", "Polar", "Coros", "Suunto"):
+                    if model_sub in ("hrm 200", "hrm 600", "hrm-pro"):
+                        return "sensor"
                     return "cycling" if model_sub == "edge" else "gps_watch"
                 if brand_name == "Oakley":
                     return "eyewear"
