@@ -222,6 +222,7 @@ class APIService: ObservableObject {
         contextQuery: String?,
         sessionId: String?,
         deviceId: String?,
+        userId: String?,
         preferredSize: String?
     ) throws -> URL {
         var components = URLComponents(string: "\(baseURL)\(path)")!
@@ -250,12 +251,22 @@ class APIService: ObservableObject {
         if let deviceId = deviceId, !deviceId.isEmpty {
             queryItems.append(URLQueryItem(name: "device_id", value: deviceId))
         }
+        if let userId = userId, !userId.isEmpty {
+            queryItems.append(URLQueryItem(name: "user_id", value: userId))
+        }
         if let preferredSize = preferredSize, !preferredSize.isEmpty {
             queryItems.append(URLQueryItem(name: "preferred_size", value: preferredSize))
         }
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         return url
+    }
+
+    private func resolveUserId(_ explicitUserId: String?) async -> String? {
+        if let explicit = explicitUserId?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+        return await MainActor.run { SupabaseManager.shared.validCurrentUserId }
     }
 
     func smartSearch(
@@ -268,8 +279,10 @@ class APIService: ObservableObject {
         contextQuery: String? = nil,
         sessionId: String? = nil,
         deviceId: String? = nil,
+        userId: String? = nil,
         preferredSize: String? = nil
     ) async throws -> SmartSearchResponse {
+        let resolvedUserId = await resolveUserId(userId)
         let cacheKey = smartSearchCacheKey(
             query: query,
             mode: mode,
@@ -307,6 +320,7 @@ class APIService: ObservableObject {
             contextQuery: contextQuery,
             sessionId: sessionId,
             deviceId: deviceId,
+            userId: resolvedUserId,
             preferredSize: preferredSize
         )
 
@@ -367,9 +381,11 @@ class APIService: ObservableObject {
         contextQuery: String? = nil,
         sessionId: String? = nil,
         deviceId: String? = nil,
+        userId: String? = nil,
         preferredSize: String? = nil,
         onStep: @escaping @MainActor (SearchThinkingStep) -> Void
     ) async throws -> SmartSearchResponse {
+        let resolvedUserId = await resolveUserId(userId)
         let cacheKey = smartSearchCacheKey(
             query: query,
             mode: mode,
@@ -414,6 +430,7 @@ class APIService: ObservableObject {
             contextQuery: contextQuery,
             sessionId: sessionId,
             deviceId: deviceId,
+            userId: resolvedUserId,
             preferredSize: preferredSize
         )
 
@@ -441,6 +458,7 @@ class APIService: ObservableObject {
                     contextQuery: contextQuery,
                     sessionId: sessionId,
                     deviceId: deviceId,
+                    userId: resolvedUserId,
                     preferredSize: preferredSize
                 )
             }
@@ -505,6 +523,7 @@ class APIService: ObservableObject {
             contextQuery: contextQuery,
             sessionId: sessionId,
             deviceId: deviceId,
+            userId: resolvedUserId,
             preferredSize: preferredSize
         )
     }
@@ -1370,7 +1389,8 @@ class APIService: ObservableObject {
     func getAIAdvice(
         prompt: String,
         sessionId: String? = nil,
-        deviceId: String? = nil
+        deviceId: String? = nil,
+        userId: String? = nil
     ) async throws -> AIAdviceResponse {
         var components = URLComponents(string: "\(baseURL)/api/ai/advise")!
         var items = [URLQueryItem(name: "prompt", value: prompt)]
@@ -1379,6 +1399,10 @@ class APIService: ObservableObject {
         }
         if let did = deviceId, !did.isEmpty {
             items.append(URLQueryItem(name: "device_id", value: did))
+        }
+        let resolvedUid = await resolveUserId(userId)
+        if let uid = resolvedUid, !uid.isEmpty {
+            items.append(URLQueryItem(name: "user_id", value: uid))
         }
         components.queryItems = items
 
@@ -1390,19 +1414,24 @@ class APIService: ObservableObject {
 
     // MARK: - Persistent Chat History API
 
-    func fetchChatSessions(deviceId: String, limit: Int = 20) async -> [ChatSessionSummary] {
+    func fetchChatSessions(deviceId: String, userId: String? = nil, limit: Int = 20) async -> [ChatSessionSummary] {
+        let resolvedUid = await resolveUserId(userId)
         var components = URLComponents(string: "\(baseURL)/api/chats")
-        components?.queryItems = [
+        var items = [
             URLQueryItem(name: "device_id", value: deviceId),
             URLQueryItem(name: "limit", value: "\(limit)")
         ]
+        if let uid = resolvedUid, !uid.isEmpty {
+            items.append(URLQueryItem(name: "user_id", value: uid))
+        }
+        components?.queryItems = items
         if let url = components?.url {
             if let data = try? await fetchFastData(url: url, timeout: 6.0),
                let decoded = try? JSONDecoder().decode(ChatSessionsListResponse.self, from: data) {
                 return decoded.sessions
             }
         }
-        return await SupabaseManager.shared.fetchChatSessionsDirect(deviceId: deviceId, limit: limit)
+        return await SupabaseManager.shared.fetchChatSessionsDirect(deviceId: deviceId, userId: resolvedUid, limit: limit)
     }
 
     func fetchChatSessionDetail(sessionId: String) async -> ChatSessionDetail? {

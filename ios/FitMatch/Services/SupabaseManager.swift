@@ -60,7 +60,12 @@ class SupabaseManager: ObservableObject {
         if isPublic {
             activeToken = anonKey
         } else {
-            activeToken = token ?? UserDefaults.standard.string(forKey: userDefaultsKeyToken) ?? anonKey
+            let candidate = token ?? UserDefaults.standard.string(forKey: userDefaultsKeyToken)
+            if let candidate = candidate, candidate.split(separator: ".").count == 3 {
+                activeToken = candidate
+            } else {
+                activeToken = anonKey
+            }
         }
         var headers: [String: String] = [
             "apikey": anonKey,
@@ -88,6 +93,16 @@ class SupabaseManager: ObservableObject {
     private let userDefaultsKeyToken = "fitmatch_supabase_token"
     private let userDefaultsKeyUserId = "fitmatch_supabase_user_id"
     private let userDefaultsKeyEmail = "fitmatch_supabase_email"
+
+    /// Returns `currentUserId` only when it is a valid Supabase Auth UUID (safe for Postgres `uuid` columns).
+    var validCurrentUserId: String? {
+        guard isAuthenticated,
+              let uid = currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let parsed = UUID(uuidString: uid) else {
+            return nil
+        }
+        return parsed.uuidString.lowercased()
+    }
 
     private func loadSavedSession() {
         if let token = UserDefaults.standard.string(forKey: userDefaultsKeyToken), !token.isEmpty {
@@ -232,51 +247,68 @@ class SupabaseManager: ObservableObject {
         }
     }
 
+    func signInWithApple(idToken: String, email: String?) async throws {
+        guard let url = URL(string: "\(authURL)/token?grant_type=id_token") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(anonKey, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "provider": "apple",
+            "id_token": idToken
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.userAuthenticationRequired)
+        }
+
+        struct AuthResponse: Codable {
+            let access_token: String
+            let user: AuthUser
+        }
+        struct AuthUser: Codable {
+            let id: String
+            let email: String?
+        }
+
+        let decoded = try JSONDecoder().decode(AuthResponse.self, from: data)
+        await MainActor.run {
+            self.saveSession(token: decoded.access_token, userId: decoded.user.id, email: decoded.user.email ?? email)
+        }
+    }
+
     func linkAnonymousDataToAccount(newUserId: String) async {
-        let devId = self.deviceId
-
-        // 1. Link Wishlists
-        if let wishUrl = URL(string: "\(restURL)/wishlists?device_id=eq.\(devId)") {
-            var req = URLRequest(url: wishUrl)
-            req.httpMethod = "PATCH"
-            for (k, v) in makeHeaders() { req.setValue(v, forHTTPHeaderField: k) }
-            req.httpBody = try? JSONSerialization.data(withJSONObject: ["user_id": newUserId])
-            _ = try? await session.data(for: req)
+        guard let parsedUuid = UUID(uuidString: newUserId.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return
         }
+        let cleanUid = parsedUuid.uuidString.lowercased()
+        let devId = encodeQueryValue(self.deviceId)
+        let tablesToLink = [
+            "wishlists",
+            "recent_activity",
+            "user_preferences",
+            "followed_stores",
+            "collections",
+            "chat_sessions",
+            "device_tokens",
+            "notifications",
+            "search_feedback",
+            "hidden_stores",
+            "store_reports"
+        ]
 
-        // 2. Link Recent Activity
-        if let actUrl = URL(string: "\(restURL)/recent_activity?device_id=eq.\(devId)") {
-            var req = URLRequest(url: actUrl)
+        for table in tablesToLink {
+            guard let url = URL(string: "\(restURL)/\(table)?device_id=eq.\(devId)&user_id=is.null") else {
+                continue
+            }
+            var req = URLRequest(url: url)
             req.httpMethod = "PATCH"
             for (k, v) in makeHeaders() { req.setValue(v, forHTTPHeaderField: k) }
-            req.httpBody = try? JSONSerialization.data(withJSONObject: ["user_id": newUserId])
-            _ = try? await session.data(for: req)
-        }
-
-        // 3. Link Preferences
-        if let prefUrl = URL(string: "\(restURL)/user_preferences?device_id=eq.\(devId)") {
-            var req = URLRequest(url: prefUrl)
-            req.httpMethod = "PATCH"
-            for (k, v) in makeHeaders() { req.setValue(v, forHTTPHeaderField: k) }
-            req.httpBody = try? JSONSerialization.data(withJSONObject: ["user_id": newUserId])
-            _ = try? await session.data(for: req)
-        }
-
-        // 4. Link Followed Stores
-        if let followUrl = URL(string: "\(restURL)/followed_stores?device_id=eq.\(devId)") {
-            var req = URLRequest(url: followUrl)
-            req.httpMethod = "PATCH"
-            for (k, v) in makeHeaders() { req.setValue(v, forHTTPHeaderField: k) }
-            req.httpBody = try? JSONSerialization.data(withJSONObject: ["user_id": newUserId])
-            _ = try? await session.data(for: req)
-        }
-
-        // 5. Link Collections
-        if let colUrl = URL(string: "\(restURL)/collections?device_id=eq.\(devId)") {
-            var req = URLRequest(url: colUrl)
-            req.httpMethod = "PATCH"
-            for (k, v) in makeHeaders() { req.setValue(v, forHTTPHeaderField: k) }
-            req.httpBody = try? JSONSerialization.data(withJSONObject: ["user_id": newUserId])
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["user_id": cleanUid])
             _ = try? await session.data(for: req)
         }
     }
@@ -313,7 +345,7 @@ class SupabaseManager: ObservableObject {
 
     func fetchWishlist(collection: String? = nil) async throws -> [WishlistItem] {
         var urlStr = "\(restURL)/wishlists?select=*"
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             urlStr += "&user_id=eq.\(uid)"
         } else {
             urlStr += "&device_id=eq.\(deviceId)"
@@ -364,7 +396,7 @@ class SupabaseManager: ObservableObject {
             "is_alert_enabled": item.isAlertEnabled,
             "device_id": deviceId
         ]
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             body["user_id"] = uid
         }
 
@@ -381,7 +413,7 @@ class SupabaseManager: ObservableObject {
     func deleteWishlistItem(canonicalName: String) async throws -> Bool {
         let encoded = canonicalName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? canonicalName
         var urlStr = "\(restURL)/wishlists?canonical_name=eq.\(encoded)"
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             urlStr += "&user_id=eq.\(uid)"
         } else {
             urlStr += "&device_id=eq.\(deviceId)"
@@ -406,7 +438,7 @@ class SupabaseManager: ObservableObject {
 
     func fetchCollections() async throws -> [WishlistCollection] {
         var urlStr = "\(restURL)/collections?select=*&order=created_at.asc"
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             urlStr += "&user_id=eq.\(uid)"
         } else {
             urlStr += "&device_id=eq.\(deviceId)"
@@ -463,7 +495,7 @@ class SupabaseManager: ObservableObject {
             "name": cleanName,
             "device_id": deviceId
         ]
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             body["user_id"] = uid
         }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -479,7 +511,7 @@ class SupabaseManager: ObservableObject {
         // 1. Delete collection row
         let encodedName = cleanName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cleanName
         var delUrlStr = "\(restURL)/collections?name=eq.\(encodedName)"
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             delUrlStr += "&user_id=eq.\(uid)"
         } else {
             delUrlStr += "&device_id=eq.\(deviceId)"
@@ -493,7 +525,7 @@ class SupabaseManager: ObservableObject {
 
         // 2. Reassign wishlist items that were in this collection to 'Tutti'
         var patchUrlStr = "\(restURL)/wishlists?collection_name=eq.\(encodedName)"
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             patchUrlStr += "&user_id=eq.\(uid)"
         } else {
             patchUrlStr += "&device_id=eq.\(deviceId)"
@@ -512,7 +544,7 @@ class SupabaseManager: ObservableObject {
 
     func fetchFollowedStores() async throws -> [FollowedStoreItem] {
         var urlStr = "\(restURL)/followed_stores?select=*"
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             urlStr += "&user_id=eq.\(uid)"
         } else {
             urlStr += "&device_id=eq.\(deviceId)"
@@ -547,7 +579,7 @@ class SupabaseManager: ObservableObject {
             "store_name": storeName,
             "device_id": deviceId
         ]
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             body["user_id"] = uid
         }
         if let logo = storeLogo {
@@ -561,7 +593,7 @@ class SupabaseManager: ObservableObject {
 
     func unfollowStore(storeId: String) async throws -> Bool {
         var urlStr = "\(restURL)/followed_stores?store_id=eq.\(storeId)"
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             urlStr += "&user_id=eq.\(uid)"
         } else {
             urlStr += "&device_id=eq.\(deviceId)"
@@ -594,6 +626,9 @@ class SupabaseManager: ObservableObject {
             "store_id": storeId,
             "device_id": deviceId
         ]
+        if let uid = validCurrentUserId {
+            body["user_id"] = uid
+        }
         if let name = storeName {
             body["store_name"] = name
         }
@@ -651,6 +686,9 @@ class SupabaseManager: ObservableObject {
             "reason": reason,
             "device_id": deviceId
         ]
+        if let uid = validCurrentUserId {
+            body["user_id"] = uid
+        }
         if let d = details {
             body["details"] = d
         }
@@ -681,7 +719,7 @@ class SupabaseManager: ObservableObject {
             "feedback_type": feedbackType,
             "device_id": deviceId
         ]
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             body["user_id"] = uid
         }
         if let c = comment, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -751,9 +789,6 @@ class SupabaseManager: ObservableObject {
             "review_text": cleanText,
             "device_id": deviceId
         ]
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
-            body["user_id"] = uid
-        }
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         req.httpBody = jsonData
         do {
@@ -837,7 +872,7 @@ class SupabaseManager: ObservableObject {
     }
 
     private var recentActivityOwnerFilter: String {
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             return "user_id=eq.\(encodeQueryValue(uid))"
         } else {
             return "device_id=eq.\(encodeQueryValue(deviceId))"
@@ -938,7 +973,7 @@ class SupabaseManager: ObservableObject {
             "device_id": deviceId
         ]
         if let rowId = id { body["id"] = rowId.uuidString }
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             body["user_id"] = uid
         }
         if let pid = productId, !pid.isEmpty { body["product_id"] = pid }
@@ -1024,7 +1059,7 @@ class SupabaseManager: ObservableObject {
             "selected_sports": prefs.selectedSports,
             "notifications_enabled": prefs.isPushNotificationEnabled
         ]
-        if isAuthenticated, let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             body["user_id"] = uid
         }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -1769,7 +1804,7 @@ class SupabaseManager: ObservableObject {
             "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0",
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]
-        if let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             payload["user_id"] = uid
         }
 
@@ -1800,7 +1835,7 @@ class SupabaseManager: ObservableObject {
     func fetchRemoteNotificationsDirect() async -> [AppNotification] {
         let devId = self.deviceId
         var urlString = "\(restURL)/notifications?device_id=eq.\(devId)&order=created_at.desc&limit=50"
-        if let uid = currentUserId, !uid.isEmpty {
+        if let uid = validCurrentUserId {
             urlString = "\(restURL)/notifications?or=(device_id.eq.\(devId),user_id.eq.\(uid))&order=created_at.desc&limit=50"
         }
 
@@ -2091,11 +2126,23 @@ class SupabaseManager: ObservableObject {
 
     // MARK: - Direct Persistent AI Chat Sessions & Messages
 
-    func fetchChatSessionsDirect(deviceId: String, limit: Int = 20) async -> [ChatSessionSummary] {
+    func fetchChatSessionsDirect(deviceId: String, userId: String? = nil, limit: Int = 20) async -> [ChatSessionSummary] {
         let did = deviceId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !did.isEmpty,
-              let didEnc = did.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(restURL)/chat_sessions?device_id=eq.\(didEnc)&is_archived=eq.false&order=updated_at.desc&limit=\(limit)") else {
+        let uid = (userId ?? validCurrentUserId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let validUid = (uid != nil && UUID(uuidString: uid!) != nil) ? uid : nil
+
+        var filterClause: String?
+        if let u = validUid, let uEnc = u.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           !did.isEmpty, let didEnc = did.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            filterClause = "or=(user_id.eq.\(uEnc),device_id.eq.\(didEnc))"
+        } else if let u = validUid, let uEnc = u.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            filterClause = "user_id=eq.\(uEnc)"
+        } else if !did.isEmpty, let didEnc = did.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            filterClause = "device_id=eq.\(didEnc)"
+        }
+
+        guard let filter = filterClause,
+              let url = URL(string: "\(restURL)/chat_sessions?\(filter)&is_archived=eq.false&order=updated_at.desc&limit=\(limit)") else {
             return []
         }
         var req = URLRequest(url: url)
@@ -2216,7 +2263,7 @@ class SupabaseManager: ObservableObject {
         let sessionPayload = SessionUpsertPayload(
             id: sid,
             device_id: deviceId,
-            user_id: currentUserId,
+            user_id: validCurrentUserId ?? existing?.user_id,
             chat_type: "smart_search",
             title: existing?.title ?? query,
             subtitle: response.conversational_header ?? query,

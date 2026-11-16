@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
-from fitmatch.models import Offer, MatchedProductGroup, clean_image_url
+from fitmatch.models import Offer, MatchedProductGroup, clean_image_url, STORE_SHIPPING_RULES, calculate_shipping_cost
 from fitmatch.supabase_client import SupabaseClient, SUPABASE_URL, SUPABASE_KEY
 
 logger = logging.getLogger("fitmatch.db")
@@ -256,6 +256,25 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_offers_price ON store_offers(current_price);
                 CREATE INDEX IF NOT EXISTS idx_wishlist_canonical ON wishlist(canonical_name);
                 CREATE INDEX IF NOT EXISTS idx_wishlist_collection ON wishlist(collection_name);
+
+                CREATE TRIGGER IF NOT EXISTS trg_cleanup_orphan_product_delete
+                AFTER DELETE ON store_offers
+                FOR EACH ROW
+                BEGIN
+                    DELETE FROM products
+                    WHERE id = OLD.product_id
+                      AND NOT EXISTS (SELECT 1 FROM store_offers WHERE product_id = OLD.product_id);
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS trg_cleanup_orphan_product_update
+                AFTER UPDATE OF product_id ON store_offers
+                FOR EACH ROW
+                WHEN OLD.product_id IS NOT NEW.product_id
+                BEGIN
+                    DELETE FROM products
+                    WHERE id = OLD.product_id
+                      AND NOT EXISTS (SELECT 1 FROM store_offers WHERE product_id = OLD.product_id);
+                END;
             """)
 
             # Ensure gallery_images and available_sizes columns exist in local SQLite
@@ -982,7 +1001,7 @@ class Database:
                     sid = o["store_id"].lower().strip()
                     rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
                     price = float(o["current_price"])
-                    cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+                    cost = calculate_shipping_cost(price, rule)
                     is_free = (cost == 0.0)
                     o["price"] = price
                     o["url"] = o["product_url"]
@@ -1188,7 +1207,7 @@ class Database:
                     sid = o["store_id"].lower().strip()
                     rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
                     price = float(o["current_price"])
-                    cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+                    cost = calculate_shipping_cost(price, rule)
                     is_free = (cost == 0.0)
                     o["price"] = price
                     o["url"] = o["product_url"]
@@ -1305,11 +1324,10 @@ class Database:
                 """, (sid, limit_per_store))
 
                 products = [dict(r) for r in prods_cur.fetchall()]
-                from fitmatch.models import STORE_SHIPPING_RULES
                 rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
                 for p in products:
                     price = float(p["current_price"])
-                    cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+                    cost = calculate_shipping_cost(price, rule)
                     is_free = (cost == 0.0)
                     p["shipping_cost"] = cost
                     p["total_price"] = round(price + cost, 2)
@@ -1669,10 +1687,10 @@ class Database:
             """
             params.append(limit)
             prods = [dict(r) for r in conn.execute(sql, params).fetchall()]
-            rule = info.get("shipping_rule", {"standard": 4.90, "free_threshold": 50.0, "label": "Gratis da 50 €", "courier": "Corriere Espresso"})
+            rule = STORE_SHIPPING_RULES.get(sid) or info.get("shipping_rule", {"standard": 4.90, "free_threshold": 50.0, "label": "Gratis da 50 €", "courier": "Corriere Espresso"})
             for p in prods:
                 price = float(p["current_price"])
-                cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+                cost = calculate_shipping_cost(price, rule)
                 is_free = (cost == 0.0)
                 p["shipping_cost"] = cost
                 p["total_price"] = round(price + cost, 2)

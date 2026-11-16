@@ -72,7 +72,15 @@ class Top4RunningScraper(BaseScraper):
             orig_price = self.parse_price(attrs.get("price_old_amount"))
             img_url = attrs.get("image_link")
             product_url = urllib.parse.urljoin(self.base_url, raw_url)
-            pid = str(attrs.get("id") or attrs.get("producer_id") or h.get("identity_hash") or "")
+            raw_pid = h.get("identity_hash") or attrs.get("producer_id")
+            if not raw_pid:
+                attr_id = attrs.get("id")
+                if isinstance(attr_id, (str, int)):
+                    raw_pid = str(attr_id)
+                else:
+                    slug = urllib.parse.urlparse(product_url).path.rstrip("/").split("/")[-1]
+                    raw_pid = slug or product_url
+            pid = str(raw_pid).strip()
 
             raw_sizes = attrs.get("sizes_eu") or attrs.get("sizes_default") or attrs.get("Size") or []
             gender = "women" if is_female_context(title=full_title) or is_female_context(title=product_url) else self.normalizer.extract_gender(full_title, product_url)

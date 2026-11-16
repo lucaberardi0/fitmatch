@@ -380,14 +380,28 @@ struct AccountView: View {
                             switch result {
                             case .success(let authorization):
                                 if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
-                                    let userId = appleIDCredential.user
                                     let email = appleIDCredential.email ?? (prefs.preferences.userEmail.isEmpty ? "utente.apple@icloud.com" : prefs.preferences.userEmail)
-                                    supabase.saveSession(token: userId, userId: userId, email: email)
                                     if let fullName = appleIDCredential.fullName {
                                         let name = [fullName.givenName, fullName.familyName].compactMap { $0 }.joined(separator: " ")
                                         if !name.isEmpty {
                                             prefs.preferences.userName = name
                                         }
+                                    }
+                                    if let tokenData = appleIDCredential.identityToken,
+                                       let idToken = String(data: tokenData, encoding: .utf8) {
+                                        Task {
+                                            do {
+                                                try await supabase.signInWithApple(idToken: idToken, email: email)
+                                            } catch {
+                                                let appleUser = appleIDCredential.user
+                                                await MainActor.run {
+                                                    supabase.saveSession(token: appleUser, userId: appleUser, email: email)
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        let appleUser = appleIDCredential.user
+                                        supabase.saveSession(token: appleUser, userId: appleUser, email: email)
                                     }
                                 }
                             case .failure(let error):

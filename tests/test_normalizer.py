@@ -171,3 +171,38 @@ def test_new_categories_brands_and_sizes(normalizer):
     assert STORE_SHIPPING_RULES["bshopzone"]["free_threshold"] == 100.0
 
 
+def test_shipping_cost_handles_none_free_threshold():
+    from fitmatch.models import calculate_shipping_cost, STORE_SHIPPING_RULES
+    from fitmatch.supabase_client import SupabaseClient
+
+    # Store with free_threshold=None (e.g. tradeinn) must always return standard shipping cost
+    tradeinn_rule = STORE_SHIPPING_RULES["tradeinn"]
+    assert tradeinn_rule["free_threshold"] is None
+    assert calculate_shipping_cost(200.0, tradeinn_rule) == 4.99
+
+    # Store with numeric threshold returns 0.0 once threshold is met
+    assert calculate_shipping_cost(100.0, STORE_SHIPPING_RULES["cisalfa"]) == 0.0
+    assert calculate_shipping_cost(50.0, STORE_SHIPPING_RULES["cisalfa"]) == 9.90
+
+    # Formatting a Supabase product with a Tradeinn offer must not raise TypeError
+    sc = SupabaseClient(base_url="https://example.supabase.co", api_key="test")
+    formatted = sc._format_product_with_offers({
+        "id": "p1",
+        "canonical_name": "Nike Pegasus 41",
+        "brand": "Nike",
+        "category": "running_shoes",
+        "store_offers": [{
+            "store_id": "tradeinn",
+            "store_name": "Tradeinn",
+            "current_price": 120.0,
+            "product_url": "https://www.tradeinn.com/runnerinn/it/nike-pegasus-41/1",
+            "raw_title": "Nike Pegasus 41",
+            "available_sizes": ["42"],
+        }],
+    })
+    assert formatted["offers"][0]["shipping_cost"] == 4.99
+    assert formatted["offers"][0]["free_shipping_threshold"] is None
+    assert formatted["offers"][0]["is_free_shipping"] is False
+
+
+

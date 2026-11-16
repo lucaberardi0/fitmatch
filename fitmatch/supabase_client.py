@@ -14,6 +14,7 @@ import certifi
 from fitmatch.models import (
     Offer,
     STORE_SHIPPING_RULES,
+    calculate_shipping_cost,
     clean_image_url,
     normalize_sizes,
     extract_variant_title,
@@ -315,6 +316,9 @@ class SupabaseClient:
         offer: Offer
     ) -> None:
         """Upsert a canonical product and its retailer offer directly to Supabase Cloud PostgreSQL."""
+        if float(offer.price or 0.0) <= 0.0 or (category or "").strip().lower() == "non_sport":
+            return
+
         now_iso = datetime.now(timezone.utc).isoformat()
         clean_offer_img = clean_image_url(offer.image_url)
         clean_prod_img = clean_image_url(image_url) or clean_offer_img
@@ -339,7 +343,8 @@ class SupabaseClient:
             prod_row["image_url"] = clean_prod_img
         if prod_gallery:
             prod_row["gallery_images"] = prod_gallery
-        self.upsert_products([prod_row])
+        if not self.upsert_products([prod_row]):
+            return
 
         offer_id = f"{offer.store_id}:{offer.product_id or offer.url}"
         
@@ -347,6 +352,8 @@ class SupabaseClient:
         prev_price = self.get_offer_price(offer_id)
         price_changed = (prev_price is None or abs(prev_price - float(offer.price)) > 0.01)
 
+        orig_p = float(offer.original_price) if offer.original_price and float(offer.original_price) > float(offer.price) else None
+        disc_p = float(offer.discount_pct) if orig_p and offer.discount_pct else None
         offer_row = {
             "id": offer_id,
             "product_id": cluster_key,
@@ -354,8 +361,8 @@ class SupabaseClient:
             "store_name": offer.store_name,
             "raw_title": offer.title,
             "current_price": float(offer.price),
-            "original_price": float(offer.original_price) if offer.original_price else None,
-            "discount_pct": float(offer.discount_pct) if offer.discount_pct else None,
+            "original_price": orig_p,
+            "discount_pct": disc_p,
             "product_url": offer.url,
             "image_url": clean_offer_img or clean_prod_img,
             "gallery_images": offer_gallery,
@@ -363,7 +370,22 @@ class SupabaseClient:
             "available_sizes": offer.available_sizes or [],
             "last_checked_at": now_iso
         }
-        self.upsert_offers([offer_row])
+        if not self.upsert_offers([offer_row]):
+            q_ck = urllib.parse.quote(cluster_key, safe="")
+            existing = self._request(f"store_offers?product_id=eq.{q_ck}&select=id&limit=1")
+            if existing.get("status") == 200 and not (existing.get("data") or []):
+                self._request(f"products?id=eq.{q_ck}", method="DELETE")
+            return
+
+        # Remove any stale duplicate offer for the same (store_id, product_url) under a different ID
+        if offer.store_id and offer.url:
+            q_sid = urllib.parse.quote(offer.store_id, safe="")
+            q_url = urllib.parse.quote(offer.url, safe="")
+            q_oid = urllib.parse.quote(offer_id, safe="")
+            self._request(
+                f"store_offers?store_id=eq.{q_sid}&product_url=eq.{q_url}&id=neq.{q_oid}",
+                method="DELETE",
+            )
 
         if price_changed:
             self.record_price_history(offer_id, float(offer.price))
@@ -372,6 +394,8 @@ class SupabaseClient:
         """Fetch products ordered by least recently updated for autonomous background refresh."""
         endpoint = f"products?select=id,canonical_name,brand,category,gender,updated_at&order=updated_at.asc.nullsfirst&limit={limit}"
         res = self._request(endpoint)
+        if not res.get("data") and "57014" in str(res.get("error") or ""):
+            res = self._request(f"products?select=id,canonical_name,brand,category,gender,updated_at&limit={limit}")
         return res.get("data") or []
 
     def get_offer_price(self, offer_id: str) -> Optional[float]:
@@ -535,10 +559,17 @@ class SupabaseClient:
         now_iso = datetime.now(timezone.utc).isoformat()
         prod_map = {}
         offer_map = {}
+        seen_store_urls = set()
 
         for it in items:
             ck = it["cluster_key"]
             off: Offer = it["offer"]
+            if float(off.price or 0.0) <= 0.0 or (it.get("category") or "").strip().lower() == "non_sport":
+                continue
+            url_key = (off.store_id, off.url)
+            if url_key in seen_store_urls:
+                continue
+
             clean_off_img = clean_image_url(off.image_url)
             off_gallery = [clean_image_url(u) for u in (off.gallery_images or []) if clean_image_url(u)]
             if clean_off_img and clean_off_img not in off_gallery:
@@ -565,6 +596,9 @@ class SupabaseClient:
                         prod_map[ck].setdefault("gallery_images", []).append(g_img)
 
             oid = f"{off.store_id}:{off.product_id or off.url}"
+            seen_store_urls.add(url_key)
+            orig_p = float(off.original_price) if off.original_price and float(off.original_price) > float(off.price) else None
+            disc_p = float(off.discount_pct) if orig_p and off.discount_pct else None
             offer_map[oid] = {
                 "id": oid,
                 "product_id": ck,
@@ -572,8 +606,8 @@ class SupabaseClient:
                 "store_name": off.store_name,
                 "raw_title": off.title,
                 "current_price": float(off.price),
-                "original_price": float(off.original_price) if off.original_price else None,
-                "discount_pct": float(off.discount_pct) if off.discount_pct else None,
+                "original_price": orig_p,
+                "discount_pct": disc_p,
                 "product_url": off.url,
                 "image_url": clean_off_img or prod_map.get(ck, {}).get("image_url"),
                 "gallery_images": off_gallery,
@@ -582,9 +616,21 @@ class SupabaseClient:
                 "last_checked_at": now_iso
             }
 
-        self.upsert_products(list(prod_map.values()))
-        self.upsert_offers(list(offer_map.values()))
-        return len(offer_map)
+        if not prod_map or not offer_map:
+            return 0
+        if not self.upsert_products(list(prod_map.values())):
+            return 0
+        offer_rows = list(offer_map.values())
+        if self.upsert_offers(offer_rows):
+            return len(offer_rows)
+
+        # Fallback: retry per-chunk so one bad offer never discards the entire batch
+        saved = 0
+        for idx in range(0, len(offer_rows), 10):
+            chunk = offer_rows[idx:idx + 10]
+            if self.upsert_offers(chunk):
+                saved += len(chunk)
+        return saved
 
     def record_crawl_log(
         self,
@@ -618,6 +664,8 @@ class SupabaseClient:
         metadata: Optional[Dict[str, Any]] = None
     ) -> Optional[str]:
         """Create a new sync session record in Supabase with status 'running'."""
+        # Ensure any stale running sessions (>30m) are closed before starting a new one
+        self._request("rpc/close_stale_sync_sessions", method="POST", data={})
         payload = {
             "session_type": session_type,
             "trigger_source": trigger_source,
@@ -1096,7 +1144,7 @@ class SupabaseClient:
             sid = (o.get("store_id") or "").lower().strip()
             rule = STORE_SHIPPING_RULES.get(sid, {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
             price = float(o.get("current_price", 0.0))
-            cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+            cost = calculate_shipping_cost(price, rule)
             is_free = (cost == 0.0)
             off_img = clean_image_url(o.get("image_url")) or p_img
 
@@ -1907,12 +1955,12 @@ class SupabaseClient:
         total_real_offers = int(cr.split("/")[-1]) if "/" in cr and cr.split("/")[-1] != "*" else len(offers_data)
 
         prods = []
-        rule = info.get("shipping_rule", {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
+        rule = STORE_SHIPPING_RULES.get(sid) or info.get("shipping_rule", {"standard": 4.90, "free_threshold": 50.0, "courier": "Corriere Espresso"})
 
         for o in offers_data:
             p_obj = o.get("products") or {}
             price = float(o.get("current_price") or 0.0)
-            cost = 0.0 if price >= rule["free_threshold"] else rule["standard"]
+            cost = calculate_shipping_cost(price, rule)
             is_free = (cost == 0.0)
             off_img = clean_image_url(o.get("image_url")) or clean_image_url(p_obj.get("image_url"))
 
@@ -2701,6 +2749,17 @@ class SupabaseClient:
         return snap
 
     @staticmethod
+    def parse_valid_uuid(val: Optional[str]) -> Optional[str]:
+        """Return lowercase canonical UUID string if val is a valid UUID, otherwise None."""
+        raw = val.strip() if isinstance(val, str) and val.strip() else ""
+        if not raw:
+            return None
+        try:
+            return str(uuid.UUID(raw))
+        except ValueError:
+            return None
+
+    @staticmethod
     def normalize_uuid(val: Optional[str]) -> str:
         """Return a valid UUID string (preserving valid UUIDs, hashing non-UUID strings deterministically)."""
         raw = val.strip() if isinstance(val, str) and val.strip() else ""
@@ -2764,8 +2823,11 @@ class SupabaseClient:
             session_body["preview_image_url"] = preview_img
         elif existing and existing.get("preview_image_url"):
             session_body["preview_image_url"] = existing.get("preview_image_url")
-        if user_id and user_id.strip():
-            session_body["user_id"] = user_id.strip()
+        valid_uid = self.parse_valid_uuid(user_id) or (
+            self.parse_valid_uuid(existing.get("user_id")) if existing else None
+        )
+        if valid_uid:
+            session_body["user_id"] = valid_uid
         if not existing:
             session_body["created_at"] = now_iso
 
@@ -2846,8 +2908,9 @@ class SupabaseClient:
     ) -> List[Dict[str, Any]]:
         """List saved chat sessions ordered by most recently updated."""
         params = ["select=*", "is_archived=eq.false", "order=updated_at.desc", f"limit={limit}"]
-        if user_id and user_id.strip():
-            uid = urllib.parse.quote(user_id.strip())
+        valid_uid = self.parse_valid_uuid(user_id)
+        if valid_uid:
+            uid = urllib.parse.quote(valid_uid)
             if device_id and device_id.strip():
                 did = urllib.parse.quote(device_id.strip())
                 params.append(f"or=(user_id.eq.{uid},device_id.eq.{did})")
@@ -2900,8 +2963,9 @@ class SupabaseClient:
 
     def clear_chat_sessions(self, device_id: Optional[str] = None, user_id: Optional[str] = None) -> bool:
         """Delete all chat sessions for a device or user."""
-        if user_id and user_id.strip():
-            url = f"chat_sessions?user_id=eq.{urllib.parse.quote(user_id.strip())}"
+        valid_uid = self.parse_valid_uuid(user_id)
+        if valid_uid:
+            url = f"chat_sessions?user_id=eq.{urllib.parse.quote(valid_uid)}"
         elif device_id and device_id.strip():
             url = f"chat_sessions?device_id=eq.{urllib.parse.quote(device_id.strip())}"
         else:

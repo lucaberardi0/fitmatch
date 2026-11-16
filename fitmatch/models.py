@@ -331,6 +331,17 @@ STORE_SHIPPING_RULES = {
 }
 
 
+def calculate_shipping_cost(price: float, rule: Optional[dict]) -> float:
+    """Compute shipping cost from offer price and store shipping rule, handling None thresholds."""
+    if not rule:
+        rule = {"standard": 4.90, "free_threshold": 50.0}
+    threshold = rule.get("free_threshold")
+    if threshold is not None and price >= threshold:
+        return 0.0
+    standard = rule.get("standard")
+    return float(standard) if standard is not None else 4.90
+
+
 class Offer(BaseModel):
     """Represents a specific product offer found on a retailer store."""
     store_id: str
@@ -406,10 +417,7 @@ class Offer(BaseModel):
     @property
     def shipping_cost(self) -> float:
         rule = STORE_SHIPPING_RULES.get(self.store_id.lower().strip(), {"standard": 4.90, "free_threshold": 50.0})
-        threshold = rule.get("free_threshold")
-        if threshold is not None and self.price >= threshold:
-            return 0.0
-        return rule.get("standard", 4.90)
+        return calculate_shipping_cost(self.price, rule)
 
     @computed_field
     @property
