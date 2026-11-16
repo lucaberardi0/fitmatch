@@ -152,11 +152,11 @@ class EmbeddingGenerator:
             ]
         }
         for attempt in range(retries):
-            res = self.sb._request("rpc/update_product_embeddings", method="POST", data=payload)
+            res = self.sb._request("rpc/update_product_embeddings", method="POST", data=payload, timeout=65)
             if res.get("status") in (200, 204):
                 return True
             logger.warning(f"save_batch_embeddings failed (attempt {attempt + 1}/{retries}): {res.get('error')}")
-            time.sleep(1.5 * (attempt + 1))
+            time.sleep(4.0 * (attempt + 1))
         return False
 
     def get_coverage_summary(self) -> Dict[str, Any]:
@@ -217,7 +217,30 @@ class EmbeddingGenerator:
                 f"{',store_offers!inner(id)' if active_only else ''}"
                 f"{cat_filter}&embedding=is.null&limit={effective_batch}"
             )
-            resp = self.sb._request(endpoint, method="GET")
+            resp = {}
+            for fetch_attempt in range(3):
+                resp = self.sb._request(
+                    "rpc/get_products_missing_embeddings",
+                    method="POST",
+                    data={"p_limit": effective_batch, "p_category": clean_cat or None},
+                    timeout=35,
+                )
+                if resp.get("status") != 200:
+                    resp = self.sb._request(endpoint, method="GET")
+                if resp.get("status") != 200 and active_only:
+                    fallback_ep = (
+                        f"products?select=id,canonical_name,brand,category,gender"
+                        f"{cat_filter}&embedding=is.null&limit={effective_batch}"
+                    )
+                    resp = self.sb._request(fallback_ep, method="GET")
+                if resp.get("status") == 200:
+                    break
+                logger.warning(f"Fetch batch failed (attempt {fetch_attempt + 1}/3): {resp.get('error')}")
+                time.sleep(3.0 * (fetch_attempt + 1))
+            if resp.get("status") != 200:
+                error_msg = str(resp.get("error") or f"HTTP {resp.get('status')}")
+                logger.error(f"Failed fetching products batch: {error_msg}")
+                break
             batch = resp.get("data") or []
 
             if not batch:

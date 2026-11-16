@@ -254,6 +254,7 @@ class SupabaseClient:
         count_exact: bool = False,
         return_representation: bool = False,
         count_planned: bool = False,
+        timeout: int = 20,
     ) -> Any:
         url = f"{self.base_url}/{endpoint}" if not endpoint.startswith("http") else endpoint
         headers = self._get_headers(upsert=upsert, return_representation=return_representation)
@@ -266,7 +267,7 @@ class SupabaseClient:
         req = urllib.request.Request(url, data=body, headers=headers, method=method)
 
         try:
-            with urllib.request.urlopen(req, context=self.ctx, timeout=20) as resp:
+            with urllib.request.urlopen(req, context=self.ctx, timeout=timeout) as resp:
                 status = resp.status
                 content_range = resp.headers.get("Content-Range")
                 raw_body = resp.read().decode("utf-8")
@@ -284,6 +285,7 @@ class SupabaseClient:
                     count_exact=False,
                     return_representation=return_representation,
                     count_planned=True,
+                    timeout=timeout,
                 )
             logger.error(f"[Supabase] HTTP {e.code} on {method} {url}: {err_body}")
             return {"status": e.code, "error": err_body, "data": None}
