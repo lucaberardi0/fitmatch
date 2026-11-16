@@ -1100,6 +1100,125 @@ class SupabaseManager: ObservableObject {
     // MARK: - Direct Store Showcases from Supabase Cloud Database
 
     func fetchStoreShowcasesDirect() async throws -> [StoreShowcase] {
+        // 1. Ultra-fast single-roundtrip RPC backed by mv_home_showcases + live store_offers PK join (~8ms DB time)
+        struct FastShowcaseRow: Codable {
+            let id: String
+            let product_id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+            let available_sizes: [String]?
+            let shipping_cost: Double?
+            let free_shipping_threshold: Double?
+            let courier: String?
+            let store_rating: Double?
+            let store_review_count: Int?
+            let store_formatted_review_count: String?
+            let store_card_theme: String?
+            let store_accent_color: String?
+            let store_logo_url: String?
+            let store_total_offers: Int?
+            let store_avg_discount: Double?
+        }
+
+        if let rpcUrl = URL(string: "\(restURL)/rpc/get_home_showcases_fast") {
+            var rpcReq = URLRequest(url: rpcUrl)
+            rpcReq.httpMethod = "POST"
+            rpcReq.httpBody = Data("{}".utf8)
+            for (k, v) in makeHeaders(isPublic: true) { rpcReq.setValue(v, forHTTPHeaderField: k) }
+            if let (rpcData, rpcResp) = try? await session.data(for: rpcReq),
+               let http = rpcResp as? HTTPURLResponse, http.statusCode == 200,
+               let fastRows = try? JSONDecoder().decode([FastShowcaseRow].self, from: rpcData),
+               !fastRows.isEmpty {
+                var grouped: [String: (
+                    name: String,
+                    products: [StoreShowcaseProduct],
+                    rating: Double?,
+                    reviewCount: Int?,
+                    formattedReviews: String?,
+                    theme: String?,
+                    accent: String?,
+                    logo: String?,
+                    totalOffers: Int,
+                    avgDiscount: Double
+                )] = [:]
+
+                for r in fastRows {
+                    let sId = r.store_id.lowercased()
+                    let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.store_name)
+                    let ship = r.shipping_cost ?? 0.0
+                    let p = StoreShowcaseProduct(
+                        id: r.id,
+                        title: r.raw_title,
+                        brand: extractedBrand,
+                        image_url: r.image_url,
+                        available_sizes: r.available_sizes,
+                        current_price: r.current_price,
+                        original_price: r.original_price,
+                        discount_pct: r.discount_pct,
+                        product_url: r.product_url,
+                        canonical_name: r.raw_title,
+                        product_id: r.product_id,
+                        shipping_cost: r.shipping_cost,
+                        total_price: r.current_price + ship,
+                        is_free_shipping: ship == 0.0,
+                        shipping_label: ship == 0.0 ? "Sped. Gratis" : "+ \(String(format: "%.2f", ship)) €",
+                        free_shipping_threshold: r.free_shipping_threshold,
+                        courier: r.courier
+                    )
+                    if grouped[sId] == nil {
+                        grouped[sId] = (
+                            name: r.store_name,
+                            products: [],
+                            rating: r.store_rating,
+                            reviewCount: r.store_review_count,
+                            formattedReviews: r.store_formatted_review_count,
+                            theme: r.store_card_theme,
+                            accent: r.store_accent_color,
+                            logo: r.store_logo_url,
+                            totalOffers: r.store_total_offers ?? 0,
+                            avgDiscount: r.store_avg_discount ?? 25.0
+                        )
+                    }
+                    if (grouped[sId]?.products.count ?? 0) < 12 {
+                        grouped[sId]?.products.append(p)
+                    }
+                }
+
+                let fastShowcases: [StoreShowcase] = grouped.compactMap { (sId, info) in
+                    guard !info.products.isEmpty else { return nil }
+                    let ratingStr = info.rating.map { String(format: "%.1f", $0) } ?? "4.8"
+                    let revStr = info.formattedReviews ?? (info.reviewCount != nil ? "\(info.reviewCount!)" : nil)
+                    return StoreShowcase(
+                        store_id: sId,
+                        store_name: info.name,
+                        total_offers: max(info.totalOffers, info.products.count),
+                        avg_discount: info.avgDiscount,
+                        rating: ratingStr,
+                        review_count: revStr,
+                        card_theme: info.theme ?? "white",
+                        accent_color: info.accent,
+                        logo_url: info.logo,
+                        products: info.products
+                    )
+                }
+
+                return fastShowcases.sorted {
+                    let s0IsBrand = $0.store_id == "nike" || $0.store_id == "adidas"
+                    let s1IsBrand = $1.store_id == "nike" || $1.store_id == "adidas"
+                    if s0IsBrand && !s1IsBrand { return true }
+                    if !s0IsBrand && s1IsBrand { return false }
+                    return $0.total_offers > $1.total_offers
+                }
+            }
+        }
+
+        // 2. Fallback: execute offers, catalog stats, and store metadata in parallel
         struct OfferRow: Codable {
             let id: String
             let product_id: String?
@@ -1117,36 +1236,88 @@ class SupabaseManager: ObservableObject {
             let courier: String?
         }
 
-        var fetchedOffers: [OfferRow] = []
-
-        // 1. First fetch top showcase offers partitioned per store from our view store_showcase_offers (guarantees Nike, Adidas, and all stores get equal showcase representation)
-        if let viewUrl = URL(string: "\(restURL)/store_showcase_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier&order=rn.asc") {
-            var req = URLRequest(url: viewUrl)
-            for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
-            if let (data, resp) = try? await session.data(for: req),
-               let http = resp as? HTTPURLResponse, http.statusCode == 200,
-               let rows = try? JSONDecoder().decode([OfferRow].self, from: data),
-               !rows.isEmpty {
-                fetchedOffers = rows
-            }
+        struct StoreCatalogStats: Codable {
+            let store_id: String
+            let total_offers: Int
+            let avg_discount: Double?
         }
 
-        // Safety fallback to raw store_offers if view is ever unreachable
-        if fetchedOffers.isEmpty {
-            if let rawUrl = URL(string: "\(restURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier&limit=2500") {
-                var req = URLRequest(url: rawUrl)
-                for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
-                if let (data, resp) = try? await session.data(for: req),
+        struct StoreDbRecord: Codable {
+            let id: String
+            let name: String
+            let rating: Double?
+            let review_count: Int?
+            let formatted_review_count: String?
+            let card_theme: String?
+            let accent_color: String?
+            let logo_url: String?
+        }
+
+        let baseRestURL = restURL
+        let publicHeaders = makeHeaders(isPublic: true)
+        let urlSession = session
+
+        async let offersTask: [OfferRow] = {
+            if let viewUrl = URL(string: "\(baseRestURL)/store_showcase_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier&order=rn.asc") {
+                var req = URLRequest(url: viewUrl)
+                for (k, v) in publicHeaders { req.setValue(v, forHTTPHeaderField: k) }
+                if let (data, resp) = try? await urlSession.data(for: req),
                    let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                   let rows = try? JSONDecoder().decode([OfferRow].self, from: data) {
-                    fetchedOffers = rows
+                   let rows = try? JSONDecoder().decode([OfferRow].self, from: data),
+                   !rows.isEmpty {
+                    return rows
                 }
             }
-        }
+            if let rawUrl = URL(string: "\(baseRestURL)/store_offers?select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier&limit=2500") {
+                var req = URLRequest(url: rawUrl)
+                for (k, v) in publicHeaders { req.setValue(v, forHTTPHeaderField: k) }
+                if let (data, resp) = try? await urlSession.data(for: req),
+                   let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                   let rows = try? JSONDecoder().decode([OfferRow].self, from: data) {
+                    return rows
+                }
+            }
+            return []
+        }()
+
+        async let statsTask: [String: StoreCatalogStats] = {
+            var map: [String: StoreCatalogStats] = [:]
+            if let statsUrl = URL(string: "\(baseRestURL)/store_catalog_stats?select=store_id,total_offers,avg_discount") {
+                var statsReq = URLRequest(url: statsUrl)
+                for (k, v) in publicHeaders { statsReq.setValue(v, forHTTPHeaderField: k) }
+                if let (statsData, statsResp) = try? await urlSession.data(for: statsReq),
+                   let http = statsResp as? HTTPURLResponse, http.statusCode == 200,
+                   let decodedStats = try? JSONDecoder().decode([StoreCatalogStats].self, from: statsData) {
+                    for st in decodedStats {
+                        map[st.store_id.lowercased()] = st
+                    }
+                }
+            }
+            return map
+        }()
+
+        async let storesTask: [String: StoreDbRecord] = {
+            var map: [String: StoreDbRecord] = [:]
+            if let storesUrl = URL(string: "\(baseRestURL)/stores?select=id,name,rating,review_count,formatted_review_count,card_theme,accent_color,logo_url") {
+                var storeReq = URLRequest(url: storesUrl)
+                for (k, v) in publicHeaders { storeReq.setValue(v, forHTTPHeaderField: k) }
+                if let (sData, sResp) = try? await urlSession.data(for: storeReq),
+                   let http = sResp as? HTTPURLResponse, http.statusCode == 200,
+                   let decodedStores = try? JSONDecoder().decode([StoreDbRecord].self, from: sData) {
+                    for st in decodedStores {
+                        map[st.id.lowercased()] = st
+                    }
+                }
+            }
+            return map
+        }()
+
+        let (fetchedOffers, storeStatsMap, storeDbMap) = await (offersTask, statsTask, storesTask)
 
         var storeMap: [String: (name: String, products: [StoreShowcaseProduct], discounts: [Double], totalCount: Int)] = [:]
         for r in fetchedOffers {
             let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.store_name)
+            let ship = r.shipping_cost ?? 0.0
             let p = StoreShowcaseProduct(
                 id: r.id,
                 title: r.raw_title,
@@ -1160,9 +1331,9 @@ class SupabaseManager: ObservableObject {
                 canonical_name: r.raw_title,
                 product_id: r.product_id,
                 shipping_cost: r.shipping_cost,
-                total_price: r.current_price + (r.shipping_cost ?? 0.0),
-                is_free_shipping: (r.shipping_cost ?? 0.0) == 0.0,
-                shipping_label: (r.shipping_cost ?? 0.0) == 0.0 ? "Sped. Gratis" : "+ \(String(format: "%.2f", r.shipping_cost ?? 0.0)) €",
+                total_price: r.current_price + ship,
+                is_free_shipping: ship == 0.0,
+                shipping_label: ship == 0.0 ? "Sped. Gratis" : "+ \(String(format: "%.2f", ship)) €",
                 free_shipping_threshold: r.free_shipping_threshold,
                 courier: r.courier
             )
@@ -1176,50 +1347,6 @@ class SupabaseManager: ObservableObject {
             }
             if let disc = r.discount_pct, disc > 0 {
                 storeMap[sId]?.discounts.append(disc)
-            }
-        }
-
-        // 2. Query real total offer counts & average discount per store from store_catalog_stats view
-        struct StoreCatalogStats: Codable {
-            let store_id: String
-            let total_offers: Int
-            let avg_discount: Double?
-        }
-        var storeStatsMap: [String: StoreCatalogStats] = [:]
-        if let statsUrl = URL(string: "\(restURL)/store_catalog_stats?select=store_id,total_offers,avg_discount") {
-            var statsReq = URLRequest(url: statsUrl)
-            for (k, v) in makeHeaders(isPublic: true) { statsReq.setValue(v, forHTTPHeaderField: k) }
-            if let (statsData, statsResp) = try? await session.data(for: statsReq),
-               let http = statsResp as? HTTPURLResponse, http.statusCode == 200,
-               let decodedStats = try? JSONDecoder().decode([StoreCatalogStats].self, from: statsData) {
-                for st in decodedStats {
-                    storeStatsMap[st.store_id.lowercased()] = st
-                }
-            }
-        }
-
-        // 3. Query real store metadata (ratings, review counts, card theme, accent color) directly from public.stores in Supabase
-        struct StoreDbRecord: Codable {
-            let id: String
-            let name: String
-            let rating: Double?
-            let review_count: Int?
-            let formatted_review_count: String?
-            let card_theme: String?
-            let accent_color: String?
-            let logo_url: String?
-        }
-        var storeDbMap: [String: StoreDbRecord] = [:]
-        if let storesUrl = URL(string: "\(restURL)/stores?select=*") {
-            var storeReq = URLRequest(url: storesUrl)
-            for (k, v) in makeHeaders(isPublic: true) { storeReq.setValue(v, forHTTPHeaderField: k) }
-            if let (sData, sResp) = try? await session.data(for: storeReq),
-               let http = sResp as? HTTPURLResponse, http.statusCode == 200 {
-                if let decodedStores = try? JSONDecoder().decode([StoreDbRecord].self, from: sData) {
-                    for st in decodedStores {
-                        storeDbMap[st.id.lowercased()] = st
-                    }
-                }
             }
         }
 

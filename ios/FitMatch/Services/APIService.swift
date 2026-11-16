@@ -16,6 +16,13 @@ class APIService: ObservableObject {
     // Client-side deals cache (5-minute validity) & in-flight deduplication
     private var dealsShowcasesCache: [String: (showcases: [StoreShowcase], expiry: Date)] = [:]
     private var inFlightDealsTasks: [String: Task<[StoreShowcase], Error>] = [:]
+    // Client-side home showcases cache (memory + disk for instant cold-start render) & deduplication
+    private var homeShowcasesCache: (showcases: [StoreShowcase], expiry: Date)? = nil
+    private var inFlightHomeShowcasesTask: Task<[StoreShowcase], Error>? = nil
+    private let homeCacheFileURL: URL = {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return caches.appendingPathComponent("fitmatch_home_showcases_v1.json")
+    }()
 
     init() {
         let config = URLSessionConfiguration.default
@@ -1534,26 +1541,78 @@ class APIService: ObservableObject {
         return try JSONDecoder().decode(CatalogStatsResponse.self, from: data)
     }
 
-    func getStoreShowcases() async throws -> [StoreShowcase] {
-        // 1. Direct Supabase Cloud database query (100% real products, stores and live offer counts)
-        do {
-            let direct = try await SupabaseManager.shared.fetchStoreShowcasesDirect()
-            if !direct.isEmpty {
-                return direct
+    /// Returns memory-cached or disk-cached home showcases synchronously for zero-skeleton cold starts.
+    func cachedHomeShowcases() -> [StoreShowcase]? {
+        if let mem = homeShowcasesCache, !mem.showcases.isEmpty {
+            return mem.showcases
+        }
+        guard let data = try? Data(contentsOf: homeCacheFileURL),
+              let decoded = try? JSONDecoder().decode([StoreShowcase].self, from: data),
+              !decoded.isEmpty else {
+            return nil
+        }
+        // Populate memory cache with a short 2-minute TTL so background SWR refresh still runs when stale
+        homeShowcasesCache = (decoded, Date().addingTimeInterval(120))
+        return decoded
+    }
+
+    func isHomeCacheFresh() -> Bool {
+        if let mem = homeShowcasesCache, !mem.showcases.isEmpty {
+            return Date() < mem.expiry
+        }
+        return false
+    }
+
+    private func persistHomeShowcasesToDisk(_ showcases: [StoreShowcase]) {
+        guard !showcases.isEmpty else { return }
+        let targetURL = homeCacheFileURL
+        Task.detached(priority: .utility) {
+            if let data = try? JSONEncoder().encode(showcases) {
+                try? data.write(to: targetURL, options: .atomic)
             }
-        } catch {
-            print("APIService Supabase direct note: \(error), falling back to API...")
+        }
+    }
+
+    func getStoreShowcases(forceRefresh: Bool = false) async throws -> [StoreShowcase] {
+        if !forceRefresh, let mem = homeShowcasesCache, !mem.showcases.isEmpty, Date() < mem.expiry {
+            return mem.showcases
         }
 
-        // 2. Cloud API fallback
-        if let url = URL(string: "\(baseURL)/api/stores/showcase") {
-            let data = try await fetchDataWithRetry(url: url, maxRetries: 1)
-            let decoded = try JSONDecoder().decode(StoreShowcaseResponse.self, from: data)
-            if !decoded.showcases.isEmpty {
-                return decoded.showcases
-            }
+        if let existingTask = inFlightHomeShowcasesTask {
+            return try await existingTask.value
         }
-        return []
+
+        let task = Task<[StoreShowcase], Error> {
+            // 1. Direct Supabase Cloud database query (single fast RPC + parallel fallback)
+            do {
+                let direct = try await SupabaseManager.shared.fetchStoreShowcasesDirect()
+                if !direct.isEmpty {
+                    return direct
+                }
+            } catch {
+                print("APIService Supabase direct note: \(error), falling back to API...")
+            }
+
+            // 2. Cloud API fallback
+            if let url = URL(string: "\(baseURL)/api/stores/showcase") {
+                let data = try await fetchDataWithRetry(url: url, maxRetries: 1)
+                let decoded = try JSONDecoder().decode(StoreShowcaseResponse.self, from: data)
+                if !decoded.showcases.isEmpty {
+                    return decoded.showcases
+                }
+            }
+            return []
+        }
+
+        inFlightHomeShowcasesTask = task
+        defer { inFlightHomeShowcasesTask = nil }
+
+        let result = try await task.value
+        if !result.isEmpty {
+            homeShowcasesCache = (result, Date().addingTimeInterval(300))
+            persistHomeShowcasesToDisk(result)
+        }
+        return result
     }
 
     func getSizeDeals(size: String, minDiscount: Double = 15, limit: Int = 12) async -> [StoreShowcaseProduct] {

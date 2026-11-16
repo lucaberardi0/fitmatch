@@ -27,6 +27,14 @@ struct HomeView: View {
         self._selectedTab = selectedTab
         self.initialSubTab = initialSubTab
         self._activeSubTab = State(initialValue: initialSubTab)
+
+        let cached = APIService.shared.cachedHomeShowcases() ?? []
+        self._showcases = State(initialValue: cached)
+        self._isLoading = State(initialValue: cached.isEmpty)
+        if !cached.isEmpty {
+            let initialRanked = Self.computeRankedShowcases(from: cached)
+            self._rankedShowcases = State(initialValue: initialRanked)
+        }
     }
 
     @StateObject private var api = APIService.shared
@@ -37,6 +45,7 @@ struct HomeView: View {
     @ObservedObject private var prefsManager = UserPreferencesManager.shared
 
     @State private var showcases: [StoreShowcase] = []
+    @State private var rankedShowcases: [StoreShowcase] = []
     @State private var isLoading = true
     @State private var searchText = ""
     @State private var showingAccountSheet = false
@@ -195,10 +204,17 @@ struct HomeView: View {
                 Text("Vuoi segnalare '\(store.store_name)' al team di FitMatch per prezzi non aggiornati o violazioni?")
             }
             .task {
-                if showcases.isEmpty {
-                    await fetchShowcases()
+                if showcases.isEmpty || !api.isHomeCacheFresh() {
+                    await fetchShowcases(forceRefresh: !showcases.isEmpty)
+                } else {
+                    recomputeRankedShowcases()
+                    Task { await api.prefetchDefaultDealsIfNeeded() }
                 }
+                try? await Task.sleep(nanoseconds: 800_000_000)
                 await notifManager.checkIntelligentNotifications()
+            }
+            .onChange(of: personalizationSignature) { _ in
+                recomputeRankedShowcases()
             }
         }
     }
@@ -388,8 +404,20 @@ struct HomeView: View {
 
     // MARK: - "Per te" Feed Content (Personalized & Ranked)
 
-    private var personalizedShowcases: [StoreShowcase] {
-        let active = showcases.filter {
+    private var personalizationSignature: String {
+        let followed = followedManager.followedStores.map(\.store_id).joined(separator: ",")
+        let hidden = followedManager.hiddenStoreIds.sorted().joined(separator: ",")
+        let sports = prefsManager.preferences.selectedSports.joined(separator: ",")
+        let brands = prefsManager.preferences.favoriteBrands.joined(separator: ",")
+        return "\(showcases.count)|\(prefsManager.preferences.preferredShoeSize)|\(prefsManager.preferences.preferredApparelSize)|\(sports)|\(brands)|\(followed)|\(hidden)|\(recentManager.activities.count)|\(wishlist.items.count)"
+    }
+
+    private static func computeRankedShowcases(from source: [StoreShowcase]) -> [StoreShowcase] {
+        let followedManager = FollowedStoresManager.shared
+        let prefsManager = UserPreferencesManager.shared
+        let recentManager = RecentActivityManager.shared
+        let wishlist = WishlistManager.shared
+        let active = source.filter {
             !$0.products.isEmpty && !followedManager.isStoreHidden(storeId: $0.store_id)
         }
         return prefsManager.personalizeShowcases(
@@ -400,6 +428,10 @@ struct HomeView: View {
         )
     }
 
+    private func recomputeRankedShowcases() {
+        rankedShowcases = Self.computeRankedShowcases(from: showcases)
+    }
+
     private var perTeContent: some View {
         ScrollViewReader { scrollProxy in
             ScrollView(showsIndicators: false) {
@@ -408,8 +440,8 @@ struct HomeView: View {
                     topSummaryCardsCarousel
                         .padding(.top, 2)
 
-                // MARK: 2. Real Database Partner Stores (Ranked & Personalized)
-                let currentShowcases = personalizedShowcases
+                // MARK: 2. Real Database Partner Stores (Ranked & Personalized, Lazily Rendered)
+                let currentShowcases = rankedShowcases.isEmpty && !showcases.isEmpty ? Self.computeRankedShowcases(from: showcases) : rankedShowcases
 
                 if isLoading && currentShowcases.isEmpty {
                     VStack(spacing: ShopLayout.cardSpacing) {
@@ -426,19 +458,21 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, ShopLayout.screenPadding)
                 } else {
-                    ForEach(Array(currentShowcases.enumerated()), id: \.element.id) { index, sc in
-                        if sc.card_theme == "olive" || sc.card_theme == "colored" || (sc.accent_color != nil && sc.card_theme != "grid" && sc.card_theme != "white") || (sc.card_theme == nil && index % 4 == 0) {
-                            // Accent / Colored Card (driven by database card_theme or accent_color)
-                            oliveShopStoreCard(showcase: sc)
-                                .padding(.horizontal, ShopLayout.screenPadding)
-                        } else if sc.card_theme == "grid" || (sc.card_theme == nil && index % 4 == 2 && sc.products.count >= 4) {
-                            // 2-Column Grid Card (driven by database card_theme == "grid")
-                            gridShopStoreCard(showcase: sc)
-                                .padding(.horizontal, ShopLayout.screenPadding)
-                        } else {
-                            // Clean White Horizontal Carousel Card (driven by database card_theme == "white")
-                            whiteShopStoreCard(showcase: sc)
-                                .padding(.horizontal, ShopLayout.screenPadding)
+                    LazyVStack(spacing: ShopLayout.sectionSpacing) {
+                        ForEach(Array(currentShowcases.enumerated()), id: \.element.id) { index, sc in
+                            if sc.card_theme == "olive" || sc.card_theme == "colored" || (sc.accent_color != nil && sc.card_theme != "grid" && sc.card_theme != "white") || (sc.card_theme == nil && index % 4 == 0) {
+                                // Accent / Colored Card (driven by database card_theme or accent_color)
+                                oliveShopStoreCard(showcase: sc)
+                                    .padding(.horizontal, ShopLayout.screenPadding)
+                            } else if sc.card_theme == "grid" || (sc.card_theme == nil && index % 4 == 2 && sc.products.count >= 4) {
+                                // 2-Column Grid Card (driven by database card_theme == "grid")
+                                gridShopStoreCard(showcase: sc)
+                                    .padding(.horizontal, ShopLayout.screenPadding)
+                            } else {
+                                // Clean White Horizontal Carousel Card (driven by database card_theme == "white")
+                                whiteShopStoreCard(showcase: sc)
+                                    .padding(.horizontal, ShopLayout.screenPadding)
+                            }
                         }
                     }
                 }
@@ -448,7 +482,7 @@ struct HomeView: View {
             .id("home_per_te_top")
         }
         .refreshable {
-            await fetchShowcases()
+            await fetchShowcases(forceRefresh: true)
             await recentManager.syncFromDatabase()
         }
         .onReceive(TabCoordinator.shared.$scrollToTopEvent) { event in
@@ -1115,23 +1149,30 @@ struct HomeView: View {
         return prod
     }
 
-    private func fetchShowcases() async {
-        isLoading = true
+    private func fetchShowcases(forceRefresh: Bool = false) async {
+        if showcases.isEmpty {
+            isLoading = true
+        }
         defer {
-            withAnimation(.easeInOut(duration: 0.28)) {
+            withAnimation(.easeInOut(duration: 0.24)) {
                 isLoading = false
             }
         }
         do {
-            let sc = try await api.getStoreShowcases()
+            let sc = try await api.getStoreShowcases(forceRefresh: forceRefresh)
+            let ranked = Self.computeRankedShowcases(from: sc)
             await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.28)) {
+                withAnimation(.easeInOut(duration: 0.24)) {
                     self.showcases = sc
+                    self.rankedShowcases = ranked
                 }
             }
-            // Proactively prefetch feed images into L1 memory cache off-thread
-            let prefetchUrls = sc.flatMap { $0.products.prefix(4) }.compactMap { URL(string: $0.image_url ?? "") }
-            ImageCacheManager.shared.prefetch(urls: prefetchUrls)
+            // Prioritize visible top-4 stores' images first, then prefetch the remaining feed
+            let topUrls = ranked.prefix(4).flatMap { $0.products.prefix(4) }.compactMap { URL(string: $0.image_url ?? "") }
+            ImageCacheManager.shared.prefetch(urls: topUrls)
+            let remainingUrls = ranked.dropFirst(4).flatMap { $0.products.prefix(3) }.compactMap { URL(string: $0.image_url ?? "") }
+            ImageCacheManager.shared.prefetch(urls: remainingUrls)
+
             // Warm default Deals ("Offerte") cache in the background so switching tab is instant
             Task {
                 await api.prefetchDefaultDealsIfNeeded()
