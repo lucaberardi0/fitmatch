@@ -336,7 +336,36 @@ class SupabaseManager: ObservableObject {
     }
 
     func deleteAccount() async throws -> Bool {
-        // Required for Apple App Store compliance
+        // Delete user/device cloud records across tables for GDPR & App Store 5.1.1(v) compliance
+        let tablesToPurge = [
+            "wishlists",
+            "collections",
+            "followed_stores",
+            "recent_activity",
+            "user_preferences",
+            "device_tokens",
+            "notifications",
+            "hidden_stores"
+        ]
+        let encodedDevId = encodeQueryValue(deviceId)
+        for table in tablesToPurge {
+            var urlStr = "\(restURL)/\(table)?"
+            if let uid = validCurrentUserId {
+                urlStr += "or=(user_id.eq.\(uid),device_id.eq.\(encodedDevId))"
+            } else {
+                urlStr += "device_id=eq.\(encodedDevId)"
+            }
+            guard let url = URL(string: urlStr) else { continue }
+            var req = URLRequest(url: url)
+            req.httpMethod = "DELETE"
+            for (k, v) in makeHeaders() {
+                req.setValue(v, forHTTPHeaderField: k)
+            }
+            _ = try? await session.data(for: req)
+        }
+
+        // Regenerate anonymous device identifier so no residual association remains
+        UserDefaults.standard.removeObject(forKey: "fitmatch_device_unique_id")
         signOut()
         return true
     }
