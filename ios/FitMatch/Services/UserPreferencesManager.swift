@@ -7,6 +7,43 @@ class UserPreferencesManager: ObservableObject {
     static let shared = UserPreferencesManager()
 
     private let storageKey = "fitmatch_user_preferences_v1"
+    private let onboardingCompletedKey = "fitmatch_has_completed_onboarding_v1"
+
+    static let shoeSizes: [String] = [
+        "38", "39", "40", "40.5", "41", "42", "42.5", "43", "43.5", "44", "44.5", "45", "45.5", "46", "47", "48"
+    ]
+    static let apparelSizes: [String] = ["XS", "S", "M", "L", "XL", "XXL"]
+
+    private static let fallbackSports: [(String, String)] = [
+        ("Running Corsa", "figure.run"),
+        ("Trail Running", "mountain.2.fill"),
+        ("Ciclismo & GPS", "bicycle"),
+        ("Fitness & Palestra", "dumbbell.fill"),
+        ("Outdoor & Trekking", "tent.fill"),
+        ("Padel & Tennis", "tennis.racket"),
+        ("Calcio & Calcetto", "soccerball"),
+        ("Basket", "basketball.fill"),
+        ("Sci & Neve", "snowflake"),
+        ("Nuoto", "figure.pool.swim"),
+        ("Nutrizione", "bolt.heart.fill")
+    ]
+
+    private static let fallbackBrands: [String] = [
+        "Nike", "Asics", "Garmin", "Salomon", "Hoka", "Brooks", "New Balance", "Under Armour", "Polar", "Oakley"
+    ]
+
+    private static let fallbackOnboardingStores: [(id: String, name: String, subtitle: String)] = [
+        ("misterrunning", "Mister Running", "Running, trail e scarpe da gara"),
+        ("cisalfa", "Cisalfa Sport", "Multisport, sneaker e abbigliamento"),
+        ("decathlon", "Decathlon", "Catalogo completo per ogni disciplina"),
+        ("maxisport", "Maxi Sport", "Running, outdoor e lifestyle"),
+        ("top4running", "Top4Running", "Scarpe tecniche e performance"),
+        ("deporvillage", "Deporvillage", "Ciclismo, outdoor e GPS"),
+        ("alltricks", "Alltricks", "Bici, trail e sport endurance"),
+        ("nike", "Nike", "Store ufficiale Nike"),
+        ("runningwarehouse", "Running Warehouse Europe", "Specialista corsa su strada e trail"),
+        ("nencini", "Nencini Sport", "Abbigliamento e attrezzatura sportiva")
+    ]
 
     @Published var preferences: UserPreferences {
         didSet {
@@ -14,6 +51,7 @@ class UserPreferencesManager: ObservableObject {
         }
     }
 
+    @Published var hasCompletedOnboarding: Bool
     @Published var updaterStatus: UpdaterStatusResponse?
     @Published var isRefreshingPrices: Bool = false
     @Published var refreshMessage: String?
@@ -22,6 +60,7 @@ class UserPreferencesManager: ObservableObject {
     @Published var dynamicBrands: [String] = []
 
     init() {
+        self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: onboardingCompletedKey)
         if let data = UserDefaults.standard.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode(UserPreferences.self, from: data) {
             // Reset to default anonymous preferences if the old hardcoded developer values were stored
@@ -36,6 +75,52 @@ class UserPreferencesManager: ObservableObject {
         self.activeStores = DynamicCatalogRegistry.shared.cachedStores
         self.dynamicCategories = DynamicCatalogRegistry.shared.cachedCategories
         self.dynamicBrands = DynamicCatalogRegistry.shared.allBrands
+    }
+
+    var availableSports: [(String, String)] {
+        let nonSportIds: Set<String> = ["tutti", "donna", "uomo", "abbigliamento", "smartwatch", "accessori"]
+        var seenIds: Set<String> = ["running", "outdoor", "cycling", "fitness", "padel", "calcio", "tennis", "basket", "sci", "nuoto", "nutrizione"]
+        var merged = Self.fallbackSports
+        for cat in dynamicCategories {
+            let cid = cat.id.lowercased()
+            if nonSportIds.contains(cid) || seenIds.contains(cid) { continue }
+            seenIds.insert(cid)
+            merged.append((cat.name, cat.icon?.isEmpty == false ? cat.icon! : "sportscourt.fill"))
+        }
+        return merged
+    }
+
+    var availableBrands: [String] {
+        guard !dynamicBrands.isEmpty else { return Self.fallbackBrands }
+        var seen = Set(Self.fallbackBrands.map { $0.lowercased() })
+        var merged = Self.fallbackBrands
+        for brand in dynamicBrands {
+            let low = brand.lowercased()
+            if !seen.contains(low) {
+                seen.insert(low)
+                merged.append(brand)
+            }
+        }
+        return merged
+    }
+
+    var suggestedOnboardingStores: [(id: String, name: String, subtitle: String)] {
+        guard !activeStores.isEmpty else { return Self.fallbackOnboardingStores }
+        return activeStores.map { store in
+            let sub = (store.subtitle?.isEmpty == false) ? store.subtitle! : store.base_url
+            return (id: store.id, name: store.name, subtitle: sub)
+        }
+    }
+
+    func completeOnboarding() {
+        UserDefaults.standard.set(true, forKey: onboardingCompletedKey)
+        hasCompletedOnboarding = true
+        save()
+    }
+
+    func resetOnboarding() {
+        UserDefaults.standard.set(false, forKey: onboardingCompletedKey)
+        hasCompletedOnboarding = false
     }
 
     func save() {

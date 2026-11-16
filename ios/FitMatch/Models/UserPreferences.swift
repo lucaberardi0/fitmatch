@@ -12,11 +12,36 @@ struct UserPreferences: Codable {
     var isHapticFeedbackEnabled: Bool
     var isAutoRefreshEnabled: Bool
 
+    var hasShoeSize: Bool {
+        !preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasApparelSize: Bool {
+        !preferredApparelSize.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasAnySize: Bool {
+        hasShoeSize || hasApparelSize
+    }
+
+    var formattedSizeSummary: String {
+        switch (hasShoeSize, hasApparelSize) {
+        case (true, true):
+            return "EU \(preferredShoeSize) · \(preferredApparelSize)"
+        case (true, false):
+            return "EU \(preferredShoeSize)"
+        case (false, true):
+            return preferredApparelSize
+        case (false, false):
+            return "Facoltative"
+        }
+    }
+
     static let `default` = UserPreferences(
         userName: "Ospite",
         userEmail: "",
-        preferredShoeSize: "42",
-        preferredApparelSize: "M",
+        preferredShoeSize: "",
+        preferredApparelSize: "",
         selectedSports: [],
         favoriteBrands: [],
         minDiscountThreshold: 20,

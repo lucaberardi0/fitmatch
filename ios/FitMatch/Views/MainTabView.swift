@@ -96,8 +96,12 @@ struct MainTabView: View {
     @ObservedObject private var wishlist = WishlistManager.shared
     @ObservedObject private var tabVisibility = TabBarVisibilityManager.shared
     @ObservedObject private var notifManager = NotificationManager.shared
+    @ObservedObject private var prefsManager = UserPreferencesManager.shared
 
-    init(initialTab: Int = 0) {
+    private let skipOnboarding: Bool
+
+    init(initialTab: Int = 0, skipOnboarding: Bool = false) {
+        self.skipOnboarding = skipOnboarding
         TabCoordinator.shared.selectedTab = initialTab
     }
 
@@ -144,6 +148,16 @@ struct MainTabView: View {
             NavigationStack {
                 StoreDetailView(storeId: store.id, initialStoreName: store.name)
             }
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { !skipOnboarding && !prefsManager.hasCompletedOnboarding },
+            set: { isPresented in
+                if !isPresented {
+                    prefsManager.completeOnboarding()
+                }
+            }
+        )) {
+            OnboardingView()
         }
         .ignoresSafeArea(.keyboard)
         .task {

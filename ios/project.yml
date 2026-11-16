@@ -15,6 +15,7 @@ targets:
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.lucaberardi06.frontend
       INFOPLIST_FILE: FitMatch/Info.plist
+      CODE_SIGN_ENTITLEMENTS: FitMatch/FitMatch.entitlements
       GENERATE_INFOPLIST_FILE: false
       TARGETED_DEVICE_FAMILY: "1"
       SWIFT_OPTIMIZATION_LEVEL: "-Onone"

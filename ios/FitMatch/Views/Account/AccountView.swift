@@ -358,7 +358,8 @@ struct AccountView: View {
                                 .font(.system(size: 15.5, weight: .bold, design: .rounded))
                                 .foregroundColor(.shopDark)
 
-                            Text("I prodotti monitorati dalla wishlist e i cali di prezzo nella taglia EU \(prefs.preferences.preferredShoeSize) appariranno qui")
+                            let sizeSuffix = prefs.preferences.hasShoeSize ? " nella taglia EU \(prefs.preferences.preferredShoeSize)" : ""
+                            Text("I prodotti monitorati dalla wishlist e i cali di prezzo\(sizeSuffix) appariranno qui")
                                 .font(.system(size: 13.5))
                                 .foregroundColor(.shopTextMuted)
                                 .lineSpacing(2)
@@ -368,14 +369,16 @@ struct AccountView: View {
                                 .font(.system(size: 15.5, weight: .bold, design: .rounded))
                                 .foregroundColor(.shopDark)
 
+                            let sizeTag = prefs.preferences.hasShoeSize ? " · Taglia EU \(prefs.preferences.preferredShoeSize)" : ""
                             if totalWishlistSavings > 0 {
-                                Text(String(format: "Risparmio rilevato: €%.2f sui %d store partner · Taglia EU %@", totalWishlistSavings, partnerStores.count, prefs.preferences.preferredShoeSize))
+                                Text(String(format: "Risparmio rilevato: €%.2f sui %d store partner%@", totalWishlistSavings, partnerStores.count, sizeTag))
                                     .font(.system(size: 13.5))
                                     .foregroundColor(.shopTextMuted)
                                     .lineSpacing(2)
                                     .multilineTextAlignment(.leading)
                             } else {
-                                Text("Controllo automatico attivo sui \(partnerStores.count) store partner per la taglia EU \(prefs.preferences.preferredShoeSize)")
+                                let sizeFor = prefs.preferences.hasShoeSize ? " per la taglia EU \(prefs.preferences.preferredShoeSize)" : ""
+                                Text("Controllo automatico attivo sui \(partnerStores.count) store partner\(sizeFor)")
                                     .font(.system(size: 13.5))
                                     .foregroundColor(.shopTextMuted)
                                     .lineSpacing(2)
@@ -448,7 +451,7 @@ struct AccountView: View {
                             .foregroundColor(.shopDark)
                     ),
                     title: "Misure e preferenze",
-                    trailingValue: "EU \(prefs.preferences.preferredShoeSize) · \(prefs.preferences.preferredApparelSize)"
+                    trailingValue: prefs.preferences.formattedSizeSummary
                 )
             }
             .buttonStyle(ShopCardPressStyle(scale: 0.99, pressedOpacity: 0.92))
@@ -911,7 +914,8 @@ private struct AccountPriceMonitorView: View {
                             }
                         }
 
-                        Text("FitMatch verifica periodicamente i prezzi dei prodotti salvati sui \(partnerStores.count) negozi partner per segnalarti i cali nella tua taglia (EU \(prefs.preferences.preferredShoeSize)).")
+                        let sizeDetail = prefs.preferences.hasShoeSize ? " nella tua taglia (EU \(prefs.preferences.preferredShoeSize))" : ""
+                        Text("FitMatch verifica periodicamente i prezzi dei prodotti salvati sui \(partnerStores.count) negozi partner per segnalarti i cali\(sizeDetail).")
                             .font(.system(size: 12.5))
                             .foregroundColor(.shopTextMuted)
 
@@ -1071,56 +1075,7 @@ private struct AccountPriceMonitorView: View {
 
 private struct AccountPreferencesDetailView: View {
     @ObservedObject private var prefs = UserPreferencesManager.shared
-
-    private let shoeSizes = [
-        "38", "39", "40", "40.5", "41", "42", "42.5", "43", "43.5", "44", "44.5", "45", "45.5", "46", "47", "48"
-    ]
-    private let apparelSizes = ["XS", "S", "M", "L", "XL", "XXL"]
-
-    private let fallbackSports = [
-        ("Running Corsa", "figure.run"),
-        ("Trail Running", "mountain.2.fill"),
-        ("Ciclismo & GPS", "bicycle"),
-        ("Fitness & Palestra", "dumbbell.fill"),
-        ("Outdoor & Trekking", "tent.fill"),
-        ("Padel & Tennis", "tennis.racket"),
-        ("Calcio & Calcetto", "soccerball"),
-        ("Basket", "basketball.fill"),
-        ("Sci & Neve", "snowflake"),
-        ("Nuoto", "figure.pool.swim"),
-        ("Nutrizione", "bolt.heart.fill")
-    ]
-
-    private var availableSports: [(String, String)] {
-        let nonSportIds: Set<String> = ["tutti", "donna", "uomo", "abbigliamento", "smartwatch", "accessori"]
-        var seenIds: Set<String> = ["running", "outdoor", "cycling", "fitness", "padel", "calcio", "tennis", "basket", "sci", "nuoto", "nutrizione"]
-        var merged = fallbackSports
-        for cat in prefs.dynamicCategories {
-            let cid = cat.id.lowercased()
-            if nonSportIds.contains(cid) || seenIds.contains(cid) { continue }
-            seenIds.insert(cid)
-            merged.append((cat.name, cat.icon?.isEmpty == false ? cat.icon! : "sportscourt.fill"))
-        }
-        return merged
-    }
-
-    private let fallbackBrands = [
-        "Nike", "Asics", "Garmin", "Salomon", "Hoka", "Brooks", "New Balance", "Under Armour", "Polar", "Oakley"
-    ]
-
-    private var availableBrands: [String] {
-        guard !prefs.dynamicBrands.isEmpty else { return fallbackBrands }
-        var seen = Set(fallbackBrands.map { $0.lowercased() })
-        var merged = fallbackBrands
-        for brand in prefs.dynamicBrands {
-            let low = brand.lowercased()
-            if !seen.contains(low) {
-                seen.insert(low)
-                merged.append(brand)
-            }
-        }
-        return merged
-    }
+    @State private var showingOnboardingReplay = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1138,9 +1093,16 @@ private struct AccountPreferencesDetailView: View {
                                 .font(.system(size: 15.5, weight: .bold, design: .rounded))
                                 .foregroundColor(.shopDark)
                             Spacer()
+                            Text("Facoltative")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopTextMuted)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.shopSurface)
+                                .clipShape(Capsule())
                         }
 
-                        Text("FitMatch usa queste taglie per verificare la disponibilità reale sui negozi partner.")
+                        Text("FitMatch usa queste taglie per verificare la disponibilità reale sui negozi partner. Tocca una taglia attiva per rimuoverla.")
                             .font(.system(size: 12.5))
                             .foregroundColor(.shopTextMuted)
 
@@ -1151,18 +1113,18 @@ private struct AccountPreferencesDetailView: View {
                                     .font(.system(size: 12.5, weight: .semibold))
                                     .foregroundColor(.shopDark)
                                 Spacer()
-                                Text("EU \(prefs.preferences.preferredShoeSize)")
+                                Text(prefs.preferences.hasShoeSize ? "EU \(prefs.preferences.preferredShoeSize)" : "Non impostata")
                                     .font(.system(size: 12.5, weight: .bold))
-                                    .foregroundColor(.shopPurple)
+                                    .foregroundColor(prefs.preferences.hasShoeSize ? .shopPurple : .shopTextMuted)
                             }
 
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
-                                    ForEach(shoeSizes, id: \.self) { size in
+                                    ForEach(UserPreferencesManager.shoeSizes, id: \.self) { size in
                                         let isSelected = prefs.preferences.preferredShoeSize == size
                                         Button(action: {
                                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                            prefs.preferences.preferredShoeSize = size
+                                            prefs.preferences.preferredShoeSize = isSelected ? "" : size
                                         }) {
                                             Text(size)
                                                 .font(.system(size: 13, weight: isSelected ? .bold : .medium))
@@ -1191,17 +1153,17 @@ private struct AccountPreferencesDetailView: View {
                                     .font(.system(size: 12.5, weight: .semibold))
                                     .foregroundColor(.shopDark)
                                 Spacer()
-                                Text(prefs.preferences.preferredApparelSize)
+                                Text(prefs.preferences.hasApparelSize ? prefs.preferences.preferredApparelSize : "Non impostata")
                                     .font(.system(size: 12.5, weight: .bold))
-                                    .foregroundColor(.shopPurple)
+                                    .foregroundColor(prefs.preferences.hasApparelSize ? .shopPurple : .shopTextMuted)
                             }
 
                             HStack(spacing: 8) {
-                                ForEach(apparelSizes, id: \.self) { size in
+                                ForEach(UserPreferencesManager.apparelSizes, id: \.self) { size in
                                     let isSelected = prefs.preferences.preferredApparelSize == size
                                     Button(action: {
                                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                        prefs.preferences.preferredApparelSize = size
+                                        prefs.preferences.preferredApparelSize = isSelected ? "" : size
                                     }) {
                                         Text(size)
                                             .font(.system(size: 13, weight: isSelected ? .bold : .medium))
@@ -1238,7 +1200,7 @@ private struct AccountPreferencesDetailView: View {
                             .foregroundColor(.shopTextMuted)
 
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 8)], spacing: 8) {
-                            ForEach(availableSports, id: \.0) { sport in
+                            ForEach(prefs.availableSports, id: \.0) { sport in
                                 let isSelected = prefs.preferences.selectedSports.contains(sport.0)
                                 Button(action: {
                                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -1285,7 +1247,7 @@ private struct AccountPreferencesDetailView: View {
 
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                ForEach(availableBrands, id: \.self) { brand in
+                                ForEach(prefs.availableBrands, id: \.self) { brand in
                                     let isSelected = prefs.preferences.favoriteBrands.contains(brand)
                                     Button(action: {
                                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -1317,6 +1279,31 @@ private struct AccountPreferencesDetailView: View {
                     }
                     .shopCard()
 
+                    // Replay Onboarding Card
+                    Button(action: {
+                        showingOnboardingReplay = true
+                    }) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.shopPurple)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Rivedi configurazione guidata")
+                                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                                    .foregroundColor(.shopDark)
+                                Text("Riapri la presentazione iniziale e aggiorna sport, taglie, brand e store")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.shopTextMuted)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.shopTextMuted)
+                        }
+                        .shopCard()
+                    }
+                    .buttonStyle(ShopCardPressStyle(scale: 0.98))
+
                     Spacer(minLength: 32)
                 }
                 .padding(.horizontal, ShopLayout.screenPadding)
@@ -1326,6 +1313,11 @@ private struct AccountPreferencesDetailView: View {
         .background(Color.shopSurface.ignoresSafeArea())
         .navigationBarHidden(true)
         .navigationBarBackButtonHidden(true)
+        .fullScreenCover(isPresented: $showingOnboardingReplay) {
+            OnboardingView { _ in
+                showingOnboardingReplay = false
+            }
+        }
     }
 }
 
@@ -1386,6 +1378,11 @@ private struct AccountNotificationsSettingsView: View {
                             }
                         }
                         .tint(.shopPurple)
+                        .onChange(of: prefs.preferences.isPushNotificationEnabled) { enabled in
+                            if enabled && !notifManager.isAuthorized {
+                                notifManager.requestAuthorization()
+                            }
+                        }
 
                         Divider()
 
@@ -2216,41 +2213,51 @@ struct AuthSheetView: View {
                     // Apple Sign In
                     SignInWithAppleButton(
                         onRequest: { request in
+                            errorMessage = nil
                             request.requestedScopes = [.fullName, .email]
                         },
                         onCompletion: { result in
                             switch result {
                             case .success(let authorization):
-                                if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
-                                    let resolvedEmail = appleIDCredential.email ?? (prefs.preferences.userEmail.isEmpty ? "utente.apple@icloud.com" : prefs.preferences.userEmail)
-                                    if let fullName = appleIDCredential.fullName {
-                                        let name = [fullName.givenName, fullName.familyName].compactMap { $0 }.joined(separator: " ")
-                                        if !name.isEmpty {
-                                            prefs.preferences.userName = name
-                                        }
+                                guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                                    errorMessage = "Credenziali Apple non valide."
+                                    return
+                                }
+                                if let fullName = appleIDCredential.fullName {
+                                    let name = [fullName.givenName, fullName.familyName].compactMap { $0 }.joined(separator: " ")
+                                    if !name.isEmpty {
+                                        prefs.preferences.userName = name
                                     }
-                                    if let tokenData = appleIDCredential.identityToken,
-                                       let idToken = String(data: tokenData, encoding: .utf8) {
-                                        Task {
-                                            do {
-                                                try await supabase.signInWithApple(idToken: idToken, email: resolvedEmail)
-                                            } catch {
-                                                let appleUser = appleIDCredential.user
-                                                await MainActor.run {
-                                                    supabase.saveSession(token: appleUser, userId: appleUser, email: resolvedEmail)
-                                                }
-                                            }
-                                            await wishlist.syncWithDatabase()
+                                }
+                                guard let tokenData = appleIDCredential.identityToken,
+                                      let idToken = String(data: tokenData, encoding: .utf8) else {
+                                    errorMessage = "Token Apple mancante. Riprova."
+                                    return
+                                }
+                                let resolvedEmail = appleIDCredential.email ?? SupabaseManager.extractEmailFromJWT(idToken)
+                                isLoading = true
+                                Task {
+                                    do {
+                                        try await supabase.signInWithApple(idToken: idToken, email: resolvedEmail)
+                                        await wishlist.syncWithDatabase()
+                                        await MainActor.run {
+                                            isLoading = false
                                             dismiss()
                                         }
-                                    } else {
-                                        let appleUser = appleIDCredential.user
-                                        supabase.saveSession(token: appleUser, userId: appleUser, email: resolvedEmail)
-                                        dismiss()
+                                    } catch {
+                                        await MainActor.run {
+                                            isLoading = false
+                                            errorMessage = error.localizedDescription
+                                        }
                                     }
                                 }
                             case .failure(let error):
-                                print("Apple Sign In note: \(error)")
+                                let nsErr = error as NSError
+                                if nsErr.domain == ASAuthorizationError.errorDomain && nsErr.code == ASAuthorizationError.canceled.rawValue {
+                                    return
+                                }
+                                print("Apple Sign In error: \(error)")
+                                errorMessage = "Accesso con Apple non disponibile (\(nsErr.localizedDescription)). Verifica che la capability Sign in with Apple sia attiva."
                             }
                         }
                     )

@@ -15,7 +15,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let diskLimit = 300 * 1024 * 1024
         URLCache.shared = URLCache(memoryCapacity: memLimit, diskCapacity: diskLimit, diskPath: "fitmatch_network_cache")
 
-        NotificationManager.shared.setupRemoteNotifications()
+        NotificationManager.shared.checkAuthorization()
         registerBackgroundTasks()
         return true
     }
@@ -140,7 +140,9 @@ struct FitMatchApp: App {
                 }()
                 NotificationsView()
             } else if ProcessInfo.processInfo.arguments.contains("-testWishlist") {
-                MainTabView(initialTab: 2)
+                MainTabView(initialTab: 2, skipOnboarding: true)
+            } else if ProcessInfo.processInfo.arguments.contains("-testOnboarding") {
+                OnboardingView()
             } else if ProcessInfo.processInfo.arguments.contains("-testAgentLoading") {
                 NavigationStack {
                     ScrollView {

@@ -80,7 +80,7 @@ class SupabaseManager: ObservableObject {
     }
 
     func handleAuthFailure() {
-        UserDefaults.standard.removeObject(forKey: userDefaultsKeyToken)
+        clearStoredAuthSession()
         self.isAuthenticated = false
         self.isAnonymous = true
         self.currentUserEmail = nil
@@ -91,13 +91,23 @@ class SupabaseManager: ObservableObject {
     // MARK: - Auth (Supabase Auth / auth.users)
 
     private let userDefaultsKeyToken = "fitmatch_supabase_token"
+    private let userDefaultsKeyRefreshToken = "fitmatch_supabase_refresh_token"
     private let userDefaultsKeyUserId = "fitmatch_supabase_user_id"
     private let userDefaultsKeyEmail = "fitmatch_supabase_email"
+    private let userDefaultsKeyIsAnonymous = "fitmatch_supabase_is_anonymous"
+    private var isEnsuringSession = false
 
-    /// Returns `currentUserId` only when it is a valid Supabase Auth UUID (safe for Postgres `uuid` columns).
+    private func clearStoredAuthSession() {
+        UserDefaults.standard.removeObject(forKey: userDefaultsKeyToken)
+        UserDefaults.standard.removeObject(forKey: userDefaultsKeyRefreshToken)
+        UserDefaults.standard.removeObject(forKey: userDefaultsKeyUserId)
+        UserDefaults.standard.removeObject(forKey: userDefaultsKeyEmail)
+        UserDefaults.standard.removeObject(forKey: userDefaultsKeyIsAnonymous)
+    }
+
+    /// Returns `currentUserId` whenever it is a valid Supabase Auth UUID (permanent or anonymous user in `auth.users`).
     var validCurrentUserId: String? {
-        guard isAuthenticated,
-              let uid = currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let uid = currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines),
               let parsed = UUID(uuidString: uid) else {
             return nil
         }
@@ -107,16 +117,31 @@ class SupabaseManager: ObservableObject {
     private func loadSavedSession() {
         if let token = UserDefaults.standard.string(forKey: userDefaultsKeyToken), !token.isEmpty {
             let email = UserDefaults.standard.string(forKey: userDefaultsKeyEmail)
-            // Purge the previous developer tester session if still present on user's device
-            if email == "luca.tester.app2026@gmail.com" {
-                signOut()
+            // Purge legacy tester or non-JWT fallback sessions so auth state always reflects real Supabase Auth
+            if email == "luca.tester.app2026@gmail.com" || email == "utente.apple@icloud.com" || token.split(separator: ".").count != 3 {
+                clearStoredAuthSession()
+                self.isAuthenticated = false
+                self.isAnonymous = true
+                self.currentUserId = nil
+                self.currentUserEmail = nil
+                self.syncStatusMessage = "Account Anonimo (Ospite)"
                 return
             }
-            self.currentUserId = UserDefaults.standard.string(forKey: userDefaultsKeyUserId)
-            self.currentUserEmail = email
-            self.isAuthenticated = true
-            self.isAnonymous = false
-            self.syncStatusMessage = "Autenticato: \(self.currentUserEmail ?? "Utente")"
+
+            let savedUserId = UserDefaults.standard.string(forKey: userDefaultsKeyUserId)
+            let savedIsAnon = UserDefaults.standard.bool(forKey: userDefaultsKeyIsAnonymous)
+            self.currentUserId = savedUserId
+            if savedIsAnon || (email ?? "").isEmpty {
+                self.currentUserEmail = nil
+                self.isAuthenticated = false
+                self.isAnonymous = true
+                self.syncStatusMessage = "Account Anonimo (Ospite)"
+            } else {
+                self.currentUserEmail = email
+                self.isAuthenticated = true
+                self.isAnonymous = false
+                self.syncStatusMessage = "Autenticato: \(email ?? "Utente")"
+            }
         } else {
             self.isAuthenticated = false
             self.isAnonymous = true
@@ -126,19 +151,26 @@ class SupabaseManager: ObservableObject {
         }
     }
 
-    func saveSession(token: String, userId: String, email: String?) {
+    func saveSession(token: String, refreshToken: String? = nil, userId: String, email: String?, isAnonymous: Bool = false) {
+        let previousAnonToken = self.isAnonymous ? UserDefaults.standard.string(forKey: userDefaultsKeyToken) : nil
+        let previousAnonUserId = self.isAnonymous ? self.validCurrentUserId : nil
+
         UserDefaults.standard.set(token, forKey: userDefaultsKeyToken)
+        if let refreshToken, !refreshToken.isEmpty {
+            UserDefaults.standard.set(refreshToken, forKey: userDefaultsKeyRefreshToken)
+        }
         UserDefaults.standard.set(userId, forKey: userDefaultsKeyUserId)
         UserDefaults.standard.set(email, forKey: userDefaultsKeyEmail)
+        UserDefaults.standard.set(isAnonymous, forKey: userDefaultsKeyIsAnonymous)
 
         self.currentUserId = userId
-        self.currentUserEmail = email
-        self.isAuthenticated = true
-        self.isAnonymous = false
-        self.syncStatusMessage = "Autenticato: \(email ?? "Utente")"
+        self.currentUserEmail = isAnonymous ? nil : email
+        self.isAuthenticated = !isAnonymous
+        self.isAnonymous = isAnonymous
+        self.syncStatusMessage = isAnonymous ? "Account Anonimo (Ospite)" : "Autenticato: \(email ?? "Utente")"
 
-        // Update preferences
-        if let em = email, !em.isEmpty {
+        // Update preferences only for permanent accounts
+        if !isAnonymous, let em = email, !em.isEmpty {
             UserPreferencesManager.shared.preferences.userEmail = em
             if UserPreferencesManager.shared.preferences.userName == "Ospite" {
                 let namePart = em.components(separatedBy: "@").first ?? "Utente"
@@ -146,9 +178,13 @@ class SupabaseManager: ObservableObject {
             }
         }
 
-        // Migrate/link anonymous device data to this user in Supabase
+        // Migrate/link device data (and any prior anonymous user rows) to this Supabase Auth user
         Task {
-            await linkAnonymousDataToAccount(newUserId: userId)
+            await linkAnonymousDataToAccount(
+                newUserId: userId,
+                previousAnonymousUserId: previousAnonUserId,
+                previousAnonymousToken: previousAnonToken
+            )
             NotificationCenter.default.post(name: NSNotification.Name("FitMatchAuthSessionDidChange"), object: nil)
         }
     }
@@ -173,6 +209,7 @@ class SupabaseManager: ObservableObject {
         if http.statusCode == 200 {
             struct AuthResponse: Codable {
                 let access_token: String
+                let refresh_token: String?
                 let user: AuthUser
             }
             struct AuthUser: Codable {
@@ -182,7 +219,13 @@ class SupabaseManager: ObservableObject {
 
             let decoded = try JSONDecoder().decode(AuthResponse.self, from: data)
             await MainActor.run {
-                self.saveSession(token: decoded.access_token, userId: decoded.user.id, email: decoded.user.email)
+                self.saveSession(
+                    token: decoded.access_token,
+                    refreshToken: decoded.refresh_token,
+                    userId: decoded.user.id,
+                    email: decoded.user.email,
+                    isAnonymous: false
+                )
             }
         } else {
             struct ErrorResponse: Codable {
@@ -219,6 +262,7 @@ class SupabaseManager: ObservableObject {
         if (200...299).contains(http.statusCode) {
             struct SignUpResponse: Codable {
                 let access_token: String?
+                let refresh_token: String?
                 let user: AuthUser?
             }
             struct AuthUser: Codable {
@@ -229,7 +273,13 @@ class SupabaseManager: ObservableObject {
                let token = decoded.access_token,
                let user = decoded.user {
                 await MainActor.run {
-                    self.saveSession(token: token, userId: user.id, email: user.email)
+                    self.saveSession(
+                        token: token,
+                        refreshToken: decoded.refresh_token,
+                        userId: user.id,
+                        email: user.email,
+                        isAnonymous: false
+                    )
                 }
                 return (true, "Account creato con successo!")
             } else {
@@ -247,6 +297,25 @@ class SupabaseManager: ObservableObject {
         }
     }
 
+    static func extractEmailFromJWT(_ jwt: String) -> String? {
+        let parts = jwt.split(separator: ".")
+        guard parts.count >= 2 else { return nil }
+        var base64 = String(parts[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder > 0 {
+            base64 += String(repeating: "=", count: 4 - remainder)
+        }
+        guard let data = Data(base64Encoded: base64),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let email = json["email"] as? String,
+              !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return email
+    }
+
     func signInWithApple(idToken: String, email: String?) async throws {
         guard let url = URL(string: "\(authURL)/token?grant_type=id_token") else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
@@ -262,12 +331,31 @@ class SupabaseManager: ObservableObject {
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw URLError(.userAuthenticationRequired)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            struct ErrorResponse: Codable {
+                let msg: String?
+                let message: String?
+                let error_description: String?
+                let error_code: String?
+            }
+            let err = try? JSONDecoder().decode(ErrorResponse.self, from: data)
+            let rawMsg = err?.msg ?? err?.message ?? err?.error_description ?? "Errore autenticazione Apple (\(http.statusCode))"
+            let userMsg: String
+            if err?.error_code == "provider_disabled" || rawMsg.lowercased().contains("not enabled") {
+                userMsg = "Provider Apple non abilitato su Supabase (Authentication → Providers → Apple)."
+            } else {
+                userMsg = rawMsg
+            }
+            throw NSError(domain: "SupabaseAuth", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: userMsg])
         }
 
         struct AuthResponse: Codable {
             let access_token: String
+            let refresh_token: String?
             let user: AuthUser
         }
         struct AuthUser: Codable {
@@ -276,12 +364,23 @@ class SupabaseManager: ObservableObject {
         }
 
         let decoded = try JSONDecoder().decode(AuthResponse.self, from: data)
+        let resolvedEmail = decoded.user.email ?? email ?? Self.extractEmailFromJWT(idToken)
         await MainActor.run {
-            self.saveSession(token: decoded.access_token, userId: decoded.user.id, email: decoded.user.email ?? email)
+            self.saveSession(
+                token: decoded.access_token,
+                refreshToken: decoded.refresh_token,
+                userId: decoded.user.id,
+                email: resolvedEmail,
+                isAnonymous: false
+            )
         }
     }
 
-    func linkAnonymousDataToAccount(newUserId: String) async {
+    func linkAnonymousDataToAccount(
+        newUserId: String,
+        previousAnonymousUserId: String? = nil,
+        previousAnonymousToken: String? = nil
+    ) async {
         guard let parsedUuid = UUID(uuidString: newUserId.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return
         }
@@ -301,6 +400,24 @@ class SupabaseManager: ObservableObject {
             "store_reports"
         ]
 
+        // If transitioning from a previous Supabase anonymous user ID to a different permanent user ID,
+        // release ownership using the anonymous JWT first so RLS tables (e.g. wishlists, collections) allow claiming.
+        if let prevId = previousAnonymousUserId?.lowercased(),
+           prevId != cleanUid,
+           let prevToken = previousAnonymousToken,
+           prevToken.split(separator: ".").count == 3 {
+            for table in tablesToLink {
+                guard let releaseUrl = URL(string: "\(restURL)/\(table)?device_id=eq.\(devId)&user_id=eq.\(prevId)") else {
+                    continue
+                }
+                var req = URLRequest(url: releaseUrl)
+                req.httpMethod = "PATCH"
+                for (k, v) in makeHeaders(token: prevToken) { req.setValue(v, forHTTPHeaderField: k) }
+                req.httpBody = try? JSONSerialization.data(withJSONObject: ["user_id": NSNull()])
+                _ = try? await session.data(for: req)
+            }
+        }
+
         for table in tablesToLink {
             guard let url = URL(string: "\(restURL)/\(table)?device_id=eq.\(devId)&user_id=is.null") else {
                 continue
@@ -313,15 +430,131 @@ class SupabaseManager: ObservableObject {
         }
     }
 
+    private func isJWTExpiringSoon(_ jwt: String, leewaySeconds: TimeInterval = 120) -> Bool {
+        let parts = jwt.split(separator: ".")
+        guard parts.count >= 2 else { return true }
+        var base64 = String(parts[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder > 0 {
+            base64 += String(repeating: "=", count: 4 - remainder)
+        }
+        guard let data = Data(base64Encoded: base64),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let exp = json["exp"] as? TimeInterval else {
+            return false
+        }
+        return Date().timeIntervalSince1970 + leewaySeconds >= exp
+    }
+
+    private func refreshSession(refreshToken: String, wasAnonymous: Bool) async -> Bool {
+        guard let url = URL(string: "\(authURL)/token?grant_type=refresh_token") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(anonKey, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["refresh_token": refreshToken])
+
+        do {
+            let (data, response) = try await session.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return false
+            }
+            struct RefreshResponse: Codable {
+                let access_token: String
+                let refresh_token: String?
+                let user: RefreshUser
+            }
+            struct RefreshUser: Codable {
+                let id: String
+                let email: String?
+                let is_anonymous: Bool?
+            }
+            let decoded = try JSONDecoder().decode(RefreshResponse.self, from: data)
+            let isAnon = decoded.user.is_anonymous ?? wasAnonymous
+            saveSession(
+                token: decoded.access_token,
+                refreshToken: decoded.refresh_token ?? refreshToken,
+                userId: decoded.user.id,
+                email: decoded.user.email,
+                isAnonymous: isAnon
+            )
+            return true
+        } catch {
+            print("Supabase refreshSession error: \(error)")
+            return false
+        }
+    }
+
+    @discardableResult
+    func signInAnonymously() async -> Bool {
+        guard let url = URL(string: "\(authURL)/signup") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(anonKey, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Data("{}".utf8)
+
+        do {
+            let (data, response) = try await session.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return false
+            }
+            struct AnonResponse: Codable {
+                let access_token: String
+                let refresh_token: String?
+                let user: AnonUser
+            }
+            struct AnonUser: Codable {
+                let id: String
+                let is_anonymous: Bool?
+            }
+            let decoded = try JSONDecoder().decode(AnonResponse.self, from: data)
+            saveSession(
+                token: decoded.access_token,
+                refreshToken: decoded.refresh_token,
+                userId: decoded.user.id,
+                email: nil,
+                isAnonymous: decoded.user.is_anonymous ?? true
+            )
+            return true
+        } catch {
+            print("Supabase signInAnonymously error: \(error)")
+            return false
+        }
+    }
+
     func ensureUserSession() async {
+        guard !isEnsuringSession else { return }
+        isEnsuringSession = true
+        defer { isEnsuringSession = false }
+
         loadSavedSession()
-        // Anonymous guest mode is default: no hardcoded auto-login!
+
+        if let token = UserDefaults.standard.string(forKey: userDefaultsKeyToken),
+           !token.isEmpty,
+           validCurrentUserId != nil {
+            if isJWTExpiringSoon(token),
+               let refresh = UserDefaults.standard.string(forKey: userDefaultsKeyRefreshToken),
+               !refresh.isEmpty {
+                let refreshed = await refreshSession(refreshToken: refresh, wasAnonymous: self.isAnonymous)
+                if !refreshed {
+                    handleAuthFailure()
+                    await signInAnonymously()
+                }
+            }
+            return
+        }
+
+        // No active Supabase Auth user yet: create an anonymous user in auth.users
+        await signInAnonymously()
     }
 
     func signOut() {
-        UserDefaults.standard.removeObject(forKey: userDefaultsKeyToken)
-        UserDefaults.standard.removeObject(forKey: userDefaultsKeyUserId)
-        UserDefaults.standard.removeObject(forKey: userDefaultsKeyEmail)
+        clearStoredAuthSession()
 
         self.currentUserId = nil
         self.currentUserEmail = nil
@@ -333,6 +566,10 @@ class SupabaseManager: ObservableObject {
         UserPreferencesManager.shared.preferences.userName = "Ospite"
         UserPreferencesManager.shared.preferences.userEmail = ""
         NotificationCenter.default.post(name: NSNotification.Name("FitMatchAuthSessionDidChange"), object: nil)
+
+        Task {
+            await signInAnonymously()
+        }
     }
 
     func deleteAccount() async throws -> Bool {
@@ -1083,7 +1320,7 @@ class SupabaseManager: ObservableObject {
         }
         var body: [String: Any] = [
             "device_id": deviceId,
-            "preferred_sizes": [prefs.preferredShoeSize, prefs.preferredApparelSize],
+            "preferred_sizes": [prefs.preferredShoeSize, prefs.preferredApparelSize].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
             "favorite_brands": prefs.favoriteBrands,
             "selected_sports": prefs.selectedSports,
             "notifications_enabled": prefs.isPushNotificationEnabled
