@@ -13,6 +13,9 @@ class APIService: ObservableObject {
     // Client-side instant search cache (10-minute validity)
     private var smartSearchCache: [String: (response: SmartSearchResponse, expiry: Date)] = [:]
     private var liveSearchCache: [String: (results: [MatchedProduct], expiry: Date)] = [:]
+    // Client-side deals cache (5-minute validity) & in-flight deduplication
+    private var dealsShowcasesCache: [String: (showcases: [StoreShowcase], expiry: Date)] = [:]
+    private var inFlightDealsTasks: [String: Task<[StoreShowcase], Error>] = [:]
 
     init() {
         let config = URLSessionConfiguration.default
@@ -1576,24 +1579,61 @@ class APIService: ObservableObject {
         return []
     }
 
-    func getDealsShowcases(category: String? = nil) async throws -> [StoreShowcase] {
-        do {
-            let direct = try await SupabaseManager.shared.fetchDealsShowcasesDirect(category: category)
-            if !direct.isEmpty {
-                return direct
+    func cachedDealsShowcases(for category: String?) -> [StoreShowcase]? {
+        let key = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
+            $0.isEmpty ? nil : $0
+        } ?? "tutti"
+        guard let cached = dealsShowcasesCache[key], Date() < cached.expiry else {
+            return nil
+        }
+        return cached.showcases
+    }
+
+    func prefetchDefaultDealsIfNeeded() async {
+        if cachedDealsShowcases(for: "tutti") != nil { return }
+        _ = try? await getDealsShowcases(category: nil, forceRefresh: false)
+    }
+
+    func getDealsShowcases(category: String? = nil, forceRefresh: Bool = false) async throws -> [StoreShowcase] {
+        let cacheKey = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
+            $0.isEmpty ? nil : $0
+        } ?? "tutti"
+
+        if !forceRefresh, let cached = dealsShowcasesCache[cacheKey], Date() < cached.expiry {
+            return cached.showcases
+        }
+
+        if !forceRefresh, let existingTask = inFlightDealsTasks[cacheKey] {
+            return try await existingTask.value
+        }
+
+        let task = Task<[StoreShowcase], Error> {
+            do {
+                let direct = try await SupabaseManager.shared.fetchDealsShowcasesDirect(category: category)
+                // Only fall back to general store showcases for "tutti" if direct returned empty;
+                // for specific categories, the RPC evaluates the entire catalog authoritatively.
+                if !direct.isEmpty || cacheKey != "tutti" {
+                    return direct
+                }
+            } catch {
+                print("APIService fetchDealsShowcasesDirect error: \(error)")
             }
-        } catch {
-            print("APIService fetchDealsShowcasesDirect error: \(error)")
+
+            // Fallback when RPC/Supabase direct failed (or "tutti" returned empty)
+            guard cacheKey != "tutti" else {
+                return try await getStoreShowcases()
+            }
+
+            let allStores = try await getStoreShowcases()
+            return filterShowcasesByCategory(allStores, category: cacheKey)
         }
 
-        // If category is nil or "tutti", fallback to general store showcases
-        guard let cat = category?.lowercased(), !cat.isEmpty && cat != "tutti" else {
-            return try await getStoreShowcases()
-        }
+        inFlightDealsTasks[cacheKey] = task
+        defer { inFlightDealsTasks[cacheKey] = nil }
 
-        // If a specific category was requested, filter fallback products so unrelated items (e.g. shoes for smartwatch) are NEVER shown
-        let allStores = try await getStoreShowcases()
-        return filterShowcasesByCategory(allStores, category: cat)
+        let result = try await task.value
+        dealsShowcasesCache[cacheKey] = (result, Date().addingTimeInterval(300))
+        return result
     }
 
     private func filterShowcasesByCategory(_ showcases: [StoreShowcase], category: String) -> [StoreShowcase] {
@@ -1602,7 +1642,9 @@ class APIService: ObservableObject {
 
         var filtered: [StoreShowcase] = []
         for sc in showcases {
-            let matched = sc.products.filter { CategoryFilterMatcher.matches(title: $0.title, category: cat) }
+            let matched = sc.products.filter {
+                CategoryFilterMatcher.matches(title: $0.title, category: cat, brand: $0.brand)
+            }
             if !matched.isEmpty {
                 filtered.append(StoreShowcase(
                     store_id: sc.store_id,

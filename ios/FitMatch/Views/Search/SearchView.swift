@@ -43,6 +43,7 @@ struct SearchView: View {
     @State private var conversationTurns: [SearchConversationTurn] = []
     @State private var currentSessionId: String? = nil
     @State private var savedChatSessions: [ChatSessionSummary] = []
+    @State private var isLoadingChatSessions: Bool = true
     @State private var isFollowUpLoading: Bool = false
     @State private var pendingFollowUpQuery: String? = nil
     @State private var followUpErrorMessage: String? = nil
@@ -252,8 +253,9 @@ struct SearchView: View {
             }
             .task {
                 loadInitialTopSavings()
-                await recentManager.syncFromDatabase()
-                await loadSavedChatSessions()
+                async let syncRecent: Void = recentManager.syncFromDatabase()
+                async let loadChats: Void = loadSavedChatSessions()
+                _ = await (syncRecent, loadChats)
                 if !searchText.isEmpty && !hasSearched {
                     executeSearch()
                 }
@@ -267,8 +269,6 @@ struct SearchView: View {
             ScrollViewReader { scrollProxy in
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 26) {
-                        Color.clear.frame(height: 0).id("search_home_top")
-
                         // Header Title: Cerca (with back button if navigated from Home/Product)
                     HStack(spacing: 12) {
                         if tabCoordinator.previousTab != nil {
@@ -302,18 +302,30 @@ struct SearchView: View {
                     // Section 1: "Visti di recente >" (Screenshot 1 & 2 top)
                     if !recentManager.recentlyViewedProducts.isEmpty {
                         recentlyViewedSection
+                            .transition(.opacity)
+                    } else if recentManager.isSyncingDatabase {
+                        ShopSearchRecentlyViewedSkeletonSection()
+                            .transition(.opacity)
                     }
 
                     // Section 2: "Conversazioni recenti" (Saved multi-turn chats from DB)
                     if !savedChatSessions.isEmpty {
                         savedChatSessionsSection
-                    } else if recentManager.recentlyViewedProducts.isEmpty {
+                            .transition(.opacity)
+                    } else if isLoadingChatSessions {
+                        ShopSearchRecentChatsSkeletonSection(rowCount: 3)
+                            .transition(.opacity)
+                    } else if recentManager.recentlyViewedProducts.isEmpty && !recentManager.isSyncingDatabase {
                         emptyHistoryPlaceholder
+                            .transition(.opacity)
                     }
 
                     Spacer(minLength: 150)
                 }
                 .padding(.top, 10)
+                .animation(.easeOut(duration: 0.24), value: recentManager.isSyncingDatabase)
+                .animation(.easeOut(duration: 0.24), value: isLoadingChatSessions)
+                .id("search_home_top")
             }
             .scrollDismissesKeyboard(.interactively)
             .contentShape(Rectangle())
@@ -553,9 +565,15 @@ struct SearchView: View {
     }
 
     private func loadSavedChatSessions() async {
+        await MainActor.run {
+            if self.savedChatSessions.isEmpty {
+                self.isLoadingChatSessions = true
+            }
+        }
         let sessions = await api.fetchChatSessions(deviceId: SupabaseManager.shared.deviceId, limit: 15)
         await MainActor.run {
             self.savedChatSessions = sessions.filter { ($0.chat_type ?? "smart_search") == "smart_search" }
+            self.isLoadingChatSessions = false
         }
     }
 
@@ -929,32 +947,34 @@ struct SearchView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 18) {
+                        VStack(spacing: 0) {
                             Color.clear.frame(height: 0).id("search_ai_top")
 
-                            if !conversationTurns.isEmpty {
-                                ForEach(conversationTurns) { turn in
-                                    turnContentView(for: turn)
-                                        .id(turn.id)
+                            LazyVStack(alignment: .leading, spacing: 18) {
+                                if !conversationTurns.isEmpty {
+                                    ForEach(conversationTurns) { turn in
+                                        turnContentView(for: turn)
+                                            .id(turn.id)
+                                    }
+                                } else {
+                                    // Fallback if turns haven't initialized yet
+                                    legacyTurnView
                                 }
-                            } else {
-                                // Fallback if turns haven't initialized yet
-                                legacyTurnView
-                            }
 
-                            // Follow-up loading state: user bubble + thinking indicator
-                            if isFollowUpLoading {
-                                followUpLoadingSection
-                                    .id("follow_up_loading_section")
-                            }
+                                // Follow-up loading state: user bubble + thinking indicator
+                                if isFollowUpLoading {
+                                    followUpLoadingSection
+                                        .id("follow_up_loading_section")
+                                }
 
-                            // Follow-up error retry banner (if follow-up failed)
-                            if let followUpErr = followUpErrorMessage {
-                                followUpErrorSection(followUpErr)
-                            }
+                                // Follow-up error retry banner (if follow-up failed)
+                                if let followUpErr = followUpErrorMessage {
+                                    followUpErrorSection(followUpErr)
+                                }
 
-                            // Spacing at bottom for floating follow-up bar and dock
-                            Spacer(minLength: 130)
+                                // Spacing at bottom for floating follow-up bar and dock
+                                Spacer(minLength: 130)
+                            }
                         }
                     }
                     .scrollDismissesKeyboard(.interactively)
@@ -1972,16 +1992,18 @@ struct SearchView: View {
             } else if !filteredAndSortedResults.isEmpty {
                 ScrollViewReader { scrollProxy in
                     ScrollView {
-                        LazyVStack(spacing: 14) {
+                        VStack(spacing: 0) {
                             Color.clear.frame(height: 0).id("search_classic_top")
 
-                            ForEach(filteredAndSortedResults) { item in
-                                ShopOfficialProductCard(product: item)
+                            LazyVStack(spacing: 14) {
+                                ForEach(filteredAndSortedResults) { item in
+                                    ShopOfficialProductCard(product: item)
+                                }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
+                            .padding(.bottom, 130)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 130)
                     }
                     .scrollDismissesKeyboard(.interactively)
                     .simultaneousGesture(

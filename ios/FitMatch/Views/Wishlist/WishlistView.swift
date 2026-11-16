@@ -129,8 +129,6 @@ struct WishlistView: View {
         ScrollViewReader { scrollProxy in
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: ShopLayout.sectionSpacing) {
-                    Color.clear.frame(height: 0).id("wishlist_top")
-
                     if wishlist.isSyncingDatabase && wishlist.items.isEmpty {
                     ShopWishlistSkeletonView()
                         .transition(.opacity)
@@ -159,6 +157,7 @@ struct WishlistView: View {
 
                 Spacer(minLength: ShopLayout.bottomDockClearance)
             }
+            .id("wishlist_top")
         }
         .background(Color.shopSurface)
         .scrollDismissesKeyboard(.interactively)

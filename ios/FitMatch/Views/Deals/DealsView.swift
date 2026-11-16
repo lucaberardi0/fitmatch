@@ -23,11 +23,16 @@ struct DealsView: View {
     @State private var dealsCache: [String: [StoreShowcase]] = [:]
     @State private var isCategorySwitching = false
     @State private var showingCategoriesSheet = false
+    @State private var activeLoadTask: Task<Void, Never>? = nil
     @Namespace private var dealsCatNamespace
 
     init(embedded: Bool = false, onSelectPerTe: (() -> Void)? = nil) {
         self.embedded = embedded
         self.onSelectPerTe = onSelectPerTe
+        if let initialCached = APIService.shared.cachedDealsShowcases(for: "tutti") {
+            self._showcases = State(initialValue: initialCached)
+            self._dealsCache = State(initialValue: ["tutti": initialCached])
+        }
     }
 
     // Fallback categories when offline before first /api/stores sync
@@ -171,8 +176,6 @@ struct DealsView: View {
             ScrollViewReader { scrollProxy in
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 20) {
-                        Color.clear.frame(height: 0).id("deals_top")
-
                         // MARK: - 1. Hero Promo Banner (Matching Image 3)
                         heroBannerSection
                             .padding(.top, 4)
@@ -211,10 +214,11 @@ struct DealsView: View {
                         // Spacer for bottom dock and floating filter pill
                         Color.clear.frame(height: ShopLayout.bottomFilterDockClearance)
                     }
+                    .id("deals_top")
                 }
                 .refreshable {
                     dealsCache[selectedCategory] = nil
-                    await loadDeals(category: selectedCategory)
+                    await loadDeals(category: selectedCategory, forceRefresh: true)
                 }
                 .onReceive(TabCoordinator.shared.$scrollToTopEvent) { event in
                     guard let event, event.tab == 0 else { return }
@@ -238,10 +242,17 @@ struct DealsView: View {
         }
         .task {
             if prefs.dynamicCategories.isEmpty {
-                await prefs.fetchActiveStores(apiService: api)
+                Task {
+                    await prefs.fetchActiveStores(apiService: api)
+                }
             }
             if showcases.isEmpty {
-                await loadDeals(category: selectedCategory)
+                if let warm = api.cachedDealsShowcases(for: selectedCategory) {
+                    dealsCache[selectedCategory] = warm
+                    showcases = warm
+                } else {
+                    await loadDeals(category: selectedCategory)
+                }
             }
         }
     }
@@ -617,25 +628,30 @@ struct DealsView: View {
     }
 
     private func selectCategory(_ catId: String) {
+        activeLoadTask?.cancel()
+
         withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
             self.selectedCategory = catId
         }
-        if let cached = dealsCache[catId] {
+        if let cached = dealsCache[catId] ?? api.cachedDealsShowcases(for: catId) {
+            dealsCache[catId] = cached
             withAnimation(.easeInOut(duration: 0.2)) {
                 self.showcases = cached
                 self.isCategorySwitching = false
+                self.isLoading = false
             }
-        } else {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                self.isCategorySwitching = true
-            }
+            return
         }
-        Task {
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            self.isCategorySwitching = true
+        }
+        activeLoadTask = Task {
             await loadDeals(category: catId)
         }
     }
 
-    private func loadDeals(category: String) async {
+    private func loadDeals(category: String, forceRefresh: Bool = false) async {
         isLoading = true
         defer {
             if selectedCategory == category {
@@ -644,7 +660,11 @@ struct DealsView: View {
             }
         }
         do {
-            let sc = try await api.getDealsShowcases(category: category == "tutti" ? nil : category)
+            let sc = try await api.getDealsShowcases(
+                category: category == "tutti" ? nil : category,
+                forceRefresh: forceRefresh
+            )
+            if Task.isCancelled { return }
             let prefetchUrls = sc.flatMap { $0.products.prefix(6) }.compactMap { URL(string: $0.image_url ?? "") }
             ImageCacheManager.shared.prefetch(urls: prefetchUrls)
             await MainActor.run {
@@ -654,6 +674,8 @@ struct DealsView: View {
                     self.showcases = sc
                 }
             }
+        } catch is CancellationError {
+            // Ignored when switching categories rapidly
         } catch {
             print("DealsView loadDeals error: \(error)")
         }

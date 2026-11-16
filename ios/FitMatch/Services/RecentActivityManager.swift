@@ -137,6 +137,7 @@ class RecentActivityManager: ObservableObject {
     static let shared = RecentActivityManager()
 
     @Published var activities: [RecentActivityItem] = []
+    @Published var isSyncingDatabase: Bool = true
 
     private let saveFileName = "fitmatch_recent_activity.json"
     private let pendingDeletesKey = "fitmatch_recent_pending_deletes_v1"
@@ -227,8 +228,10 @@ class RecentActivityManager: ObservableObject {
             return
         }
         isSyncing = true
+        isSyncingDatabase = true
         defer {
             isSyncing = false
+            isSyncingDatabase = false
             if needsAnotherSync {
                 needsAnotherSync = false
                 Task { [weak self] in

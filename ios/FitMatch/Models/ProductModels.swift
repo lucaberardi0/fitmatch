@@ -1329,7 +1329,7 @@ struct CategoryFilterMatcher {
         if cat == "accessori" {
             let exc = ["scarpe", "scarpa", "maglia", "pantalone", "felpa", "giacca", "smartwatch", "orologio", "racchetta", "bici", "bicicletta"]
             if exc.contains(where: { t.contains($0) }) { return false }
-            if ["eyewear", "socks", "pack", "hydration", "strap", "case", "mount", "sensor", "nutrition"].contains(lcat) { return true }
+            if ["eyewear", "socks", "pack", "hydration", "strap", "case", "mount", "sensor"].contains(lcat) { return true }
             let inc = ["occhiali", "calzini", "calze", "guanti", "cappell", "beanie", "zaino", "borraccia", "soft flask", "sock", "belt", "marsupio", "headband", "visiera", "cinturino", "strap", "berretto", "borsone", "shinguard", "parastinchi", "ginocchier"]
             return inc.contains(where: { t.contains($0) })
         }
@@ -1360,18 +1360,18 @@ struct CategoryFilterMatcher {
         }
 
         if cat == "calcio" || cat == "football_boots" {
-            let exc = ["scarpe running", "padel", "racchetta", "basket", "tennis", "sci "]
+            let exc = ["scarpe running", "scarpa da running", "scarpe da running", "trail", "padel", "racchetta", "basket", "tennis", "windbreaker", "giacca da corsa", "pegasus", "vapor glove", "vapor pro 3", "sci "]
             if exc.contains(where: { t.contains($0) }) { return false }
             if lcat == "football_boots" { return true }
-            let inc = ["calcio", "calcetto", "futsal", "scarpin", "mercurial", "superfly", "predator", "phantom", "tiempo", "copa pure", "top sala", "top flex", "parastinchi", "portiere", "uhlsport", "reusch"]
+            let inc = ["calcio", "calcetto", "futsal", "scarpin", "guanti portiere", "mercurial", "superfly", "predator", "phantom gx", "phantom luna", "tiempo", "copa pure", "copa gloro", "top sala", "top flex", "parastinchi", "shinguard", "uhlsport", "reusch"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "tennis" {
-            let exc = ["padel", "bullpadel", "nox ", "siux", "starvie", "calcio", "basket", "sci "]
+            let exc = ["padel", "bullpadel", "nox ", "siux", "starvie", "kuikma", "calcio", "basket", "sci ", "running"]
             if exc.contains(where: { t.contains($0) }) { return false }
             if lcat == "tennis" { return true }
-            let inc = ["tennis", "terra battuta", "babolat pure drive", "pure aero", "wilson blade", "pro staff", "clash", "yonex ezone", "vcore", "percept", "gel-resolution", "court ff", "nikecourt", "barricade", "head speed", "radical mp"]
+            let inc = ["tennis", "terra battuta", "babolat pure drive", "pure aero", "pure strike", "wilson blade", "pro staff", "wilson clash", "yonex ezone", "vcore", "percept", "gel-resolution", "court ff", "nikecourt", "barricade", "head speed", "radical mp", "gravity mp"]
             return inc.contains(where: { t.contains($0) })
         }
 
@@ -1379,29 +1379,33 @@ struct CategoryFilterMatcher {
             let exc = ["calcio", "calcetto", "padel", "tennis", "running", "trail", "sci "]
             if exc.contains(where: { t.contains($0) }) { return false }
             if lcat == "basketball" || lcat == "basketball_shoes" { return true }
-            let inc = ["basket", "basketball", "pallacanestro", "lebron", "kd ", "kobe", "luka", "curry", "giannis", "sabrina", "harden", "air jordan", "spalding", "molten", "canotta nba"]
+            let inc = ["basket", "basketball", "pallacanestro", "lebron", "kd ", "kobe", "luka", "curry", "giannis", "sabrina", "tatum", "harden", "air jordan", "spalding", "molten", "canotta nba", "lakers", "chicago bulls", "celtics"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "sci" || cat == "winter_sports" {
-            let exc = ["scarpe running", "padel", "calcio", "basket", "tennis", "racchetta"]
+            let exc = ["scarpe running", "padel", "calcio", "basket", "tennis", "racchetta", "vezor", "vercors", "scarpe", "scarpa"]
             if exc.contains(where: { t.contains($0) }) { return false }
             if lcat == "winter_sports" { return true }
-            let inc = ["sci ", "da sci", "scarponi", "snowboard", "maschera sci", "casco sci", "attacchi sci", "atomic", "rossignol", "nordica", "dalbello", "tecnica mach", "fischer", "volkl", "burton", "scialpinismo", "alpinismo"]
+            let inc = ["sci ", "da sci", "scarpon", "snowboard", "maschera sci", "casco sci", "attacchi sci", "ciaspole", "atomic", "rossignol", "nordica", "dalbello", "tecnica mach", "fischer", "volkl", "burton", "dynastar", "hawx", "scialpinismo"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "nuoto" || cat == "swim" {
-            let exc = ["scarpe running", "bici", "padel", "calcio", "racchetta"]
+            let exc = ["scarpe", "scarpa", "trainer", "crossfit", "bici", "padel", "calcio", "racchetta"]
             if exc.contains(where: { t.contains($0) }) { return false }
             if lcat == "swim" { return true }
-            let inc = ["nuoto", "piscina", "occhialini", "cuffia nuoto", "costume", "pinne", "muta", "arena", "speedo", "jaked", "tyr", "nabaiji", "pull buoy", "tavoletta"]
+            let inc = ["nuoto", "piscina", "occhialini", "cuffia nuoto", "costume", "bikini", "jammer", "powerskin", "fastskin", "cobra ultra", "pinne", "muta", "arena", "speedo", "jaked", "nabaiji", "pull buoy", "tavoletta"]
             return inc.contains(where: { t.contains($0) })
         }
 
         if cat == "nutrizione" || cat == "nutrition" {
+            let blockedDbCats = ["shoes", "running_shoes", "trail_running", "top", "pants", "jacket", "pack", "hydration", "socks", "gps_watch", "racket", "padel", "cycling", "football_boots", "basketball", "basketball_shoes", "winter_sports", "swim"]
+            if blockedDbCats.contains(lcat) { return false }
+            let exc = ["scarpe", "scarpa", "sneaker", "asics", "trabuco", "cumulus", "nimbus", "kayano", "gt-2000", "pantalon", "short", "pocket", "maglia", "maglietta", "t-shirt", "tshirt", "canotta", "felpa", "giacca", "cappell", "trucker", "calzin", "calze", "zaino", "marsupio", "borraccia", "bottiglia", "soft flask", "gelflask", "flask", "massagg", "foam roller", "theragun", "compex", "hyperice", "cintura"]
+            if exc.contains(where: { t.contains($0) }) { return false }
             if lcat == "nutrition" { return true }
-            let inc = ["gel ", "energetico", "isotonic", "enervit", "maurten", "sis ", "namedsport", "barretta", "maltodestrin", "sali minerali", "integratore", "elettroliti", "proteine", "theragun", "compex", "hyperice", "massaggiante", "foam roller", "recupero"]
+            let inc = ["gel energet", "gel isoton", "carbo gel", "liquid gel", "energy gel", "gel maurten", "enervit", "maurten", "namedsport", "named sport", "226ers", "ethicsport", "ethic sport", "4endurance", "high5", "powerbar", "proaction", "cetilar", "pro nutrition", "piu watt", "science in sport", "barretta", "barrette", "maltodestrin", "sali mineral", "integrator", "elettrolit", "proteine", "whey", "creatina", "bcaa", "aminoacid", "bevanda isoton", "bevanda energet", "drink mix", "pre-workout", "pre workout", "recovery drink", "tart cherry", "omega 3"]
             return inc.contains(where: { t.contains($0) })
         }
 

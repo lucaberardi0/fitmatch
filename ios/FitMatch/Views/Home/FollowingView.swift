@@ -65,8 +65,6 @@ struct FollowingView: View {
         ScrollViewReader { scrollProxy in
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: ShopLayout.sectionSpacing) {
-                    Color.clear.frame(height: 0).id("following_top")
-
                     if isLoading && showcases.isEmpty {
                     ShopFollowingSkeletonView()
                         .transition(.opacity)
@@ -89,6 +87,7 @@ struct FollowingView: View {
 
                 Spacer(minLength: ShopLayout.bottomDockClearance)
             }
+            .id("following_top")
         }
         .refreshable {
             await refreshData()

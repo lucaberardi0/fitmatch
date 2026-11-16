@@ -911,6 +911,87 @@ struct ShopSearchDeepDiveSkeletonView: View {
     }
 }
 
+// MARK: - 3c. Search Landing ("Visti di recente" & "Conversazioni recenti") Skeleton
+
+struct ShopSearchRecentlyViewedSkeletonSection: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                ShopSkeletonTextLine(width: 132, height: 19, cornerRadius: 6)
+                ShopSkeletonBlock(cornerRadius: 4, width: 10, height: 14)
+                Spacer()
+            }
+            .padding(.horizontal, ShopLayout.screenPadding)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: ShopLayout.compactSpacing) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        ShopSkeletonBlock(cornerRadius: 18, width: 136, height: 140)
+                    }
+                }
+                .padding(.horizontal, ShopLayout.screenPadding)
+            }
+            .disabled(true)
+        }
+    }
+}
+
+struct ShopSearchRecentChatsSkeletonSection: View {
+    var rowCount: Int = 3
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                ShopSkeletonTextLine(width: 184, height: 19, cornerRadius: 6)
+                ShopSkeletonCapsule(width: 24, height: 20)
+                Spacer()
+            }
+            .padding(.horizontal, ShopLayout.screenPadding)
+
+            VStack(spacing: 10) {
+                ForEach(0..<rowCount, id: \.self) { index in
+                    HStack(spacing: 13) {
+                        ShopSkeletonBlock(cornerRadius: 13, width: 48, height: 48)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            ShopSkeletonTextLine(width: index == 1 ? 190 : 155, height: 14, cornerRadius: 5)
+                            HStack(spacing: 6) {
+                                if index == 0 {
+                                    ShopSkeletonCapsule(width: 68, height: 17)
+                                }
+                                ShopSkeletonTextLine(width: index == 2 ? 120 : 88, height: 11, cornerRadius: 4)
+                            }
+                        }
+
+                        Spacer(minLength: 6)
+
+                        ShopSkeletonBlock(cornerRadius: 3, width: 8, height: 13)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 11)
+                    .background(Color.white)
+                    .cornerRadius(16)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.03), radius: 8, y: 2)
+                }
+            }
+            .padding(.horizontal, ShopLayout.screenPadding)
+        }
+    }
+}
+
+struct ShopSearchHomeSkeletonView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            ShopSearchRecentlyViewedSkeletonSection()
+            ShopSearchRecentChatsSkeletonSection(rowCount: 3)
+        }
+    }
+}
+
 struct ShopSearchGridSkeletonView: View {
     private let columns = [
         GridItem(.flexible(), spacing: 12),

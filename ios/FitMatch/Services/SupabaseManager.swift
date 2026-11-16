@@ -1509,8 +1509,10 @@ class SupabaseManager: ObservableObject {
 
             if let (data, resp) = try? await session.data(for: rpcReq),
                let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
-               let rpcRows = try? JSONDecoder().decode([RpcDealRow].self, from: data),
-               !rpcRows.isEmpty {
+               let rpcRows = try? JSONDecoder().decode([RpcDealRow].self, from: data) {
+                if rpcRows.isEmpty {
+                    return []
+                }
 
                 var grouped: [String: (
                     name: String,

@@ -404,8 +404,6 @@ struct HomeView: View {
         ScrollViewReader { scrollProxy in
             ScrollView(showsIndicators: false) {
                 VStack(spacing: ShopLayout.sectionSpacing) {
-                    Color.clear.frame(height: 0).id("home_per_te_top")
-
                     // MARK: 1. Top Carousel of Summary Cards: "Visti di recente" & "Elementi salvati" (Screenshots 1 & 2)
                     topSummaryCardsCarousel
                         .padding(.top, 2)
@@ -447,6 +445,7 @@ struct HomeView: View {
 
                 Spacer(minLength: ShopLayout.bottomDockClearance)
             }
+            .id("home_per_te_top")
         }
         .refreshable {
             await fetchShowcases()
@@ -1133,6 +1132,10 @@ struct HomeView: View {
             // Proactively prefetch feed images into L1 memory cache off-thread
             let prefetchUrls = sc.flatMap { $0.products.prefix(4) }.compactMap { URL(string: $0.image_url ?? "") }
             ImageCacheManager.shared.prefetch(urls: prefetchUrls)
+            // Warm default Deals ("Offerte") cache in the background so switching tab is instant
+            Task {
+                await api.prefetchDefaultDealsIfNeeded()
+            }
         } catch {
             print("HomeView fetchShowcases error: \(error)")
         }
