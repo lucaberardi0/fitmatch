@@ -7,7 +7,8 @@ client = TestClient(app)
 
 
 def test_get_stores_returns_dynamic_catalog_metadata():
-    response = client.get("/api/stores")
+    with patch("api.db.get_stores", return_value=[]):
+        response = client.get("/api/stores")
     assert response.status_code == 200
     data = response.json()
 

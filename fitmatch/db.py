@@ -1612,21 +1612,21 @@ class Database:
             "df_sportspecialist": {
                 "name": "DF Sport Specialist",
                 "base_url": "https://www.df-sportspecialist.it",
-                "rating": "4.8",
-                "review_count": "5.4k recensioni",
+                "rating": "4.6",
+                "review_count": "38k recensioni",
                 "description": "Storica catena italiana punto di riferimento per corsa, montagna, outdoor, ciclismo e padel.",
                 "full_description": "Fondata da Sergio Longoni, DF Sport Specialist è la catena di negozi sportivi di riferimento nel Nord Italia con oltre 15 megastore e un portale e-commerce moderno su Shopify. Conosciuta per l'eccellenza dello staff tecnico e la qualità dei brand trattati, offre assistenza specializzata per la scelta delle scarpe da corsa, attrezzatura da alpinismo e racchette da padel.",
                 "badges": ["15+ Megastore in Italia", "Spedizione Veloce 24/48h", "Staff Tecnico Esperto", "Reso Facile 30 Giorni"],
-                "highlights": ["15 Megastore Fisici", "Consulenza Tecnica Specializzata", "Spedizione Gratuita da 60€"],
+                "highlights": ["15 Megastore Fisici", "Consulenza Tecnica Specializzata", "Spedizione Gratuita da 100€"],
                 "location": "Sede Centrale: Barzanò (LC), Italia",
-                "shipping_info": "Spedizione standard 5,90 € • Gratuita in tutta Italia da 60,00 € con GLS / BRT",
-                "shipping_rule": {"standard": 5.90, "free_threshold": 60.0, "label": "Gratis da 60 €", "courier": "GLS / BRT"},
+                "shipping_info": "Spedizione standard 8,00 € • Gratuita in tutta Italia da 100,00 € con Corriere Espresso",
+                "shipping_rule": {"standard": 8.00, "free_threshold": 100.0, "label": "Gratis da 100 €", "courier": "Corriere Espresso"},
                 "return_policy": "30 giorni per reso in negozio o con corriere",
                 "rating_breakdown": {
-                    "score": 4.8,
-                    "positive_pct": "96%",
-                    "review_count": "5.400+",
-                    "platform": "Feedaty / Trustpilot"
+                    "score": 4.6,
+                    "positive_pct": "94%",
+                    "review_count": "38.000+",
+                    "platform": "Trustpilot / Feedaty"
                 }
             }
         }
