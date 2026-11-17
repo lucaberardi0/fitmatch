@@ -105,7 +105,27 @@ struct MainTabView: View {
         TabCoordinator.shared.selectedTab = initialTab
     }
 
+    private var shouldShowOnboarding: Bool {
+        !skipOnboarding && !prefsManager.hasCompletedOnboarding
+    }
+
     var body: some View {
+        Group {
+            if shouldShowOnboarding {
+                OnboardingView()
+                    .transition(.opacity)
+            } else {
+                mainContent
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: shouldShowOnboarding)
+        .task {
+            await UserPreferencesManager.shared.fetchActiveStores(apiService: APIService.shared)
+        }
+    }
+
+    private var mainContent: some View {
         ZStack(alignment: .bottom) {
             // Main Tab Screens (Kept alive in a ZStack so navigation stack & scroll position are never destroyed)
             ZStack {
@@ -149,20 +169,7 @@ struct MainTabView: View {
                 StoreDetailView(storeId: store.id, initialStoreName: store.name)
             }
         }
-        .fullScreenCover(isPresented: Binding(
-            get: { !skipOnboarding && !prefsManager.hasCompletedOnboarding },
-            set: { isPresented in
-                if !isPresented {
-                    prefsManager.completeOnboarding()
-                }
-            }
-        )) {
-            OnboardingView()
-        }
         .ignoresSafeArea(.keyboard)
-        .task {
-            await UserPreferencesManager.shared.fetchActiveStores(apiService: APIService.shared)
-        }
     }
 }
 

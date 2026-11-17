@@ -2035,35 +2035,77 @@ class APIService: ObservableObject {
             throw URLError(.badURL)
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 35
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         let payload: [String: String] = [
             "image_base64": imageData.base64EncodedString(),
             "mime_type": mimeType,
             "device_id": SupabaseManager.shared.deviceId
         ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let bodyData = try JSONSerialization.data(withJSONObject: payload)
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
-        guard (200...299).contains(http.statusCode) else {
-            if let errObj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let detail = errObj["detail"] as? String {
-                throw NSError(domain: "FitMatchVisualSearch", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: detail])
+        let maxRetries = 2
+        var lastError: Error?
+
+        for attempt in 0...maxRetries {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 35
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = bodyData
+
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw URLError(.badServerResponse)
+                }
+
+                if (200...299).contains(http.statusCode) {
+                    return try JSONDecoder().decode(VisualSearchResponse.self, from: data)
+                }
+
+                if [502, 503, 504].contains(http.statusCode) && attempt < maxRetries {
+                    try? await Task.sleep(nanoseconds: 1_800_000_000)
+                    continue
+                }
+
+                if http.statusCode == 404 {
+                    throw NSError(
+                        domain: "FitMatchVisualSearch",
+                        code: 404,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: "Servizio di ricerca visiva non ancora attivo sul server (404). Completa il deploy del backend su Render."
+                        ]
+                    )
+                }
+
+                if let errObj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let detail = errObj["detail"] as? String,
+                   !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    throw NSError(domain: "FitMatchVisualSearch", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: detail])
+                }
+
+                throw NSError(
+                    domain: "FitMatchVisualSearch",
+                    code: http.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: "Errore durante l'analisi della foto (\(http.statusCode))."]
+                )
+            } catch {
+                lastError = error
+                let nsErr = error as NSError
+                if nsErr.domain == "FitMatchVisualSearch" {
+                    throw error
+                }
+                if attempt < maxRetries {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    continue
+                }
             }
-            throw NSError(
-                domain: "FitMatchVisualSearch",
-                code: http.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "Errore durante l'analisi della foto (\(http.statusCode))."]
-            )
         }
 
-        return try JSONDecoder().decode(VisualSearchResponse.self, from: data)
+        throw lastError ?? NSError(
+            domain: "FitMatchVisualSearch",
+            code: -1,
+            userInfo: [NSLocalizedDescriptionKey: "Connessione al servizio di analisi visiva non riuscita. Riprova tra poco."]
+        )
     }
 }
 

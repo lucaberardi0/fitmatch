@@ -1910,16 +1910,18 @@ def visual_search(req_body: VisualSearchRequest):
 
         if result.search_query:
             try:
-                tokens = [t for t in re.split(r"\s+", result.search_query) if len(t) >= 2]
+                clean_query = " ".join(result.search_query.split()[:5]).strip()
                 matches = db.search_smart(
-                    target_keywords=tokens[:4],
+                    target_keywords=[clean_query] if clean_query else [],
                     brand=result.brand,
+                    raw_query=clean_query,
                     limit=8,
                 )
                 if not matches and result.brand:
                     matches = db.search_smart(
                         target_keywords=[result.brand],
                         brand=result.brand,
+                        raw_query=result.brand,
                         limit=8,
                     )
                 result.catalog_matches_count = len(matches or [])

@@ -3827,181 +3827,75 @@ struct ShopVisualSearchSheet: View {
     @State private var cameraAlertMessage: String = ""
 
     @State private var isAnalyzing: Bool = false
-    @State private var scanOffset: CGFloat = -95
+    @State private var scanOffset: CGFloat = -110
     @State private var analysisResult: VisualSearchResponse? = nil
     @State private var analysisError: String? = nil
 
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 20) {
-                    // Header
-                    VStack(spacing: 6) {
-                        Text("Ricerca Visiva con IA")
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopDark)
-                        Text("Scatta una foto o scegline una dalla galleria per trovare subito il modello e confrontare i prezzi")
-                            .font(.system(size: 13.5))
-                            .foregroundColor(.shopTextMuted)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, ShopLayout.screenPadding)
-                    }
-                    .padding(.top, 14)
-
-                    // Viewfinder / Selected Photo Stage
-                    ZStack {
-                        RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
-                            .fill(Color.shopSurface)
-                            .frame(height: 250)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
-                                    .stroke(Color.shopBorder, lineWidth: 1)
-                            )
-
-                        if let image = selectedImage {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 234)
-                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                                .padding(8)
-                                .transition(.opacity)
-                        } else {
-                            VStack(spacing: 12) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.shopPurpleLight)
-                                        .frame(width: 72, height: 72)
-                                    Image(systemName: "camera.viewfinder")
-                                        .font(.system(size: 32, weight: .medium))
-                                        .foregroundColor(.shopPurple)
-                                }
-
-                                Text("Inquadra scarpe, smartwatch o capi sportivi")
-                                    .font(.system(size: 13.5, weight: .medium))
-                                    .foregroundColor(.shopTextMuted)
-                            }
-                        }
-
-                        if isAnalyzing {
-                            RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
-                                .fill(Color.black.opacity(0.14))
-                                .frame(height: 250)
-
-                            Rectangle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [.clear, Color.shopPurple.opacity(0.85), .clear],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .frame(height: 3)
-                                .offset(y: scanOffset)
-                                .shadow(color: .shopPurple, radius: 8)
-                        }
-                    }
-                    .padding(.horizontal, ShopLayout.screenPadding)
-
-                    // Dual Source Action Buttons (Camera + Gallery)
-                    HStack(spacing: 12) {
-                        Button(action: handleCameraButtonTap) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "camera.fill")
-                                    .font(.system(size: 15, weight: .bold))
-                                Text("Scatta foto")
-                                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
-                            }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .background(Color.shopDark)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }
-                        .buttonStyle(ShopCardPressStyle(scale: 0.97))
-                        .disabled(isAnalyzing)
-
-                        PhotosPicker(
-                            selection: $selectedPhotoItem,
-                            matching: .images,
-                            photoLibrary: .shared()
-                        ) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "photo.on.rectangle.angled")
-                                    .font(.system(size: 15, weight: .bold))
-                                Text("Galleria")
-                                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                VStack(spacing: 18) {
+                    // Custom Header Bar (Consistent with FitMatch Shop Design)
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 10.5, weight: .bold))
+                                Text("RICERCA VISIVA IA")
+                                    .font(.system(size: 10.5, weight: .heavy, design: .rounded))
+                                    .tracking(0.6)
                             }
                             .foregroundColor(.shopPurple)
-                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
                             .background(Color.shopPurpleLight)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(Color.shopPurple.opacity(0.22), lineWidth: 1)
-                            )
+                            .clipShape(Capsule())
+
+                            Text("Trova dalla foto")
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopDark)
+
+                            Text("Scatta o carica un articolo sportivo per confrontarne subito i prezzi.")
+                                .font(.system(size: 13.5))
+                                .foregroundColor(.shopTextMuted)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .disabled(isAnalyzing)
+
+                        Spacer()
+
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.shopDark)
+                                .shopNavCircle(size: 38)
+                        }
+                        .buttonStyle(ShopCardPressStyle(scale: 0.92))
                     }
                     .padding(.horizontal, ShopLayout.screenPadding)
+                    .padding(.top, 16)
 
-                    // Analysis State / Results / Errors
-                    if isAnalyzing {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                                .tint(.shopPurple)
-                            Text("Sto analizzando la foto…")
-                                .font(.system(size: 14.5, weight: .semibold))
-                                .foregroundColor(.shopDark)
-                        }
-                        .padding(.vertical, 8)
-                    } else if let error = analysisError {
-                        VStack(spacing: 12) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.shopRed)
-                                Text(error)
-                                    .font(.system(size: 13.5, weight: .medium))
-                                    .foregroundColor(.shopDark)
-                                    .multilineTextAlignment(.leading)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(14)
-                            .background(Color(red: 254/255, green: 242/255, blue: 242/255))
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                            if let image = selectedImage {
-                                Button(action: {
-                                    analyzePickedImage(image)
-                                }) {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "arrow.clockwise")
-                                        Text("Riprova analisi")
-                                    }
-                                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity, minHeight: 46)
-                                    .background(Color.shopPurple)
-                                    .clipShape(Capsule())
-                                }
-                            }
-                        }
+                    // Studio Viewfinder / Selected Photo Stage
+                    visualStageCard
                         .padding(.horizontal, ShopLayout.screenPadding)
-                    } else if let result = analysisResult {
+
+                    // Source Controls (Prominent cards before photo, compact bar after photo)
+                    sourceControlsSection
+                        .padding(.horizontal, ShopLayout.screenPadding)
+
+                    // Results or Error
+                    if let error = analysisError, !isAnalyzing {
+                        visualErrorCard(error)
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    } else if let result = analysisResult, !isAnalyzing {
                         visualResultSection(result)
                     }
 
-                    Spacer(minLength: 20)
+                    Spacer(minLength: 24)
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Chiudi") {
-                        dismiss()
-                    }
-                    .foregroundColor(.shopDark)
-                }
-            }
+            .background(Color.shopSurface.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(isPresented: $showCameraPicker) {
                 CameraImagePicker { capturedImage in
                     selectedImage = capturedImage
@@ -4015,11 +3909,15 @@ struct ShopVisualSearchSheet: View {
                     if let data = try? await newItem.loadTransferable(type: Data.self),
                        let uiImg = UIImage(data: data) {
                         await MainActor.run {
-                            selectedImage = uiImg
+                            selectedPhotoItem = nil
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                selectedImage = uiImg
+                            }
                             analyzePickedImage(uiImg)
                         }
                     } else {
                         await MainActor.run {
+                            selectedPhotoItem = nil
                             analysisError = "Impossibile caricare l'immagine dalla galleria."
                         }
                     }
@@ -4039,52 +3937,394 @@ struct ShopVisualSearchSheet: View {
     }
 
     @ViewBuilder
+    private var visualStageCard: some View {
+        ZStack {
+            if let image = selectedImage {
+                ZStack {
+                    // Ambient blurred backdrop eliminates awkward sidebars while keeping full product visible
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(height: 270)
+                        .frame(maxWidth: .infinity)
+                        .blur(radius: 26)
+                        .overlay(Color.black.opacity(0.32))
+                        .clipped()
+
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 244)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: Color.black.opacity(0.28), radius: 14, x: 0, y: 6)
+                        .padding(12)
+
+                    VisualScannerReticle(color: .white.opacity(0.75))
+                        .padding(18)
+
+                    if isAnalyzing {
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.clear, Color.shopPurple.opacity(0.92), Color.white.opacity(0.9), Color.shopPurple.opacity(0.92), .clear],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(height: 3)
+                            .offset(y: scanOffset)
+                            .shadow(color: .shopPurple, radius: 10)
+
+                        VStack {
+                            Spacer()
+                            HStack(spacing: 9) {
+                                ProgressView()
+                                    .tint(.white)
+                                    .scaleEffect(0.88)
+                                Text("Analisi modello con IA…")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial.opacity(0.92))
+                            .background(Color.black.opacity(0.45))
+                            .clipShape(Capsule())
+                            .padding(.bottom, 14)
+                        }
+                    } else {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Button(action: resetSelectedPhoto) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 10.5, weight: .bold))
+                                        Text("Rimuovi")
+                                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.black.opacity(0.56))
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(ShopCardPressStyle(scale: 0.94))
+                            }
+                            .padding(12)
+                            Spacer()
+                        }
+                    }
+                }
+                .frame(height: 270)
+                .frame(maxWidth: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.08), radius: 16, x: 0, y: 6)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .stroke(Color.shopBorder, lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.04), radius: 14, x: 0, y: 5)
+
+                    VisualScannerReticle(color: .shopPurple.opacity(0.28))
+                        .padding(20)
+
+                    VStack(spacing: 14) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.shopPurpleLight.opacity(0.55))
+                                .frame(width: 84, height: 84)
+                            Circle()
+                                .fill(Color.shopPurpleLight)
+                                .frame(width: 62, height: 62)
+                            Image(systemName: "camera.viewfinder")
+                                .font(.system(size: 28, weight: .semibold))
+                                .foregroundColor(.shopPurple)
+                        }
+
+                        VStack(spacing: 4) {
+                            Text("Inquadra il prodotto")
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopDark)
+                            Text("Funziona con foto nitide di scarpe, orologi e capi sportivi")
+                                .font(.system(size: 12.5))
+                                .foregroundColor(.shopTextMuted)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 28)
+                        }
+
+                        HStack(spacing: 6) {
+                            ForEach(["Scarpe", "Smartwatch", "Abbigliamento", "Zaini"], id: \.self) { label in
+                                Text(label)
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.shopTextMuted)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 5)
+                                    .background(Color.shopSurface)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                    .padding(.vertical, 20)
+                }
+                .frame(height: 252)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sourceControlsSection: some View {
+        if selectedImage == nil {
+            HStack(spacing: 12) {
+                Button(action: handleCameraButtonTap) {
+                    HStack(spacing: 10) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.white.opacity(0.14))
+                                .frame(width: 36, height: 36)
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Fotocamera")
+                                .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                            Text("Scatta ora")
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.white.opacity(0.72))
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity, minHeight: 62)
+                    .background(Color.shopDark)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 4)
+                }
+                .buttonStyle(ShopCardPressStyle(scale: 0.97))
+                .disabled(isAnalyzing)
+
+                PhotosPicker(
+                    selection: $selectedPhotoItem,
+                    matching: .images,
+                    photoLibrary: .shared()
+                ) {
+                    HStack(spacing: 10) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.shopPurpleLight)
+                                .frame(width: 36, height: 36)
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.shopPurple)
+                        }
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Galleria")
+                                .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopDark)
+                            Text("Scegli foto")
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.shopTextMuted)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity, minHeight: 62)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.shopBorder, lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 3)
+                }
+                .disabled(isAnalyzing)
+            }
+        } else {
+            HStack(spacing: 10) {
+                Button(action: handleCameraButtonTap) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Nuova foto")
+                            .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundColor(.shopDark)
+                    .frame(maxWidth: .infinity, minHeight: 42)
+                    .background(Color.white)
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.shopBorder, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(ShopCardPressStyle(scale: 0.97))
+                .disabled(isAnalyzing)
+
+                PhotosPicker(
+                    selection: $selectedPhotoItem,
+                    matching: .images,
+                    photoLibrary: .shared()
+                ) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo.on.rectangle")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Cambia da Galleria")
+                            .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundColor(.shopPurple)
+                    .frame(maxWidth: .infinity, minHeight: 42)
+                    .background(Color.shopPurpleLight)
+                    .clipShape(Capsule())
+                }
+                .disabled(isAnalyzing)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func visualErrorCard(_ error: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 254/255, green: 226/255, blue: 226/255))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 15))
+                        .foregroundColor(.shopRed)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Analisi non riuscita")
+                        .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
+                    Text(error)
+                        .font(.system(size: 13))
+                        .foregroundColor(.shopTextMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if let image = selectedImage {
+                Button(action: {
+                    analyzePickedImage(image)
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .bold))
+                        Text("Riprova analisi")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(Color.shopPurple)
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(ShopCardPressStyle(scale: 0.98))
+            }
+        }
+        .shopCard()
+    }
+
+    @ViewBuilder
     private func visualResultSection(_ result: VisualSearchResponse) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             if !result.is_sport_product {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "info.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(.shopPurple)
+                HStack(alignment: .top, spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.shopPurpleLight)
+                            .frame(width: 36, height: 36)
+                        Image(systemName: "info.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.shopPurple)
+                    }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Articolo sportivo non rilevato")
-                            .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
                             .foregroundColor(.shopDark)
-                        Text(result.note ?? "Prova a fotografare meglio scarpe, abbigliamento o attrezzatura sportiva.")
+                        Text(result.note ?? "Prova a fotografare meglio scarpe, smartwatch, abbigliamento o attrezzatura sportiva.")
                             .font(.system(size: 13))
                             .foregroundColor(.shopTextMuted)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .shopCard()
             } else {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 6) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundColor(.shopGreen)
-                        Text(result.confidence == "high" ? "Modello identificato" : "Possibile corrispondenza")
-                            .font(.system(size: 12.5, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopGreen)
+                        HStack(spacing: 5) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 11.5))
+                            Text(result.confidence == "high" ? "Modello identificato" : "Possibile corrispondenza")
+                                .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.shopGreen)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Color.shopGreenLight)
+                        .clipShape(Capsule())
+
                         Spacer()
+
                         if let cat = result.category, !cat.isEmpty {
                             Text(cat)
                                 .font(.system(size: 11, weight: .bold, design: .rounded))
                                 .foregroundColor(.shopPurple)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 4)
                                 .background(Color.shopPurpleLight)
                                 .clipShape(Capsule())
                         }
                     }
 
-                    Text(result.recognized_model)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundColor(.shopDark)
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let brand = result.brand, !brand.isEmpty {
+                            Text(brand.uppercased())
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .tracking(0.6)
+                                .foregroundColor(.shopTextMuted)
+                        }
+
+                        Text(result.recognized_model)
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopDark)
+                    }
 
                     if let note = result.note, !note.isEmpty {
                         Text(note)
-                            .font(.system(size: 13))
+                            .font(.system(size: 13.5))
                             .foregroundColor(.shopTextMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if result.catalog_matches_count > 0 {
+                        HStack(spacing: 6) {
+                            Image(systemName: "tag.fill")
+                                .font(.system(size: 11))
+                            Text("\(result.catalog_matches_count) corrispondenze trovate su FitMatch")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundColor(.shopPurple)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.shopPurpleLight.opacity(0.65))
+                        .clipShape(Capsule())
                     }
 
                     Button(action: {
@@ -4093,16 +4333,17 @@ struct ShopVisualSearchSheet: View {
                         dismiss()
                         onSelectModel(query, imgUrl)
                     }) {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 7) {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 14, weight: .bold))
-                            Text("Cerca in chat")
+                            Text("Cerca e confronta prezzi")
                                 .font(.system(size: 15, weight: .bold, design: .rounded))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .background(Color.shopPurple)
                         .clipShape(Capsule())
+                        .shadow(color: Color.shopPurple.opacity(0.28), radius: 10, x: 0, y: 4)
                     }
                     .buttonStyle(ShopCardPressStyle(scale: 0.98))
                     .padding(.top, 2)
@@ -4111,8 +4352,8 @@ struct ShopVisualSearchSheet: View {
 
                 if !result.alternatives.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Oppure cerca una variante simile:")
-                            .font(.system(size: 12, weight: .semibold))
+                        Text("Oppure cerca una variante simile")
+                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                             .foregroundColor(.shopTextMuted)
 
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -4123,17 +4364,22 @@ struct ShopVisualSearchSheet: View {
                                         dismiss()
                                         onSelectModel(alt, imgUrl)
                                     }) {
-                                        Text(alt)
-                                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
-                                            .foregroundColor(.shopDark)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
-                                            .background(Color.white)
-                                            .clipShape(Capsule())
-                                            .overlay(
-                                                Capsule()
-                                                    .stroke(Color.shopBorder, lineWidth: 1)
-                                            )
+                                        HStack(spacing: 5) {
+                                            Image(systemName: "arrow.up.right")
+                                                .font(.system(size: 10.5, weight: .bold))
+                                                .foregroundColor(.shopPurple)
+                                            Text(alt)
+                                                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                                                .foregroundColor(.shopDark)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(Color.white)
+                                        .clipShape(Capsule())
+                                        .overlay(
+                                            Capsule()
+                                                .stroke(Color.shopBorder, lineWidth: 1)
+                                        )
                                     }
                                     .buttonStyle(ShopCardPressStyle(scale: 0.96))
                                 }
@@ -4145,6 +4391,15 @@ struct ShopVisualSearchSheet: View {
         }
         .padding(.horizontal, ShopLayout.screenPadding)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    private func resetSelectedPhoto() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            selectedImage = nil
+            analysisResult = nil
+            analysisError = nil
+            isAnalyzing = false
+        }
     }
 
     private func handleCameraButtonTap() {
@@ -4186,10 +4441,10 @@ struct ShopVisualSearchSheet: View {
         isAnalyzing = true
         analysisResult = nil
         analysisError = nil
-        scanOffset = -95
+        scanOffset = -110
 
-        withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
-            scanOffset = 95
+        withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) {
+            scanOffset = 110
         }
 
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -4227,6 +4482,46 @@ struct ShopVisualSearchSheet: View {
             image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
         return rendered.jpegData(compressionQuality: quality)
+    }
+}
+
+private struct VisualScannerReticle: View {
+    let color: Color
+    private let length: CGFloat = 20
+    private let lineWidth: CGFloat = 2.5
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            Path { path in
+                // Top-left
+                path.move(to: CGPoint(x: 0, y: length))
+                path.addLine(to: CGPoint(x: 0, y: 4))
+                path.addQuadCurve(to: CGPoint(x: 4, y: 0), control: .zero)
+                path.addLine(to: CGPoint(x: length, y: 0))
+
+                // Top-right
+                path.move(to: CGPoint(x: w - length, y: 0))
+                path.addLine(to: CGPoint(x: w - 4, y: 0))
+                path.addQuadCurve(to: CGPoint(x: w, y: 4), control: CGPoint(x: w, y: 0))
+                path.addLine(to: CGPoint(x: w, y: length))
+
+                // Bottom-left
+                path.move(to: CGPoint(x: 0, y: h - length))
+                path.addLine(to: CGPoint(x: 0, y: h - 4))
+                path.addQuadCurve(to: CGPoint(x: 4, y: h), control: CGPoint(x: 0, y: h))
+                path.addLine(to: CGPoint(x: length, y: h))
+
+                // Bottom-right
+                path.move(to: CGPoint(x: w - length, y: h))
+                path.addLine(to: CGPoint(x: w - 4, y: h))
+                path.addQuadCurve(to: CGPoint(x: w, y: h - 4), control: CGPoint(x: w, y: h))
+                path.addLine(to: CGPoint(x: w, y: h - length))
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+        }
+        .allowsHitTesting(false)
     }
 }
 
