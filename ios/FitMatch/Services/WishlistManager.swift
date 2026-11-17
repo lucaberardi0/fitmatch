@@ -42,6 +42,28 @@ class WishlistManager: ObservableObject {
             UserDefaults.standard.set(true, forKey: "fitmatch_wishlist_seed_purged_v3")
         }
 
+        // One-time purge of legacy/default collections not actively assigned to any saved item
+        if !UserDefaults.standard.bool(forKey: "fitmatch_default_collections_purged_v1") {
+            let defaultCollectionNames: Set<String> = [
+                "scarpe da corsa",
+                "smartwatch & gps",
+                "trail & outdoor",
+                "offerte speciali",
+                "sneakers",
+                "running",
+                "abbigliamento"
+            ]
+            let usedCollectionNames = Set(items.compactMap {
+                $0.collectionName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            })
+            self.collections.removeAll { col in
+                let lower = col.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return defaultCollectionNames.contains(lower) && !usedCollectionNames.contains(lower)
+            }
+            saveCollections()
+            UserDefaults.standard.set(true, forKey: "fitmatch_default_collections_purged_v1")
+        }
+
         Task {
             await syncWithDatabase()
         }
@@ -79,21 +101,15 @@ class WishlistManager: ObservableObject {
                 saveItems()
             }
 
-            // Deduplicate remote collections and merge with local
-            var mergedMap: [String: WishlistCollection] = [:]
+            // Use remote Supabase collections as the source of truth (deduplicated & sorted)
+            var remoteMap: [String: WishlistCollection] = [:]
             for c in cols {
                 let name = c.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !Self.isReservedCollectionName(name) {
-                    mergedMap[name.lowercased()] = WishlistCollection(name: name, item_count: 0)
+                    remoteMap[name.lowercased()] = WishlistCollection(name: name, item_count: 0)
                 }
             }
-            for c in self.collections {
-                let name = c.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !Self.isReservedCollectionName(name) && mergedMap[name.lowercased()] == nil {
-                    mergedMap[name.lowercased()] = WishlistCollection(name: name, item_count: 0)
-                }
-            }
-            self.collections = Array(mergedMap.values).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            self.collections = Array(remoteMap.values).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             saveCollections()
             return
         } catch {

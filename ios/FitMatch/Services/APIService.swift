@@ -2030,16 +2030,19 @@ class APIService: ObservableObject {
 
     // MARK: - Visual Search (Camera & Gallery Photo Recognition)
 
-    func analyzeVisualSearchImage(imageData: Data, mimeType: String = "image/jpeg") async throws -> VisualSearchResponse {
+    func analyzeVisualSearchImage(imageData: Data, mimeType: String = "image/jpeg", description: String? = nil) async throws -> VisualSearchResponse {
         guard let url = URL(string: "\(baseURL)/api/search/visual") else {
             throw URLError(.badURL)
         }
 
-        let payload: [String: String] = [
+        var payload: [String: String] = [
             "image_base64": imageData.base64EncodedString(),
             "mime_type": mimeType,
             "device_id": SupabaseManager.shared.deviceId
         ]
+        if let cleanDesc = description?.trimmingCharacters(in: .whitespacesAndNewlines), !cleanDesc.isEmpty {
+            payload["description"] = cleanDesc
+        }
         let bodyData = try JSONSerialization.data(withJSONObject: payload)
 
         let maxRetries = 2

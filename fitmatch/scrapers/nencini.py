@@ -15,7 +15,8 @@ class NenciniSportScraper(BaseScraper):
     rating = 4.8
     review_count = 170000
     formatted_review_count = "170K"
-    accent_color = "#008C46"
+    card_theme = "colored"
+    accent_color = "#007A3D"
     free_shipping_threshold = 100.0
     standard_shipping_cost = 5.90
     courier = "BRT / UPS / DHL"

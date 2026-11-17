@@ -16,6 +16,7 @@ class AdidasScraper(BaseScraper):
     rating = 1.5
     review_count = 603
     formatted_review_count = "603"
+    card_theme = "colored"
     accent_color = "#111111"
     free_shipping_threshold = 50.0
     standard_shipping_cost = 4.99

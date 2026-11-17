@@ -5118,6 +5118,7 @@ Rispondi SOLO con JSON valido:
         mime_type: str = "image/jpeg",
         api_key: str = OPENROUTER_API_KEY,
         model: str = OPENROUTER_MODEL,
+        user_description: Optional[str] = None,
     ) -> Optional[VisualSearchResult]:
         """Identify a sports product from a user photo using a multimodal Vision LLM via OpenRouter."""
         if not api_key or not image_base64:
@@ -5151,9 +5152,10 @@ Rispondi SOLO con JSON valido:
 Analizza la foto caricata dall'utente e identifica l'articolo sportivo principale (scarpe da running/trail/calcio/padel/tennis/basket/sneakers, abbigliamento sportivo, smartwatch GPS, occhiali sportivi, zaini/idratazione, bici/accessori).
 REGOLE TASSATIVE:
 1. Se la foto NON mostra articoli sportivi/abbigliamento/calzature/accessori atletici (es. cibo, auto, documenti, selfie senza capi sportivi, animali, paesaggi), imposta "is_sport_product": false e spiega brevemente in "note" in italiano.
-2. Se è un articolo sportivo, indica il modello più probabile ("recognized_model", es. "Nike Pegasus 41", "Hoka Clifton 9", "Garmin Forerunner 265"), il brand, la categoria, il colore principale e una "search_query" pulita e ottimizzata per trovare offerte reali in un comparatore prezzi (2-4 parole chiave senza parole inutili).
-3. In "confidence" usa SOLO "high", "medium" o "low". Se non sei sicuro del numero esatto di versione (es. Clifton 8 vs 9, Pegasus 40 vs 41), metti le varianti possibili in "alternatives" (max 3 stringhe brevi).
-4. In "note" scrivi 1 frase sintetica e utile in italiano sul prodotto riconosciuto.
+2. Se è un articolo sportivo, indica il modello più probabile ("recognized_model", es. "Nike Pegasus 41", "Hoka Clifton 9", "Garmin Forerunner 265"), il brand, la categoria, il colore principale e una "search_query" pulita e ottimizzata per trovare offerte reali in un comparatore prezzi (2-4 parole chiave sul prodotto, più eventuali vincoli espliciti indicati dall'utente come genere Uomo/Donna, taglia o budget max).
+3. Se l'utente fornisce una descrizione aggiuntiva, usala per disambiguare su quale oggetto concentrarti (es. se ci sono più articoli nella foto), distinguere la versione/edizione o applicare i filtri richiesti in "search_query".
+4. In "confidence" usa SOLO "high", "medium" o "low". Se non sei sicuro del numero esatto di versione (es. Clifton 8 vs 9, Pegasus 40 vs 41), metti le varianti possibili in "alternatives" (max 3 stringhe brevi).
+5. In "note" scrivi 1 frase sintetica e utile in italiano sul prodotto riconosciuto.
 Rispondi ESCLUSIVAMENTE con JSON valido:
 {
   "is_sport_product": true,
@@ -5172,12 +5174,17 @@ Rispondi ESCLUSIVAMENTE con JSON valido:
         if fallback_vision not in vision_models:
             vision_models.append(fallback_vision)
 
+        clean_desc = (user_description or "").strip()
+        user_prompt_text = "Identifica questo articolo sportivo per cercarlo su FitMatch."
+        if clean_desc:
+            user_prompt_text += f"\nDescrizione / preferenza aggiuntiva dell'utente: {clean_desc}"
+
         messages = [
             {"role": "system", "content": vision_system},
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Identifica questo articolo sportivo per cercarlo su FitMatch."},
+                    {"type": "text", "text": user_prompt_text},
                     {"type": "image_url", "image_url": {"url": f"data:{safe_mime};base64,{clean_b64}"}},
                 ],
             },

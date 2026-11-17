@@ -1868,6 +1868,7 @@ class VisualSearchRequest(BaseModel):
     image_base64: str
     mime_type: Optional[str] = "image/jpeg"
     device_id: Optional[str] = "default_device"
+    description: Optional[str] = None
 
 
 @app.post("/api/search/visual")
@@ -1885,10 +1886,12 @@ def visual_search(req_body: VisualSearchRequest):
         raise HTTPException(status_code=503, detail="Servizio di riconoscimento visivo non configurato.")
 
     safe_mime = req_body.mime_type or "image/jpeg"
+    clean_desc = (req_body.description or "").strip() or None
     result = OpenRouterParser.analyze_image(
         image_base64=raw_b64,
         mime_type=safe_mime,
         api_key=OPENROUTER_API_KEY,
+        user_description=clean_desc,
     )
     if result is None:
         raise HTTPException(status_code=502, detail="Impossibile analizzare la foto in questo momento.")

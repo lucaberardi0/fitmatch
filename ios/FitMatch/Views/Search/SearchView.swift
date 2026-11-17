@@ -44,6 +44,8 @@ struct SearchView: View {
     @State private var isFollowUpLoading: Bool = false
     @State private var pendingFollowUpQuery: String? = nil
     @State private var pendingVisualImageURL: String? = nil
+    @State private var pendingVisualImagePreview: UIImage? = nil
+    @State private var pendingVisualDescription: String? = nil
     @State private var followUpErrorMessage: String? = nil
     @State private var thinkingSteps: [SearchThinkingStep] = []
     @State private var thinkingStartedAt: Date = Date()
@@ -171,15 +173,22 @@ struct SearchView: View {
                 ProductDetailView(product: prod, openedFromSearch: true)
             }
             .sheet(isPresented: $showVisualSearch) {
-                ShopVisualSearchSheet { recognizedQuery, uploadedImageURL in
-                    hideAllKeyboards()
-                    let runAsFollowUp = hasSearched && isDeepDiveMode && !conversationTurns.isEmpty
-                    if !runAsFollowUp {
-                        searchText = recognizedQuery
-                        rootQuery = recognizedQuery
+                ShopVisualSearchSheet(
+                    onSelectModel: { recognizedQuery, uploadedImageURL in
+                        hideAllKeyboards()
+                        let runAsFollowUp = hasSearched && isDeepDiveMode && !conversationTurns.isEmpty
+                        if !runAsFollowUp {
+                            searchText = recognizedQuery
+                            rootQuery = recognizedQuery
+                        }
+                        handleSearchOrComparison(query: recognizedQuery, isFollowUp: runAsFollowUp, userImageURL: uploadedImageURL)
+                    },
+                    onStartVisualSearch: { capturedImage, optionalDescription in
+                        hideAllKeyboards()
+                        let runAsFollowUp = hasSearched && isDeepDiveMode && !conversationTurns.isEmpty
+                        executeVisualSearch(image: capturedImage, description: optionalDescription, isFollowUp: runAsFollowUp)
                     }
-                    handleSearchOrComparison(query: recognizedQuery, isFollowUp: runAsFollowUp, userImageURL: uploadedImageURL)
-                }
+                )
             }
             .sheet(item: $feedbackConfig) { config in
                 ShopSearchFeedbackSheet(
@@ -199,6 +208,7 @@ struct SearchView: View {
                 .presentationDragIndicator(.visible)
             }
             .sheet(item: $activeQuestionPrompt) { prompt in
+                let hasOptions = !SearchView.extractQuickOptions(for: prompt.question).isEmpty
                 FollowUpQuestionSheet(
                     question: prompt.question,
                     baseQuery: rootQuery.isEmpty ? searchText : rootQuery,
@@ -206,7 +216,7 @@ struct SearchView: View {
                         handleQuestionAnswered(question: prompt.question, answer: answer)
                     }
                 )
-                .presentationDetents([.medium, .large])
+                .presentationDetents(hasOptions ? [.medium, .large] : [.height(250), .medium])
                 .presentationDragIndicator(.visible)
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -917,25 +927,7 @@ struct SearchView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
-
-            // "🔍 Cerca invece questo" Button (Exact match to Screenshot 1!)
-            Button(action: {
-                userForcedClassicMode = true
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    isDeepDiveMode = false
-                }
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 13, weight: .bold))
-                    Text("Cerca invece questo")
-                        .font(.system(size: 13, weight: .bold))
-                }
-                .foregroundColor(Color(red: 80/255, green: 40/255, blue: 220/255))
-            }
-            .padding(.trailing, 20)
-            .padding(.top, 2)
-            .padding(.bottom, 6)
+            .padding(.bottom, 8)
 
             Divider()
         }
@@ -947,11 +939,54 @@ struct SearchView: View {
     private var aiDeepDiveContentView: some View {
         Group {
             if isLoading && conversationTurns.isEmpty {
-                ShopSearchDeepDiveSkeletonView(
-                    query: rootQuery.isEmpty ? searchText : rootQuery,
-                    thinkingSteps: thinkingSteps,
-                    thinkingStartedAt: thinkingStartedAt
-                )
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .trailing, spacing: 10) {
+                        if let localPreview = pendingVisualImagePreview {
+                            VStack(alignment: .trailing, spacing: 8) {
+                                HStack {
+                                    Spacer()
+                                    Image(uiImage: localPreview)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 112, height: 112)
+                                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                                .stroke(Color.shopPurple.opacity(0.22), lineWidth: 1)
+                                        )
+                                        .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
+                                }
+
+                                if let desc = pendingVisualDescription, !desc.isEmpty {
+                                    HStack {
+                                        Spacer()
+                                        Text(desc)
+                                            .font(.system(size: 14.5, weight: .semibold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 15)
+                                            .padding(.vertical, 9)
+                                            .background(
+                                                LinearGradient(
+                                                    colors: [Color.shopPurple, Color(red: 100/255, green: 55/255, blue: 235/255)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                            .cornerRadius(18)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                            .padding(.top, 10)
+                        }
+
+                        ShopSearchDeepDiveSkeletonView(
+                            query: rootQuery.isEmpty ? searchText : rootQuery,
+                            thinkingSteps: thinkingSteps,
+                            thinkingStartedAt: thinkingStartedAt
+                        )
+                    }
+                }
                 .transition(.opacity)
             } else if let error = errorMessage, conversationTurns.isEmpty {
                 aiErrorView(error)
@@ -1137,9 +1172,7 @@ struct SearchView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(turn.activeChips) { chip in
-                            ShopSearchChipView(chip: chip) {
-                                removeChip(chip)
-                            }
+                            ShopSearchChipView(chip: chip)
                         }
                     }
                     .padding(.horizontal, ShopLayout.screenPadding)
@@ -1415,7 +1448,7 @@ struct SearchView: View {
     // MARK: - Follow-Up Loading Section
     private var followUpLoadingSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if pendingFollowUpQuery != nil || pendingVisualImageURL != nil {
+            if pendingFollowUpQuery != nil || pendingVisualImageURL != nil || pendingVisualImagePreview != nil {
                 VStack(alignment: .trailing, spacing: 8) {
                     if let imgStr = pendingVisualImageURL, let imgURL = URL(string: imgStr) {
                         HStack {
@@ -1423,6 +1456,8 @@ struct SearchView: View {
                             ShopCachedAsyncImage(url: imgURL, maxPixelSize: 320) { phase in
                                 if let image = phase.image {
                                     image.resizable().scaledToFill()
+                                } else if let localPreview = pendingVisualImagePreview {
+                                    Image(uiImage: localPreview).resizable().scaledToFill()
                                 } else {
                                     ShopSkeletonBlock(cornerRadius: 16)
                                 }
@@ -1433,6 +1468,19 @@ struct SearchView: View {
                                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                                     .stroke(Color.shopPurple.opacity(0.22), lineWidth: 1)
                             )
+                        }
+                    } else if let localPreview = pendingVisualImagePreview {
+                        HStack {
+                            Spacer()
+                            Image(uiImage: localPreview)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 112, height: 112)
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(Color.shopPurple.opacity(0.22), lineWidth: 1)
+                                )
                         }
                     }
 
@@ -1594,9 +1642,7 @@ struct SearchView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(activeChips) { chip in
-                            ShopSearchChipView(chip: chip) {
-                                removeChip(chip)
-                            }
+                            ShopSearchChipView(chip: chip)
                         }
                     }
                     .padding(.horizontal, ShopLayout.screenPadding)
@@ -1740,15 +1786,6 @@ struct SearchView: View {
                 primaryColor: .shopDark,
                 onPrimaryTap: {
                     executeSearch()
-                },
-                secondaryTitle: "Passa alla ricerca classica",
-                secondaryIcon: "magnifyingglass",
-                onSecondaryTap: {
-                    userForcedClassicMode = true
-                    withAnimation {
-                        isDeepDiveMode = false
-                    }
-                    executeSearch()
                 }
             )
             .padding(.horizontal, 16)
@@ -1767,7 +1804,7 @@ struct SearchView: View {
                 accentColor: .shopPurple,
                 badgeText: "MOTORE SPORTIVO IA",
                 title: "Nessuna corrispondenza per questa ricerca",
-                subtitle: "L'assistente FitMatch non ha trovato attrezzatura per «\(searchText)» tra i negozi partner. Prova uno dei suggerimenti o passa al catalogo classico.",
+                subtitle: "L'assistente FitMatch non ha trovato attrezzatura per «\(searchText)» tra i negozi partner. Prova uno dei suggerimenti qui sotto.",
                 suggestions: ["Scarpe maratona", "Garmin Forerunner", "Racchetta padel"],
                 onSuggestionTap: { term in
                     searchText = term
@@ -1777,15 +1814,6 @@ struct SearchView: View {
                 primaryIcon: "arrow.clockwise",
                 primaryColor: .shopDark,
                 onPrimaryTap: {
-                    executeSearch()
-                },
-                secondaryTitle: "Passa alla ricerca classica",
-                secondaryIcon: "magnifyingglass",
-                onSecondaryTap: {
-                    userForcedClassicMode = true
-                    withAnimation {
-                        isDeepDiveMode = false
-                    }
                     executeSearch()
                 }
             )
@@ -2247,6 +2275,8 @@ struct SearchView: View {
             isFollowUpLoading = false
             pendingFollowUpQuery = nil
             pendingVisualImageURL = nil
+            pendingVisualImagePreview = nil
+            pendingVisualDescription = nil
             followUpErrorMessage = nil
             if !keepText {
                 searchText = ""
@@ -2403,7 +2433,7 @@ struct SearchView: View {
                 .replacingOccurrences(of: "?", with: "")
                 .replacingOccurrences(of: "¿", with: "")
                 .components(separatedBy: " o ")
-            if parts.count >= 2 {
+            if parts.count == 2 {
                 let p1 = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
                 let p2 = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
                 let cleanP1 = p1
@@ -2412,18 +2442,14 @@ struct SearchView: View {
                     .replacingOccurrences(of: "Cerchi ", with: "", options: .caseInsensitive)
                     .capitalized
                 let cleanP2 = p2.capitalized
-                if cleanP1.count > 2 && cleanP2.count > 2 {
+                if cleanP1.count > 2 && cleanP2.count > 2 && cleanP1.count <= 40 && cleanP2.count <= 40 {
                     return [cleanP1, cleanP2, "Entrambi / Misto"]
                 }
             }
         }
 
-        // Default universal options
-        return [
-            "Miglior modello per iniziare",
-            "Opzione più versatile e comoda",
-            "Miglior rapporto qualità / prezzo"
-        ]
+        // No generic fallback pills when they aren't directly relevant to the question
+        return []
     }
 
     private func handleSearchOrComparison(query: String, isFollowUp: Bool = false, userImageURL: String? = nil) {
@@ -2440,8 +2466,164 @@ struct SearchView: View {
         executeSearch(isFollowUp: isFollowUp, rawFollowUpText: isFollowUp ? trimmed : nil, userImageURL: userImageURL)
     }
 
+    private func executeVisualSearch(image: UIImage, description: String?, isFollowUp: Bool) {
+        guard let jpegData = ShopVisualSearchSheet.compressedJPEGData(from: image) else {
+            if isFollowUp {
+                followUpErrorMessage = "Impossibile preparare l'immagine per l'invio."
+            } else {
+                errorMessage = "Impossibile preparare l'immagine per l'invio."
+                hasSearched = true
+                isDeepDiveMode = true
+            }
+            return
+        }
+
+        hideAllKeyboards()
+
+        let trimmedDesc = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanDesc = (trimmedDesc?.isEmpty == false) ? trimmedDesc : nil
+
+        let initialStep = SearchThinkingStep(
+            id: "visual_analyze",
+            status: .running,
+            title: "Analisi foto con IA",
+            detail: cleanDesc
+        )
+
+        if !isFollowUp {
+            let labelQuery = cleanDesc ?? "Ricerca dalla foto"
+            rootQuery = labelQuery
+            searchText = labelQuery
+            conversationalHeader = "Analisi immagine in corso"
+            conversationTurns = []
+            currentSessionId = UUID().uuidString.lowercased()
+            isLoading = true
+            isFollowUpLoading = false
+            pendingFollowUpQuery = nil
+            pendingVisualImageURL = nil
+            pendingVisualImagePreview = image
+            pendingVisualDescription = cleanDesc
+            followUpErrorMessage = nil
+        } else {
+            if currentSessionId == nil {
+                currentSessionId = UUID().uuidString.lowercased()
+            }
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
+                lastFollowUpQuery = cleanDesc ?? "Ricerca dalla foto"
+                pendingFollowUpQuery = cleanDesc
+                pendingVisualImageURL = nil
+                pendingVisualImagePreview = image
+                pendingVisualDescription = cleanDesc
+                isFollowUpLoading = true
+                isLoading = false
+                followUpErrorMessage = nil
+                userForcedClassicMode = false
+                isDeepDiveMode = true
+            }
+        }
+
+        hasSearched = true
+        isDeepDiveMode = true
+        errorMessage = nil
+        thinkingSteps = [initialStep]
+        thinkingStartedAt = Date()
+
+        Task {
+            do {
+                let res = try await api.analyzeVisualSearchImage(
+                    imageData: jpegData,
+                    mimeType: "image/jpeg",
+                    description: cleanDesc
+                )
+
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        if let idx = self.thinkingSteps.firstIndex(where: { $0.id == "visual_analyze" }) {
+                            self.thinkingSteps[idx].status = .done
+                            self.thinkingSteps[idx].detail = res.is_sport_product
+                                ? res.recognized_model
+                                : "Articolo sportivo non rilevato"
+                        }
+                    }
+                }
+
+                if !res.is_sport_product {
+                    await MainActor.run {
+                        let turnQuery = cleanDesc ?? "Foto caricata"
+                        let nonSportTurn = SearchConversationTurn(
+                            id: UUID().uuidString,
+                            query: turnQuery,
+                            isFollowUp: isFollowUp,
+                            conversationalHeader: "Articolo sportivo non rilevato",
+                            conversationalSummary: res.note ?? "La foto non sembra mostrare scarpe, smartwatch o abbigliamento sportivo. Prova con un'altra immagine o aggiungi una descrizione più precisa.",
+                            userFeedback: nil,
+                            showAiExplanation: false,
+                            isOffTopic: true,
+                            isUnsafe: false,
+                            userImageURL: res.uploaded_image_url
+                        )
+                        withAnimation(.easeOut(duration: 0.24)) {
+                            if !isFollowUp {
+                                self.rootQuery = turnQuery
+                                self.searchText = turnQuery
+                                self.conversationTurns = [nonSportTurn]
+                            } else {
+                                self.conversationTurns.append(nonSportTurn)
+                            }
+                            self.isLoading = false
+                            self.isFollowUpLoading = false
+                            self.pendingFollowUpQuery = nil
+                            self.pendingVisualImageURL = nil
+                            self.pendingVisualImagePreview = nil
+                            self.pendingVisualDescription = nil
+                        }
+                    }
+                    return
+                }
+
+                let rawBase = res.search_query.trimmingCharacters(in: .whitespacesAndNewlines)
+                let finalQuery = rawBase.isEmpty ? res.recognized_model : rawBase
+                let preservedSteps = await MainActor.run { self.thinkingSteps }
+
+                await MainActor.run {
+                    if !isFollowUp {
+                        self.rootQuery = finalQuery
+                        self.searchText = finalQuery
+                    }
+                    self.executeSearch(
+                        isFollowUp: isFollowUp,
+                        rawFollowUpText: isFollowUp ? finalQuery : nil,
+                        userImageURL: res.uploaded_image_url,
+                        initialThinkingSteps: preservedSteps
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        self.pendingVisualImagePreview = nil
+                        self.pendingVisualDescription = nil
+                        self.pendingVisualImageURL = nil
+                        self.pendingFollowUpQuery = nil
+                        self.isLoading = false
+                        self.isFollowUpLoading = false
+                        if isFollowUp {
+                            self.followUpErrorMessage = error.localizedDescription
+                        } else {
+                            self.errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Search Execution
-    private func executeSearch(isFollowUp: Bool = false, rawFollowUpText: String? = nil, userImageURL: String? = nil) {
+    private func executeSearch(
+        isFollowUp: Bool = false,
+        rawFollowUpText: String? = nil,
+        userImageURL: String? = nil,
+        initialThinkingSteps: [SearchThinkingStep] = []
+    ) {
         let activeQuery = isFollowUp ? (rawFollowUpText ?? searchText) : searchText
         let query = activeQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
@@ -2455,7 +2637,9 @@ struct SearchView: View {
             rootQuery = query
             conversationalHeader = "Ho cercato \(query)"
             conversationTurns = []
-            currentSessionId = UUID().uuidString.lowercased()
+            if currentSessionId == nil || initialThinkingSteps.isEmpty {
+                currentSessionId = UUID().uuidString.lowercased()
+            }
             isLoading = true
             isFollowUpLoading = false
             pendingFollowUpQuery = nil
@@ -2480,8 +2664,10 @@ struct SearchView: View {
 
         hasSearched = true
         errorMessage = nil
-        thinkingSteps = []
-        thinkingStartedAt = Date()
+        thinkingSteps = initialThinkingSteps
+        if initialThinkingSteps.isEmpty {
+            thinkingStartedAt = Date()
+        }
 
         let activeContext: String?
         if isFollowUp {
@@ -2585,15 +2771,15 @@ struct SearchView: View {
 
                         self.pendingFollowUpQuery = nil
                         self.pendingVisualImageURL = nil
+                        self.pendingVisualImagePreview = nil
+                        self.pendingVisualDescription = nil
                         self.isFollowUpLoading = false
                     }
 
                     if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
                         self.isDeepDiveMode = false
-                    } else if self.userForcedClassicMode {
-                        self.isDeepDiveMode = false
                     } else {
-                        self.isDeepDiveMode = smartRes.is_deep_dive ?? true
+                        self.isDeepDiveMode = true
                     }
                     self.isSmartSearchActive = true
                     self.isLoading = false
@@ -2615,6 +2801,8 @@ struct SearchView: View {
                     if !directProds.isEmpty {
                         await MainActor.run {
                             self.errorMessage = nil
+                            self.pendingVisualImagePreview = nil
+                            self.pendingVisualDescription = nil
                             self.searchResults = directProds
                             self.curatedSections = [
                                 CuratedProductSection(
@@ -2634,23 +2822,33 @@ struct SearchView: View {
                     } else if let local = try? await api.searchCatalog(query: query, limit: 30), !local.isEmpty {
                         await MainActor.run {
                             self.errorMessage = nil
+                            self.pendingVisualImagePreview = nil
+                            self.pendingVisualDescription = nil
                             self.searchResults = local
-                            self.isDeepDiveMode = false
-                            self.isSmartSearchActive = false
+                            self.conversationalHeader = "Ho cercato \(query)"
+                            self.conversationalSummary = "Ecco i modelli trovati per la tua ricerca:"
+                            self.isDeepDiveMode = true
+                            self.isSmartSearchActive = true
                             self.isLoading = false
                             self.recentManager.recordSearch(query)
                         }
                     } else if let live = try? await api.search(query: query, size: selectedSize), !live.isEmpty {
                         await MainActor.run {
                             self.errorMessage = nil
+                            self.pendingVisualImagePreview = nil
+                            self.pendingVisualDescription = nil
                             self.searchResults = live
-                            self.isDeepDiveMode = false
-                            self.isSmartSearchActive = false
+                            self.conversationalHeader = "Ho cercato \(query)"
+                            self.conversationalSummary = "Ecco i modelli trovati per la tua ricerca:"
+                            self.isDeepDiveMode = true
+                            self.isSmartSearchActive = true
                             self.isLoading = false
                             self.recentManager.recordSearch(query)
                         }
                     } else {
                         await MainActor.run {
+                            self.pendingVisualImagePreview = nil
+                            self.pendingVisualDescription = nil
                             self.errorMessage = "Impossibile recuperare i risultati in questo momento. Il server potrebbe essere occupato, tocca Riprova per aggiornare."
                             self.isLoading = false
                         }
@@ -2671,6 +2869,8 @@ struct SearchView: View {
                                 self.isFollowUpLoading = false
                                 self.pendingFollowUpQuery = nil
                                 self.pendingVisualImageURL = nil
+                                self.pendingVisualImagePreview = nil
+                                self.pendingVisualDescription = nil
                                 self.followUpErrorMessage = nil
                                 let newTurn = SearchConversationTurn(
                                     id: UUID().uuidString,
@@ -2704,40 +2904,14 @@ struct SearchView: View {
                                 self.isFollowUpLoading = false
                                 self.pendingFollowUpQuery = nil
                                 self.pendingVisualImageURL = nil
+                                self.pendingVisualImagePreview = nil
+                                self.pendingVisualDescription = nil
                                 self.followUpErrorMessage = "Impossibile completare il follow-up in questo momento."
                             }
                         }
                     }
                 }
             }
-        }
-    }
-
-    private func removeChip(_ chip: SmartSearchChip) {
-        withAnimation {
-            activeChips.removeAll { $0.id == chip.id }
-            if let lastIdx = conversationTurns.indices.last {
-                conversationTurns[lastIdx].activeChips.removeAll { $0.id == chip.id }
-            }
-            if chip.param_key == "max_price" {
-                overrideMaxPrice = nil
-                if !conversationTurns.isEmpty {
-                    executeSearch(isFollowUp: true, rawFollowUpText: "Senza limiti di budget")
-                    return
-                }
-            } else if chip.param_key == "size" {
-                selectedSize = nil
-                if !conversationTurns.isEmpty {
-                    executeSearch(isFollowUp: true, rawFollowUpText: "Tutte le taglie")
-                    return
-                }
-            } else if chip.param_key == "gender" {
-                if !conversationTurns.isEmpty {
-                    executeSearch(isFollowUp: true, rawFollowUpText: "Unisex")
-                    return
-                }
-            }
-            executeSearch(isFollowUp: false)
         }
     }
 
@@ -2757,28 +2931,19 @@ struct SearchView: View {
 // MARK: - Active Filter Chip View
 struct ShopSearchChipView: View {
     let chip: SmartSearchChip
-    let onRemove: () -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(chip.label)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundColor(.shopDark)
-
-            Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9.5, weight: .bold))
-                    .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color(red: 243/255, green: 243/255, blue: 245/255))
-        .cornerRadius(14)
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.black.opacity(0.08), lineWidth: 1)
-        )
+        Text(chip.label)
+            .font(.system(size: 12.5, weight: .semibold))
+            .foregroundColor(.shopDark)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(red: 243/255, green: 243/255, blue: 245/255))
+            .cornerRadius(14)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
     }
 }
 
@@ -3276,52 +3441,60 @@ struct FollowUpQuestionSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     if !baseQuery.isEmpty {
-                        Text("Scegli o scrivi una risposta per affinare «\(baseQuery)»:")
-                            .font(.system(size: 12.5))
-                            .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                        Text(
+                            options.isEmpty
+                            ? "Scrivi una risposta per affinare «\(baseQuery)»:"
+                            : "Scegli o scrivi una risposta per affinare «\(baseQuery)»:"
+                        )
+                        .font(.system(size: 12.5))
+                        .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
                     }
                 }
                 .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, 12)
 
-                // Quick Answer Options
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 8) {
-                        ForEach(options, id: \.self) { opt in
-                            Button(action: {
-                                dismiss()
-                                onAnswerSelected(opt)
-                            }) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "circle.fill")
-                                        .font(.system(size: 6.5))
-                                        .foregroundColor(.shopPurple)
+                // Quick Answer Options (only shown when relevant to the question)
+                if !options.isEmpty {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 8) {
+                            ForEach(options, id: \.self) { opt in
+                                Button(action: {
+                                    dismiss()
+                                    onAnswerSelected(opt)
+                                }) {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "circle.fill")
+                                            .font(.system(size: 6.5))
+                                            .foregroundColor(.shopPurple)
 
-                                    Text(opt)
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundColor(.shopDark)
-                                        .multilineTextAlignment(.leading)
+                                        Text(opt)
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundColor(.shopDark)
+                                            .multilineTextAlignment(.leading)
 
-                                    Spacer()
+                                        Spacer()
 
-                                    Image(systemName: "arrow.up.right")
-                                        .font(.system(size: 11.5, weight: .bold))
-                                        .foregroundColor(.shopPurple)
+                                        Image(systemName: "arrow.up.right")
+                                            .font(.system(size: 11.5, weight: .bold))
+                                            .foregroundColor(.shopPurple)
+                                    }
+                                    .padding(.horizontal, 15)
+                                    .padding(.vertical, 11)
+                                    .background(Color(red: 247/255, green: 246/255, blue: 252/255))
+                                    .cornerRadius(14)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .stroke(Color.shopPurple.opacity(0.12), lineWidth: 1)
+                                    )
                                 }
-                                .padding(.horizontal, 15)
-                                .padding(.vertical, 11)
-                                .background(Color(red: 247/255, green: 246/255, blue: 252/255))
-                                .cornerRadius(14)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .stroke(Color.shopPurple.opacity(0.12), lineWidth: 1)
-                                )
+                                .buttonStyle(PlainButtonStyle())
                             }
-                            .buttonStyle(PlainButtonStyle())
                         }
+                        .padding(.horizontal, ShopLayout.screenPadding)
+                        .padding(.vertical, 2)
                     }
-                    .padding(.horizontal, ShopLayout.screenPadding)
-                    .padding(.vertical, 2)
+                } else {
+                    Spacer(minLength: 0)
                 }
 
                 // Bottom Custom Answer Field
@@ -3334,13 +3507,16 @@ struct FollowUpQuestionSheet: View {
                                 .font(.system(size: 14))
                                 .foregroundColor(Color(red: 150/255, green: 150/255, blue: 160/255))
 
-                            TextField("Oppure digita qui la tua risposta...", text: $customAnswerText)
-                                .font(.system(size: 14))
-                                .focused($isCustomFieldFocused)
-                                .submitLabel(.send)
-                                .onSubmit {
-                                    submitCustom()
-                                }
+                            TextField(
+                                options.isEmpty ? "Digita qui la tua risposta..." : "Oppure digita qui la tua risposta...",
+                                text: $customAnswerText
+                            )
+                            .font(.system(size: 14))
+                            .focused($isCustomFieldFocused)
+                            .submitLabel(.send)
+                            .onSubmit {
+                                submitCustom()
+                            }
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -3361,6 +3537,13 @@ struct FollowUpQuestionSheet: View {
                     }
                     .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.bottom, 10)
+                }
+            }
+            .onAppear {
+                if options.isEmpty {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                        isCustomFieldFocused = true
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -3819,26 +4002,66 @@ struct RecentlyViewedCard: View {
 struct ShopVisualSearchSheet: View {
     @Environment(\.dismiss) private var dismiss
     let onSelectModel: (String, String?) -> Void
+    var onStartVisualSearch: ((UIImage, String?) -> Void)? = nil
 
+    @ObservedObject private var prefsManager = UserPreferencesManager.shared
     @State private var selectedImage: UIImage? = nil
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
     @State private var showCameraPicker: Bool = false
     @State private var showCameraPermissionAlert: Bool = false
     @State private var cameraAlertMessage: String = ""
+    @State private var userDescription: String = ""
+    @State private var selectedQuickHints: [String] = []
+    @FocusState private var isDescriptionFocused: Bool
 
     @State private var isAnalyzing: Bool = false
     @State private var scanOffset: CGFloat = -110
+    @State private var pulseViewfinder: Bool = false
     @State private var analysisResult: VisualSearchResponse? = nil
     @State private var analysisError: String? = nil
+
+    private struct VisualQuickHint: Identifiable {
+        let id: String
+        let label: String
+        let icon: String
+    }
+
+    private var availableQuickHints: [VisualQuickHint] {
+        var hints: [VisualQuickHint] = []
+        let prefSize = prefsManager.preferences.preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !prefSize.isEmpty {
+            hints.append(VisualQuickHint(id: "size", label: "Taglia EU \(prefSize)", icon: "ruler"))
+        }
+        hints.append(contentsOf: [
+            VisualQuickHint(id: "men", label: "Uomo", icon: "figure.stand"),
+            VisualQuickHint(id: "women", label: "Donna", icon: "figure.stand.dress"),
+            VisualQuickHint(id: "budget", label: "Sotto 150€", icon: "eurosign.circle"),
+            VisualQuickHint(id: "alt", label: "Alternative economiche", icon: "sparkles")
+        ])
+        return hints
+    }
+
+    private var combinedUserDescription: String? {
+        let typed = userDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        var parts: [String] = []
+        if !typed.isEmpty {
+            parts.append(typed)
+        }
+        for hint in selectedQuickHints where !typed.lowercased().contains(hint.lowercased()) {
+            parts.append(hint)
+        }
+        let joined = parts.joined(separator: ", ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return joined.isEmpty ? nil : joined
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
+                VStack(spacing: 16) {
                     // Custom Header Bar (Consistent with FitMatch Shop Design)
                     HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(spacing: 5) {
                                 Image(systemName: "sparkles")
                                     .font(.system(size: 10.5, weight: .bold))
                                 Text("RICERCA VISIVA IA")
@@ -3851,14 +4074,18 @@ struct ShopVisualSearchSheet: View {
                             .background(Color.shopPurpleLight)
                             .clipShape(Capsule())
 
-                            Text("Trova dalla foto")
+                            Text(selectedImage == nil ? "Trova dalla foto" : "Pronta per l'analisi")
                                 .font(.system(size: 24, weight: .bold, design: .rounded))
                                 .foregroundColor(.shopDark)
 
-                            Text("Scatta o carica un articolo sportivo per confrontarne subito i prezzi.")
-                                .font(.system(size: 13.5))
-                                .foregroundColor(.shopTextMuted)
-                                .fixedSize(horizontal: false, vertical: true)
+                            Text(
+                                selectedImage == nil
+                                ? "Scatta o carica un articolo sportivo per trovare subito il prezzo migliore."
+                                : "Aggiungi una nota facoltativa per affinare modello, taglia o budget."
+                            )
+                            .font(.system(size: 13.5))
+                            .foregroundColor(.shopTextMuted)
+                            .fixedSize(horizontal: false, vertical: true)
                         }
 
                         Spacer()
@@ -3878,9 +4105,21 @@ struct ShopVisualSearchSheet: View {
                     visualStageCard
                         .padding(.horizontal, ShopLayout.screenPadding)
 
-                    // Source Controls (Prominent cards before photo, compact bar after photo)
-                    sourceControlsSection
-                        .padding(.horizontal, ShopLayout.screenPadding)
+                    // Source Controls (Prominent cards before photo; overlay controls handle photo swap after selection)
+                    if selectedImage == nil {
+                        sourceControlsSection
+                            .padding(.horizontal, ShopLayout.screenPadding)
+
+                        visualUsageTipsBar
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                    }
+
+                    // Optional Description Composer (after photo is selected)
+                    if let image = selectedImage, analysisResult == nil && !isAnalyzing {
+                        descriptionComposerSection(for: image)
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
 
                     // Results or Error
                     if let error = analysisError, !isAnalyzing {
@@ -3891,15 +4130,30 @@ struct ShopVisualSearchSheet: View {
                         visualResultSection(result)
                     }
 
-                    Spacer(minLength: 24)
+                    Spacer(minLength: selectedImage != nil ? 28 : 24)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(Color.shopSurface.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .bottom) {
+                if let image = selectedImage, analysisResult == nil && !isAnalyzing {
+                    stickySearchActionDock(for: image)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
+                    pulseViewfinder = true
+                }
+            }
             .fullScreenCover(isPresented: $showCameraPicker) {
                 CameraImagePicker { capturedImage in
-                    selectedImage = capturedImage
-                    analyzePickedImage(capturedImage)
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        selectedImage = capturedImage
+                        analysisResult = nil
+                        analysisError = nil
+                    }
                 }
                 .ignoresSafeArea()
             }
@@ -3912,8 +4166,9 @@ struct ShopVisualSearchSheet: View {
                             selectedPhotoItem = nil
                             withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                                 selectedImage = uiImg
+                                analysisResult = nil
+                                analysisError = nil
                             }
-                            analyzePickedImage(uiImg)
                         }
                     } else {
                         await MainActor.run {
@@ -3937,6 +4192,182 @@ struct ShopVisualSearchSheet: View {
     }
 
     @ViewBuilder
+    private func stickySearchActionDock(for image: UIImage) -> some View {
+        VStack(spacing: 0) {
+            Divider()
+                .opacity(0.6)
+
+            Button(action: {
+                triggerVisualSearch(with: image)
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 15, weight: .bold))
+                    Text(combinedUserDescription == nil ? "Cerca con IA" : "Cerca con IA e nota")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(
+                    LinearGradient(
+                        colors: [Color.shopPurple, Color(red: 112/255, green: 62/255, blue: 248/255)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .clipShape(Capsule())
+                .shadow(color: Color.shopPurple.opacity(0.32), radius: 12, x: 0, y: 5)
+            }
+            .buttonStyle(ShopCardPressStyle(scale: 0.98))
+            .padding(.horizontal, ShopLayout.screenPadding)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+        }
+        .background(.ultraThinMaterial)
+    }
+
+    @ViewBuilder
+    private var visualUsageTipsBar: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Color.shopPurpleLight)
+                    .frame(width: 32, height: 32)
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 13.5))
+                    .foregroundColor(.shopPurple)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Consiglio rapido")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(.shopDark)
+                Text("Funziona benissimo anche con screenshot da Instagram, TikTok o Strava.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.shopTextMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.shopBorder, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func descriptionComposerSection(for image: UIImage) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 7) {
+                Image(systemName: "text.bubble.fill")
+                    .font(.system(size: 12.5))
+                    .foregroundColor(.shopPurple)
+
+                Text("Aiuta l'IA a cercare meglio")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(.shopDark)
+
+                Spacer()
+
+                Text("Facoltativo")
+                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                    .foregroundColor(.shopPurple)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3.5)
+                    .background(Color.shopPurpleLight)
+                    .clipShape(Capsule())
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                TextField(
+                    "Es. modello donna, taglia 42.5, sotto 130€, solo l'orologio…",
+                    text: $userDescription,
+                    axis: .vertical
+                )
+                .font(.system(size: 14.5))
+                .foregroundColor(.shopDark)
+                .lineLimit(1...3)
+                .focused($isDescriptionFocused)
+                .submitLabel(.search)
+                .onSubmit {
+                    triggerVisualSearch(with: image)
+                }
+
+                if !userDescription.isEmpty {
+                    Button(action: { userDescription = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
+                    }
+                    .padding(.top, 2)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color.shopSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(isDescriptionFocused ? Color.shopPurple.opacity(0.5) : Color.shopBorder, lineWidth: isDescriptionFocused ? 1.5 : 1)
+            )
+
+            // Quick-intent hint pills
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(availableQuickHints) { hint in
+                        let isSelected = selectedQuickHints.contains(hint.label)
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            withAnimation(.spring(response: 0.22, dampingFraction: 0.8)) {
+                                if let idx = selectedQuickHints.firstIndex(of: hint.label) {
+                                    selectedQuickHints.remove(at: idx)
+                                } else {
+                                    selectedQuickHints.append(hint.label)
+                                }
+                            }
+                        }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: isSelected ? "checkmark" : hint.icon)
+                                    .font(.system(size: 10.5, weight: .bold))
+                                Text(hint.label)
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundColor(isSelected ? .shopPurple : .shopDark)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 7)
+                            .background(isSelected ? Color.shopPurpleLight : Color.shopSurface)
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(isSelected ? Color.shopPurple.opacity(0.45) : Color.shopBorder, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+        }
+        .shopCard(padding: 15, cornerRadius: 20)
+    }
+
+    private func triggerVisualSearch(with image: UIImage) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        isDescriptionFocused = false
+        let desc = combinedUserDescription
+        if let onStart = onStartVisualSearch {
+            dismiss()
+            onStart(image, desc)
+        } else {
+            analyzePickedImage(image, description: desc)
+        }
+    }
+
+    @ViewBuilder
     private var visualStageCard: some View {
         ZStack {
             if let image = selectedImage {
@@ -3945,17 +4376,17 @@ struct ShopVisualSearchSheet: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                        .frame(height: 270)
+                        .frame(height: 248)
                         .frame(maxWidth: .infinity)
                         .blur(radius: 26)
-                        .overlay(Color.black.opacity(0.32))
+                        .overlay(Color.black.opacity(0.30))
                         .clipped()
 
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
                         .frame(maxWidth: .infinity)
-                        .frame(height: 244)
+                        .frame(height: 222)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .shadow(color: Color.black.opacity(0.28), radius: 14, x: 0, y: 6)
                         .padding(12)
@@ -3995,8 +4426,41 @@ struct ShopVisualSearchSheet: View {
                         }
                     } else {
                         VStack {
-                            HStack {
+                            HStack(spacing: 8) {
+                                // Quick camera retake button
+                                Button(action: handleCameraButtonTap) {
+                                    Image(systemName: "camera.fill")
+                                        .font(.system(size: 11.5, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .frame(width: 30, height: 30)
+                                        .background(.ultraThinMaterial)
+                                        .background(Color.black.opacity(0.36))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(ShopCardPressStyle(scale: 0.94))
+
+                                // Quick gallery swap button
+                                PhotosPicker(
+                                    selection: $selectedPhotoItem,
+                                    matching: .images,
+                                    photoLibrary: .shared()
+                                ) {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "photo.on.rectangle")
+                                            .font(.system(size: 11, weight: .bold))
+                                        Text("Cambia")
+                                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(.ultraThinMaterial)
+                                    .background(Color.black.opacity(0.36))
+                                    .clipShape(Capsule())
+                                }
+
                                 Spacer()
+
                                 Button(action: resetSelectedPhoto) {
                                     HStack(spacing: 4) {
                                         Image(systemName: "xmark")
@@ -4007,7 +4471,8 @@ struct ShopVisualSearchSheet: View {
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
-                                    .background(Color.black.opacity(0.56))
+                                    .background(.ultraThinMaterial)
+                                    .background(Color.black.opacity(0.36))
                                     .clipShape(Capsule())
                                 }
                                 .buttonStyle(ShopCardPressStyle(scale: 0.94))
@@ -4017,7 +4482,7 @@ struct ShopVisualSearchSheet: View {
                         }
                     }
                 }
-                .frame(height: 270)
+                .frame(height: 248)
                 .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .overlay(
@@ -4029,24 +4494,33 @@ struct ShopVisualSearchSheet: View {
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(Color.white)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.white, Color.shopPurpleLight.opacity(0.38)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                         .overlay(
                             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .stroke(Color.shopBorder, lineWidth: 1)
+                                .stroke(Color.shopPurple.opacity(0.12), lineWidth: 1)
                         )
                         .shadow(color: Color.black.opacity(0.04), radius: 14, x: 0, y: 5)
 
-                    VisualScannerReticle(color: .shopPurple.opacity(0.28))
+                    VisualScannerReticle(color: .shopPurple.opacity(0.32))
                         .padding(20)
 
-                    VStack(spacing: 14) {
+                    VStack(spacing: 15) {
                         ZStack {
                             Circle()
-                                .fill(Color.shopPurpleLight.opacity(0.55))
-                                .frame(width: 84, height: 84)
+                                .fill(Color.shopPurpleLight.opacity(pulseViewfinder ? 0.72 : 0.42))
+                                .frame(width: 90, height: 90)
+                                .scaleEffect(pulseViewfinder ? 1.05 : 0.96)
+
                             Circle()
                                 .fill(Color.shopPurpleLight)
-                                .frame(width: 62, height: 62)
+                                .frame(width: 64, height: 64)
+
                             Image(systemName: "camera.viewfinder")
                                 .font(.system(size: 28, weight: .semibold))
                                 .foregroundColor(.shopPurple)
@@ -4054,9 +4528,9 @@ struct ShopVisualSearchSheet: View {
 
                         VStack(spacing: 4) {
                             Text("Inquadra il prodotto")
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .font(.system(size: 16.5, weight: .bold, design: .rounded))
                                 .foregroundColor(.shopDark)
-                            Text("Funziona con foto nitide di scarpe, orologi e capi sportivi")
+                            Text("Foto nitide di scarpe, smartwatch, capi o accessori sportivi")
                                 .font(.system(size: 12.5))
                                 .foregroundColor(.shopTextMuted)
                                 .multilineTextAlignment(.center)
@@ -4064,20 +4538,34 @@ struct ShopVisualSearchSheet: View {
                         }
 
                         HStack(spacing: 6) {
-                            ForEach(["Scarpe", "Smartwatch", "Abbigliamento", "Zaini"], id: \.self) { label in
-                                Text(label)
-                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.shopTextMuted)
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 5)
-                                    .background(Color.shopSurface)
-                                    .clipShape(Capsule())
+                            ForEach([
+                                ("Scarpe", "shoe.fill"),
+                                ("Orologi", "applewatch"),
+                                ("Capi", "tshirt.fill"),
+                                ("Zaini", "backpack.fill")
+                            ], id: \.0) { label, icon in
+                                HStack(spacing: 4) {
+                                    Image(systemName: icon)
+                                        .font(.system(size: 9.5, weight: .semibold))
+                                        .foregroundColor(.shopPurple)
+                                    Text(label)
+                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.shopDark.opacity(0.78))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(Color.white.opacity(0.9))
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.shopBorder.opacity(0.8), lineWidth: 1)
+                                )
                             }
                         }
                     }
                     .padding(.vertical, 20)
                 }
-                .frame(height: 252)
+                .frame(height: 256)
             }
         }
     }
@@ -4221,7 +4709,7 @@ struct ShopVisualSearchSheet: View {
 
             if let image = selectedImage {
                 Button(action: {
-                    analyzePickedImage(image)
+                    analyzePickedImage(image, description: combinedUserDescription)
                 }) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.clockwise")
@@ -4396,6 +4884,8 @@ struct ShopVisualSearchSheet: View {
     private func resetSelectedPhoto() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             selectedImage = nil
+            userDescription = ""
+            selectedQuickHints = []
             analysisResult = nil
             analysisError = nil
             isAnalyzing = false
@@ -4432,7 +4922,7 @@ struct ShopVisualSearchSheet: View {
         }
     }
 
-    private func analyzePickedImage(_ image: UIImage) {
+    private func analyzePickedImage(_ image: UIImage, description: String? = nil) {
         guard let jpegData = Self.compressedJPEGData(from: image) else {
             analysisError = "Impossibile preparare l'immagine per l'invio."
             return
@@ -4451,7 +4941,11 @@ struct ShopVisualSearchSheet: View {
 
         Task {
             do {
-                let res = try await APIService.shared.analyzeVisualSearchImage(imageData: jpegData, mimeType: "image/jpeg")
+                let res = try await APIService.shared.analyzeVisualSearchImage(
+                    imageData: jpegData,
+                    mimeType: "image/jpeg",
+                    description: description
+                )
                 await MainActor.run {
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.85)) {
                         self.isAnalyzing = false
@@ -4472,7 +4966,7 @@ struct ShopVisualSearchSheet: View {
         }
     }
 
-    private static func compressedJPEGData(from image: UIImage, maxDimension: CGFloat = 1024, quality: CGFloat = 0.76) -> Data? {
+    static func compressedJPEGData(from image: UIImage, maxDimension: CGFloat = 1024, quality: CGFloat = 0.76) -> Data? {
         let size = image.size
         guard size.width > 0, size.height > 0 else { return image.jpegData(compressionQuality: quality) }
         let scale = min(1.0, maxDimension / max(size.width, size.height))

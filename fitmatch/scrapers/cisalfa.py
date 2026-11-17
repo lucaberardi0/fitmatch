@@ -13,7 +13,8 @@ class CisalfaScraper(BaseScraper):
     rating = 2.6
     review_count = 1850
     formatted_review_count = "1,8K"
-    accent_color = "#E31C25"
+    card_theme = "colored"
+    accent_color = "#C8102E"
     free_shipping_threshold = 99.0
     standard_shipping_cost = 9.90
     courier = "BRT / GLS"

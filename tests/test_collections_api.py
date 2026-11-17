@@ -14,8 +14,10 @@ def test_get_collections_endpoint():
 
     names = [c["name"] for c in data["collections"]]
     assert "Tutti" in names
-    assert "Scarpe da Corsa" in names
-    assert "Smartwatch & GPS" in names
+    for default_name in ("Scarpe da Corsa", "Smartwatch & GPS", "Trail & Outdoor", "Offerte Speciali"):
+        assert default_name not in names or any(
+            c.get("item_count", 0) > 0 for c in data["collections"] if c["name"] == default_name
+        )
 
 
 def test_create_and_delete_collection_endpoint():

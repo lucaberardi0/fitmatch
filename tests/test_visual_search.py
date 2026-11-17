@@ -109,6 +109,64 @@ def test_visual_search_endpoint_success_and_validation():
     assert data["uploaded_image_url"] == "https://goopfdvnqhdmsoutkldp.supabase.co/storage/v1/object/public/chat-images/dev/abc.jpg"
 
 
+def test_analyze_image_forwards_user_description():
+    fake_json = {
+        "is_sport_product": True,
+        "recognized_model": "Garmin Forerunner 265",
+        "brand": "Garmin",
+        "category": "Smartwatch",
+        "color": "Nero",
+        "search_query": "Garmin Forerunner 265 sotto 400 euro",
+        "confidence": "high",
+        "alternatives": [],
+        "note": "Smartwatch GPS AMOLED per corsa e triathlon.",
+    }
+    with patch("urllib.request.urlopen", return_value=_mock_openrouter_response(fake_json)) as mock_open:
+        result = OpenRouterParser.analyze_image(
+            image_base64="YWJj",
+            api_key="test-key",
+            user_description="cerca solo l'orologio sotto 400 euro",
+        )
+
+    assert result is not None
+    assert result.recognized_model == "Garmin Forerunner 265"
+    req_arg = mock_open.call_args[0][0]
+    sent_payload = json.loads(req_arg.data.decode("utf-8"))
+    sent_text = sent_payload["messages"][1]["content"][0]["text"]
+    assert "cerca solo l'orologio sotto 400 euro" in sent_text
+
+
+def test_visual_search_endpoint_passes_description():
+    client = TestClient(fitmatch_api.app)
+    mock_result = VisualSearchResult(
+        is_sport_product=True,
+        recognized_model="Nike Pegasus 41",
+        brand="Nike",
+        category="Running",
+        color="Nero",
+        search_query="Nike Pegasus 41 Donna",
+        confidence="high",
+        alternatives=[],
+        note="Scarpa da corsa su strada.",
+    )
+    with patch("fitmatch.smart_search.OPENROUTER_API_KEY", "test-key"), \
+         patch("fitmatch.smart_search.OpenRouterParser.analyze_image", return_value=mock_result) as mock_analyze, \
+         patch.object(fitmatch_api.db, "search_smart", return_value=[]), \
+         patch.object(fitmatch_api.db, "use_supabase", False):
+        resp = client.post(
+            "/api/search/visual",
+            json={
+                "image_base64": "YWJj",
+                "mime_type": "image/jpeg",
+                "device_id": "dev",
+                "description": "  modello donna  ",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert mock_analyze.call_args.kwargs["user_description"] == "modello donna"
+
+
 def test_persist_smart_search_turn_attaches_user_image_url():
     sample_payload = {
         "search_mode": "deep_dive",

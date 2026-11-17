@@ -16,7 +16,8 @@ class MisterRunningScraper(BaseScraper):
     rating = 4.9
     review_count = 37250
     formatted_review_count = "37,2K"
-    accent_color = "#0072CE"
+    card_theme = "colored"
+    accent_color = "#005EB8"
     free_shipping_threshold = 49.0
     standard_shipping_cost = 4.90
     courier = "DHL / UPS"

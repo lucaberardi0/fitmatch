@@ -431,7 +431,7 @@ struct ShopAgentThinkingCardView: View {
     var steps: [SearchThinkingStep] = []
     var startedAt: Date = Date()
 
-    @State private var isExpanded: Bool = false
+    @State private var isExpanded: Bool = true
     @State private var dotPulse: Bool = false
 
     private var cleanQuery: String {
@@ -534,7 +534,7 @@ struct ShopAgentThinkingCardView: View {
             }
             .buttonStyle(.plain)
 
-            // Quiet expandable reasoning trace (hidden by default like ChatGPT)
+            // Expandable reasoning trace (shown by default during search loading)
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(displaySteps) { step in

@@ -18,7 +18,8 @@ class DeporvillageScraper(BaseScraper):
     rating = 4.5
     review_count = 486000
     formatted_review_count = "486K"
-    accent_color = "#E84311"
+    card_theme = "colored"
+    accent_color = "#D63B0E"
     free_shipping_threshold = 80.0
     standard_shipping_cost = 4.99
     courier = "GLS / DPD"

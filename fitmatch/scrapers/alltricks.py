@@ -18,7 +18,8 @@ class AlltricksScraper(BaseScraper):
     rating = 4.2
     review_count = 1323
     formatted_review_count = "1,3K"
-    accent_color = "#00A3E0"
+    card_theme = "colored"
+    accent_color = "#007AB8"
     free_shipping_threshold = 69.0
     standard_shipping_cost = 4.99
     courier = "Bartolini (BRT)"

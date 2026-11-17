@@ -16,6 +16,7 @@ class RunningWarehouseScraper(BaseScraper):
     rating = 3.5
     review_count = 32
     formatted_review_count = "32"
+    card_theme = "colored"
     accent_color = "#0A378C"
     free_shipping_threshold = 59.0
     standard_shipping_cost = 10.00

@@ -21,7 +21,8 @@ class SportlerScraper(BaseScraper):
     rating = 3.6
     review_count = 400
     formatted_review_count = "400"
-    accent_color = "#DC1E28"
+    card_theme = "colored"
+    accent_color = "#B81820"
     free_shipping_threshold = 100.0
     standard_shipping_cost = 4.95
     courier = "SDA / Corriere Espresso"

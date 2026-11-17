@@ -23,6 +23,7 @@ class DecathlonScraper(BaseScraper):
     rating = 1.5
     review_count = 2690
     formatted_review_count = "2,7K"
+    card_theme = "colored"
     accent_color = "#0082C8"
     free_shipping_threshold = 60.0
     standard_shipping_cost = 4.99

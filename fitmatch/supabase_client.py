@@ -2445,17 +2445,6 @@ class SupabaseClient:
         results = [{"id": "all", "name": "Tutti", "item_count": total_items}]
         seen_names = {"tutti"}
 
-        # Default system categories to ensure rich experience
-        default_categories = ["Scarpe da Corsa", "Smartwatch & GPS", "Trail & Outdoor", "Offerte Speciali"]
-        for cat in default_categories:
-            if cat.lower() not in seen_names:
-                seen_names.add(cat.lower())
-                results.append({
-                    "id": cat.lower().replace(" ", "_"),
-                    "name": cat,
-                    "item_count": counts.get(cat.lower(), 0)
-                })
-
         for c in cols:
             name = c.get("name", "").strip()
             if not name or name.lower() in seen_names:
