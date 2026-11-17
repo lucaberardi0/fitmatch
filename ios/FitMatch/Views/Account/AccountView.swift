@@ -1922,7 +1922,7 @@ private struct AccountSupportView: View {
 
 // MARK: - Legal Documents (Privacy, Termini, Trasparenza Affiliazioni, Licenze)
 
-private enum AccountLegalType: String, Identifiable {
+enum AccountLegalType: String, Identifiable {
     case privacy
     case terms
     case affiliate
@@ -2107,7 +2107,7 @@ private struct AccountLegalDocumentPage: View {
     }
 }
 
-private struct AccountLegalSheetView: View {
+struct AccountLegalSheetView: View {
     let type: AccountLegalType
     let storeCount: Int
     @Environment(\.dismiss) private var dismiss

@@ -10,6 +10,13 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
 }
 
+private struct OrbitProductItem: Identifiable {
+    let id = UUID()
+    let imageName: String
+    let size: CGFloat
+    let tiltDegrees: Double
+}
+
 struct OnboardingView: View {
     var onFinished: ((_ personalized: Bool) -> Void)? = nil
 
@@ -19,9 +26,28 @@ struct OnboardingView: View {
 
     @State private var currentStep: OnboardingStep = .overview
     @State private var transitionDirection: Int = 1
+
+    init(onFinished: ((_ personalized: Bool) -> Void)? = nil) {
+        self.onFinished = onFinished
+        #if DEBUG
+        if let rawStr = ProcessInfo.processInfo.environment["FITMATCH_ONBOARDING_STEP"],
+           let raw = Int(rawStr),
+           let step = OnboardingStep(rawValue: raw) {
+            self._currentStep = State(initialValue: step)
+        }
+        #endif
+    }
     @State private var isRequestingNotifications: Bool = false
     @State private var brandSearchQuery: String = ""
     @State private var showAllSuggestedStores: Bool = false
+    @State private var activeLegalSheet: AccountLegalType? = nil
+
+    // Overview headline carousel
+    @State private var heroSlideIndex: Int = 0
+    @State private var heroHeadlineOpacity: Double = 1.0
+
+    // Notification live-tracking card animation phase (0: Monitoring, 1: Price Drop)
+    @State private var trackingPhase: Int = 0
 
     private var storeCountLabel: String {
         let count = max(prefs.activeStores.count, prefs.suggestedOnboardingStores.count)
@@ -34,6 +60,27 @@ struct OnboardingView: View {
             || !prefs.preferences.favoriteBrands.isEmpty
             || !followedManager.followedStores.isEmpty
     }
+
+    private var heroHeadlines: [String] {
+        [
+            "Confronta i prezzi\nsu \(storeCountLabel) store",
+            "Scopri il tuo prossimo\nbrand preferito",
+            "Trova subito\nla tua taglia",
+            "Ricevi avvisi quando\nil prezzo scende"
+        ]
+    }
+
+    private static let orbitItems: [OrbitProductItem] = [
+        OrbitProductItem(imageName: "onb_shoe", size: 106, tiltDegrees: -10),
+        OrbitProductItem(imageName: "onb_cap", size: 90, tiltDegrees: 8),
+        OrbitProductItem(imageName: "onb_glasses", size: 96, tiltDegrees: -9),
+        OrbitProductItem(imageName: "onb_red_helmet", size: 92, tiltDegrees: 7),
+        OrbitProductItem(imageName: "onb_backpack", size: 90, tiltDegrees: -6),
+        OrbitProductItem(imageName: "onb_orange_shoe", size: 104, tiltDegrees: -8),
+        OrbitProductItem(imageName: "onb_socks", size: 84, tiltDegrees: 11),
+        OrbitProductItem(imageName: "onb_samba", size: 100, tiltDegrees: -8),
+        OrbitProductItem(imageName: "onb_watch", size: 84, tiltDegrees: -7)
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,55 +100,131 @@ struct OnboardingView: View {
 
             bottomActionBar
         }
-        .background(Color.shopSurface.ignoresSafeArea())
+        .background(Color.white.ignoresSafeArea())
+        .preferredColorScheme(.light)
         .task {
             if prefs.activeStores.isEmpty {
                 await prefs.fetchActiveStores(apiService: APIService.shared)
             }
         }
-    }
-
-    // MARK: - Top Progress & Skip Bar
-
-    private var topNavigationBar: some View {
-        HStack(spacing: 12) {
-            if currentStep != .overview {
-                Button(action: goBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.shopDark)
-                        .shopNavCircle(size: 38)
-                }
-                .buttonStyle(ShopCardPressStyle(scale: 0.92))
-            } else {
-                Color.clear.frame(width: 38, height: 38)
-            }
-
-            HStack(spacing: 6) {
-                ForEach(OnboardingStep.allCases) { step in
-                    Capsule()
-                        .fill(step.rawValue <= currentStep.rawValue ? Color.shopPurple : Color.shopBorder)
-                        .frame(height: 5)
-                        .animation(.spring(response: 0.32, dampingFraction: 0.85), value: currentStep)
-                }
-            }
-
-            if currentStep != .notifications {
-                Button(action: skipOnboarding) {
-                    Text("Salta")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.shopTextMuted)
-                        .padding(.horizontal, 10)
-                        .frame(height: 38)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Color.clear.frame(width: 48, height: 38)
+        .task(id: currentStep) {
+            if currentStep == .overview {
+                await runOverviewHeadlineLoop()
+            } else if currentStep == .notifications {
+                await runTrackingPreviewLoop()
             }
         }
-        .padding(.horizontal, ShopLayout.screenPadding)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
+        .sheet(item: $activeLegalSheet) { legalType in
+            let count = max(prefs.activeStores.count, prefs.suggestedOnboardingStores.count)
+            AccountLegalSheetView(type: legalType, storeCount: count)
+        }
+    }
+
+    // MARK: - Loops
+
+    private func runOverviewHeadlineLoop() async {
+        heroHeadlineOpacity = 1.0
+        while !Task.isCancelled && currentStep == .overview {
+            try? await Task.sleep(nanoseconds: 3_100_000_000)
+            guard !Task.isCancelled && currentStep == .overview else { break }
+            withAnimation(.easeOut(duration: 0.18)) {
+                heroHeadlineOpacity = 0
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard !Task.isCancelled && currentStep == .overview else { break }
+            heroSlideIndex = (heroSlideIndex + 1) % heroHeadlines.count
+            withAnimation(.easeIn(duration: 0.24)) {
+                heroHeadlineOpacity = 1.0
+            }
+        }
+    }
+
+    private func runTrackingPreviewLoop() async {
+        trackingPhase = 0
+        while !Task.isCancelled && currentStep == .notifications {
+            try? await Task.sleep(nanoseconds: 2_300_000_000)
+            guard !Task.isCancelled && currentStep == .notifications else { break }
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.84)) {
+                trackingPhase = trackingPhase == 0 ? 1 : 0
+            }
+        }
+    }
+
+    // MARK: - Top Navigation Chrome
+
+    @ViewBuilder
+    private var topNavigationBar: some View {
+        if currentStep == .overview {
+            HStack(spacing: 6) {
+                Text("Scopri lo sport con")
+                    .font(.system(size: 13.5, weight: .regular))
+                    .foregroundColor(.shopTextMuted)
+
+                HStack(spacing: 5) {
+                    onboardingBrandEmblem(size: 18)
+                    Text("FitMatch")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 14)
+            .padding(.bottom, 6)
+        } else {
+            HStack(spacing: 12) {
+                Button(action: goBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.shopDark)
+                        .frame(width: 40, height: 40)
+                        .background(Color.white)
+                        .clipShape(Circle())
+                        .overlay(
+                            Circle()
+                                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+                }
+                .buttonStyle(ShopCardPressStyle(scale: 0.92))
+
+                Spacer()
+
+                HStack(spacing: 6) {
+                    ForEach(OnboardingStep.allCases.filter { $0 != .overview }) { step in
+                        Capsule()
+                            .fill(step.rawValue <= currentStep.rawValue ? Color.shopPurple : Color.black.opacity(0.08))
+                            .frame(width: step == currentStep ? 24 : 16, height: 4)
+                            .animation(.spring(response: 0.34, dampingFraction: 0.85), value: currentStep)
+                    }
+                }
+
+                Spacer()
+
+                if currentStep != .notifications || !notifManager.isAuthorized {
+                    Button(action: handleSkipButton) {
+                        Text("Salta")
+                            .font(.system(size: 14.5, weight: .semibold))
+                            .foregroundColor(.shopDark)
+                            .padding(.horizontal, 18)
+                            .frame(height: 40)
+                            .background(Color.white)
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                            )
+                            .shadow(color: Color.black.opacity(0.07), radius: 10, x: 0, y: 3)
+                    }
+                    .buttonStyle(ShopCardPressStyle(scale: 0.94))
+                    .disabled(isRequestingNotifications)
+                } else {
+                    Color.clear.frame(width: 74, height: 40)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+        }
     }
 
     // MARK: - Step Router
@@ -122,106 +245,64 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Step 0: Cosa fa FitMatch
+    // MARK: - Step 0: Circular Product Orbit & Centered Editorial Headline
 
     private var overviewStepView: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 10) {
-                        onboardingBrandEmblem
-                        Text("FitMatch")
-                            .font(.system(size: 20, weight: .black, design: .rounded))
-                            .foregroundColor(.shopDark)
-                    }
+        GeometryReader { geo in
+            let compactHeight = geo.size.height < 520
+            let scaleFactor: CGFloat = compactHeight ? 0.84 : 1.0
+            let orbitRadius = min(geo.size.width * 0.50, max(130, (geo.size.height - 92) * 0.5))
 
-                    Text("Lo sport al miglior prezzo, su misura per te")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
-                        .foregroundColor(.shopDark)
-                        .lineSpacing(2)
-
-                    Text("Confronta offerte reali sui principali negozi sportivi in pochi secondi e personalizza subito il tuo feed.")
-                        .font(.system(size: 15))
-                        .foregroundColor(.shopTextMuted)
-                        .lineSpacing(3)
-                }
-                .padding(.top, 10)
-
-                VStack(spacing: 12) {
-                    featureCard(
-                        icon: "storefront.fill",
-                        iconColor: .shopPurple,
-                        iconBg: .shopPurpleLight,
-                        title: "Confronto su \(storeCountLabel) store partner",
-                        subtitle: "Prezzi live, spese di spedizione e sconti reali riuniti in un unico posto."
-                    )
-
-                    featureCard(
-                        icon: "sparkles",
-                        iconColor: Color(red: 14/255, green: 116/255, blue: 144/255),
-                        iconBg: Color(red: 224/255, green: 242/255, blue: 254/255),
-                        title: "Ricerca AI & Match Taglia",
-                        subtitle: "Chiedi ciò che ti serve all’assistente AI e verifica la disponibilità della tua taglia."
-                    )
-
-                    featureCard(
-                        icon: "bell.badge.fill",
-                        iconColor: .shopGreen,
-                        iconBg: .shopGreenLight,
-                        title: "Avvisi automatici di ribasso",
-                        subtitle: "Salva scarpe, abbigliamento o GPS in wishlist e ricevi una notifica quando calano."
-                    )
-                }
-            }
-            .padding(.horizontal, ShopLayout.screenPadding)
-            .padding(.bottom, 24)
-        }
-    }
-
-    private func featureCard(
-        icon: String,
-        iconColor: Color,
-        iconBg: Color,
-        title: String,
-        subtitle: String
-    ) -> some View {
-        HStack(alignment: .top, spacing: 14) {
             ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(iconBg)
-                    .frame(width: 46, height: 46)
-                Image(systemName: icon)
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(iconColor)
-            }
+                CircularProductOrbitView(
+                    items: Self.orbitItems,
+                    radius: orbitRadius,
+                    scaleFactor: scaleFactor
+                )
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 15.5, weight: .bold, design: .rounded))
+                // Center editorial headline
+                Text(heroHeadlines[heroSlideIndex])
+                    .font(.system(size: compactHeight ? 23 : 26, weight: .medium))
+                    .tracking(-0.5)
                     .foregroundColor(.shopDark)
-                Text(subtitle)
-                    .font(.system(size: 13.5))
-                    .foregroundColor(.shopTextMuted)
+                    .multilineTextAlignment(.center)
                     .lineSpacing(2)
+                    .opacity(heroHeadlineOpacity)
+                    .frame(maxWidth: max(190, orbitRadius * 1.32))
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        triggerLightHaptic()
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            heroHeadlineOpacity = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            heroSlideIndex = (heroSlideIndex + 1) % heroHeadlines.count
+                            withAnimation(.easeIn(duration: 0.2)) {
+                                heroHeadlineOpacity = 1.0
+                            }
+                        }
+                    }
             }
-
-            Spacer(minLength: 0)
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
         }
-        .shopCard()
     }
 
     // MARK: - Step 1: Sport & Discipline
 
     private var sportsStepView: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                stepHeader(
-                    badge: "1 · Discipline",
+            VStack(spacing: 22) {
+                centeredStepHeader(
                     title: "Quali sport pratichi?",
-                    subtitle: "Seleziona una o più attività per dare priorità ai prodotti più adatti nella home Per te e nell'Assistente AI."
+                    subtitle: "Scegli una o più attività per dare priorità ai prodotti giusti nella home Per te e nell'Assistente AI."
                 )
 
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 11), GridItem(.flexible(), spacing: 11)],
+                    spacing: 11
+                ) {
                     ForEach(prefs.availableSports, id: \.0) { sport in
                         let isSelected = prefs.preferences.selectedSports.contains(sport.0)
                         Button(action: {
@@ -235,10 +316,10 @@ struct OnboardingView: View {
                                     .frame(width: 22)
 
                                 Text(sport.0)
-                                    .font(.system(size: 13.5, weight: isSelected ? .bold : .semibold, design: .rounded))
+                                    .font(.system(size: 13.5, weight: isSelected ? .semibold : .medium))
                                     .foregroundColor(isSelected ? .white : .shopDark)
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.85)
+                                    .minimumScaleFactor(0.84)
 
                                 Spacer(minLength: 0)
 
@@ -248,21 +329,26 @@ struct OnboardingView: View {
                                         .foregroundColor(.white.opacity(0.95))
                                 }
                             }
-                            .padding(.horizontal, 12)
-                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .padding(.horizontal, 13)
+                            .frame(maxWidth: .infinity, minHeight: 54)
                             .background(isSelected ? Color.shopPurple : Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                                    .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: 1)
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(isSelected ? Color.shopPurple : Color.black.opacity(0.07), lineWidth: 1)
                             )
-                            .shadow(color: Color.black.opacity(isSelected ? 0.08 : 0.02), radius: 5, x: 0, y: 2)
+                            .shadow(
+                                color: isSelected ? Color.shopPurple.opacity(0.22) : Color.black.opacity(0.04),
+                                radius: isSelected ? 10 : 8,
+                                x: 0,
+                                y: 3
+                            )
                         }
                         .buttonStyle(ShopCardPressStyle(scale: 0.97))
                     }
                 }
             }
-            .padding(.horizontal, ShopLayout.screenPadding)
+            .padding(.horizontal, 18)
             .padding(.bottom, 24)
         }
     }
@@ -271,28 +357,27 @@ struct OnboardingView: View {
 
     private var sizesStepView: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                stepHeader(
-                    badge: "2 · Facoltativo",
+            VStack(spacing: 20) {
+                centeredStepHeader(
                     title: "Vuoi filtrare per taglia?",
-                    subtitle: "Seleziona le tue misure per vedere subito i modelli disponibili. Se cerchi solo smartwatch, GPS o accessori puoi saltare."
+                    subtitle: "Mostriamo subito i modelli disponibili nella tua misura. Se cerchi GPS o accessori puoi saltare."
                 )
 
                 // Shoe size card
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 14) {
                     HStack {
                         Label("Taglia Scarpe (EU)", systemImage: "shoeprints.fill")
-                            .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.shopDark)
 
                         Spacer()
 
                         Text(prefs.preferences.hasShoeSize ? "EU \(prefs.preferences.preferredShoeSize)" : "Facoltativa")
-                            .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                            .font(.system(size: 12.5, weight: .semibold))
                             .foregroundColor(prefs.preferences.hasShoeSize ? .shopPurple : .shopTextMuted)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(prefs.preferences.hasShoeSize ? Color.shopPurpleLight : Color.shopSurface)
+                            .background(prefs.preferences.hasShoeSize ? Color.shopPurpleLight : Color(red: 245/255, green: 245/255, blue: 247/255))
                             .clipShape(Capsule())
                     }
 
@@ -304,37 +389,37 @@ struct OnboardingView: View {
                                 prefs.preferences.preferredShoeSize = isSelected ? "" : size
                             }) {
                                 Text(size)
-                                    .font(.system(size: 13.5, weight: isSelected ? .bold : .medium, design: .rounded))
+                                    .font(.system(size: 13.5, weight: isSelected ? .bold : .medium))
                                     .foregroundColor(isSelected ? .white : .shopDark)
-                                    .frame(maxWidth: .infinity, minHeight: 40)
-                                    .background(isSelected ? Color.shopPurple : Color.shopSurface)
+                                    .frame(maxWidth: .infinity, minHeight: 42)
+                                    .background(isSelected ? Color.shopPurple : Color(red: 246/255, green: 246/255, blue: 248/255))
                                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: 1)
+                                            .stroke(isSelected ? Color.shopPurple : Color.black.opacity(0.05), lineWidth: 1)
                                     )
                             }
                             .buttonStyle(.plain)
                         }
                     }
                 }
-                .shopCard()
+                .shopOnboardingCard()
 
                 // Apparel size card
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 14) {
                     HStack {
                         Label("Taglia Abbigliamento", systemImage: "tshirt.fill")
-                            .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.shopDark)
 
                         Spacer()
 
                         Text(prefs.preferences.hasApparelSize ? prefs.preferences.preferredApparelSize : "Facoltativa")
-                            .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                            .font(.system(size: 12.5, weight: .semibold))
                             .foregroundColor(prefs.preferences.hasApparelSize ? .shopPurple : .shopTextMuted)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(prefs.preferences.hasApparelSize ? Color.shopPurpleLight : Color.shopSurface)
+                            .background(prefs.preferences.hasApparelSize ? Color.shopPurpleLight : Color(red: 245/255, green: 245/255, blue: 247/255))
                             .clipShape(Capsule())
                     }
 
@@ -346,21 +431,21 @@ struct OnboardingView: View {
                                 prefs.preferences.preferredApparelSize = isSelected ? "" : size
                             }) {
                                 Text(size)
-                                    .font(.system(size: 13.5, weight: isSelected ? .bold : .medium, design: .rounded))
+                                    .font(.system(size: 13.5, weight: isSelected ? .bold : .medium))
                                     .foregroundColor(isSelected ? .white : .shopDark)
                                     .frame(maxWidth: .infinity, minHeight: 42)
-                                    .background(isSelected ? Color.shopPurple : Color.shopSurface)
+                                    .background(isSelected ? Color.shopPurple : Color(red: 246/255, green: 246/255, blue: 248/255))
                                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: 1)
+                                            .stroke(isSelected ? Color.shopPurple : Color.black.opacity(0.05), lineWidth: 1)
                                     )
                             }
                             .buttonStyle(.plain)
                         }
                     }
                 }
-                .shopCard()
+                .shopOnboardingCard()
 
                 if prefs.preferences.hasAnySize {
                     Button(action: {
@@ -372,16 +457,15 @@ struct OnboardingView: View {
                             Image(systemName: "xmark.circle")
                                 .font(.system(size: 13))
                             Text("Rimuovi taglie selezionate")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .font(.system(size: 13.5, weight: .medium))
                         }
                         .foregroundColor(.shopTextMuted)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 4)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, ShopLayout.screenPadding)
+            .padding(.horizontal, 18)
             .padding(.bottom, 24)
         }
     }
@@ -393,7 +477,6 @@ struct OnboardingView: View {
         let query = brandSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if query.isEmpty {
-            // Pin selected brands first, then fill up to 12 popular brands so the card stays compact
             var result: [String] = []
             var seen = Set<String>()
             for selected in prefs.preferences.favoriteBrands {
@@ -426,23 +509,22 @@ struct OnboardingView: View {
 
     private var brandsAndStoresStepView: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                stepHeader(
-                    badge: "3 · Brand & Store",
-                    title: "Marchi e negozi preferiti",
-                    subtitle: "Scegli i tuoi brand del cuore e segui subito gli store che vuoi ritrovare nel tab Segui già."
+            VStack(spacing: 20) {
+                centeredStepHeader(
+                    title: "Marchi e store preferiti",
+                    subtitle: "Scegli i tuoi brand del cuore e segui subito i negozi da ritrovare in Segui già."
                 )
 
                 // Searchable Brands card
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Label("Brand del cuore", systemImage: "tag.fill")
-                            .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.shopDark)
                         Spacer()
                         if !prefs.preferences.favoriteBrands.isEmpty {
                             Text("\(prefs.preferences.favoriteBrands.count) scelti")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .font(.system(size: 12.5, weight: .semibold))
                                 .foregroundColor(.shopPurple)
                         }
                     }
@@ -456,16 +538,14 @@ struct OnboardingView: View {
                             "Cerca tra \(prefs.availableBrands.count) brand (es. Nike, Garmin...)",
                             text: $brandSearchQuery
                         )
-                        .font(.system(size: 14, design: .rounded))
+                        .font(.system(size: 14))
                         .foregroundColor(.shopDark)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
                         .submitLabel(.search)
 
                         if !brandSearchQuery.isEmpty {
-                            Button(action: {
-                                brandSearchQuery = ""
-                            }) {
+                            Button(action: { brandSearchQuery = "" }) {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 15))
                                     .foregroundColor(.shopTextMuted.opacity(0.7))
@@ -473,14 +553,10 @@ struct OnboardingView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .frame(height: 40)
-                    .background(Color.shopSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Color.shopBorder, lineWidth: 1)
-                    )
+                    .padding(.horizontal, 14)
+                    .frame(height: 42)
+                    .background(Color(red: 245/255, green: 245/255, blue: 247/255))
+                    .clipShape(Capsule())
 
                     let brandsToDisplay = displayedOnboardingBrands
                     if brandsToDisplay.isEmpty {
@@ -489,7 +565,7 @@ struct OnboardingView: View {
                             .foregroundColor(.shopTextMuted)
                             .padding(.vertical, 8)
                     } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 102), spacing: 8)], spacing: 8) {
+                        OnboardingFlowLayout(spacing: 8) {
                             ForEach(brandsToDisplay, id: \.self) { brand in
                                 let isSelected = prefs.preferences.favoriteBrands.contains(brand)
                                 Button(action: {
@@ -502,17 +578,17 @@ struct OnboardingView: View {
                                                 .font(.system(size: 10, weight: .bold))
                                         }
                                         Text(brand)
-                                            .font(.system(size: 13, weight: isSelected ? .bold : .medium, design: .rounded))
+                                            .font(.system(size: 13.5, weight: isSelected ? .semibold : .medium))
                                             .lineLimit(1)
                                     }
                                     .foregroundColor(isSelected ? .white : .shopDark)
-                                    .padding(.horizontal, 10)
-                                    .frame(maxWidth: .infinity, minHeight: 38)
-                                    .background(isSelected ? Color.shopPurple : Color.shopSurface)
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 38)
+                                    .background(isSelected ? Color.shopPurple : Color(red: 246/255, green: 246/255, blue: 248/255))
                                     .clipShape(Capsule())
                                     .overlay(
                                         Capsule()
-                                            .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: 1)
+                                            .stroke(isSelected ? Color.shopPurple : Color.black.opacity(0.05), lineWidth: 1)
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -521,24 +597,24 @@ struct OnboardingView: View {
 
                         if brandSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && prefs.availableBrands.count > brandsToDisplay.count {
                             Text("Usa la ricerca sopra per trovare tutti gli altri marchi del catalogo.")
-                                .font(.system(size: 11.5))
+                                .font(.system(size: 12))
                                 .foregroundColor(.shopTextMuted)
                                 .padding(.top, 2)
                         }
                     }
                 }
-                .shopCard()
+                .shopOnboardingCard()
 
                 // Stores to follow card
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Label("Store da seguire", systemImage: "storefront.fill")
-                            .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.shopDark)
                         Spacer()
                         if !followedManager.followedStores.isEmpty {
                             Text("\(followedManager.followedStores.count) seguiti")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .font(.system(size: 12.5, weight: .semibold))
                                 .foregroundColor(.shopPurple)
                         }
                     }
@@ -553,12 +629,12 @@ struct OnboardingView: View {
                                     storeName: store.name,
                                     showVerified: false,
                                     showLabel: false,
-                                    size: 36
+                                    size: 38
                                 )
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(store.name)
-                                        .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                                        .font(.system(size: 14.5, weight: .semibold))
                                         .foregroundColor(.shopDark)
                                         .lineLimit(1)
                                     Text(store.subtitle)
@@ -570,6 +646,7 @@ struct OnboardingView: View {
                                 Spacer(minLength: 6)
 
                                 Button(action: {
+                                    triggerLightHaptic()
                                     followedManager.toggleFollow(storeId: store.id, storeName: store.name)
                                 }) {
                                     HStack(spacing: 4) {
@@ -578,10 +655,10 @@ struct OnboardingView: View {
                                                 .font(.system(size: 10, weight: .bold))
                                         }
                                         Text(isFollowed ? "Seguito" : "Segui")
-                                            .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                                            .font(.system(size: 12.5, weight: .semibold))
                                     }
                                     .foregroundColor(isFollowed ? .shopPurple : .white)
-                                    .padding(.horizontal, 13)
+                                    .padding(.horizontal, 14)
                                     .frame(height: 32)
                                     .background(isFollowed ? Color.shopPurpleLight : Color.shopDark)
                                     .clipShape(Capsule())
@@ -592,7 +669,7 @@ struct OnboardingView: View {
 
                             if store.id != visibleStores.last?.id {
                                 Divider()
-                                    .padding(.leading, 48)
+                                    .padding(.leading, 50)
                             }
                         }
                     }
@@ -606,141 +683,218 @@ struct OnboardingView: View {
                         }) {
                             HStack(spacing: 6) {
                                 Text(showAllSuggestedStores ? "Mostra meno store" : "Mostra tutti i \(allStores.count) store")
-                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .font(.system(size: 13, weight: .semibold))
                                 Image(systemName: showAllSuggestedStores ? "chevron.up" : "chevron.down")
-                                    .font(.system(size: 11, weight: .bold))
+                                    .font(.system(size: 11, weight: .semibold))
                             }
                             .foregroundColor(.shopPurple)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 9)
                             .background(Color.shopPurpleLight.opacity(0.65))
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .shopCard()
+                .shopOnboardingCard()
             }
-            .padding(.horizontal, ShopLayout.screenPadding)
+            .padding(.horizontal, 18)
             .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)
     }
 
-    // MARK: - Step 4: Avvisi Prezzi & Riepilogo
+    // MARK: - Step 4: Avvisi Prezzi (Inspired by Reference Screenshots 3 & 4)
+
+    private var previewStoreSubtitle: String {
+        let storeName = followedManager.followedStores.first?.store_name ?? "Mister Running"
+        if prefs.preferences.hasShoeSize {
+            return "\(storeName) · EU \(prefs.preferences.preferredShoeSize)"
+        }
+        return storeName
+    }
+
+    private var summaryTokens: [String] {
+        var tokens: [String] = []
+        if !prefs.preferences.selectedSports.isEmpty {
+            let count = prefs.preferences.selectedSports.count
+            tokens.append(count == 1 ? prefs.preferences.selectedSports[0] : "\(count) sport")
+        }
+        if prefs.preferences.hasAnySize {
+            tokens.append(prefs.preferences.formattedSizeSummary)
+        }
+        if !prefs.preferences.favoriteBrands.isEmpty {
+            let count = prefs.preferences.favoriteBrands.count
+            tokens.append(count == 1 ? prefs.preferences.favoriteBrands[0] : "\(count) brand")
+        }
+        if !followedManager.followedStores.isEmpty {
+            let count = followedManager.followedStores.count
+            tokens.append(count == 1 ? followedManager.followedStores[0].store_name : "\(count) store seguiti")
+        }
+        return tokens
+    }
 
     private var notificationsStepView: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                stepHeader(
-                    badge: "4 · Avvisi & Avvio",
-                    title: "Tutto pronto per iniziare",
-                    subtitle: "Attiva gli avvisi di calo prezzo per sapere subito quando un prodotto salvato raggiunge il miglior prezzo."
-                )
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                Text("Segui ogni calo di prezzo\nin tempo reale")
+                    .font(.system(size: 25, weight: .medium))
+                    .tracking(-0.4)
+                    .foregroundColor(.shopDark)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .padding(.top, geo.size.height > 540 ? 32 : 16)
+                    .padding(.horizontal, 24)
 
-                // Pre-permission spotlight card
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.shopPurpleLight)
-                                .frame(width: 48, height: 48)
-                            Image(systemName: notifManager.isAuthorized ? "bell.badge.fill" : "bell.and.waves.left.and.right.fill")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.shopPurple)
-                        }
+                Spacer()
 
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(notifManager.isAuthorized ? "Notifiche già attive" : "Avvisi ribassi intelligenti")
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
-                                .foregroundColor(.shopDark)
-                            Text("Solo cali di prezzo reali e offerte in linea con le tue preferenze.")
-                                .font(.system(size: 13))
-                                .foregroundColor(.shopTextMuted)
+                // Centerpiece floating live price-tracking card (Reference Screenshots 3 & 4)
+                VStack(spacing: 16) {
+                    priceTrackingShowcaseCard
+
+                    if !summaryTokens.isEmpty {
+                        HStack(spacing: 6) {
+                            ForEach(summaryTokens.prefix(4), id: \.self) { token in
+                                Text(token)
+                                    .font(.system(size: 11.5, weight: .medium))
+                                    .foregroundColor(.shopTextMuted)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Color(red: 245/255, green: 245/255, blue: 247/255))
+                                    .clipShape(Capsule())
+                                    .lineLimit(1)
+                            }
                         }
+                        .padding(.horizontal, 12)
                     }
                 }
-                .shopCard()
+                .padding(.horizontal, 18)
 
-                // Recap card
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Il tuo profilo iniziale")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundColor(.shopDark)
-
-                    recapRow(
-                        icon: "figure.run",
-                        label: "Sport",
-                        value: prefs.preferences.selectedSports.isEmpty
-                            ? "Tutti gli sport"
-                            : prefs.preferences.selectedSports.joined(separator: ", ")
-                    )
-
-                    Divider()
-
-                    recapRow(
-                        icon: "ruler.fill",
-                        label: "Taglie",
-                        value: prefs.preferences.formattedSizeSummary
-                    )
-
-                    Divider()
-
-                    recapRow(
-                        icon: "tag.fill",
-                        label: "Brand",
-                        value: prefs.preferences.favoriteBrands.isEmpty
-                            ? "Nessuna preferenza"
-                            : prefs.preferences.favoriteBrands.joined(separator: ", ")
-                    )
-
-                    Divider()
-
-                    recapRow(
-                        icon: "storefront.fill",
-                        label: "Store seguiti",
-                        value: followedManager.followedStores.isEmpty
-                            ? "Nessuno per ora"
-                            : followedManager.followedStores.map(\.store_name).joined(separator: ", ")
-                    )
-                }
-                .shopCard()
-
-                Text("Potrai modificare tutte queste impostazioni in qualsiasi momento dal tuo Account.")
-                    .font(.system(size: 12.5))
-                    .foregroundColor(.shopTextMuted)
-                    .padding(.horizontal, 4)
+                Spacer()
+                Spacer().frame(height: 16)
             }
-            .padding(.horizontal, ShopLayout.screenPadding)
-            .padding(.bottom, 24)
+            .frame(width: geo.size.width, height: geo.size.height)
         }
     }
 
-    private func recapRow(icon: String, label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 13.5, weight: .semibold))
-                .foregroundColor(.shopPurple)
-                .frame(width: 20)
-                .padding(.top, 2)
+    private var priceTrackingShowcaseCard: some View {
+        let isDropPhase = trackingPhase == 1
+        let progress: CGFloat = isDropPhase ? 0.78 : 0.40
 
-            Text(label)
-                .font(.system(size: 13.5, weight: .semibold))
-                .foregroundColor(.shopTextMuted)
-                .frame(width: 92, alignment: .leading)
+        return HStack(spacing: 14) {
+            // Left: product thumbnail inside soft #F5F5F7 rounded square
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
+                Image("onb_shoe")
+                    .resizable()
+                    .scaledToFit()
+                    .padding(7)
+            }
+            .frame(width: 66, height: 66)
 
-            Text(value)
-                .font(.system(size: 13.5, weight: .semibold, design: .rounded))
-                .foregroundColor(.shopDark)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(2)
+            // Center: store label, bold status, purple progress line + dot, price info
+            VStack(alignment: .leading, spacing: 5) {
+                Text(previewStoreSubtitle)
+                    .font(.system(size: 12.5, weight: .regular))
+                    .foregroundColor(.shopTextMuted)
+                    .lineLimit(1)
+
+                Text(isDropPhase ? "Prezzo calato (-30%)" : "Monitoraggio attivo")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.shopDark)
+                    .contentTransition(.opacity)
+                    .lineLimit(1)
+
+                // Purple tracking progress line with dot
+                GeometryReader { barGeo in
+                    let barWidth = max(barGeo.size.width, 40)
+                    let dotX = max(5, min(barWidth - 5, barWidth * progress))
+
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.shopPurple.opacity(0.18))
+                            .frame(height: 3)
+
+                        Capsule()
+                            .fill(Color.shopPurple)
+                            .frame(width: dotX, height: 3)
+
+                        Circle()
+                            .fill(Color.shopPurple)
+                            .frame(width: 9, height: 9)
+                            .shadow(color: Color.shopPurple.opacity(0.35), radius: 3, x: 0, y: 1)
+                            .offset(x: dotX - 4.5)
+                    }
+                    .frame(height: 10)
+                }
+                .frame(height: 10)
+                .padding(.vertical, 1)
+
+                Text(isDropPhase ? "Miglior prezzo: €104,99" : "Prezzo attuale: €149,99")
+                    .font(.system(size: 12.5, weight: .regular))
+                    .foregroundColor(.shopTextMuted)
+                    .contentTransition(.opacity)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.86)
+            }
+
+            // Right: animated soft-3D alert/radar tile
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
+
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: isDropPhase
+                                    ? [Color.shopPurple.opacity(0.22), Color.shopPurple.opacity(0.08)]
+                                    : [Color(red: 199/255, green: 210/255, blue: 254/255), Color(red: 238/255, green: 242/255, blue: 255/255)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: isDropPhase ? "bell.badge.fill" : "tag.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: isDropPhase
+                                    ? [Color.shopPurple, Color(red: 124/255, green: 58/255, blue: 237/255)]
+                                    : [Color(red: 99/255, green: 102/255, blue: 241/255), Color.shopPurple],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .rotationEffect(.degrees(isDropPhase ? -8 : 0))
+                        .scaleEffect(isDropPhase ? 1.06 : 1.0)
+                }
+            }
+            .frame(width: 66, height: 66)
+        }
+        .padding(14)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.07), radius: 18, x: 0, y: 6)
+        .shadow(color: Color.black.opacity(0.02), radius: 4, x: 0, y: 1)
+        .onTapGesture {
+            triggerLightHaptic()
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
+                trackingPhase = trackingPhase == 0 ? 1 : 0
+            }
         }
     }
 
-    // MARK: - Bottom CTA Bar
+    // MARK: - Bottom CTA Bar & Footnote
 
     private var bottomActionBar: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             Button(action: handlePrimaryAction) {
                 HStack(spacing: 8) {
                     if isRequestingNotifications {
@@ -749,42 +903,80 @@ struct OnboardingView: View {
                             .scaleEffect(0.85)
                     }
                     Text(primaryButtonTitle)
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .font(.system(size: 16.5, weight: .semibold))
                 }
                 .foregroundColor(.white)
-                .frame(maxWidth: .infinity, minHeight: 52)
+                .frame(maxWidth: .infinity, minHeight: 54)
                 .background(Color.shopPurple)
                 .clipShape(Capsule())
-                .shadow(color: Color.shopPurple.opacity(0.28), radius: 10, x: 0, y: 4)
+                .shadow(color: Color.shopPurple.opacity(0.24), radius: 10, x: 0, y: 4)
             }
             .buttonStyle(ShopCardPressStyle(scale: 0.98))
             .disabled(isRequestingNotifications)
 
-            if currentStep == .notifications && !notifManager.isAuthorized {
-                Button(action: finishWithoutNotifications) {
-                    Text("Inizia senza notifiche")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.shopTextMuted)
-                        .frame(maxWidth: .infinity, minHeight: 36)
-                }
-                .buttonStyle(.plain)
-                .disabled(isRequestingNotifications)
+            if currentStep == .overview {
+                overviewLegalFooter
+            } else if currentStep == .notifications {
+                Text("Ti invieremo anche aggiornamenti sui cali di prezzo dei prodotti salvati, offerte speciali e novità.")
+                    .font(.system(size: 12.5))
+                    .foregroundColor(.shopTextMuted)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .padding(.horizontal, 10)
             }
         }
-        .padding(.horizontal, ShopLayout.screenPadding)
+        .padding(.horizontal, 18)
         .padding(.top, 10)
         .padding(.bottom, 16)
-        .background(
-            Color.shopSurface
-                .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: -3)
-                .ignoresSafeArea(edges: .bottom)
-        )
+        .background(Color.white.ignoresSafeArea(edges: .bottom))
+    }
+
+    private var overviewLegalFooter: some View {
+        Text(overviewLegalAttributedText)
+            .font(.system(size: 12.5))
+            .foregroundColor(.shopTextMuted)
+            .multilineTextAlignment(.center)
+            .lineSpacing(2)
+            .padding(.horizontal, 12)
+            .environment(\.openURL, OpenURLAction { url in
+                if url.scheme == "fitmatch-legal" {
+                    triggerLightHaptic()
+                    if url.host == "terms" {
+                        activeLegalSheet = .terms
+                    } else if url.host == "privacy" {
+                        activeLegalSheet = .privacy
+                    }
+                    return .handled
+                }
+                return .systemAction
+            })
+    }
+
+    private var overviewLegalAttributedText: AttributedString {
+        var prefix = AttributedString("Continuando a utilizzare FitMatch accetti ")
+        prefix.foregroundColor = Color.shopTextMuted
+
+        var terms = AttributedString("termini e condizioni del servizio")
+        terms.foregroundColor = Color.shopPurple
+        terms.link = URL(string: "fitmatch-legal://terms")
+
+        var middle = AttributedString(" e ")
+        middle.foregroundColor = Color.shopTextMuted
+
+        var privacy = AttributedString("informativa sulla privacy")
+        privacy.foregroundColor = Color.shopPurple
+        privacy.link = URL(string: "fitmatch-legal://privacy")
+
+        var dot = AttributedString(".")
+        dot.foregroundColor = Color.shopTextMuted
+
+        return prefix + terms + middle + privacy + dot
     }
 
     private var primaryButtonTitle: String {
         switch currentStep {
         case .overview:
-            return "Inizia e personalizza"
+            return "Inizia"
         case .sports:
             let count = prefs.preferences.selectedSports.count
             return count > 0 ? "Continua (\(count))" : "Continua"
@@ -793,51 +985,48 @@ struct OnboardingView: View {
         case .brandsAndStores:
             return "Continua"
         case .notifications:
-            return notifManager.isAuthorized ? "Inizia su FitMatch" : "Attiva avvisi e inizia"
+            return notifManager.isAuthorized ? "Inizia su FitMatch" : "Ricevi avvisi sui prezzi"
         }
     }
 
     // MARK: - Shared Helpers
 
-    private func stepHeader(badge: String, title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(badge.uppercased())
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundColor(.shopPurple)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Color.shopPurpleLight)
-                .clipShape(Capsule())
-
+    private func centeredStepHeader(title: String, subtitle: String) -> some View {
+        VStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 25, weight: .black, design: .rounded))
+                .font(.system(size: 25, weight: .medium))
+                .tracking(-0.4)
                 .foregroundColor(.shopDark)
+                .multilineTextAlignment(.center)
 
             Text(subtitle)
                 .font(.system(size: 14.5))
                 .foregroundColor(.shopTextMuted)
+                .multilineTextAlignment(.center)
                 .lineSpacing(2)
+                .padding(.horizontal, 8)
         }
-        .padding(.top, 4)
+        .padding(.top, 10)
     }
 
-    private var onboardingBrandEmblem: some View {
-        ZStack {
+    private func onboardingBrandEmblem(size: CGFloat) -> some View {
+        let stroke = max(3.5, size * 0.22)
+        return ZStack {
             Circle()
                 .trim(from: 0.08, to: 0.92)
                 .stroke(
                     Color.shopPurple,
-                    style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                    style: StrokeStyle(lineWidth: stroke, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-25))
-                .frame(width: 28, height: 28)
+                .frame(width: size * 0.78, height: size * 0.78)
 
             Circle()
                 .fill(Color.shopPurple)
-                .frame(width: 8, height: 8)
-                .offset(x: 9, y: -9)
+                .frame(width: stroke, height: stroke)
+                .offset(x: size * 0.25, y: -size * 0.25)
         }
-        .frame(width: 36, height: 36)
+        .frame(width: size, height: size)
     }
 
     // MARK: - Navigation & Completion
@@ -863,6 +1052,14 @@ struct OnboardingView: View {
         transitionDirection = 1
         withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
             currentStep = next
+        }
+    }
+
+    private func handleSkipButton() {
+        if currentStep == .notifications {
+            finishWithoutNotifications()
+        } else {
+            skipOnboarding()
         }
     }
 
@@ -895,5 +1092,104 @@ struct OnboardingView: View {
     private func triggerLightHaptic() {
         guard prefs.preferences.isHapticFeedbackEnabled else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+}
+
+// MARK: - GPU-Driven Circular Product Orbit (120fps)
+
+private struct CircularProductOrbitView: View {
+    let items: [OrbitProductItem]
+    let radius: CGFloat
+    let scaleFactor: CGFloat
+
+    @State private var isOrbiting: Bool = false
+
+    var body: some View {
+        ZStack {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                let angleRad = (Double(index) / Double(max(items.count, 1))) * 2.0 * .pi - (.pi / 2.0)
+                let itemSize = item.size * scaleFactor
+
+                Image(item.imageName)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: itemSize, height: itemSize)
+                    .rotationEffect(.degrees(item.tiltDegrees))
+                    .rotationEffect(.degrees(isOrbiting ? -360 : 0))
+                    .offset(
+                        x: CGFloat(cos(angleRad)) * radius,
+                        y: CGFloat(sin(angleRad)) * radius
+                    )
+            }
+        }
+        .rotationEffect(.degrees(isOrbiting ? 360 : 0))
+        .allowsHitTesting(false)
+        .onAppear {
+            DispatchQueue.main.async {
+                withAnimation(.linear(duration: 38).repeatForever(autoreverses: false)) {
+                    isOrbiting = true
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Onboarding White Card Styling
+
+private extension View {
+    func shopOnboardingCard() -> some View {
+        self
+            .padding(16)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 14, x: 0, y: 5)
+    }
+}
+
+// MARK: - Wrapping Pill Flow Layout
+
+private struct OnboardingFlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth && x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: proposal.width ?? x, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX && x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
