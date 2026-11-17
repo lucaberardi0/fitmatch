@@ -242,6 +242,7 @@ class Database:
                     user_feedback INTEGER,
                     is_off_topic INTEGER NOT NULL DEFAULT 0,
                     is_unsafe INTEGER NOT NULL DEFAULT 0,
+                    user_image_url TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
                 );
@@ -291,6 +292,11 @@ class Database:
 
             try:
                 conn.execute("ALTER TABLE crawl_logs ADD COLUMN session_id TEXT")
+            except Exception:
+                pass
+
+            try:
+                conn.execute("ALTER TABLE chat_messages ADD COLUMN user_image_url TEXT")
             except Exception:
                 pass
 
@@ -2369,8 +2375,10 @@ class Database:
         is_follow_up: bool,
         response_payload: Dict[str, Any],
         context_state: Optional[Dict[str, Any]] = None,
+        user_image_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Save or append a conversation turn in Supabase Cloud and mirror into SQLite."""
+        clean_user_img = clean_image_url(user_image_url or response_payload.get("user_image_url"))
         saved_remote = None
         if self.use_supabase and self.supabase:
             try:
@@ -2383,6 +2391,7 @@ class Database:
                     is_follow_up=is_follow_up,
                     response_payload=response_payload,
                     context_state=context_state,
+                    user_image_url=clean_user_img,
                 )
             except Exception as e:
                 logger.warning(f"[Database] Supabase save_chat_turn error: {e}")
@@ -2399,6 +2408,8 @@ class Database:
             preview_img = clean_image_url(spotlight["product"].get("image_url"))
         if not preview_img and results and isinstance(results[0], dict):
             preview_img = clean_image_url(results[0].get("image_url"))
+        if not preview_img and clean_user_img:
+            preview_img = clean_user_img
 
         snapshot = (
             saved_remote["message"]["results_snapshot_json"]
@@ -2500,8 +2511,8 @@ class Database:
                 INSERT INTO chat_messages
                 (id, session_id, turn_index, query, is_follow_up, is_conversational_advice,
                  conversational_header, conversational_summary, intent_json, chips_json,
-                 results_snapshot_json, follow_up_suggestions_json, is_off_topic, is_unsafe, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 results_snapshot_json, follow_up_suggestions_json, is_off_topic, is_unsafe, user_image_url, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     msg_id,
@@ -2518,6 +2529,7 @@ class Database:
                     json.dumps(response_payload.get("follow_up_suggestions") or []),
                     1 if response_payload.get("is_off_topic") else 0,
                     1 if response_payload.get("is_unsafe") else 0,
+                    clean_user_img,
                     now_iso,
                 ),
             )

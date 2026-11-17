@@ -479,6 +479,7 @@ struct HomeView: View {
 
                 Spacer(minLength: ShopLayout.bottomDockClearance)
             }
+            .animation(.easeOut(duration: 0.24), value: isLoading)
             .id("home_per_te_top")
         }
         .refreshable {

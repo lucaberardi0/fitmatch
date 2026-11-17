@@ -25,6 +25,10 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>FitMatch utilizza la fotocamera per fotografare scarpe, smartwatch o abbigliamento sportivo e cercare subito le migliori offerte.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>FitMatch accede alle foto che selezioni per riconoscere articoli sportivi e confrontarne i prezzi.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

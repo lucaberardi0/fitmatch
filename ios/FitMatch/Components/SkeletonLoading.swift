@@ -423,64 +423,7 @@ struct QueryAnalysis {
     }
 }
 
-// MARK: - Custom Crisp Rotating Arc Spinner for Agentic Steps
-
-private struct AgentOrbitRing: View {
-    var size: CGFloat = 34
-    var lineWidth: CGFloat = 2.2
-    var iconSize: CGFloat = 13
-    var showIcon: Bool = true
-    @State private var rotation: Double = 0
-    @State private var pulse: Bool = false
-
-    var body: some View {
-        ZStack {
-            if showIcon {
-                Circle()
-                    .fill(Color.shopPurple.opacity(pulse ? 0.14 : 0.06))
-                    .frame(width: size + 6, height: size + 6)
-                    .scaleEffect(pulse ? 1.06 : 0.94)
-            }
-
-            Circle()
-                .stroke(Color.shopPurple.opacity(0.12), lineWidth: lineWidth)
-                .frame(width: size, height: size)
-
-            Circle()
-                .trim(from: 0.05, to: 0.72)
-                .stroke(
-                    AngularGradient(
-                        gradient: Gradient(colors: [
-                            Color.shopPurple.opacity(0.05),
-                            Color.shopPurple.opacity(0.55),
-                            Color.shopPurple
-                        ]),
-                        center: .center
-                    ),
-                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-                )
-                .frame(width: size, height: size)
-                .rotationEffect(.degrees(rotation))
-
-            if showIcon {
-                Image(systemName: "sparkles")
-                    .font(.system(size: iconSize, weight: .semibold))
-                    .foregroundColor(.shopPurple)
-                    .scaleEffect(pulse ? 1.06 : 0.95)
-            }
-        }
-        .onAppear {
-            withAnimation(.linear(duration: 1.25).repeatForever(autoreverses: false)) {
-                rotation = 360
-            }
-            withAnimation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true)) {
-                pulse = true
-            }
-        }
-    }
-}
-
-// MARK: - Agent Thinking & Operations HUD (Flagship Agentic Search Experience)
+// MARK: - Minimal ChatGPT-Style Agent Thinking Indicator
 
 struct ShopAgentThinkingCardView: View {
     var query: String
@@ -488,7 +431,8 @@ struct ShopAgentThinkingCardView: View {
     var steps: [SearchThinkingStep] = []
     var startedAt: Date = Date()
 
-    @State private var isExpanded: Bool = true
+    @State private var isExpanded: Bool = false
+    @State private var dotPulse: Bool = false
 
     private var cleanQuery: String {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -507,15 +451,15 @@ struct ShopAgentThinkingCardView: View {
         if !queryAnalysis.tags.isEmpty {
             localDetail = queryAnalysis.summaryText
         } else if isFollowUp {
-            localDetail = "Collegamento al contesto della conversazione per «\(cleanQuery)»"
+            localDetail = "Collegamento al contesto per «\(cleanQuery)»"
         } else {
-            localDetail = "Estrazione intent, categorie e vincoli per «\(cleanQuery)»"
+            localDetail = "Analisi della richiesta per «\(cleanQuery)»"
         }
         return [
             SearchThinkingStep(
                 id: "init",
                 status: .running,
-                title: isFollowUp ? "Analizzo il follow-up" : "Analizzo la richiesta",
+                title: "Sto pensando…",
                 detail: localDetail,
                 elapsedMs: nil
             )
@@ -527,275 +471,115 @@ struct ShopAgentThinkingCardView: View {
     }
 
     private var dynamicHeadline: String {
-        if let active = activeStep {
-            return active.title.replacingOccurrences(of: "…", with: "")
+        guard let active = activeStep else {
+            return "Sto pensando…"
         }
-        return isFollowUp ? "Elaboro il follow-up" : "Ricerca in corso"
-    }
+        let id = active.id.lowercased()
+        let lowerTitle = active.title.lowercased()
 
-    private var progressFraction: Double {
-        if displaySteps.isEmpty { return 0.18 }
-        let doneCount = displaySteps.filter { $0.status == .done }.count
-        let total = max(displaySteps.count, 3)
-        let runningBonus = displaySteps.contains(where: { $0.status == .running }) ? 0.16 : 0.0
-        return min(0.94, max(0.22, (Double(doneCount) / Double(total)) + runningBonus))
-    }
-
-    private func formattedSeconds(from elapsedMs: Int) -> String {
-        let secs = Double(elapsedMs) / 1000.0
-        return String(format: "%.1fs", max(0.1, secs))
+        if id == "init" || id == "context" || id == "parse" || lowerTitle.contains("analizz") || lowerTitle.contains("recupero") || lowerTitle.contains("interpret") {
+            return "Sto pensando…"
+        }
+        if id == "catalog" || lowerTitle.contains("cerco") || lowerTitle.contains("catalogo") {
+            return active.status == .done ? "Confronto i prezzi…" : "Cerco prodotti…"
+        }
+        if id == "synthesis" || lowerTitle.contains("confronto") || lowerTitle.contains("sintesi") {
+            return active.status == .done ? "Preparo la risposta…" : "Confronto i prezzi…"
+        }
+        if id == "cache" {
+            return "Recupero le offerte…"
+        }
+        return active.title
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // 1. Header: Orbital Core + Live Headline + Timer Pill + Toggle
+        VStack(alignment: .leading, spacing: 10) {
+            // Minimal ChatGPT-style inline thinking row (dot + shimmering status + discreet chevron)
             Button(action: {
-                withAnimation(.spring(response: 0.30, dampingFraction: 0.84)) {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
                     isExpanded.toggle()
                 }
             }) {
-                HStack(alignment: .center, spacing: 12) {
-                    AgentOrbitRing(size: 32, lineWidth: 2.2, iconSize: 12.5, showIcon: true)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) {
-                            Text("FITMATCH AI")
-                                .font(.system(size: 9.5, weight: .heavy, design: .rounded))
-                                .tracking(0.8)
-                                .foregroundColor(.shopPurple)
-                                .padding(.horizontal, 6.5)
-                                .padding(.vertical, 2)
-                                .background(Color.shopPurpleLight)
-                                .clipShape(Capsule())
-
-                            if isFollowUp {
-                                Text("Follow-up")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(.shopTextMuted)
-                            }
-                        }
-
-                        Text(dynamicHeadline)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.shopDark)
-                            .lineLimit(1)
-                            .id(dynamicHeadline)
-                            .transition(.opacity)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    // Live Elapsed Timer Pill
-                    TimelineView(.periodic(from: startedAt, by: 0.1)) { ctx in
-                        let sec = max(0.0, ctx.date.timeIntervalSince(startedAt))
-                        Text(String(format: "%.1fs", sec))
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundColor(.shopTextMuted)
-                            .padding(.horizontal, 8.5)
-                            .padding(.vertical, 4)
-                            .background(Color.shopSurface)
-                            .clipShape(Capsule())
-                    }
-
-                    // Collapse Chevron Button
+                HStack(spacing: 10) {
                     ZStack {
                         Circle()
-                            .fill(Color.shopSurface)
-                            .frame(width: 28, height: 28)
-                        Image(systemName: "chevron.up")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.shopTextMuted)
-                            .rotationEffect(.degrees(isExpanded ? 0 : 180))
+                            .fill(Color.shopPurple.opacity(dotPulse ? 0.22 : 0.10))
+                            .frame(width: 18, height: 18)
+                            .scaleEffect(dotPulse ? 1.15 : 0.90)
+
+                        Circle()
+                            .fill(Color.shopPurple)
+                            .frame(width: 8, height: 8)
+                            .scaleEffect(dotPulse ? 1.08 : 0.92)
                     }
+
+                    HStack(spacing: 5) {
+                        Text(dynamicHeadline)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(Color(red: 72/255, green: 72/255, blue: 86/255))
+                            .lineLimit(1)
+                            .shimmering(duration: 1.45)
+                            .id(dynamicHeadline)
+                            .transition(.opacity)
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(Color(red: 150/255, green: 150/255, blue: 162/255))
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
+
+                    Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, isExpanded ? 12 : 13)
 
-            // 2. Instant Extracted Query Constraint Chips
-            if isExpanded && !queryAnalysis.tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(queryAnalysis.tags) { tag in
-                            HStack(spacing: 4.5) {
-                                Image(systemName: tag.icon)
-                                    .font(.system(size: 9.5, weight: .bold))
-                                    .foregroundColor(.shopPurple)
-                                Text(tag.text)
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                    .foregroundColor(.shopDark)
-                            }
-                            .padding(.horizontal, 9.5)
-                            .padding(.vertical, 5)
-                            .background(Color.shopPurpleLight.opacity(0.62))
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule()
-                                    .stroke(Color.shopPurple.opacity(0.12), lineWidth: 0.8)
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-                .padding(.bottom, 12)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-
-            // 3. Elevated Live Execution Trace Well
+            // Quiet expandable reasoning trace (hidden by default like ChatGPT)
             if isExpanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(displaySteps.enumerated()), id: \.element.id) { idx, step in
-                        let isLast = idx == displaySteps.count - 1
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(displaySteps) { step in
                         let isRunning = step.status == .running
                         let isDone = step.status == .done
 
-                        HStack(alignment: .top, spacing: 10) {
-                            // Vertical Rail + Crisp Node
-                            VStack(spacing: 0) {
-                                ZStack {
-                                    if isDone {
-                                        Circle()
-                                            .fill(Color.shopPurple.opacity(0.13))
-                                            .frame(width: 20, height: 20)
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 9.5, weight: .bold))
-                                            .foregroundColor(.shopPurple)
-                                    } else if isRunning {
-                                        Circle()
-                                            .fill(Color.white)
-                                            .frame(width: 20, height: 20)
-                                            .shadow(color: Color.shopPurple.opacity(0.18), radius: 3)
-                                        AgentOrbitRing(size: 15, lineWidth: 1.8, iconSize: 0, showIcon: false)
-                                    } else {
-                                        Circle()
-                                            .fill(Color.black.opacity(0.06))
-                                            .frame(width: 20, height: 20)
-                                        Image(systemName: "minus")
-                                            .font(.system(size: 9, weight: .bold))
-                                            .foregroundColor(Color(red: 155/255, green: 155/255, blue: 168/255))
-                                    }
-                                }
-                                .padding(.top, isRunning ? 6 : 2)
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: isDone ? "checkmark" : (isRunning ? "circle.fill" : "minus"))
+                                .font(.system(size: isRunning ? 6 : 9.5, weight: .bold))
+                                .foregroundColor(isDone || isRunning ? .shopPurple : .shopTextMuted)
+                                .frame(width: 12, height: 16)
 
-                                if !isLast {
-                                    RoundedRectangle(cornerRadius: 1)
-                                        .fill(isDone ? Color.shopPurple.opacity(0.28) : Color.black.opacity(0.08))
-                                        .frame(width: 1.5)
-                                        .frame(maxHeight: .infinity)
-                                        .padding(.vertical, 3)
-                                }
-                            }
-                            .frame(width: 20)
-
-                            // Step Card Content
-                            VStack(alignment: .leading, spacing: 2.5) {
-                                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                    Text(step.title)
-                                        .font(.system(size: 13, weight: isRunning ? .bold : .medium))
-                                        .foregroundColor(isRunning ? .shopDark : Color(red: 82/255, green: 82/255, blue: 96/255))
-                                        .lineLimit(2)
-
-                                    Spacer(minLength: 6)
-
-                                    if isDone, let ms = step.elapsedMs, ms > 0 {
-                                        Text(formattedSeconds(from: ms))
-                                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                                            .monospacedDigit()
-                                            .foregroundColor(.shopTextMuted)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(Color.white)
-                                            .clipShape(Capsule())
-                                    }
-                                }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(step.title)
+                                    .font(.system(size: 13, weight: isRunning ? .semibold : .medium))
+                                    .foregroundColor(isRunning ? .shopDark : Color(red: 110/255, green: 110/255, blue: 122/255))
 
                                 if let detail = step.detail, !detail.isEmpty {
                                     Text(detail)
-                                        .font(.system(size: 11.5, weight: .regular))
-                                        .foregroundColor(isRunning ? Color(red: 95/255, green: 95/255, blue: 112/255) : Color(red: 135/255, green: 135/255, blue: 150/255))
-                                        .lineLimit(2)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Color(red: 145/255, green: 145/255, blue: 158/255))
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
-                            .padding(.horizontal, isRunning ? 10 : 2)
-                            .padding(.vertical, isRunning ? 7 : 2)
-                            .background(
-                                Group {
-                                    if isRunning {
-                                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                            .fill(Color.white)
-                                            .shadow(color: Color.black.opacity(0.035), radius: 4, x: 0, y: 1.5)
-                                    }
-                                }
-                            )
-                            .padding(.bottom, isLast ? 0 : 8)
                         }
-                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
-                .padding(11)
-                .background(Color(red: 247/255, green: 247/255, blue: 251/255))
-                .cornerRadius(15)
+                .padding(.leading, 12)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .stroke(Color.black.opacity(0.04), lineWidth: 1)
+                    Rectangle()
+                        .fill(Color.shopPurple.opacity(0.18))
+                        .frame(width: 1.5),
+                    alignment: .leading
                 )
-                .padding(.horizontal, 14)
-                .padding(.bottom, 12)
+                .padding(.leading, 8)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
-
-            // 4. Luminous Progress Track
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Rectangle()
-                        .fill(Color.shopPurple.opacity(0.08))
-
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.shopPurple, Color(red: 139/255, green: 92/255, blue: 246/255)],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: max(24, geo.size.width * progressFraction))
-                        .shimmering(duration: 1.2)
-                        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: progressFraction)
-                }
-            }
-            .frame(height: 3)
         }
-        .background(
-            ZStack(alignment: .topLeading) {
-                Color.white
-                RadialGradient(
-                    colors: [Color.shopPurple.opacity(0.065), Color.clear],
-                    center: .topLeading,
-                    startRadius: 10,
-                    endRadius: 210
-                )
+        .padding(.vertical, 4)
+        .animation(.easeOut(duration: 0.22), value: steps)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                dotPulse = true
             }
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [Color.shopPurple.opacity(0.24), Color.shopBorder],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-        )
-        .shadow(color: Color.shopPurple.opacity(0.08), radius: 16, x: 0, y: 6)
-        .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
-        .animation(.easeOut(duration: 0.24), value: steps)
+        }
     }
 }
 
@@ -845,65 +629,38 @@ struct ShopSearchDeepDiveSkeletonView: View {
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 22) {
-                // 1. Flagship Live Agentic Card
+            VStack(alignment: .leading, spacing: 20) {
+                // 1. Minimal ChatGPT-style Thinking Line
                 ShopAgentThinkingCardView(
                     query: query,
                     isFollowUp: false,
                     steps: thinkingSteps,
                     startedAt: thinkingStartedAt
                 )
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.horizontal, ShopLayout.screenPadding)
+                .padding(.top, 10)
 
-                // 2. Conversational Editorial Narrative Preview
+                // 2. Quiet Editorial Narrative Preview
                 VStack(alignment: .leading, spacing: 8) {
-                    ShopSkeletonTextLine(height: 13, cornerRadius: 5)
+                    ShopSkeletonTextLine(height: 12, cornerRadius: 5)
                         .frame(maxWidth: .infinity)
-                    ShopSkeletonTextLine(width: 270, height: 13, cornerRadius: 5)
-                    ShopSkeletonTextLine(width: 185, height: 13, cornerRadius: 5)
+                    ShopSkeletonTextLine(width: 260, height: 12, cornerRadius: 5)
+                    ShopSkeletonTextLine(width: 175, height: 12, cornerRadius: 5)
                 }
                 .padding(.horizontal, ShopLayout.screenPadding)
-                .opacity(0.82)
+                .opacity(0.65)
 
-                // 3. Curated Horizontal Carousel Preview (Matches ShopThemedCarouselCard)
-                VStack(alignment: .leading, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        ShopSkeletonTextLine(width: 175, height: 16, cornerRadius: 6)
-                        ShopSkeletonTextLine(width: 230, height: 11, cornerRadius: 4)
+                // 3. Soft Horizontal Product Placeholder Row
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ShopThemedCarouselSkeletonCard()
+                        ShopThemedCarouselSkeletonCard()
+                        ShopThemedCarouselSkeletonCard()
                     }
                     .padding(.horizontal, ShopLayout.screenPadding)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 14) {
-                            ShopThemedCarouselSkeletonCard()
-                            ShopThemedCarouselSkeletonCard()
-                            ShopThemedCarouselSkeletonCard()
-                        }
-                        .padding(.horizontal, ShopLayout.screenPadding)
-                    }
-                    .disabled(true)
                 }
-                .opacity(0.84)
-
-                // 4. Comparative Spec Strip Preview (Matches ShopComparativeCard)
-                VStack(alignment: .leading, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        ShopSkeletonTextLine(width: 145, height: 16, cornerRadius: 6)
-                        ShopSkeletonTextLine(width: 195, height: 11, cornerRadius: 4)
-                    }
-                    .padding(.horizontal, ShopLayout.screenPadding)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 14) {
-                            ShopComparativeSkeletonCard()
-                            ShopComparativeSkeletonCard()
-                        }
-                        .padding(.horizontal, ShopLayout.screenPadding)
-                    }
-                    .disabled(true)
-                }
-                .opacity(0.76)
+                .disabled(true)
+                .opacity(0.65)
 
                 Spacer(minLength: ShopLayout.bottomFilterDockClearance)
             }

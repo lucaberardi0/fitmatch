@@ -2604,7 +2604,8 @@ class SupabaseManager: ObservableObject {
         deviceId: String,
         query: String,
         isFollowUp: Bool,
-        response: SmartSearchResponse
+        response: SmartSearchResponse,
+        userImageURL: String? = nil
     ) async {
         struct SessionUpsertPayload: Encodable {
             let id: String
@@ -2633,6 +2634,7 @@ class SupabaseManager: ObservableObject {
             let follow_up_suggestions_json: [String]
             let is_off_topic: Bool
             let is_unsafe: Bool
+            let user_image_url: String?
             let created_at: String
         }
 
@@ -2642,7 +2644,8 @@ class SupabaseManager: ObservableObject {
         let nowIso = ISO8601DateFormatter().string(from: Date())
         let existing = await fetchChatSessionDetailDirect(sessionId: sid)
         let turnIdx = existing?.messages?.count ?? existing?.turn_count ?? 0
-        let previewUrl = response.spotlight?.product.image_url ?? response.results.first?.image_url ?? existing?.preview_image_url
+        let effImage = userImageURL ?? response.user_image_url
+        let previewUrl = response.spotlight?.product.image_url ?? response.results.first?.image_url ?? effImage ?? existing?.preview_image_url
 
         let ctx = ChatSessionContextState(
             last_query: query,
@@ -2699,6 +2702,7 @@ class SupabaseManager: ObservableObject {
             follow_up_suggestions_json: response.follow_up_suggestions ?? [],
             is_off_topic: response.is_off_topic ?? false,
             is_unsafe: response.is_unsafe ?? false,
+            user_image_url: effImage,
             created_at: nowIso
         )
 

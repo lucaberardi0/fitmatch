@@ -10,6 +10,7 @@ load_dotenv()
 from fastapi import FastAPI, Query, HTTPException, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from typing import Optional, List, Callable, Dict, Any
 from fitmatch.service import ComparisonService
 from fitmatch.db import Database
@@ -555,9 +556,15 @@ def _persist_smart_search_turn(
     user_id: Optional[str],
     is_follow_up: bool,
     prev_session_context: Optional[dict] = None,
+    user_image_url: Optional[str] = None,
 ) -> dict:
     """Persist a Smart Search turn to DB if tracking identifiers are supplied and return a shallow copy with IDs."""
+    clean_img = user_image_url.strip() if isinstance(user_image_url, str) and user_image_url.strip() else None
     if not (session_id or device_id or user_id):
+        if clean_img:
+            out = dict(result_data)
+            out["user_image_url"] = clean_img
+            return out
         return result_data
     try:
         intent_dict = result_data.get("intent") or {}
@@ -602,10 +609,13 @@ def _persist_smart_search_turn(
                 "size": intent_dict.get("size"),
                 "features": intent_dict.get("features") or [],
             },
+            user_image_url=clean_img,
         )
         out = dict(result_data)
         out["session_id"] = saved.get("session_id")
         out["turn_id"] = saved.get("turn_id")
+        if clean_img:
+            out["user_image_url"] = clean_img
         return out
     except Exception as e:
         logger.warning(f"[search_smart] Failed to persist chat turn: {e}")
@@ -624,6 +634,7 @@ def _execute_smart_search(
     device_id: Optional[str] = None,
     user_id: Optional[str] = None,
     preferred_size: Optional[str] = None,
+    user_image_url: Optional[str] = None,
     limit: int = 35,
     progress_cb: Optional[Callable[[dict], None]] = None,
 ) -> dict:
@@ -723,6 +734,7 @@ def _execute_smart_search(
             user_id=eff_user_id,
             is_follow_up=bool(eff_context or (session_context is not None)),
             prev_session_context=session_context,
+            user_image_url=user_image_url,
         )
 
     intent = smart_engine.parse_query(
@@ -1718,6 +1730,7 @@ def _execute_smart_search(
         user_id=eff_user_id,
         is_follow_up=bool(eff_context or (session_context is not None)),
         prev_session_context=session_context,
+        user_image_url=user_image_url,
     )
 
 
@@ -1734,6 +1747,7 @@ def search_smart(
     device_id: Optional[str] = Query(None, description="Client device ID for persistent chat history"),
     user_id: Optional[str] = Query(None, description="Optional user ID for persistent chat history"),
     preferred_size: Optional[str] = Query(None, description="Optional soft preference size boost from user profile"),
+    user_image_url: Optional[str] = Query(None, description="Optional uploaded photo URL from visual search"),
     limit: int = Query(35, ge=1, le=100)
 ):
     """Shopify Shop-style intelligent search: interprets user intent, classifies query mode (AI deep dive vs classic),
@@ -1751,6 +1765,7 @@ def search_smart(
         device_id=device_id,
         user_id=user_id,
         preferred_size=preferred_size,
+        user_image_url=user_image_url,
         limit=limit,
     )
 
@@ -1768,6 +1783,7 @@ async def search_smart_stream(
     device_id: Optional[str] = Query(None, description="Client device ID for persistent chat history"),
     user_id: Optional[str] = Query(None, description="Optional user ID for persistent chat history"),
     preferred_size: Optional[str] = Query(None, description="Optional soft preference size boost from user profile"),
+    user_image_url: Optional[str] = Query(None, description="Optional uploaded photo URL from visual search"),
     limit: int = Query(35, ge=1, le=100),
 ):
     """Server-Sent Events (SSE) version of /api/search/smart emitting real execution trace events followed by final result."""
@@ -1792,6 +1808,7 @@ async def search_smart_stream(
                 device_id=device_id,
                 user_id=user_id,
                 preferred_size=preferred_size,
+                user_image_url=user_image_url,
                 limit=limit,
                 progress_cb=_push,
             )
@@ -1845,6 +1862,71 @@ def search_live(
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class VisualSearchRequest(BaseModel):
+    image_base64: str
+    mime_type: Optional[str] = "image/jpeg"
+    device_id: Optional[str] = "default_device"
+
+
+@app.post("/api/search/visual")
+def visual_search(req_body: VisualSearchRequest):
+    """Analyze a sports gear photo via multimodal Vision LLM, upload to Supabase Storage, and match catalog."""
+    raw_b64 = (req_body.image_base64 or "").strip()
+    if not raw_b64:
+        raise HTTPException(status_code=400, detail="Immagine mancante.")
+    if len(raw_b64) > 6_000_000:
+        raise HTTPException(status_code=400, detail="Immagine troppo pesante (max 4 MB).")
+
+    from fitmatch.smart_search import OpenRouterParser, OPENROUTER_API_KEY
+
+    if not OPENROUTER_API_KEY:
+        raise HTTPException(status_code=503, detail="Servizio di riconoscimento visivo non configurato.")
+
+    safe_mime = req_body.mime_type or "image/jpeg"
+    result = OpenRouterParser.analyze_image(
+        image_base64=raw_b64,
+        mime_type=safe_mime,
+        api_key=OPENROUTER_API_KEY,
+    )
+    if result is None:
+        raise HTTPException(status_code=502, detail="Impossibile analizzare la foto in questo momento.")
+
+    if result.is_sport_product:
+        if db.use_supabase and db.supabase:
+            try:
+                import base64
+                clean_b64 = raw_b64.split(",", 1)[1] if (raw_b64.startswith("data:") and "," in raw_b64) else raw_b64
+                img_bytes = base64.b64decode(re.sub(r"\s+", "", clean_b64), validate=False)
+                if img_bytes:
+                    result.uploaded_image_url = db.supabase.upload_chat_image(
+                        image_bytes=img_bytes,
+                        mime_type=safe_mime,
+                        device_id=req_body.device_id or "default_device",
+                    )
+            except Exception as e:
+                logger.warning(f"[visual_search] Image upload note: {e}")
+
+        if result.search_query:
+            try:
+                tokens = [t for t in re.split(r"\s+", result.search_query) if len(t) >= 2]
+                matches = db.search_smart(
+                    target_keywords=tokens[:4],
+                    brand=result.brand,
+                    limit=8,
+                )
+                if not matches and result.brand:
+                    matches = db.search_smart(
+                        target_keywords=[result.brand],
+                        brand=result.brand,
+                        limit=8,
+                    )
+                result.catalog_matches_count = len(matches or [])
+            except Exception as e:
+                logger.warning(f"[visual_search] Catalog match check note: {e}")
+
+    return result.model_dump()
 
 
 @app.post("/api/search/feedback")

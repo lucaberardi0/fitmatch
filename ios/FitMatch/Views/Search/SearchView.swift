@@ -1,10 +1,6 @@
 import SwiftUI
-
-struct ComparisonPair: Identifiable {
-    var id: String { "\(modelA)_\(modelB)" }
-    let modelA: String
-    let modelB: String
-}
+import PhotosUI
+import AVFoundation
 
 struct SearchView: View {
     @StateObject private var api = APIService.shared
@@ -14,6 +10,7 @@ struct SearchView: View {
     @State private var searchText: String = ""
     @FocusState private var isSearchFieldFocused: Bool
     @FocusState private var isFollowUpFieldFocused: Bool
+    @State private var wasSearchKeyboardActive: Bool = false
     @State private var hasAutoFocused: Bool = false
     @State private var showVisualSearch: Bool = false
 
@@ -46,13 +43,10 @@ struct SearchView: View {
     @State private var isLoadingChatSessions: Bool = true
     @State private var isFollowUpLoading: Bool = false
     @State private var pendingFollowUpQuery: String? = nil
+    @State private var pendingVisualImageURL: String? = nil
     @State private var followUpErrorMessage: String? = nil
     @State private var thinkingSteps: [SearchThinkingStep] = []
     @State private var thinkingStartedAt: Date = Date()
-
-    // Comparison Navigation State
-    @State private var comparisonModels: ComparisonPair? = nil
-    @State private var showComparisonSheet: Bool = false
 
     // Filters (Classic Search Mode)
     @State private var selectedFilterCountry: String? = nil // nil, "EU", "IT"
@@ -176,17 +170,15 @@ struct SearchView: View {
             .navigationDestination(item: $selectedRecentProduct) { prod in
                 ProductDetailView(product: prod, openedFromSearch: true)
             }
-            .sheet(isPresented: $showComparisonSheet) {
-                if let pair = comparisonModels {
-                    ModelCompareView(initialModelA: pair.modelA, initialModelB: pair.modelB)
-                }
-            }
             .sheet(isPresented: $showVisualSearch) {
-                ShopVisualSearchSheet { recognizedQuery in
+                ShopVisualSearchSheet { recognizedQuery, uploadedImageURL in
                     hideAllKeyboards()
-                    searchText = recognizedQuery
-                    rootQuery = recognizedQuery
-                    handleSearchOrComparison(query: recognizedQuery)
+                    let runAsFollowUp = hasSearched && isDeepDiveMode && !conversationTurns.isEmpty
+                    if !runAsFollowUp {
+                        searchText = recognizedQuery
+                        rootQuery = recognizedQuery
+                    }
+                    handleSearchOrComparison(query: recognizedQuery, isFollowUp: runAsFollowUp, userImageURL: uploadedImageURL)
                 }
             }
             .sheet(item: $feedbackConfig) { config in
@@ -234,13 +226,31 @@ struct SearchView: View {
                         await recentManager.syncFromDatabase()
                     }
                 } else {
+                    wasSearchKeyboardActive = false
                     hideAllKeyboards()
+                    tabVisibility.setHidden(false, for: "search_input")
                 }
             }
-            .onChange(of: isSearchFieldFocused) { _ in
+            .onChange(of: isSearchFieldFocused) { focused in
+                if focused {
+                    wasSearchKeyboardActive = true
+                } else if !isFollowUpFieldFocused && !keyboardObserver.isKeyboardVisible {
+                    wasSearchKeyboardActive = false
+                }
                 updateTabBarVisibility()
             }
-            .onChange(of: isFollowUpFieldFocused) { _ in
+            .onChange(of: isFollowUpFieldFocused) { focused in
+                if focused {
+                    wasSearchKeyboardActive = true
+                } else if !isSearchFieldFocused && !keyboardObserver.isKeyboardVisible {
+                    wasSearchKeyboardActive = false
+                }
+                updateTabBarVisibility()
+            }
+            .onChange(of: keyboardObserver.isKeyboardVisible) { visible in
+                if !visible {
+                    wasSearchKeyboardActive = false
+                }
                 updateTabBarVisibility()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FitMatchFocusSearch"))) { _ in
@@ -377,7 +387,8 @@ struct SearchView: View {
     }
 
     private var floatingBarBottomPadding: CGFloat {
-        if isAnyKeyboardFocused && (keyboardObserver.isKeyboardVisible || keyboardObserver.effectiveKeyboardOffset > 0) {
+        guard tabCoordinator.selectedTab == 1 else { return 90 }
+        if (wasSearchKeyboardActive || isAnyKeyboardFocused) && keyboardObserver.effectiveKeyboardOffset > 0 {
             return keyboardObserver.effectiveKeyboardOffset + 8
         } else {
             return 90
@@ -618,6 +629,7 @@ struct SearchView: View {
                         error: nil,
                         isOffTopic: m.is_off_topic ?? false,
                         isUnsafe: m.is_unsafe ?? false,
+                        userImageURL: m.user_image_url,
                         timestamp: Date()
                     )
                 }
@@ -822,7 +834,7 @@ struct SearchView: View {
             }
 
             // Dismiss Button (Image 1: circular button with 'X' right next to capsule when typing/focused)
-            if isSearchFieldFocused || keyboardObserver.isKeyboardVisible {
+            if isSearchFieldFocused || (wasSearchKeyboardActive && keyboardObserver.isKeyboardVisible) {
                 Button(action: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     hideAllKeyboards()
@@ -845,6 +857,7 @@ struct SearchView: View {
             }
         }
         .padding(.horizontal, 16)
+        .animation(.easeOut(duration: 0.22), value: isSearchFieldFocused || (wasSearchKeyboardActive && keyboardObserver.isKeyboardVisible))
     }
 
     // MARK: - Dual-Mode Results Container View
@@ -950,7 +963,7 @@ struct SearchView: View {
                         VStack(spacing: 0) {
                             Color.clear.frame(height: 0).id("search_ai_top")
 
-                            LazyVStack(alignment: .leading, spacing: 18) {
+                            VStack(alignment: .leading, spacing: 18) {
                                 if !conversationTurns.isEmpty {
                                     ForEach(conversationTurns) { turn in
                                         turnContentView(for: turn)
@@ -965,11 +978,13 @@ struct SearchView: View {
                                 if isFollowUpLoading {
                                     followUpLoadingSection
                                         .id("follow_up_loading_section")
+                                        .transition(.opacity)
                                 }
 
                                 // Follow-up error retry banner (if follow-up failed)
                                 if let followUpErr = followUpErrorMessage {
                                     followUpErrorSection(followUpErr)
+                                        .transition(.opacity)
                                 }
 
                                 // Spacing at bottom for floating follow-up bar and dock
@@ -987,8 +1002,8 @@ struct SearchView: View {
                     )
                     .onChange(of: conversationTurns.count) { _ in
                         if let lastTurn = conversationTurns.last, lastTurn.isFollowUp {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            DispatchQueue.main.async {
+                                withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
                                     proxy.scrollTo(lastTurn.id, anchor: .top)
                                 }
                             }
@@ -996,9 +1011,9 @@ struct SearchView: View {
                     }
                     .onChange(of: isFollowUpLoading) { loading in
                         if loading {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                                withAnimation {
-                                    proxy.scrollTo("follow_up_loading_section", anchor: .bottom)
+                            DispatchQueue.main.async {
+                                withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
+                                    proxy.scrollTo("follow_up_loading_section", anchor: .top)
                                 }
                             }
                         }
@@ -1019,36 +1034,63 @@ struct SearchView: View {
                         }
                     }
                 }
+                .transition(.opacity)
             }
         }
+        .animation(.easeOut(duration: 0.22), value: isLoading)
     }
 
     // MARK: - Conversational Turn Content View
     @ViewBuilder
     private func turnContentView(for turn: SearchConversationTurn) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            // User Follow-up Query Bubble (when this turn is a follow-up)
-            if turn.isFollowUp {
-                HStack {
-                    Spacer()
-                    Text(turn.query)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(
-                            LinearGradient(
-                                colors: [Color.shopPurple, Color(red: 100/255, green: 55/255, blue: 235/255)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+            // User Photo + Query Bubble (saved in DB and associated with this turn)
+            if turn.isFollowUp || turn.userImageURL != nil {
+                VStack(alignment: .trailing, spacing: 8) {
+                    if let imgStr = turn.userImageURL, let imgURL = URL(string: imgStr) {
+                        HStack {
+                            Spacer()
+                            ShopCachedAsyncImage(url: imgURL, maxPixelSize: 320) { phase in
+                                if let image = phase.image {
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                } else {
+                                    ShopSkeletonBlock(cornerRadius: 16)
+                                }
+                            }
+                            .frame(width: 112, height: 112)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.shopPurple.opacity(0.22), lineWidth: 1)
                             )
-                        )
-                        .cornerRadius(20)
-                        .shadow(color: Color.shopPurple.opacity(0.18), radius: 6, y: 3)
+                            .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
+                        }
+                    }
+
+                    if turn.isFollowUp {
+                        HStack {
+                            Spacer()
+                            Text(turn.query)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color.shopPurple, Color(red: 100/255, green: 55/255, blue: 235/255)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .cornerRadius(20)
+                                .shadow(color: Color.shopPurple.opacity(0.18), radius: 6, y: 3)
+                        }
+                    }
                 }
                 .padding(.horizontal, ShopLayout.screenPadding)
-                .padding(.top, 10)
-                .padding(.bottom, 2)
+                .padding(.top, 8)
             }
 
             if turn.isConversationalAdvice {
@@ -1245,6 +1287,7 @@ struct SearchView: View {
                 .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, 14)
                 .id("followups_section")
+                .transition(.opacity)
             }
 
             // 7. AI Disclaimer & Thumbs Feedback
@@ -1372,29 +1415,52 @@ struct SearchView: View {
     // MARK: - Follow-Up Loading Section
     private var followUpLoadingSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let pending = pendingFollowUpQuery {
-                HStack {
-                    Spacer()
-                    Text(pending)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(
-                            LinearGradient(
-                                colors: [Color.shopPurple, Color(red: 100/255, green: 55/255, blue: 235/255)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+            if pendingFollowUpQuery != nil || pendingVisualImageURL != nil {
+                VStack(alignment: .trailing, spacing: 8) {
+                    if let imgStr = pendingVisualImageURL, let imgURL = URL(string: imgStr) {
+                        HStack {
+                            Spacer()
+                            ShopCachedAsyncImage(url: imgURL, maxPixelSize: 320) { phase in
+                                if let image = phase.image {
+                                    image.resizable().scaledToFill()
+                                } else {
+                                    ShopSkeletonBlock(cornerRadius: 16)
+                                }
+                            }
+                            .frame(width: 112, height: 112)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.shopPurple.opacity(0.22), lineWidth: 1)
                             )
-                        )
-                        .cornerRadius(20)
-                        .shadow(color: Color.shopPurple.opacity(0.18), radius: 6, y: 3)
+                        }
+                    }
+
+                    if let pending = pendingFollowUpQuery {
+                        HStack {
+                            Spacer()
+                            Text(pending)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color.shopPurple, Color(red: 100/255, green: 55/255, blue: 235/255)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .cornerRadius(20)
+                                .shadow(color: Color.shopPurple.opacity(0.18), radius: 6, y: 3)
+                        }
+                    }
                 }
                 .padding(.horizontal, ShopLayout.screenPadding)
-                .padding(.top, 10)
+                .padding(.top, 8)
             }
 
-            // Flagship Live Agentic Trace for Follow-Up
+            // ChatGPT-style Minimal Thinking Indicator for Follow-Up
             ShopAgentThinkingCardView(
                 query: pendingFollowUpQuery ?? lastFollowUpQuery ?? "",
                 isFollowUp: true,
@@ -1403,27 +1469,14 @@ struct SearchView: View {
             )
             .padding(.horizontal, ShopLayout.screenPadding)
 
-            // Subtle Preview Strip below Follow-Up Card
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 7) {
-                    ShopSkeletonTextLine(height: 12, cornerRadius: 5)
-                        .frame(maxWidth: .infinity)
-                    ShopSkeletonTextLine(width: 210, height: 12, cornerRadius: 5)
-                }
-                .padding(.horizontal, ShopLayout.screenPadding)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
-                        ShopThemedCarouselSkeletonCard()
-                        ShopThemedCarouselSkeletonCard()
-                        ShopThemedCarouselSkeletonCard()
-                    }
-                    .padding(.horizontal, ShopLayout.screenPadding)
-                }
-                .disabled(true)
+            // Quiet Narrative Placeholder Lines
+            VStack(alignment: .leading, spacing: 7) {
+                ShopSkeletonTextLine(height: 12, cornerRadius: 5)
+                    .frame(maxWidth: .infinity)
+                ShopSkeletonTextLine(width: 210, height: 12, cornerRadius: 5)
             }
-            .opacity(0.75)
-            .padding(.top, 4)
+            .padding(.horizontal, ShopLayout.screenPadding)
+            .opacity(0.60)
         }
     }
 
@@ -1667,6 +1720,7 @@ struct SearchView: View {
                 .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, 14)
                 .id("followups_section")
+                .transition(.opacity)
             }
         }
     }
@@ -2123,7 +2177,7 @@ struct SearchView: View {
             .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
 
             // External dismiss button (Matches Image 1 style) when keyboard is open
-            if isFollowUpFieldFocused || keyboardObserver.isKeyboardVisible {
+            if isFollowUpFieldFocused || (wasSearchKeyboardActive && keyboardObserver.isKeyboardVisible) {
                 Button(action: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     hideAllKeyboards()
@@ -2147,18 +2201,26 @@ struct SearchView: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, floatingBarBottomPadding)
+        .animation(.easeOut(duration: 0.22), value: isFollowUpFieldFocused || (wasSearchKeyboardActive && keyboardObserver.isKeyboardVisible))
     }
 
     private func hideAllKeyboards() {
         isSearchFieldFocused = false
         isFollowUpFieldFocused = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        tabVisibility.setHidden(false, for: "search_input")
+        if !keyboardObserver.isKeyboardVisible {
+            wasSearchKeyboardActive = false
+            tabVisibility.setHidden(false, for: "search_input")
+        }
     }
 
     private func updateTabBarVisibility() {
-        let isFocused = isSearchFieldFocused || isFollowUpFieldFocused
-        tabVisibility.setHidden(isFocused, for: "search_input")
+        guard tabCoordinator.selectedTab == 1 else {
+            tabVisibility.setHidden(false, for: "search_input")
+            return
+        }
+        let shouldHide = isSearchFieldFocused || isFollowUpFieldFocused || (wasSearchKeyboardActive && keyboardObserver.isKeyboardVisible)
+        tabVisibility.setHidden(shouldHide, for: "search_input")
     }
 
     private func resetToSearchTyping(keepText: Bool = false) {
@@ -2184,6 +2246,7 @@ struct SearchView: View {
             currentSessionId = nil
             isFollowUpLoading = false
             pendingFollowUpQuery = nil
+            pendingVisualImageURL = nil
             followUpErrorMessage = nil
             if !keepText {
                 searchText = ""
@@ -2363,70 +2426,30 @@ struct SearchView: View {
         ]
     }
 
-    private func handleSearchOrComparison(query: String, isFollowUp: Bool = false) {
+    private func handleSearchOrComparison(query: String, isFollowUp: Bool = false, userImageURL: String? = nil) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         hideAllKeyboards()
-
-        if let (mA, mB) = parseComparisonQuery(trimmed) {
-            let impact = UIImpactFeedbackGenerator(style: .medium)
-            impact.impactOccurred()
-            comparisonModels = ComparisonPair(modelA: mA, modelB: mB)
-            showComparisonSheet = true
-            return
-        }
 
         if !isFollowUp {
             rootQuery = trimmed
             searchText = trimmed
             userForcedClassicMode = false
         }
-        executeSearch(isFollowUp: isFollowUp, rawFollowUpText: isFollowUp ? trimmed : nil)
-    }
-
-    private func parseComparisonQuery(_ text: String) -> (String, String)? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Pattern 1: "Confronta ModelA e ModelB" / "Compara ModelA con ModelB"
-        let pattern1 = #"(?i)^(?:confronta|compara)\s+(.+?)\s+(?:e|ed|con|contro|vs\.?)\s+(.+)$"#
-        if let regex1 = try? NSRegularExpression(pattern: pattern1),
-           let match = regex1.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
-           match.numberOfRanges >= 3 {
-            if let r1 = Range(match.range(at: 1), in: trimmed),
-               let r2 = Range(match.range(at: 2), in: trimmed) {
-                let first = String(trimmed[r1]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let second = String(trimmed[r2]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !first.isEmpty && !second.isEmpty {
-                    return (first, second)
-                }
-            }
-        }
-
-        // Pattern 2: "ModelA vs ModelB" / "ModelA vs. ModelB"
-        let pattern2 = #"(?i)^(.+?)\s+vs\.?\s+(.+)$"#
-        if let regex2 = try? NSRegularExpression(pattern: pattern2),
-           let match = regex2.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
-           match.numberOfRanges >= 3 {
-            if let r1 = Range(match.range(at: 1), in: trimmed),
-               let r2 = Range(match.range(at: 2), in: trimmed) {
-                let first = String(trimmed[r1]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let second = String(trimmed[r2]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !first.isEmpty && !second.isEmpty {
-                    return (first, second)
-                }
-            }
-        }
-
-        return nil
+        executeSearch(isFollowUp: isFollowUp, rawFollowUpText: isFollowUp ? trimmed : nil, userImageURL: userImageURL)
     }
 
     // MARK: - Search Execution
-    private func executeSearch(isFollowUp: Bool = false, rawFollowUpText: String? = nil) {
+    private func executeSearch(isFollowUp: Bool = false, rawFollowUpText: String? = nil, userImageURL: String? = nil) {
         let activeQuery = isFollowUp ? (rawFollowUpText ?? searchText) : searchText
         let query = activeQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
 
         hideAllKeyboards()
+
+        let cleanVisualImg = userImageURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let activeImageURL = (cleanVisualImg?.isEmpty == false) ? cleanVisualImg : nil
 
         if !isFollowUp {
             rootQuery = query
@@ -2436,19 +2459,23 @@ struct SearchView: View {
             isLoading = true
             isFollowUpLoading = false
             pendingFollowUpQuery = nil
+            pendingVisualImageURL = activeImageURL
             followUpErrorMessage = nil
         } else {
             if currentSessionId == nil {
                 currentSessionId = UUID().uuidString.lowercased()
             }
-            lastFollowUpQuery = query
-            pendingFollowUpQuery = query
-            isFollowUpLoading = true
-            // Do NOT wipe out existing turns with full-screen skeleton
-            isLoading = false
-            followUpErrorMessage = nil
-            userForcedClassicMode = false
-            isDeepDiveMode = true
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
+                lastFollowUpQuery = query
+                pendingFollowUpQuery = query
+                pendingVisualImageURL = activeImageURL
+                isFollowUpLoading = true
+                // Do NOT wipe out existing turns with full-screen skeleton
+                isLoading = false
+                followUpErrorMessage = nil
+                userForcedClassicMode = false
+                isDeepDiveMode = true
+            }
         }
 
         hasSearched = true
@@ -2488,6 +2515,7 @@ struct SearchView: View {
                     sessionId: activeSid,
                     deviceId: SupabaseManager.shared.deviceId,
                     preferredSize: prefSize.isEmpty ? nil : prefSize,
+                    userImageURL: activeImageURL,
                     onStep: { step in
                         withAnimation(.easeOut(duration: 0.2)) {
                             if let idx = self.thinkingSteps.firstIndex(where: { $0.id == step.id }) {
@@ -2537,24 +2565,28 @@ struct SearchView: View {
                         error: nil,
                         isOffTopic: isOff,
                         isUnsafe: isUnsafe,
+                        userImageURL: smartRes.user_image_url ?? activeImageURL,
                         timestamp: Date()
                     )
 
-                    if !isFollowUp {
-                        self.rootQuery = query
-                        self.lastContextQuery = query
-                        self.conversationTurns = [newTurn]
-                        // Record only genuine shopping searches with products (never conversational follow-ups, off-topic, or empty)
-                        if !isOff && !isUnsafe && !smartRes.results.isEmpty {
-                            self.recentManager.recordSearch(query)
+                    withAnimation(.easeOut(duration: 0.24)) {
+                        if !isFollowUp {
+                            self.rootQuery = query
+                            self.lastContextQuery = query
+                            self.conversationTurns = [newTurn]
+                            // Record only genuine shopping searches with products (never conversational follow-ups, off-topic, or empty)
+                            if !isOff && !isUnsafe && !smartRes.results.isEmpty {
+                                self.recentManager.recordSearch(query)
+                            }
+                        } else {
+                            self.lastContextQuery = query
+                            self.conversationTurns.append(newTurn)
                         }
-                    } else {
-                        self.lastContextQuery = query
-                        self.conversationTurns.append(newTurn)
-                    }
 
-                    self.pendingFollowUpQuery = nil
-                    self.isFollowUpLoading = false
+                        self.pendingFollowUpQuery = nil
+                        self.pendingVisualImageURL = nil
+                        self.isFollowUpLoading = false
+                    }
 
                     if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
                         self.isDeepDiveMode = false
@@ -2635,38 +2667,45 @@ struct SearchView: View {
                         sessionId: activeSid
                     ) {
                         await MainActor.run {
-                            self.isFollowUpLoading = false
-                            self.pendingFollowUpQuery = nil
-                            self.followUpErrorMessage = nil
-                            let newTurn = SearchConversationTurn(
-                                id: UUID().uuidString,
-                                query: query,
-                                isFollowUp: true,
-                                conversationalHeader: directFallback.conversational_header ?? "Ho cercato \(query)",
-                                conversationalSummary: directFallback.conversational_summary ?? "Risultati verificati sul catalogo FitMatch Cloud.",
-                                smartIntent: directFallback.intent,
-                                activeChips: directFallback.chips ?? [],
-                                searchResults: directFallback.results,
-                                curatedSections: directFallback.curated_sections ?? [],
-                                comparativeCards: directFallback.comparative_cards ?? [],
-                                spotlight: directFallback.spotlight,
-                                followUpSuggestions: directFallback.follow_up_suggestions ?? [],
-                                userFeedback: nil,
-                                showAiExplanation: false,
-                                error: nil,
-                                isOffTopic: false,
-                                isUnsafe: false,
-                                timestamp: Date()
-                            )
-                            self.conversationTurns.append(newTurn)
-                            self.lastContextQuery = query
+                            withAnimation(.easeOut(duration: 0.24)) {
+                                self.isFollowUpLoading = false
+                                self.pendingFollowUpQuery = nil
+                                self.pendingVisualImageURL = nil
+                                self.followUpErrorMessage = nil
+                                let newTurn = SearchConversationTurn(
+                                    id: UUID().uuidString,
+                                    query: query,
+                                    isFollowUp: true,
+                                    conversationalHeader: directFallback.conversational_header ?? "Ho cercato \(query)",
+                                    conversationalSummary: directFallback.conversational_summary ?? "Risultati verificati sul catalogo FitMatch Cloud.",
+                                    smartIntent: directFallback.intent,
+                                    activeChips: directFallback.chips ?? [],
+                                    searchResults: directFallback.results,
+                                    curatedSections: directFallback.curated_sections ?? [],
+                                    comparativeCards: directFallback.comparative_cards ?? [],
+                                    spotlight: directFallback.spotlight,
+                                    followUpSuggestions: directFallback.follow_up_suggestions ?? [],
+                                    userFeedback: nil,
+                                    showAiExplanation: false,
+                                    error: nil,
+                                    isOffTopic: false,
+                                    isUnsafe: false,
+                                    userImageURL: activeImageURL,
+                                    timestamp: Date()
+                                )
+                                self.conversationTurns.append(newTurn)
+                                self.lastContextQuery = query
+                            }
                         }
                     } else {
                         // Follow-up failed: preserve all existing turns and show retry notification
                         await MainActor.run {
-                            self.isFollowUpLoading = false
-                            self.pendingFollowUpQuery = nil
-                            self.followUpErrorMessage = "Impossibile completare il follow-up in questo momento."
+                            withAnimation(.easeOut(duration: 0.22)) {
+                                self.isFollowUpLoading = false
+                                self.pendingFollowUpQuery = nil
+                                self.pendingVisualImageURL = nil
+                                self.followUpErrorMessage = "Impossibile completare il follow-up in questo momento."
+                            }
                         }
                     }
                 }
@@ -3776,151 +3815,184 @@ struct RecentlyViewedCard: View {
     }
 }
 
-// MARK: - Visual Search Modal with AI Scanner Viewfinder
+// MARK: - Visual Search Modal (Camera + Gallery + Vision AI)
 struct ShopVisualSearchSheet: View {
     @Environment(\.dismiss) private var dismiss
-    let onSelectModel: (String) -> Void
+    let onSelectModel: (String, String?) -> Void
 
-    @State private var isScanning: Bool = false
-    @State private var scanOffset: CGFloat = -100
-    @State private var recognizedModel: String? = nil
+    @State private var selectedImage: UIImage? = nil
+    @State private var selectedPhotoItem: PhotosPickerItem? = nil
+    @State private var showCameraPicker: Bool = false
+    @State private var showCameraPermissionAlert: Bool = false
+    @State private var cameraAlertMessage: String = ""
 
-    private let sampleModels = [
-        ("Nike Air Force 1 '07", "prod_nike1"),
-        ("Adidas Adizero Dropset Pro", "prod_samba"),
-        ("New Balance 9060", "prod_nike2"),
-        ("Puma Velocity Nitro", "prod_puma")
-    ]
+    @State private var isAnalyzing: Bool = false
+    @State private var scanOffset: CGFloat = -95
+    @State private var analysisResult: VisualSearchResponse? = nil
+    @State private var analysisError: String? = nil
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                // Header
-                VStack(spacing: 6) {
-                    Text("Ricerca Visiva con IA")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.shopDark)
-                    Text("Inquadra una scarpa o capo per trovare le migliori offerte multinegozio")
-                        .font(.system(size: 14))
-                        .foregroundColor(.shopTextMuted)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, ShopLayout.screenPadding)
-                }
-                .padding(.top, 20)
-
-                // Viewfinder Frame
-                ZStack {
-                    RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
-                        .fill(Color.shopSurface)
-                        .frame(height: 250)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
-                                .stroke(Color.shopBorder, lineWidth: 1)
-                        )
-
-                    if let model = recognizedModel, let sample = sampleModels.first(where: { $0.0 == model }) {
-                        if let img = UIImage(named: sample.1) {
-                            Image(uiImage: img)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 180, height: 140)
-                                .transition(.scale.combined(with: .opacity))
-                        }
-                    } else {
-                        VStack(spacing: 12) {
-                            Image(systemName: "camera.viewfinder")
-                                .font(.system(size: 60, weight: .ultraLight))
-                                .foregroundColor(.shopPurple.opacity(0.8))
-
-                            Text("Posiziona la scarpa o prodotto al centro")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                        }
-                    }
-
-                    if isScanning {
-                        Rectangle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.clear, Color.shopPurple.opacity(0.8), .clear],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .frame(height: 3)
-                            .offset(y: scanOffset)
-                            .shadow(color: .shopPurple, radius: 8)
-                    }
-                }
-                .padding(.horizontal, ShopLayout.screenPadding)
-
-                if let model = recognizedModel {
-                    VStack(spacing: 8) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.seal.fill")
-                                .foregroundColor(Color(red: 0/255, green: 170/255, blue: 100/255))
-                            Text("Modello Identificato")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundColor(Color(red: 0/255, green: 170/255, blue: 100/255))
-                        }
-
-                        Text(model)
-                            .font(.system(size: 17, weight: .bold))
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 20) {
+                    // Header
+                    VStack(spacing: 6) {
+                        Text("Ricerca Visiva con IA")
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(.shopDark)
-
-                        Button(action: {
-                            dismiss()
-                            onSelectModel(model)
-                        }) {
-                            Text("Cerca offerte per questo modello")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(Color.shopPurple)
-                                .cornerRadius(14)
-                        }
-                        .padding(.horizontal, ShopLayout.screenPadding)
-                        .padding(.top, 4)
-                    }
-                    .transition(.opacity)
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Oppure prova con questi modelli popolari:")
-                            .font(.system(size: 12, weight: .semibold))
+                        Text("Scatta una foto o scegline una dalla galleria per trovare subito il modello e confrontare i prezzi")
+                            .font(.system(size: 13.5))
                             .foregroundColor(.shopTextMuted)
+                            .multilineTextAlignment(.center)
                             .padding(.horizontal, ShopLayout.screenPadding)
+                    }
+                    .padding(.top, 14)
 
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 10) {
-                                ForEach(sampleModels, id: \.0) { item in
-                                    Button(action: {
-                                        startScan(for: item.0)
-                                    }) {
-                                        HStack(spacing: 8) {
-                                            if let img = UIImage(named: item.1) {
-                                                Image(uiImage: img)
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: .fit)
-                                                    .frame(width: 24, height: 24)
-                                            }
-                                            Text(item.0)
-                                                .font(.system(size: 12.5, weight: .medium))
-                                                .foregroundColor(.shopDark)
-                                        }
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color.shopSurface)
-                                        .cornerRadius(10)
+                    // Viewfinder / Selected Photo Stage
+                    ZStack {
+                        RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
+                            .fill(Color.shopSurface)
+                            .frame(height: 250)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
+                                    .stroke(Color.shopBorder, lineWidth: 1)
+                            )
+
+                        if let image = selectedImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 234)
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .padding(8)
+                                .transition(.opacity)
+                        } else {
+                            VStack(spacing: 12) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.shopPurpleLight)
+                                        .frame(width: 72, height: 72)
+                                    Image(systemName: "camera.viewfinder")
+                                        .font(.system(size: 32, weight: .medium))
+                                        .foregroundColor(.shopPurple)
+                                }
+
+                                Text("Inquadra scarpe, smartwatch o capi sportivi")
+                                    .font(.system(size: 13.5, weight: .medium))
+                                    .foregroundColor(.shopTextMuted)
+                            }
+                        }
+
+                        if isAnalyzing {
+                            RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
+                                .fill(Color.black.opacity(0.14))
+                                .frame(height: 250)
+
+                            Rectangle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.clear, Color.shopPurple.opacity(0.85), .clear],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(height: 3)
+                                .offset(y: scanOffset)
+                                .shadow(color: .shopPurple, radius: 8)
+                        }
+                    }
+                    .padding(.horizontal, ShopLayout.screenPadding)
+
+                    // Dual Source Action Buttons (Camera + Gallery)
+                    HStack(spacing: 12) {
+                        Button(action: handleCameraButtonTap) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "camera.fill")
+                                    .font(.system(size: 15, weight: .bold))
+                                Text("Scatta foto")
+                                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .background(Color.shopDark)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(ShopCardPressStyle(scale: 0.97))
+                        .disabled(isAnalyzing)
+
+                        PhotosPicker(
+                            selection: $selectedPhotoItem,
+                            matching: .images,
+                            photoLibrary: .shared()
+                        ) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "photo.on.rectangle.angled")
+                                    .font(.system(size: 15, weight: .bold))
+                                Text("Galleria")
+                                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                            }
+                            .foregroundColor(.shopPurple)
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .background(Color.shopPurpleLight)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Color.shopPurple.opacity(0.22), lineWidth: 1)
+                            )
+                        }
+                        .disabled(isAnalyzing)
+                    }
+                    .padding(.horizontal, ShopLayout.screenPadding)
+
+                    // Analysis State / Results / Errors
+                    if isAnalyzing {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .tint(.shopPurple)
+                            Text("Sto analizzando la foto…")
+                                .font(.system(size: 14.5, weight: .semibold))
+                                .foregroundColor(.shopDark)
+                        }
+                        .padding(.vertical, 8)
+                    } else if let error = analysisError {
+                        VStack(spacing: 12) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.shopRed)
+                                Text(error)
+                                    .font(.system(size: 13.5, weight: .medium))
+                                    .foregroundColor(.shopDark)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(Color(red: 254/255, green: 242/255, blue: 242/255))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                            if let image = selectedImage {
+                                Button(action: {
+                                    analyzePickedImage(image)
+                                }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "arrow.clockwise")
+                                        Text("Riprova analisi")
                                     }
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity, minHeight: 46)
+                                    .background(Color.shopPurple)
+                                    .clipShape(Capsule())
                                 }
                             }
-                            .padding(.horizontal, ShopLayout.screenPadding)
                         }
+                        .padding(.horizontal, ShopLayout.screenPadding)
+                    } else if let result = analysisResult {
+                        visualResultSection(result)
                     }
-                }
 
-                Spacer()
+                    Spacer(minLength: 20)
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -3930,27 +4002,265 @@ struct ShopVisualSearchSheet: View {
                     .foregroundColor(.shopDark)
                 }
             }
+            .fullScreenCover(isPresented: $showCameraPicker) {
+                CameraImagePicker { capturedImage in
+                    selectedImage = capturedImage
+                    analyzePickedImage(capturedImage)
+                }
+                .ignoresSafeArea()
+            }
+            .onChange(of: selectedPhotoItem) { newItem in
+                guard let newItem else { return }
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self),
+                       let uiImg = UIImage(data: data) {
+                        await MainActor.run {
+                            selectedImage = uiImg
+                            analyzePickedImage(uiImg)
+                        }
+                    } else {
+                        await MainActor.run {
+                            analysisError = "Impossibile caricare l'immagine dalla galleria."
+                        }
+                    }
+                }
+            }
+            .alert("Fotocamera non disponibile", isPresented: $showCameraPermissionAlert) {
+                Button("Impostazioni") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(cameraAlertMessage)
+            }
         }
     }
 
-    private func startScan(for model: String) {
-        isScanning = true
-        recognizedModel = nil
-        scanOffset = -90
+    @ViewBuilder
+    private func visualResultSection(_ result: VisualSearchResponse) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if !result.is_sport_product {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "info.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.shopPurple)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Articolo sportivo non rilevato")
+                            .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopDark)
+                        Text(result.note ?? "Prova a fotografare meglio scarpe, abbigliamento o attrezzatura sportiva.")
+                            .font(.system(size: 13))
+                            .foregroundColor(.shopTextMuted)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .shopCard()
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundColor(.shopGreen)
+                        Text(result.confidence == "high" ? "Modello identificato" : "Possibile corrispondenza")
+                            .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopGreen)
+                        Spacer()
+                        if let cat = result.category, !cat.isEmpty {
+                            Text(cat)
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopPurple)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.shopPurpleLight)
+                                .clipShape(Capsule())
+                        }
+                    }
 
-        withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
-            scanOffset = 90
+                    Text(result.recognized_model)
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
+
+                    if let note = result.note, !note.isEmpty {
+                        Text(note)
+                            .font(.system(size: 13))
+                            .foregroundColor(.shopTextMuted)
+                    }
+
+                    Button(action: {
+                        let query = result.search_query.isEmpty ? result.recognized_model : result.search_query
+                        let imgUrl = result.uploaded_image_url
+                        dismiss()
+                        onSelectModel(query, imgUrl)
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("Cerca in chat")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Color.shopPurple)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(ShopCardPressStyle(scale: 0.98))
+                    .padding(.top, 2)
+                }
+                .shopCard()
+
+                if !result.alternatives.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Oppure cerca una variante simile:")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.shopTextMuted)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(result.alternatives, id: \.self) { alt in
+                                    Button(action: {
+                                        let imgUrl = result.uploaded_image_url
+                                        dismiss()
+                                        onSelectModel(alt, imgUrl)
+                                    }) {
+                                        Text(alt)
+                                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                                            .foregroundColor(.shopDark)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(Color.white)
+                                            .clipShape(Capsule())
+                                            .overlay(
+                                                Capsule()
+                                                    .stroke(Color.shopBorder, lineWidth: 1)
+                                            )
+                                    }
+                                    .buttonStyle(ShopCardPressStyle(scale: 0.96))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, ShopLayout.screenPadding)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    private func handleCameraButtonTap() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            cameraAlertMessage = "La fotocamera non è disponibile su questo dispositivo. Usa la Galleria per scegliere una foto."
+            showCameraPermissionAlert = true
+            return
         }
 
-        let gen = UIImpactFeedbackGenerator(style: .medium)
-        gen.impactOccurred()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
-            withAnimation(.spring()) {
-                self.isScanning = false
-                self.recognizedModel = model
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        switch status {
+        case .authorized:
+            showCameraPicker = true
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        showCameraPicker = true
+                    } else {
+                        cameraAlertMessage = "Consenti l'accesso alla fotocamera nelle Impostazioni per scattare foto ai prodotti."
+                        showCameraPermissionAlert = true
+                    }
+                }
             }
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        case .denied, .restricted:
+            cameraAlertMessage = "L'accesso alla fotocamera è disattivato. Abilitalo nelle Impostazioni per scattare foto."
+            showCameraPermissionAlert = true
+        @unknown default:
+            showCameraPicker = true
+        }
+    }
+
+    private func analyzePickedImage(_ image: UIImage) {
+        guard let jpegData = Self.compressedJPEGData(from: image) else {
+            analysisError = "Impossibile preparare l'immagine per l'invio."
+            return
+        }
+
+        isAnalyzing = true
+        analysisResult = nil
+        analysisError = nil
+        scanOffset = -95
+
+        withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
+            scanOffset = 95
+        }
+
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+        Task {
+            do {
+                let res = try await APIService.shared.analyzeVisualSearchImage(imageData: jpegData, mimeType: "image/jpeg")
+                await MainActor.run {
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.85)) {
+                        self.isAnalyzing = false
+                        self.analysisResult = res
+                    }
+                    if res.is_sport_product {
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        self.isAnalyzing = false
+                        self.analysisError = error.localizedDescription
+                    }
+                }
+            }
+        }
+    }
+
+    private static func compressedJPEGData(from image: UIImage, maxDimension: CGFloat = 1024, quality: CGFloat = 0.76) -> Data? {
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return image.jpegData(compressionQuality: quality) }
+        let scale = min(1.0, maxDimension / max(size.width, size.height))
+        let targetSize = CGSize(width: floor(size.width * scale), height: floor(size.height * scale))
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let rendered = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+        return rendered.jpegData(compressionQuality: quality)
+    }
+}
+
+private struct CameraImagePicker: UIViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+    let onImageCaptured: (UIImage) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.allowsEditing = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let parent: CameraImagePicker
+        init(parent: CameraImagePicker) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.onImageCaptured(image)
+            }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
         }
     }
 }

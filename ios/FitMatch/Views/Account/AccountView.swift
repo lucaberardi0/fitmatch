@@ -856,7 +856,6 @@ private struct AccountPriceMonitorView: View {
     let partnerStores: [(String, String, String, String)]
     @ObservedObject private var prefs = UserPreferencesManager.shared
     @ObservedObject private var wishlist = WishlistManager.shared
-    @StateObject private var api = APIService.shared
 
     var body: some View {
         let totalSavings = prefs.calculateTotalWishlistSavings(wishlistItems: wishlist.items)
@@ -889,13 +888,13 @@ private struct AccountPriceMonitorView: View {
                         )
                     }
 
-                    // Sync & Scheduler Card
+                    // Passive Automatic Monitoring Card (no manual price check actions)
                     VStack(alignment: .leading, spacing: 14) {
                         HStack {
-                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Image(systemName: "bell.and.waves.left.and.right.fill")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(.shopPurple)
-                            Text("Sincronizzazione Prezzi")
+                            Text("Monitoraggio Automatico")
                                 .font(.system(size: 15.5, weight: .bold, design: .rounded))
                                 .foregroundColor(.shopDark)
                             Spacer()
@@ -903,7 +902,7 @@ private struct AccountPriceMonitorView: View {
                             if prefs.updaterStatus?.scheduler_active == true {
                                 HStack(spacing: 4) {
                                     Circle().fill(Color.shopGreen).frame(width: 7, height: 7)
-                                    Text("Auto-Sync")
+                                    Text("Attivo")
                                         .font(.system(size: 10.5, weight: .bold))
                                         .foregroundColor(.shopGreen)
                                 }
@@ -915,16 +914,16 @@ private struct AccountPriceMonitorView: View {
                         }
 
                         let sizeDetail = prefs.preferences.hasShoeSize ? " nella tua taglia (EU \(prefs.preferences.preferredShoeSize))" : ""
-                        Text("FitMatch verifica periodicamente i prezzi dei prodotti salvati sui \(partnerStores.count) negozi partner per segnalarti i cali\(sizeDetail).")
+                        Text("FitMatch verifica automaticamente i prezzi dei prodotti salvati sui \(partnerStores.count) negozi partner per segnalarti i cali\(sizeDetail).")
                             .font(.system(size: 12.5))
                             .foregroundColor(.shopTextMuted)
 
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Ultimo controllo prezzi")
+                                Text("Ultimo aggiornamento")
                                     .font(.system(size: 11.5, weight: .medium))
                                     .foregroundColor(.shopTextMuted)
-                                Text(prefs.updaterStatus?.last_run ?? "Schedulatore attivo ogni 4 ore")
+                                Text(prefs.updaterStatus?.last_run ?? "Monitoraggio automatico attivo")
                                     .font(.system(size: 12.5, weight: .bold))
                                     .foregroundColor(.shopDark)
                             }
@@ -948,37 +947,6 @@ private struct AccountPriceMonitorView: View {
                         .padding(12)
                         .background(Color.shopSurface)
                         .cornerRadius(12)
-
-                        Button(action: {
-                            Task {
-                                await prefs.triggerPriceRefresh(apiService: api)
-                            }
-                        }) {
-                            HStack(spacing: 8) {
-                                if prefs.isRefreshingPrices {
-                                    ProgressView()
-                                        .tint(.white)
-                                        .scaleEffect(0.85)
-                                } else {
-                                    Image(systemName: "arrow.clockwise")
-                                        .font(.system(size: 14, weight: .bold))
-                                }
-                                Text(prefs.isRefreshingPrices ? "Aggiornamento in corso..." : "Aggiorna Prezzi Ora")
-                                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                            }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity, minHeight: 46)
-                            .background(prefs.isRefreshingPrices ? Color.gray : Color.shopPurple)
-                            .clipShape(Capsule())
-                        }
-                        .disabled(prefs.isRefreshingPrices)
-
-                        if let msg = prefs.refreshMessage {
-                            Text(msg)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.shopPurple)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        }
                     }
                     .shopCard()
 

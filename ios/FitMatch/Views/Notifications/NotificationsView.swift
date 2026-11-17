@@ -21,7 +21,6 @@ struct NotificationsView: View {
     @ObservedObject private var notifManager = NotificationManager.shared
 
     @State private var selectedFilter: NotificationFilter = .all
-    @State private var isRefreshing: Bool = false
     @State private var selectedProduct: MatchedProduct? = nil
     @State private var navigatingStoreId: String? = nil
     @State private var navigatingStoreName: String? = nil
@@ -88,9 +87,6 @@ struct NotificationsView: View {
                         Spacer(minLength: ShopLayout.bottomDetailClearance)
                     }
                     .padding(.top, 4)
-                }
-                .refreshable {
-                    await notifManager.checkIntelligentNotifications(force: true)
                 }
             }
             .background(Color.shopSurface.ignoresSafeArea())
@@ -296,15 +292,7 @@ struct NotificationsView: View {
 
                 Spacer()
 
-                if notifManager.isChecking {
-                    HStack(spacing: 4) {
-                        ProgressView()
-                            .controlSize(.mini)
-                        Text("Verifica in corso...")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.shopTextMuted)
-                    }
-                } else if let last = notifManager.lastCheckDate {
+                if let last = notifManager.lastCheckDate {
                     let formatter = RelativeDateTimeFormatter()
                     Text("Aggiornato " + formatter.localizedString(for: last, relativeTo: Date()))
                         .font(.system(size: 11, weight: .regular))
@@ -312,40 +300,10 @@ struct NotificationsView: View {
                 }
             }
 
-            Text("FitMatch scansiona costantemente i 10 negozi partner ufficiali. Il watcher cloud sul server ti invia notifiche push APNs in tempo reale a schermo bloccato quando il prezzo di un articolo salvato cala o c'è un'offerta speciale.")
+            Text("FitMatch monitora automaticamente i negozi partner ufficiali e ti invia notifiche push in tempo reale quando il prezzo di un articolo salvato cala o c'è un'offerta speciale.")
                 .font(.system(size: 11.5, weight: .regular))
                 .foregroundColor(Color(red: 100/255, green: 100/255, blue: 110/255))
                 .lineSpacing(1.5)
-
-            Divider()
-                .padding(.vertical, 2)
-
-            // Interactive Action Buttons
-            HStack(spacing: 10) {
-                Button(action: {
-                    let gen = UIImpactFeedbackGenerator(style: .medium)
-                    gen.impactOccurred()
-                    Task {
-                        await notifManager.checkIntelligentNotifications(force: true)
-                    }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 11, weight: .bold))
-                        Text(notifManager.isChecking ? "Controllo in corso..." : "Verifica prezzi adesso")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                    }
-                    .foregroundColor(Color.shopPurple)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(Color.shopPurple.opacity(0.08))
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(notifManager.isChecking)
-
-                Spacer()
-            }
         }
         .padding(14)
         .background(Color.white)
@@ -391,11 +349,6 @@ struct NotificationsView: View {
             primaryColor: .shopDark,
             onPrimaryTap: {
                 dismiss()
-            },
-            secondaryTitle: "Invia avviso di prova",
-            secondaryIcon: "bell.badge",
-            onSecondaryTap: {
-                notifManager.simulateTestNotification(type: .priceDrop)
             }
         )
         .padding(.horizontal, 16)

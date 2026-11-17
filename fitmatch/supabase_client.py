@@ -2772,6 +2772,37 @@ class SupabaseClient:
         except ValueError:
             return str(uuid.uuid5(uuid.NAMESPACE_URL, raw))
 
+    def upload_chat_image(
+        self,
+        image_bytes: bytes,
+        mime_type: str = "image/jpeg",
+        device_id: str = "default_device",
+        bucket: str = "chat-images",
+    ) -> Optional[str]:
+        """Upload a visual-search photo to Supabase Storage and return its public URL."""
+        if not image_bytes:
+            return None
+        root_url = self.base_url[:-len("/rest/v1")] if self.base_url.endswith("/rest/v1") else self.base_url.rstrip("/")
+        safe_dev = re.sub(r"[^a-zA-Z0-9_-]", "", (device_id or "default").strip())[:40] or "default"
+        safe_mime = mime_type if mime_type in ("image/jpeg", "image/png", "image/webp") else "image/jpeg"
+        ext = {"image/png": "png", "image/webp": "webp"}.get(safe_mime, "jpg")
+        obj_path = f"{safe_dev}/{uuid.uuid4().hex}.{ext}"
+        upload_url = f"{root_url}/storage/v1/object/{bucket}/{obj_path}"
+        headers = {
+            "apikey": self.api_key,
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": safe_mime,
+            "x-upsert": "true",
+        }
+        try:
+            req = urllib.request.Request(upload_url, data=image_bytes, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=15, context=self.ctx) as resp:
+                if resp.status in (200, 201):
+                    return f"{root_url}/storage/v1/object/public/{bucket}/{obj_path}"
+        except Exception as e:
+            logger.warning(f"[Supabase] Failed uploading chat image: {e}")
+        return None
+
     def save_chat_turn(
         self,
         session_id: Optional[str],
@@ -2782,11 +2813,13 @@ class SupabaseClient:
         is_follow_up: bool,
         response_payload: Dict[str, Any],
         context_state: Optional[Dict[str, Any]] = None,
+        user_image_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create or append a conversation turn to chat_sessions & chat_messages in Supabase."""
         sid = self.normalize_uuid(session_id)
         did = (device_id or "default_device").strip()
         now_iso = datetime.now(timezone.utc).isoformat()
+        clean_user_img = clean_image_url(user_image_url or response_payload.get("user_image_url"))
 
         results = response_payload.get("results") or []
         spotlight = response_payload.get("spotlight")
@@ -2795,6 +2828,8 @@ class SupabaseClient:
             preview_img = clean_image_url(spotlight["product"].get("image_url"))
         if not preview_img and results and isinstance(results[0], dict):
             preview_img = clean_image_url(results[0].get("image_url"))
+        if not preview_img and clean_user_img:
+            preview_img = clean_user_img
 
         # Check existing session to preserve title and increment turn_count
         existing_res = self._request(f"chat_sessions?id=eq.{urllib.parse.quote(sid)}&limit=1", method="GET")
@@ -2887,6 +2922,7 @@ class SupabaseClient:
             "follow_up_suggestions_json": response_payload.get("follow_up_suggestions") or [],
             "is_off_topic": bool(response_payload.get("is_off_topic", False)),
             "is_unsafe": bool(response_payload.get("is_unsafe", False)),
+            "user_image_url": clean_user_img,
             "created_at": now_iso,
         }
         m_res = self._request("chat_messages", method="POST", data=msg_body)

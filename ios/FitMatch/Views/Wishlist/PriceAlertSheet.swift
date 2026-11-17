@@ -10,7 +10,6 @@ struct PriceAlertSheet: View {
     @State private var targetPrice: Double = 0.0
     @State private var selectedSize: String = "Tutte"
     @State private var selectedPreset: AlertPreset = .tenPercent
-    @State private var showSuccessBanner = false
 
     enum AlertPreset: String, CaseIterable {
         case any = "Qualsiasi calo"
@@ -201,48 +200,6 @@ struct PriceAlertSheet: View {
                         RoundedRectangle(cornerRadius: ShopLayout.cardRadius, style: .continuous)
                             .stroke(Color.shopBorder, lineWidth: 1)
                     )
-
-                    // Simulation Test Button
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("COLLAUDO NOTIFICA:")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.shopTextMuted)
-
-                        Button(action: {
-                            // Ensure in wishlist first
-                            if !wishlist.isFavorite(product.canonical_name) {
-                                wishlist.addToWishlist(product: product, selectedSize: selectedSize == "Tutte" ? nil : selectedSize, targetPrice: targetPrice)
-                            }
-                            wishlist.simulatePriceDrop(for: product.canonical_name, dropAmount: 25.0)
-                            showSuccessBanner = true
-                        }) {
-                            HStack {
-                                Image(systemName: "bolt.fill")
-                                    .foregroundColor(.shopYellow)
-                                Text("Simula Calo Prezzo Subito (Test)")
-                                    .font(.system(size: 13, weight: .bold))
-                                Spacer()
-                                Image(systemName: "arrow.up.forward.app")
-                                    .font(.system(size: 12))
-                            }
-                            .foregroundColor(.shopDark)
-                            .padding(ShopLayout.compactCardPadding)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
-                                    .stroke(Color.shopBorder, lineWidth: 1)
-                            )
-                        }
-
-                        if showSuccessBanner {
-                            Text("✓ Notifica inviata! Controlla la tendina delle notifiche.")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.shopGreen)
-                                .padding(.horizontal, 4)
-                        }
-                    }
-                    .padding(.top, 4)
 
                     // Save Button
                     Button(action: saveSettings) {

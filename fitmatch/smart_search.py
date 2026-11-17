@@ -27,6 +27,20 @@ class SmartSearchChip(BaseModel):
     value: str
 
 
+class VisualSearchResult(BaseModel):
+    is_sport_product: bool = True
+    recognized_model: str = ""
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    color: Optional[str] = None
+    search_query: str = ""
+    confidence: str = "medium"
+    alternatives: List[str] = Field(default_factory=list)
+    note: Optional[str] = None
+    catalog_matches_count: int = 0
+    uploaded_image_url: Optional[str] = None
+
+
 class CuratedSectionDef(BaseModel):
     id: str
     title: str
@@ -5094,6 +5108,149 @@ Rispondi SOLO con JSON valido:
                         return parsed
             except Exception as e:
                 logger.warning("OpenRouter synthesize_grounded_response failed (%s): %s", current_model, e)
+                continue
+        return None
+
+    @classmethod
+    def analyze_image(
+        cls,
+        image_base64: str,
+        mime_type: str = "image/jpeg",
+        api_key: str = OPENROUTER_API_KEY,
+        model: str = OPENROUTER_MODEL,
+    ) -> Optional[VisualSearchResult]:
+        """Identify a sports product from a user photo using a multimodal Vision LLM via OpenRouter."""
+        if not api_key or not image_base64:
+            return None
+
+        import urllib.request
+        import ssl
+
+        clean_b64 = image_base64.strip()
+        if clean_b64.startswith("data:") and "," in clean_b64:
+            header, clean_b64 = clean_b64.split(",", 1)
+            if ";" in header and ":" in header:
+                mime_type = header.split(":", 1)[1].split(";", 1)[0].strip() or mime_type
+        clean_b64 = re.sub(r"\s+", "", clean_b64)
+        if not clean_b64:
+            return None
+
+        safe_mime = mime_type if mime_type in ("image/jpeg", "image/jpg", "image/png", "image/webp") else "image/jpeg"
+        if safe_mime == "image/jpg":
+            safe_mime = "image/jpeg"
+
+        try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+        vision_system = """Sei il sistema di riconoscimento visivo sportivo di FitMatch.
+Analizza la foto caricata dall'utente e identifica l'articolo sportivo principale (scarpe da running/trail/calcio/padel/tennis/basket/sneakers, abbigliamento sportivo, smartwatch GPS, occhiali sportivi, zaini/idratazione, bici/accessori).
+REGOLE TASSATIVE:
+1. Se la foto NON mostra articoli sportivi/abbigliamento/calzature/accessori atletici (es. cibo, auto, documenti, selfie senza capi sportivi, animali, paesaggi), imposta "is_sport_product": false e spiega brevemente in "note" in italiano.
+2. Se è un articolo sportivo, indica il modello più probabile ("recognized_model", es. "Nike Pegasus 41", "Hoka Clifton 9", "Garmin Forerunner 265"), il brand, la categoria, il colore principale e una "search_query" pulita e ottimizzata per trovare offerte reali in un comparatore prezzi (2-4 parole chiave senza parole inutili).
+3. In "confidence" usa SOLO "high", "medium" o "low". Se non sei sicuro del numero esatto di versione (es. Clifton 8 vs 9, Pegasus 40 vs 41), metti le varianti possibili in "alternatives" (max 3 stringhe brevi).
+4. In "note" scrivi 1 frase sintetica e utile in italiano sul prodotto riconosciuto.
+Rispondi ESCLUSIVAMENTE con JSON valido:
+{
+  "is_sport_product": true,
+  "recognized_model": "Nome modello preciso",
+  "brand": "Brand o null",
+  "category": "Running|Trail|Fitness|Calcio|Padel|Tennis|Basket|Outdoor|Ciclismo|Smartwatch|Abbigliamento|Accessori",
+  "color": "Colore principale",
+  "search_query": "Query pulita per il catalogo",
+  "confidence": "high|medium|low",
+  "alternatives": ["Alternativa 1", "Alternativa 2"],
+  "note": "Breve descrizione in italiano"
+}"""
+
+        vision_models = [os.environ.get("OPENROUTER_VISION_MODEL", "").strip() or model]
+        fallback_vision = "google/gemini-2.0-flash-001"
+        if fallback_vision not in vision_models:
+            vision_models.append(fallback_vision)
+
+        messages = [
+            {"role": "system", "content": vision_system},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Identifica questo articolo sportivo per cercarlo su FitMatch."},
+                    {"type": "image_url", "image_url": {"url": f"data:{safe_mime};base64,{clean_b64}"}},
+                ],
+            },
+        ]
+
+        for current_model in vision_models:
+            payload: Dict[str, Any] = {
+                "model": current_model,
+                "messages": messages,
+                "temperature": 0.1,
+                "max_tokens": 450,
+            }
+            if current_model.startswith("openai/"):
+                payload["response_format"] = {"type": "json_object"}
+            headers = {
+                "Authorization": f"Bearer {api_key.strip()}",
+                "HTTP-Referer": "https://fitmatch.it",
+                "X-Title": "FitMatch Visual Search",
+                "Content-Type": "application/json",
+            }
+            try:
+                req = urllib.request.Request(
+                    OPENROUTER_URL,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers=headers,
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=18.0, context=ctx) as resp:
+                    if resp.status != 200:
+                        continue
+                    raw_resp_text = resp.read().decode("utf-8", errors="ignore").strip()
+                    if not raw_resp_text:
+                        continue
+                    data = json.loads(raw_resp_text)
+                    content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+                    if not str(content).strip():
+                        continue
+                    json_match = re.search(r"(\{.*\})", content, flags=re.DOTALL)
+                    clean_json = json_match.group(1).strip() if json_match else content.strip()
+                    for fence in ("```json", "```"):
+                        if clean_json.startswith(fence):
+                            clean_json = clean_json[len(fence):]
+                    if clean_json.endswith("```"):
+                        clean_json = clean_json[:-3]
+                    parsed = json.loads(clean_json.strip())
+                    if not isinstance(parsed, dict):
+                        continue
+
+                    is_sport = bool(parsed.get("is_sport_product", True))
+                    recognized_model = str(parsed.get("recognized_model") or "").strip()
+                    search_query = str(parsed.get("search_query") or recognized_model).strip()
+                    confidence = str(parsed.get("confidence") or "medium").strip().lower()
+                    if confidence not in ("high", "medium", "low"):
+                        confidence = "medium"
+                    raw_alts = parsed.get("alternatives") or []
+                    alts = [
+                        str(a).strip()
+                        for a in raw_alts
+                        if isinstance(a, str) and str(a).strip() and str(a).strip().lower() != search_query.lower()
+                    ][:3]
+                    return VisualSearchResult(
+                        is_sport_product=is_sport,
+                        recognized_model=recognized_model or search_query,
+                        brand=(str(parsed.get("brand")).strip() if parsed.get("brand") else None),
+                        category=(str(parsed.get("category")).strip() if parsed.get("category") else None),
+                        color=(str(parsed.get("color")).strip() if parsed.get("color") else None),
+                        search_query=search_query,
+                        confidence=confidence,
+                        alternatives=alts,
+                        note=(str(parsed.get("note")).strip() if parsed.get("note") else None),
+                    )
+            except Exception as e:
+                logger.warning("OpenRouter analyze_image failed (%s): %s", current_model, e)
                 continue
         return None
 

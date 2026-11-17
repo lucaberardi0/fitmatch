@@ -233,7 +233,8 @@ class APIService: ObservableObject {
         sessionId: String?,
         deviceId: String?,
         userId: String?,
-        preferredSize: String?
+        preferredSize: String?,
+        userImageURL: String? = nil
     ) throws -> URL {
         var components = URLComponents(string: "\(baseURL)\(path)")!
         var queryItems = [URLQueryItem(name: "q", value: query)]
@@ -267,6 +268,9 @@ class APIService: ObservableObject {
         if let preferredSize = preferredSize, !preferredSize.isEmpty {
             queryItems.append(URLQueryItem(name: "preferred_size", value: preferredSize))
         }
+        if let userImageURL = userImageURL, !userImageURL.isEmpty {
+            queryItems.append(URLQueryItem(name: "user_image_url", value: userImageURL))
+        }
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         return url
@@ -290,7 +294,8 @@ class APIService: ObservableObject {
         sessionId: String? = nil,
         deviceId: String? = nil,
         userId: String? = nil,
-        preferredSize: String? = nil
+        preferredSize: String? = nil,
+        userImageURL: String? = nil
     ) async throws -> SmartSearchResponse {
         let resolvedUserId = await resolveUserId(userId)
         let cacheKey = smartSearchCacheKey(
@@ -303,7 +308,8 @@ class APIService: ObservableObject {
             contextQuery: contextQuery,
             preferredSize: preferredSize
         )
-        let skipClientCache = isMoreExamplesQuery(query)
+        let hasUserImg = userImageURL != nil && !(userImageURL?.isEmpty ?? true)
+        let skipClientCache = isMoreExamplesQuery(query) || hasUserImg
         if !skipClientCache, let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
             if let sid = sessionId, !sid.isEmpty, let did = deviceId, !did.isEmpty {
                 Task {
@@ -312,7 +318,8 @@ class APIService: ObservableObject {
                         deviceId: did,
                         query: query,
                         isFollowUp: contextQuery != nil && !(contextQuery?.isEmpty ?? true),
-                        response: cached.response
+                        response: cached.response,
+                        userImageURL: userImageURL
                     )
                 }
             }
@@ -331,7 +338,8 @@ class APIService: ObservableObject {
             sessionId: sessionId,
             deviceId: deviceId,
             userId: resolvedUserId,
-            preferredSize: preferredSize
+            preferredSize: preferredSize,
+            userImageURL: userImageURL
         )
 
         do {
@@ -368,7 +376,8 @@ class APIService: ObservableObject {
                             deviceId: did,
                             query: query,
                             isFollowUp: contextQuery != nil && !(contextQuery?.isEmpty ?? true),
-                            response: directFallback
+                            response: directFallback,
+                            userImageURL: userImageURL
                         )
                     }
                 }
@@ -393,6 +402,7 @@ class APIService: ObservableObject {
         deviceId: String? = nil,
         userId: String? = nil,
         preferredSize: String? = nil,
+        userImageURL: String? = nil,
         onStep: @escaping @MainActor (SearchThinkingStep) -> Void
     ) async throws -> SmartSearchResponse {
         let resolvedUserId = await resolveUserId(userId)
@@ -406,7 +416,8 @@ class APIService: ObservableObject {
             contextQuery: contextQuery,
             preferredSize: preferredSize
         )
-        let skipClientCache = isMoreExamplesQuery(query)
+        let hasUserImg = userImageURL != nil && !(userImageURL?.isEmpty ?? true)
+        let skipClientCache = isMoreExamplesQuery(query) || hasUserImg
         if !skipClientCache, let cached = smartSearchCache[cacheKey], cached.expiry > Date() {
             await onStep(SearchThinkingStep(
                 id: "cache",
@@ -422,7 +433,8 @@ class APIService: ObservableObject {
                         deviceId: did,
                         query: query,
                         isFollowUp: contextQuery != nil && !(contextQuery?.isEmpty ?? true),
-                        response: cached.response
+                        response: cached.response,
+                        userImageURL: userImageURL
                     )
                 }
             }
@@ -441,7 +453,8 @@ class APIService: ObservableObject {
             sessionId: sessionId,
             deviceId: deviceId,
             userId: resolvedUserId,
-            preferredSize: preferredSize
+            preferredSize: preferredSize,
+            userImageURL: userImageURL
         )
 
         var request = URLRequest(url: streamURL, timeoutInterval: 30.0)
@@ -469,7 +482,8 @@ class APIService: ObservableObject {
                     sessionId: sessionId,
                     deviceId: deviceId,
                     userId: resolvedUserId,
-                    preferredSize: preferredSize
+                    preferredSize: preferredSize,
+                    userImageURL: userImageURL
                 )
             }
 
@@ -534,7 +548,8 @@ class APIService: ObservableObject {
             sessionId: sessionId,
             deviceId: deviceId,
             userId: resolvedUserId,
-            preferredSize: preferredSize
+            preferredSize: preferredSize,
+            userImageURL: userImageURL
         )
     }
 
@@ -928,7 +943,8 @@ class APIService: ObservableObject {
             is_off_topic: false,
             is_unsafe: false,
             session_id: sessionId,
-            turn_id: nil
+            turn_id: nil,
+            user_image_url: nil
         )
     }
 
@@ -1392,7 +1408,8 @@ class APIService: ObservableObject {
             is_off_topic: response.is_off_topic,
             is_unsafe: response.is_unsafe,
             session_id: response.session_id,
-            turn_id: response.turn_id
+            turn_id: response.turn_id,
+            user_image_url: response.user_image_url
         )
     }
 
@@ -2010,4 +2027,56 @@ class APIService: ObservableObject {
             source: "product_share"
         )
     }
+
+    // MARK: - Visual Search (Camera & Gallery Photo Recognition)
+
+    func analyzeVisualSearchImage(imageData: Data, mimeType: String = "image/jpeg") async throws -> VisualSearchResponse {
+        guard let url = URL(string: "\(baseURL)/api/search/visual") else {
+            throw URLError(.badURL)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 35
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let payload: [String: String] = [
+            "image_base64": imageData.base64EncodedString(),
+            "mime_type": mimeType,
+            "device_id": SupabaseManager.shared.deviceId
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let errObj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let detail = errObj["detail"] as? String {
+                throw NSError(domain: "FitMatchVisualSearch", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: detail])
+            }
+            throw NSError(
+                domain: "FitMatchVisualSearch",
+                code: http.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: "Errore durante l'analisi della foto (\(http.statusCode))."]
+            )
+        }
+
+        return try JSONDecoder().decode(VisualSearchResponse.self, from: data)
+    }
+}
+
+struct VisualSearchResponse: Codable {
+    let is_sport_product: Bool
+    let recognized_model: String
+    let brand: String?
+    let category: String?
+    let color: String?
+    let search_query: String
+    let confidence: String
+    let alternatives: [String]
+    let note: String?
+    let catalog_matches_count: Int
+    let uploaded_image_url: String?
 }

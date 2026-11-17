@@ -200,7 +200,7 @@ struct FitMatchApp: App {
                     }
                 }
             } else if ProcessInfo.processInfo.arguments.contains("-testVisualSearch") {
-                ShopVisualSearchSheet(onSelectModel: { _ in })
+                ShopVisualSearchSheet(onSelectModel: { _, _ in })
             } else if ProcessInfo.processInfo.arguments.contains("-testSearch") {
                 MainTabView(initialTab: 1)
             } else if ProcessInfo.processInfo.arguments.contains("-testAiSearchDeepDive") {

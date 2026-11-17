@@ -1112,6 +1112,7 @@ struct SmartSearchResponse: Codable {
     let is_unsafe: Bool?
     let session_id: String?
     let turn_id: String?
+    let user_image_url: String?
 }
 
 // MARK: - Conversational Search Turn Model
@@ -1134,6 +1135,7 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
     var error: String?
     var isOffTopic: Bool
     var isUnsafe: Bool
+    var userImageURL: String?
     let timestamp: Date
 
     init(
@@ -1155,6 +1157,7 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
         error: String? = nil,
         isOffTopic: Bool = false,
         isUnsafe: Bool = false,
+        userImageURL: String? = nil,
         timestamp: Date = Date()
     ) {
         self.id = id
@@ -1175,6 +1178,7 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
         self.error = error
         self.isOffTopic = isOffTopic
         self.isUnsafe = isUnsafe
+        self.userImageURL = userImageURL
         self.timestamp = timestamp
     }
 
@@ -1499,6 +1503,7 @@ struct ChatMessageRecord: Identifiable, Codable, Hashable {
     let user_feedback: Int?
     let is_off_topic: Bool?
     let is_unsafe: Bool?
+    let user_image_url: String?
     let created_at: String?
 }
 

@@ -23,10 +23,11 @@ public final class KeyboardObserver: ObservableObject {
 
     private init() {
         NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)
+            .receive(on: DispatchQueue.main)
             .compactMap { notification -> (CGFloat, Double)? in
                 guard let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return nil }
                 let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-                return (frame.height, duration)
+                return (frame.height, max(0.18, duration))
             }
             .sink { [weak self] (height, duration) in
                 guard let self = self else { return }
@@ -41,14 +42,17 @@ public final class KeyboardObserver: ObservableObject {
             .store(in: &cancellables)
 
         NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)
+            .receive(on: DispatchQueue.main)
             .compactMap { notification -> Double in
-                (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+                let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+                return max(0.18, duration)
             }
             .sink { [weak self] duration in
+                guard let self = self else { return }
                 withAnimation(.easeOut(duration: duration)) {
-                    self?.keyboardHeight = 0
-                    self?.effectiveKeyboardOffset = 0
-                    self?.isKeyboardVisible = false
+                    self.keyboardHeight = 0
+                    self.effectiveKeyboardOffset = 0
+                    self.isKeyboardVisible = false
                 }
             }
             .store(in: &cancellables)
