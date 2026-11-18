@@ -1,5 +1,6 @@
 import re
 import json
+import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
@@ -112,11 +113,12 @@ class NenciniSportScraper(BaseScraper):
 
         def _get_sizes(cand: Dict[str, Any]) -> List[str]:
             try:
+                time.sleep(0.15)
                 return self.fetch_sizes(cand["product_url"], title=cand["title"])
             except Exception:
                 return []
 
-        with ThreadPoolExecutor(max_workers=min(len(candidates), 6)) as ex:
+        with ThreadPoolExecutor(max_workers=min(len(candidates), 2)) as ex:
             sizes_results = list(ex.map(_get_sizes, candidates))
 
         offers: List[Offer] = []
@@ -143,6 +145,13 @@ class NenciniSportScraper(BaseScraper):
         """Extract verified in-stock sizes from Nencini product detail page."""
         self._ensure_session()
         html = self._fetch_html(product_url)
+        if not html:
+            time.sleep(0.45)
+            try:
+                self.session.get(f"{self.base_url}/it/", headers=self.headers, impersonate="chrome", timeout=self.timeout)
+            except Exception:
+                pass
+            html = self._fetch_html(product_url)
         if not html:
             return []
         soup = BeautifulSoup(html, "html.parser")

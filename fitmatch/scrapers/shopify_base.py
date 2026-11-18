@@ -10,6 +10,12 @@ logger = logging.getLogger("fitmatch.scraper.shopify")
 
 _SIZE_OPTION_KEYS = ("taglia", "size", "misura", "grip", "impugnatura", "manico", "numero", "shoe size")
 _COLOR_OPTION_KEYS = ("color", "colore", "colour", "variante", "variant", "fantasia", "modello")
+_KNOWN_QUERY_BRANDS = (
+    "nike", "adidas", "hoka", "asics", "salomon", "brooks", "saucony",
+    "mizuno", "puma", "garmin", "polar", "suunto", "coros", "babolat",
+    "wilson", "head", "yonex", "jordan", "new balance", "la sportiva",
+    "scarpa", "oakley", "enervit", "maurten", "scott", "on running",
+)
 
 
 class ShopifyBaseScraper(BaseScraper):
@@ -133,16 +139,50 @@ class ShopifyBaseScraper(BaseScraper):
         if not pj or not isinstance(pj, dict):
             return None
 
-        title = cand.get("title") or str(pj.get("title") or "").strip()
-        if not title:
+        raw_title = cand.get("title") or str(pj.get("title") or "").strip()
+        if not raw_title:
             return None
 
-        raw_price_cents = pj.get("price")
+        brand = cand.get("brand") or (str(pj.get("vendor") or "").strip() or None)
+        if not brand:
+            brand = ProductNormalizer.extract_brand(raw_title)
+        title = (
+            f"{brand} {raw_title}"
+            if brand and brand.lower() not in raw_title.lower()
+            else raw_title
+        )
+
+        variants = [v for v in (pj.get("variants") or []) if isinstance(v, dict)]
+        target_variant = None
+        if "?" in url:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if qs.get("variant"):
+                vid = str(qs["variant"][0])
+                target_variant = next((v for v in variants if str(v.get("id")) == vid), None)
+
+        raw_price_cents = target_variant.get("price") if target_variant and target_variant.get("price") is not None else pj.get("price")
+        if not raw_price_cents:
+            avail_prices = [v.get("price") for v in variants if v.get("available") is True and v.get("price")]
+            if avail_prices:
+                raw_price_cents = min(avail_prices)
         price = round(float(raw_price_cents) / 100.0, 2) if raw_price_cents else cand.get("fallback_price")
         if not price or price <= 0:
             return None
 
-        raw_compare_cents = pj.get("compare_at_price")
+        raw_compare_cents = (
+            target_variant.get("compare_at_price")
+            if target_variant and target_variant.get("compare_at_price") is not None
+            else pj.get("compare_at_price")
+        )
+        if not raw_compare_cents:
+            avail_compares = [
+                v.get("compare_at_price")
+                for v in variants
+                if v.get("available") is True and v.get("compare_at_price")
+            ]
+            if avail_compares:
+                raw_compare_cents = max(avail_compares)
+
         orig_price = (
             round(float(raw_compare_cents) / 100.0, 2)
             if raw_compare_cents and float(raw_compare_cents) / 100.0 > price
@@ -156,8 +196,7 @@ class ShopifyBaseScraper(BaseScraper):
             img_url = f"https:{img_url}"
 
         sizes = self._extract_sizes_from_js(pj, product_url=url, title=title)
-        any_available = any(isinstance(v, dict) and v.get("available") is True for v in (pj.get("variants") or []))
-        brand = cand.get("brand") or pj.get("vendor") or ProductNormalizer.extract_brand(title)
+        any_available = any(v.get("available") is True for v in variants)
 
         return Offer(
             store_id=self.store_id,
@@ -172,6 +211,18 @@ class ShopifyBaseScraper(BaseScraper):
             available_sizes=sizes,
             in_stock=bool(any_available),
         )
+
+    @staticmethod
+    def _matches_brand_constraint(query_lower: str, item: Dict[str, Any]) -> bool:
+        """Drop predictive-search fallback noise when the query specifies a brand absent from the candidate."""
+        required_brands = [b for b in _KNOWN_QUERY_BRANDS if b in query_lower]
+        if not required_brands:
+            return True
+        tags = item.get("tags") or []
+        tags_str = " ".join(str(t) for t in tags) if isinstance(tags, list) else str(tags)
+        url_path = str(item.get("url") or "").split("?")[0]
+        haystack = f"{item.get('title', '')} {item.get('vendor', '')} {item.get('type', '')} {tags_str} {url_path}".lower()
+        return any(b in haystack for b in required_brands)
 
     def search(self, query: str, limit: int = 10) -> List[Offer]:
         clean_query = (query or "").strip()
@@ -189,10 +240,13 @@ class ShopifyBaseScraper(BaseScraper):
             return []
 
         products = data.get("resources", {}).get("results", {}).get("products", [])
+        query_lower = clean_query.lower()
         candidates: List[Dict[str, Any]] = []
         seen_urls = set()
 
         for p in products:
+            if not self._matches_brand_constraint(query_lower, p):
+                continue
             url = self._clean_product_url(self.base_url, str(p.get("url") or ""))
             if not url or url in seen_urls:
                 continue

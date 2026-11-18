@@ -47,11 +47,11 @@ class CategoryCrawler:
         },
         "tennis_point": {
             "collections": [
-                "racchette-da-tennis-babolat", "scarpe-da-tennis-adidas",
-                "scarpe-da-tennis-asics-court-ff", "scarpe-da-tennis-asics-gel-challenger",
-                "padel-racchette-da-padel-adidas", "padel-racchette-da-padel-babolat-counter-viper",
+                "aktion-10-sale",
+                "aktion-deal",
+                "all",
             ],
-            "queries": ["tennis", "padel", "babolat", "wilson", "head", "yonex", "asics"],
+            "queries": ["tennis", "padel", "babolat", "wilson", "head", "yonex", "asics", "scarpe tennis", "racchetta padel"],
         },
         "basketballstore": {
             "collections": ["scarpe-basket", "abbigliamento-basket", "accessori-basket", "palloni-basket", "canotte-basket"],
@@ -181,17 +181,19 @@ class CategoryCrawler:
         logger.info(f"[Cisalfa] Starting catalog crawl (target: {max_items} items)...")
         base_cat_urls = [
             "https://www.cisalfasport.it/it-it/sport/running/scarpe/",
-            "https://www.cisalfasport.it/it-it/sport/outdoor/scarpe/",
-            "https://www.cisalfasport.it/it-it/sport/running/accessori/",
+            "https://www.cisalfasport.it/it-it/sport/running/trail-running/",
             "https://www.cisalfasport.it/it-it/sport/running/abbigliamento/",
-            "https://www.cisalfasport.it/it-it/scarpe/sneakers/",
-            "https://www.cisalfasport.it/it-it/sport/tennis-padel/",
+            "https://www.cisalfasport.it/it-it/sport/running/accessori-e-zaini/",
+            "https://www.cisalfasport.it/it-it/sport/outdoor/scarpe/",
+            "https://www.cisalfasport.it/it-it/sport/tennis/racchette/",
+            "https://www.cisalfasport.it/it-it/sport/tennis/padel/",
+            "https://www.cisalfasport.it/it-it/sport/tennis/scarpe/",
             "https://www.cisalfasport.it/it-it/sport/ciclismo/",
-            "https://www.cisalfasport.it/it-it/sport/training-palestra/",
-            "https://www.cisalfasport.it/it-it/sport/calcio/scarpe-calcio/",
-            "https://www.cisalfasport.it/it-it/sport/basket/",
-            "https://www.cisalfasport.it/it-it/sport/sci-e-snowboard/",
-            "https://www.cisalfasport.it/it-it/sport/nuoto/",
+            "https://www.cisalfasport.it/it-it/sport/fitness/scarpe/",
+            "https://www.cisalfasport.it/it-it/sport/calcio/scarpe-calcio-e-calcetto/",
+            "https://www.cisalfasport.it/it-it/sport/altri-sport/basket/",
+            "https://www.cisalfasport.it/it-it/sport/sci/",
+            "https://www.cisalfasport.it/it-it/sport/altri-sport/piscina/",
         ]
         page_size = 36
         total_indexed = 0
@@ -258,7 +260,7 @@ class CategoryCrawler:
 
                         pid_el = tile.select_one("[data-itemid]")
                         pid = pid_el["data-itemid"] if pid_el and pid_el.get("data-itemid") else None
-                        sizes = self.cisalfa.fetch_sizes(product_url)
+                        sizes = self.cisalfa.fetch_sizes(product_url, title=title)
 
                         offer = Offer(
                             store_id=self.cisalfa.store_id,
@@ -320,13 +322,13 @@ class CategoryCrawler:
         logger.info(f"[Maxi Sport] Starting catalog crawl (target: {max_items} items)...")
         base_cat_urls = [
             "https://www.maxisport.com/running-scarpe-maxi-promo/",
-            "https://www.maxisport.com/running-scarpe-trail-running/",
-            "https://www.maxisport.com/running-scarpe-uomo/",
-            "https://www.maxisport.com/running-scarpe-donna/",
-            "https://www.maxisport.com/outdoor-scarpe-trekking/",
-            "https://www.maxisport.com/running-accessori/",
-            "https://www.maxisport.com/sneaker/",
-            "https://www.maxisport.com/padel/",
+            "https://www.maxisport.com/sport-running-scarpe/",
+            "https://www.maxisport.com/sport-montagna-scarpe/",
+            "https://www.maxisport.com/sport-padel-racchette/",
+            "https://www.maxisport.com/sport-padel-scarpe/",
+            "https://www.maxisport.com/sport-tennis-scarpe/",
+            "https://www.maxisport.com/scarpe-sneaker",
+            "https://www.maxisport.com/reparto-maxipromo-scarpe/",
             "https://www.maxisport.com/ciclismo/"
         ]
         total_indexed = 0
@@ -381,7 +383,7 @@ class CategoryCrawler:
 
                         pid_el = item.select_one("[data-product-id]")
                         pid = pid_el["data-product-id"] if pid_el and pid_el.get("data-product-id") else None
-                        sizes = self.maxisport.fetch_sizes(product_url)
+                        sizes = self.maxisport.fetch_sizes(product_url, title=title)
 
                         offer = Offer(
                             store_id=self.maxisport.store_id,
@@ -546,15 +548,15 @@ class CategoryCrawler:
             "https://www.nencinisport.it/it/sport/running/scarpe/",
             "https://www.nencinisport.it/it/sport/running/abbigliamento/",
             "https://www.nencinisport.it/it/sport/running/accessori/",
-            "https://www.nencinisport.it/it/sport/outdoor/scarpe/",
+            "https://www.nencinisport.it/it/sport/trail-running/",
             "https://www.nencinisport.it/it/sport/ciclismo/",
             "https://www.nencinisport.it/it/sport/padel/",
             "https://www.nencinisport.it/it/sport/tennis/",
-            "https://www.nencinisport.it/it/sport/calcio/",
+            "https://www.nencinisport.it/it/sport/calcio-calcetto/",
             "https://www.nencinisport.it/it/sport/basket/",
             "https://www.nencinisport.it/it/sport/sci/",
             "https://www.nencinisport.it/it/sport/nuoto/",
-            "https://www.nencinisport.it/it/sneakers/"
+            "https://www.nencinisport.it/it/scarpe/"
         ]
         total_indexed = 0
         batch: List[Dict[str, Any]] = []
@@ -615,7 +617,8 @@ class CategoryCrawler:
                         pid = None
                         if link_el.has_attr("data-gtmid"):
                             pid = str(link_el["data-gtmid"])
-                        sizes = self.nencini.fetch_sizes(product_url)
+                        time.sleep(0.12)
+                        sizes = self.nencini.fetch_sizes(product_url, title=title)
 
                         offer = Offer(
                             store_id=self.nencini.store_id,
@@ -779,15 +782,17 @@ class CategoryCrawler:
         total_indexed = 0
         batch: List[Dict[str, Any]] = []
         cat_urls = [
-            "https://www.runningwarehouse.eu/catpage-RWMRSSALE-EN.html",
-            "https://www.runningwarehouse.eu/catpage-RWWRSSALE-EN.html",
-            "https://www.runningwarehouse.eu/catpage-MENRWH-EN.html",
-            "https://www.runningwarehouse.eu/catpage-WOMENRWH-EN.html",
-            "https://www.runningwarehouse.eu/catpage-TRMRUN-EN.html",
-            "https://www.runningwarehouse.eu/catpage-TRWRUN-EN.html",
-            "https://www.runningwarehouse.eu/catpage-RUNMAPP-EN.html",
-            "https://www.runningwarehouse.eu/catpage-RUNWAPP-EN.html",
-            "https://www.runningwarehouse.eu/catpage-GEAR-EN.html"
+            "https://www.runningwarehouse.eu/catpage-RWMRSSALE-IT.html",
+            "https://www.runningwarehouse.eu/catpage-RWWRSSALE-IT.html",
+            "https://www.runningwarehouse.eu/catpage-RWMRASALE-IT.html",
+            "https://www.runningwarehouse.eu/catpage-RWWRASALE-IT.html",
+            "https://www.runningwarehouse.eu/catpage-RMSNEU-IT.html",
+            "https://www.runningwarehouse.eu/catpage-RMSSTAB-IT.html",
+            "https://www.runningwarehouse.eu/catpage-TRAILSHPP.html",
+            "https://www.runningwarehouse.eu/catpage-NEWMRUNAPP-IT.html",
+            "https://www.runningwarehouse.eu/catpage-RWACCBAGS-IT.html",
+            "https://www.runningwarehouse.eu/catpage-RWACCELEC-IT.html",
+            "https://www.runningwarehouse.eu/catpage-RWACCNUTR-IT.html",
         ]
 
         for cat_url in cat_urls:
@@ -800,33 +805,41 @@ class CategoryCrawler:
 
             for cell in cells:
                 try:
-                    name_el = cell.select_one(".cattable-wrap-cell-info strong a, .cattable-wrap-cell-info a")
-                    if not name_el or not name_el.get("href"):
+                    link_el = cell.select_one("a.cattable-wrap-cell-info, a.cattable-wrap-cell-imgwrap-inner, a")
+                    if not link_el or not link_el.get("href"):
                         continue
 
-                    title = name_el.get_text(strip=True)
-                    raw_href = name_el["href"]
+                    name_el = cell.select_one(".cattable-wrap-cell-info-name")
+                    title = (
+                        cell.get("data-gtm_impression_name")
+                        or (name_el.get_text(strip=True) if name_el else None)
+                        or link_el.get_text(strip=True)
+                    )
+                    if not title:
+                        continue
+
+                    raw_href = link_el["href"]
                     product_url = urllib.parse.urljoin(self.runningwarehouse.base_url, raw_href)
 
                     # Prices
-                    p_text = None
+                    price = self.runningwarehouse.parse_price(cell.get("data-gtm_impression_price"))
                     price_wrap = cell.select_one(".cattable-wrap-cell-info-price")
-                    if price_wrap:
-                        p_text = price_wrap.get_text()
-
-                    price = self.runningwarehouse.parse_price(p_text) if p_text else None
+                    if not price and price_wrap:
+                        first_span = price_wrap.find("span")
+                        p_text = first_span.get_text(strip=True) if first_span else price_wrap.get_text()
+                        price = self.runningwarehouse.parse_price(p_text)
                     if not price:
                         continue
 
                     orig_price = None
                     if price_wrap:
-                        strike_el = price_wrap.select_one("span.strike, strike, del")
+                        strike_el = price_wrap.select_one("span.is-crossout, span.strike, strike, del")
                         if strike_el:
                             orig_price = self.runningwarehouse.parse_price(strike_el.get_text())
 
-                    brand = self.normalizer.extract_brand(title)
-                    pid = None
-                    if "descpage-" in product_url:
+                    brand = self.normalizer.extract_brand(title, cell.get("data-gtm_impression_brand"))
+                    pid = cell.get("data-code")
+                    if not pid and "descpage-" in product_url:
                         pid = product_url.split("descpage-")[-1].split(".")[0]
 
                     img_el = cell.select_one("img")
@@ -851,7 +864,8 @@ class CategoryCrawler:
                             if u not in gallery_urls:
                                 gallery_urls.append(u)
 
-                    sizes = self.runningwarehouse.fetch_sizes(product_url)
+                    time.sleep(0.3)
+                    sizes = self.runningwarehouse.fetch_sizes(product_url, title=title)
 
                     offer = Offer(
                         store_id=self.runningwarehouse.store_id,
@@ -1095,7 +1109,8 @@ class CategoryCrawler:
 
                     img_url = d.get("image_url")
                     pid = str(d.get("id") or item.get("variation_id") or "")
-                    sizes = self.alltricks.fetch_sizes(raw_url)
+                    time.sleep(0.12)
+                    sizes = self.alltricks.fetch_sizes(raw_url, title=full_title)
 
                     offer = Offer(
                         store_id=self.alltricks.store_id,
@@ -1162,7 +1177,8 @@ class CategoryCrawler:
             "https://www.decathlon.it/tutti-gli-sport/padel",
             "https://www.decathlon.it/tutti-gli-sport/tennis",
             "https://www.decathlon.it/tutti-gli-sport/basket",
-            "https://www.decathlon.it/tutti-gli-sport/sci-e-snowboard",
+            "https://www.decathlon.it/tutti-gli-sport/sport-invernali",
+            "https://www.decathlon.it/tutti-gli-sport/snowboard",
             "https://www.decathlon.it/tutti-gli-sport/calcio/scarpe-calcio",
             "https://www.decathlon.it/search?Ntt=scarpe+calcetto",
             "https://www.decathlon.it/tutti-gli-sport/nuoto",
@@ -1568,6 +1584,9 @@ class CategoryCrawler:
                         continue
 
                 start_idx += len(items)
+                total_count = data.get("itemList", {}).get("count")
+                if total_count is not None and start_idx >= int(total_count):
+                    break
                 time.sleep(0.15)
 
             if total_indexed >= max_items:

@@ -35,10 +35,20 @@ class AdidasScraper(BaseScraper):
             "Referer": "https://www.adidas.it/"
         })
 
+    _COMPETITOR_BRANDS = (
+        "nike", "hoka", "asics", "salomon", "brooks", "saucony",
+        "mizuno", "puma", "garmin", "polar", "suunto", "coros",
+        "babolat", "wilson", "head", "yonex", "new balance", "on running",
+    )
+
     def search(self, query: str, limit: int = 10) -> List[Offer]:
         """Search Adidas Italy catalog via official taxonomy/search API."""
         clean_query = query.strip()
         if not clean_query:
+            return []
+
+        ql = clean_query.lower()
+        if "adidas" not in ql and any(b in ql for b in self._COMPETITOR_BRANDS):
             return []
 
         params = {

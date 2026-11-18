@@ -1,4 +1,5 @@
 import re
+import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
@@ -138,16 +139,15 @@ class RunningWarehouseScraper(BaseScraper):
         if not candidates:
             return []
 
-        # Find candidates missing sizes and fetch them concurrently
+        # Find candidates missing sizes and fetch them with polite concurrency
         missing_indices = [i for i, c in enumerate(candidates) if not c["sizes"]]
         if missing_indices:
-            with ThreadPoolExecutor(max_workers=min(len(missing_indices), 8)) as executor:
-                fetched_sizes = list(
-                    executor.map(
-                        lambda idx: self.fetch_sizes(candidates[idx]["url"], title=candidates[idx]["title"]),
-                        missing_indices,
-                    )
-                )
+            def _polite_fetch(idx: int) -> List[str]:
+                time.sleep(0.15)
+                return self.fetch_sizes(candidates[idx]["url"], title=candidates[idx]["title"])
+
+            with ThreadPoolExecutor(max_workers=min(len(missing_indices), 2)) as executor:
+                fetched_sizes = list(executor.map(_polite_fetch, missing_indices))
             for idx, s in zip(missing_indices, fetched_sizes):
                 candidates[idx]["sizes"] = s
 

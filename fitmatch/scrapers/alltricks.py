@@ -1,6 +1,6 @@
 import urllib.parse
 import logging
-from concurrent.futures import ThreadPoolExecutor
+import time
 from typing import List, Optional, Dict, Any
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
@@ -25,6 +25,13 @@ class AlltricksScraper(BaseScraper):
     courier = "Bartolini (BRT)"
     api_key = "key_PQ0WloSnsVtffWIN"
     api_base = "https://ac.cnstrc.com/search"
+
+    def __init__(self, timeout: int = 12):
+        super().__init__(timeout=timeout)
+        self.headers.update({
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": "https://www.alltricks.it/",
+        })
 
     def search(self, query: str, limit: int = 10) -> List[Offer]:
         quoted_query = urllib.parse.quote(query.strip())
@@ -81,14 +88,14 @@ class AlltricksScraper(BaseScraper):
         if not candidates:
             return []
 
-        def _get_sizes(cand: Dict[str, Any]) -> List[str]:
+        sizes_results: List[List[str]] = []
+        for idx, cand in enumerate(candidates):
+            if idx > 0:
+                time.sleep(0.12)
             try:
-                return self.fetch_sizes(cand["url"], title=cand["title"])
+                sizes_results.append(self.fetch_sizes(cand["url"], title=cand["title"]))
             except Exception:
-                return []
-
-        with ThreadPoolExecutor(max_workers=min(len(candidates), 6)) as ex:
-            sizes_results = list(ex.map(_get_sizes, candidates))
+                sizes_results.append([])
 
         offers: List[Offer] = []
         for cand, sizes in zip(candidates, sizes_results):

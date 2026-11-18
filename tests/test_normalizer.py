@@ -205,4 +205,33 @@ def test_shipping_cost_handles_none_free_threshold():
     assert formatted["offers"][0]["is_free_shipping"] is False
 
 
+def test_cross_store_matching_and_category_refinements(normalizer):
+    # Gore-Tex / GTX and Garmin Multifunzione/Sportivo and Nike Zm unify cleanly
+    o1 = Offer(store_id="deporvillage", store_name="Deporvillage", title="Hoka Clifton 9 Gore Tex Donna", price=125.0, url="http://1")
+    o2 = Offer(store_id="alltricks", store_name="Alltricks", title="Hoka Clifton 9 Gtx Donna", price=119.0, url="http://2")
+    assert len(normalizer.group_offers([o1, o2])) == 1
+
+    g1 = Offer(store_id="cisalfa", store_name="Cisalfa Sport", title="Garmin Forerunner 265S", price=399.0, url="http://3")
+    g2 = Offer(store_id="intersport", store_name="Intersport", title="Garmin Multifunzione Forerunner 265S", price=379.0, url="http://4")
+    g3 = Offer(store_id="decathlon", store_name="Decathlon", title="Garmin Sportivo Forerunner 265S", price=389.0, url="http://5")
+    assert len(normalizer.group_offers([g1, g2, g3])) == 1
+
+    n1 = Offer(store_id="cisalfa", store_name="Cisalfa Sport", title="Nike Pegasus 41 Gore-Tex", price=130.0, url="http://6")
+    n2 = Offer(store_id="tradeinn", store_name="Tradeinn", title="Nike Zm Pegasus 41 Gore Tex", price=115.0, url="http://7")
+    assert len(normalizer.group_offers([n1, n2])) == 1
+
+    # Sports knee pads stay sport gear; moto armor stays non_sport
+    assert normalizer.detect_article_type("Nike Pro Open Ginocchiera") == "gear"
+    assert normalizer.detect_article_type("Asics Ginocchiera Fluo") == "gear"
+    assert normalizer.is_non_sport_junk("Alpinestars Ginocchiera Moto") is True
+
+    # Former 'gear' buckets classify into specific categories
+    assert normalizer.detect_article_type("Under Armour Vanish Elite Seamless Short Blk") == "pants"
+    assert normalizer.detect_article_type("The North Face Router Backpack 40L") == "hydration"
+    assert normalizer.detect_article_type("Bianchi Bicicletta Strada Oltre Race 105 Di2") == "cycling"
+    assert normalizer.detect_article_type("Karpos Pile Full Zip Vertice Evo") == "top"
+    assert normalizer.detect_article_type("Decathlon Bevanda Energetica Powder Iso") == "nutrition"
+
+
+
 

@@ -31,11 +31,12 @@ class SportlerScraper(BaseScraper):
     def __init__(self, timeout: int = 12):
         super().__init__(timeout=timeout)
         self.normalizer = ProductNormalizer()
-        self.headers.update({
+        self.suggest_headers = {
+            **self.headers,
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://www.sportler.com/it",
-        })
+        }
 
     def search(self, query: str, limit: int = 10) -> List[Offer]:
         """Search Sportler catalog via FactFinder API and concurrent detail parsing."""
@@ -45,7 +46,18 @@ class SportlerScraper(BaseScraper):
             "format": "json"
         }
 
-        data = self._fetch_json(self.suggest_url, params=params)
+        try:
+            resp = self.session.get(
+                self.suggest_url,
+                params=params,
+                headers=self.suggest_headers,
+                impersonate="chrome",
+                timeout=self.timeout,
+            )
+            data = resp.json() if resp.status_code == 200 else None
+        except Exception as e:
+            logger.debug(f"[Sportler] Suggest request failed: {e}")
+            data = None
         if not data or not isinstance(data, dict):
             logger.debug(f"[Sportler] No suggest response for query: {query}")
             return []
@@ -90,6 +102,9 @@ class SportlerScraper(BaseScraper):
         url = candidate["url"]
         html = self._fetch_html(url)
         if not html:
+            return None
+        if "Client Challenge" in html or "/_fs-ch-" in html:
+            logger.warning(f"[Sportler] Product page gated by anti-bot Client Challenge: {url}")
             return None
         soup = BeautifulSoup(html, "html.parser")
 

@@ -118,7 +118,7 @@ class DFSportScraper(BaseScraper):
                     image_url=c["img_url"],
                     gallery_images=[c["img_url"]] if c["img_url"] else [],
                     available_sizes=sizes,
-                    in_stock=c["in_stock"] and bool(sizes) if sizes is not None else c["in_stock"],
+                    in_stock=c["in_stock"],
                 )
             )
 

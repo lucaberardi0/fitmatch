@@ -15,6 +15,10 @@ class WishlistManager: ObservableObject {
 
     private let saveFileName = "fitmatch_wishlist.json"
     private let collectionsFileName = "fitmatch_user_collections.json"
+    private var authObserver: NSObjectProtocol?
+    private var mutationGeneration: Int = 0
+    private var isSyncing: Bool = false
+    private var needsAnotherSync: Bool = false
 
     private var fileURL: URL {
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
@@ -42,6 +46,24 @@ class WishlistManager: ObservableObject {
             UserDefaults.standard.set(true, forKey: "fitmatch_wishlist_seed_purged_v3")
         }
 
+        // One-time purge of orphaned guest item/collection leaked by unscoped backend fallback
+        if !UserDefaults.standard.bool(forKey: "fitmatch_wishlist_orphan_purged_v4") {
+            self.items.removeAll {
+                $0.canonical_name.caseInsensitiveCompare("Nike Initiator (Scarpa – Donna)") == .orderedSame
+            }
+            saveItems()
+
+            let usedCollectionNames = Set(items.compactMap {
+                $0.collectionName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            })
+            self.collections.removeAll { col in
+                let lower = col.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return lower == "running" && !usedCollectionNames.contains("running")
+            }
+            saveCollections()
+            UserDefaults.standard.set(true, forKey: "fitmatch_wishlist_orphan_purged_v4")
+        }
+
         // One-time purge of legacy/default collections not actively assigned to any saved item
         if !UserDefaults.standard.bool(forKey: "fitmatch_default_collections_purged_v1") {
             let defaultCollectionNames: Set<String> = [
@@ -64,6 +86,16 @@ class WishlistManager: ObservableObject {
             UserDefaults.standard.set(true, forKey: "fitmatch_default_collections_purged_v1")
         }
 
+        authObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("FitMatchAuthSessionDidChange"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.syncWithDatabase(force: true)
+            }
+        }
+
         Task {
             await syncWithDatabase()
         }
@@ -78,28 +110,49 @@ class WishlistManager: ObservableObject {
         return n == "tutti"
     }
 
-    // MARK: - Database Sync (Supabase Cloud + Local Gateway)
+    // MARK: - Database Sync (Supabase Cloud)
 
-    func syncWithDatabase() async {
+    func syncWithDatabase(force: Bool = false) async {
+        if isSyncing {
+            if force {
+                needsAnotherSync = true
+            }
+            return
+        }
+        isSyncing = true
         isSyncingDatabase = true
-        defer { isSyncingDatabase = false }
+        defer {
+            isSyncing = false
+            isSyncingDatabase = false
+            if needsAnotherSync {
+                needsAnotherSync = false
+                Task { [weak self] in
+                    await self?.syncWithDatabase()
+                }
+            }
+        }
 
-        // 1. Try Supabase Cloud Database first
+        await SupabaseManager.shared.ensureUserSession()
+
+        let startGen = mutationGeneration
         do {
             async let supaItems = SupabaseManager.shared.fetchWishlist()
             async let supaCols = SupabaseManager.shared.fetchCollections()
 
             let (items, cols) = try await (supaItems, supaCols)
+            guard startGen == mutationGeneration else {
+                needsAnotherSync = true
+                return
+            }
+
             var processed = items
             for i in 0..<processed.count {
                 if Self.isReservedCollectionName(processed[i].collectionName) {
                     processed[i].collectionName = nil
                 }
             }
-            if !processed.isEmpty || self.items.isEmpty {
-                self.items = processed
-                saveItems()
-            }
+            self.items = processed
+            saveItems()
 
             // Use remote Supabase collections as the source of truth (deduplicated & sorted)
             var remoteMap: [String: WishlistCollection] = [:]
@@ -111,44 +164,9 @@ class WishlistManager: ObservableObject {
             }
             self.collections = Array(remoteMap.values).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             saveCollections()
-            return
         } catch {
-            print("Supabase direct sync note: \(error.localizedDescription), trying gateway...")
-        }
-
-        // 2. Fall back to local FastAPI backend
-        do {
-            async let fetchedItems = APIService.shared.getWishlist()
-            async let fetchedCols = APIService.shared.getCollections()
-
-            let (dbItems, dbCols) = try await (fetchedItems, fetchedCols)
-
-            if !dbItems.isEmpty {
-                var processed = dbItems
-                for i in 0..<processed.count {
-                    if Self.isReservedCollectionName(processed[i].collectionName) {
-                        processed[i].collectionName = nil
-                    }
-                }
-                self.items = processed
-                saveItems()
-            }
-            if !dbCols.isEmpty {
-                var seen = Set<String>()
-                var uniqueCols: [WishlistCollection] = []
-                for c in dbCols {
-                    let name = c.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !Self.isReservedCollectionName(name) && !seen.contains(name.lowercased()) {
-                        seen.insert(name.lowercased())
-                        uniqueCols.append(WishlistCollection(name: name, item_count: 0))
-                    }
-                }
-                self.collections = uniqueCols
-                saveCollections()
-            }
-        } catch {
-            print("Wishlist sync warning: \(error.localizedDescription)")
-            // Fall back to local storage
+            // Keep local user-scoped cache when offline rather than falling back to unscoped global gateway endpoints
+            print("Supabase direct sync note: \(error.localizedDescription)")
         }
     }
 
@@ -298,14 +316,15 @@ class WishlistManager: ObservableObject {
         )
 
         // Remove duplicate if exists
+        mutationGeneration += 1
         items.removeAll { $0.canonical_name.caseInsensitiveCompare(product.canonical_name) == .orderedSame }
         items.insert(newItem, at: 0)
         saveItems()
 
-        // Background sync to Supabase Cloud & Local Gateway
+        // Background sync to Supabase Cloud
         Task {
+            await SupabaseManager.shared.ensureUserSession()
             _ = try? await SupabaseManager.shared.upsertWishlistItem(item: newItem)
-            _ = try? await APIService.shared.addToWishlist(item: newItem)
         }
 
         // Check and prompt notification permissions if alerts are enabled
@@ -319,13 +338,14 @@ class WishlistManager: ObservableObject {
         let gen = UIImpactFeedbackGenerator(style: .light)
         gen.impactOccurred()
 
+        mutationGeneration += 1
         items.removeAll { $0.canonical_name.caseInsensitiveCompare(canonicalName) == .orderedSame }
         saveItems()
 
-        // Background sync to Supabase Cloud & Local Gateway
+        // Background sync to Supabase Cloud
         Task {
+            await SupabaseManager.shared.ensureUserSession()
             _ = try? await SupabaseManager.shared.deleteWishlistItem(canonicalName: canonicalName)
-            _ = try? await APIService.shared.removeFromWishlist(canonicalName: canonicalName)
         }
     }
 
@@ -392,6 +412,7 @@ class WishlistManager: ObservableObject {
             return col
         }()
 
+        mutationGeneration += 1
         items[index].collectionName = target
         saveItems()
 
@@ -400,15 +421,15 @@ class WishlistManager: ObservableObject {
             collections.append(WishlistCollection(name: newCol, item_count: 1))
             saveCollections()
             Task {
+                await SupabaseManager.shared.ensureUserSession()
                 _ = try? await SupabaseManager.shared.createCollection(name: newCol)
-                _ = try? await APIService.shared.createCollection(name: newCol)
             }
         }
 
         let updatedItem = items[index]
         Task {
+            await SupabaseManager.shared.ensureUserSession()
             _ = try? await SupabaseManager.shared.upsertWishlistItem(item: updatedItem)
-            _ = try? await APIService.shared.updateItemCollection(canonicalName: canonicalName, collectionName: target ?? "Tutti")
         }
     }
 
@@ -419,11 +440,12 @@ class WishlistManager: ObservableObject {
 
         // Ensure collection exists in collections list
         if !collections.contains(where: { $0.name.caseInsensitiveCompare(cleanCol) == .orderedSame }) {
+            mutationGeneration += 1
             collections.append(WishlistCollection(name: cleanCol, item_count: 0))
             saveCollections()
             Task {
+                await SupabaseManager.shared.ensureUserSession()
                 _ = try? await SupabaseManager.shared.createCollection(name: cleanCol)
-                _ = try? await APIService.shared.createCollection(name: cleanCol)
             }
         }
 
@@ -444,6 +466,7 @@ class WishlistManager: ObservableObject {
         }
 
         guard !changedItems.isEmpty else { return }
+        mutationGeneration += 1
         saveItems()
 
         let gen = UIImpactFeedbackGenerator(style: .medium)
@@ -451,9 +474,9 @@ class WishlistManager: ObservableObject {
 
         // Sync changed items concurrently
         Task {
+            await SupabaseManager.shared.ensureUserSession()
             for item in changedItems {
                 _ = try? await SupabaseManager.shared.upsertWishlistItem(item: item)
-                _ = try? await APIService.shared.updateItemCollection(canonicalName: item.canonical_name, collectionName: item.collectionName ?? "Tutti")
             }
         }
     }
@@ -466,6 +489,8 @@ class WishlistManager: ObservableObject {
 
         let gen = UIImpactFeedbackGenerator(style: .medium)
         gen.impactOccurred()
+
+        mutationGeneration += 1
 
         // 1. Update items in memory
         var changedItems: [WishlistItem] = []
@@ -488,15 +513,14 @@ class WishlistManager: ObservableObject {
             selectedCollection = cleanNew
         }
 
-        // 3. Sync to Supabase & Backend
+        // 3. Sync to Supabase
         Task {
+            await SupabaseManager.shared.ensureUserSession()
             _ = try? await SupabaseManager.shared.createCollection(name: cleanNew)
             for item in changedItems {
                 _ = try? await SupabaseManager.shared.upsertWishlistItem(item: item)
             }
             _ = try? await SupabaseManager.shared.deleteCollection(name: cleanOld)
-            _ = try? await APIService.shared.deleteCollection(name: cleanOld)
-            _ = try? await APIService.shared.createCollection(name: cleanNew)
         }
     }
 
@@ -505,6 +529,8 @@ class WishlistManager: ObservableObject {
         guard !Self.isReservedCollectionName(cleanName) else { return }
         let gen = UIImpactFeedbackGenerator(style: .medium)
         gen.impactOccurred()
+
+        mutationGeneration += 1
 
         // Reassign any items in this collection to nil
         for i in 0..<items.count {
@@ -522,21 +548,22 @@ class WishlistManager: ObservableObject {
         }
 
         Task {
+            await SupabaseManager.shared.ensureUserSession()
             _ = try? await SupabaseManager.shared.deleteCollection(name: cleanName)
-            _ = try? await APIService.shared.deleteCollection(name: cleanName)
         }
     }
 
     func createCollection(name: String) {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanName.isEmpty, !Self.isReservedCollectionName(cleanName) else { return }
+        mutationGeneration += 1
         if !collections.contains(where: { $0.name.caseInsensitiveCompare(cleanName) == .orderedSame }) {
             collections.append(WishlistCollection(name: cleanName, item_count: 0))
             saveCollections()
         }
         Task {
+            await SupabaseManager.shared.ensureUserSession()
             _ = try? await SupabaseManager.shared.createCollection(name: cleanName)
-            _ = try? await APIService.shared.createCollection(name: cleanName)
         }
     }
 
@@ -550,6 +577,7 @@ class WishlistManager: ObservableObject {
             return
         }
 
+        mutationGeneration += 1
         items[index].isAlertEnabled = isEnabled
         items[index].targetAlertPrice = targetPrice
         items[index].selectedSize = selectedSize
@@ -557,7 +585,8 @@ class WishlistManager: ObservableObject {
 
         let item = items[index]
         Task {
-            _ = try? await APIService.shared.addToWishlist(item: item)
+            await SupabaseManager.shared.ensureUserSession()
+            _ = try? await SupabaseManager.shared.upsertWishlistItem(item: item)
         }
 
         if isEnabled && !NotificationManager.shared.isAuthorized {
@@ -576,15 +605,17 @@ class WishlistManager: ObservableObject {
         let newPrice = max(19.0, oldPrice - dropAmount)
         let store = items[index].bestStore ?? "Mister Running"
 
+        mutationGeneration += 1
         items[index].currentBestPrice = newPrice
         items[index].lastPriceDrop = dropAmount
         items[index].lastCheckedDate = Date()
         saveItems()
 
-        // Sync to backend DB
+        // Sync to Supabase Cloud
         let item = items[index]
         Task {
-            _ = try? await APIService.shared.addToWishlist(item: item)
+            await SupabaseManager.shared.ensureUserSession()
+            _ = try? await SupabaseManager.shared.upsertWishlistItem(item: item)
         }
 
         // Trigger native notification

@@ -19,7 +19,7 @@ from fitmatch.matcher.normalizer import ProductNormalizer
 from fitmatch.models import Offer, clean_image_url
 
 
-def analyze_and_recluster(execute: bool = False, limit: int = 15000):
+def analyze_and_recluster(execute: bool = False, limit: int = 100000):
     sb = SupabaseClient()
     print("=" * 60)
     print(" FITMATCH DATABASE RE-CLUSTERING ENGINE")
@@ -56,12 +56,11 @@ def analyze_and_recluster(execute: bool = False, limit: int = 15000):
 
     # 3. Cluster offers using ProductNormalizer
     print("\n[2/4] Running ProductNormalizer entity resolution across all offers...")
-    clusters: Dict[str, Dict[str, Any]] = {}
+    raw_clusters: Dict[str, List[tuple]] = {}
 
     for row in all_offers:
         title = row.get("raw_title") or ""
         off = Offer(
-            id=row.get("id") or "",
             title=title,
             store_name=row.get("store_name") or "",
             store_id=(row.get("store_id") or row.get("store_name") or "").lower(),
@@ -74,33 +73,49 @@ def analyze_and_recluster(execute: bool = False, limit: int = 15000):
         )
 
         cluster_key = ProductNormalizer.extract_cluster_key(off)
-        brand = ProductNormalizer.extract_brand(title)
-        display_name = ProductNormalizer.build_canonical_display_name(title, brand=brand)
-        art_type = ProductNormalizer.detect_article_type(title)
-        gender = ProductNormalizer.extract_gender(title, off.url)
+        raw_clusters.setdefault(cluster_key, []).append((row, off))
 
-        if cluster_key not in clusters:
-            clusters[cluster_key] = {
-                "cluster_key": cluster_key,
-                "canonical_name": display_name,
-                "brand": brand,
-                "category": art_type,
-                "gender": gender,
-                "image_url": off.image_url,
-                "offers": []
-            }
+    # Apply price sanity partitioning so extreme price outliers (e.g. €19 case vs €400 device) never share a cluster
+    clusters: Dict[str, Dict[str, Any]] = {}
+    for base_key, pair_list in raw_clusters.items():
+        if len(pair_list) <= 1:
+            partitions = [pair_list]
         else:
-            # Prefer a richer canonical name if current one is very short
-            if len(display_name) > len(clusters[cluster_key]["canonical_name"]) and len(display_name) <= 55:
-                clusters[cluster_key]["canonical_name"] = display_name
-            if brand and not clusters[cluster_key]["brand"]:
-                clusters[cluster_key]["brand"] = brand
-        
-        # Keep highest quality image if available
-        if off.image_url and not clusters[cluster_key]["image_url"]:
-            clusters[cluster_key]["image_url"] = off.image_url
+            off_to_row = {id(off): row for row, off in pair_list}
+            parts = ProductNormalizer.partition_by_price_sanity([off for _, off in pair_list])
+            partitions = [[(off_to_row[id(o)], o) for o in p] for p in parts if p]
 
-        clusters[cluster_key]["offers"].append((row, off))
+        for part_idx, part_pairs in enumerate(partitions):
+            eff_key = base_key if part_idx == 0 else f"{base_key} [alt-{part_idx}]"
+            for row, off in part_pairs:
+                title = row.get("raw_title") or ""
+                brand = ProductNormalizer.extract_brand(title)
+                display_name = ProductNormalizer.build_canonical_display_name(title, brand=brand)
+                art_type = ProductNormalizer.detect_article_type(title)
+                if art_type != "case" and any(k in (off.url or "").lower() for k in ("copertura", "custodia", "silicone-case", "pellicola")):
+                    art_type = "case"
+                gender = ProductNormalizer.extract_gender(title, off.url)
+
+                if eff_key not in clusters:
+                    clusters[eff_key] = {
+                        "cluster_key": eff_key,
+                        "canonical_name": display_name,
+                        "brand": brand,
+                        "category": art_type,
+                        "gender": gender,
+                        "image_url": off.image_url,
+                        "offers": []
+                    }
+                else:
+                    if len(display_name) > len(clusters[eff_key]["canonical_name"]) and len(display_name) <= 55:
+                        clusters[eff_key]["canonical_name"] = display_name
+                    if brand and not clusters[eff_key]["brand"]:
+                        clusters[eff_key]["brand"] = brand
+
+                if off.image_url and not clusters[eff_key]["image_url"]:
+                    clusters[eff_key]["image_url"] = off.image_url
+
+                clusters[eff_key]["offers"].append((row, off))
 
     print(f"  Collapsed {len(all_offers)} offers into {len(clusters)} distinct master products!")
 
@@ -184,7 +199,7 @@ def analyze_and_recluster(execute: bool = False, limit: int = 15000):
         return len(ids)
 
     updated_offers = 0
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         for count in executor.map(_execute_patch, patch_tasks):
             updated_offers += count
             print(f"    Re-linked {updated_offers} offers...", end="\r", flush=True)
@@ -204,7 +219,7 @@ def analyze_and_recluster(execute: bool = False, limit: int = 15000):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Re-cluster FitMatch product catalog in Supabase.")
     parser.add_argument("--execute", action="store_true", help="Actually apply the changes to Supabase")
-    parser.add_argument("--limit", type=int, default=15000, help="Max offers to process")
+    parser.add_argument("--limit", type=int, default=100000, help="Max offers to process")
     args = parser.parse_args()
 
     analyze_and_recluster(execute=args.execute, limit=args.limit)

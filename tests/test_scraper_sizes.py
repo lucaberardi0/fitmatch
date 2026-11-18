@@ -582,3 +582,61 @@ def test_shopify_base_and_new_stores_filter_stock_and_option_slot():
     assert BasketballStoreScraper().store_id == "basketballstore"
     assert NonSoloSportScraper().store_id == "nonsolosport"
     assert IntersportScraper().store_id == "intersport"
+
+
+def test_normalize_us_unisex_and_shopify_brand_and_relevance_guards():
+    from fitmatch.models import normalize_sizes
+    from fitmatch.scrapers.shopify_stores import SportITScraper, BshopzoneScraper
+    from fitmatch.scrapers.adidas import AdidasScraper
+    from fitmatch.scrapers.df_sport import DFSportScraper
+
+    # SportIT 'US UNISEX 7.5' format must normalize cleanly to EU sizes
+    assert normalize_sizes(["US UNISEX 6.5", "US UNISEX 7.5"], gender=None, category="shoes") == ["39", "40.5"]
+
+    # ShopifyBaseScraper prepends missing brand and uses variant compare_at_price
+    sportit = SportITScraper()
+    js_payload = {
+        "id": 888001,
+        "title": "Pegasus 42 - White",
+        "vendor": "Nike",
+        "options": [{"name": "taglia_id", "position": 1}],
+        "variants": [
+            {"id": 501, "options": ["US UNISEX 8"], "available": True, "price": 11900, "compare_at_price": 13999},
+        ],
+    }
+    with patch.object(sportit, "_fetch_json", return_value=js_payload):
+        offer = sportit._hydrate_candidate_from_js({
+            "url": "https://www.sportit.com/products/pegasus-42-white",
+            "title": "Pegasus 42 - White",
+            "brand": "Nike",
+        })
+    assert offer is not None
+    assert offer.title == "Nike Pegasus 42 - White"
+    assert offer.price == 119.0
+    assert offer.original_price == 139.99
+    assert offer.available_sizes == ["41"]
+
+    # Bshopzone must drop predictive-search Hoka noise when searching 'nike pegasus'
+    bz = BshopzoneScraper()
+    suggest_noise = {
+        "resources": {"results": {"products": [
+            {"id": 1, "title": "W Challenger 8", "vendor": "Hoka", "url": "/products/w-challenger-8", "price": "75.00"}
+        ]}}
+    }
+    with patch.object(bz, "_fetch_json", return_value=suggest_noise):
+        assert bz.search("nike pegasus", limit=5) == []
+
+    # Adidas must skip competitor brand queries without returning fallback Handball Spezial
+    ad = AdidasScraper()
+    with patch.object(ad, "_fetch_json") as mock_fetch:
+        assert ad.search("nike pegasus", limit=5) == []
+        mock_fetch.assert_not_called()
+
+    # DFSport one-size gear remains in_stock even when no size options exist
+    df = DFSportScraper()
+    with patch.object(df, "_fetch_json", return_value={"resources": {"results": {"products": [
+        {"id": 2, "title": "Garmin Forerunner 265", "vendor": "Garmin", "price": "399.00", "url": "/products/forerunner-265", "available": True}
+    ]}}}), patch.object(df, "fetch_sizes", return_value=[]):
+        res = df.search("garmin 265", limit=5)
+    assert len(res) == 1
+    assert res[0].in_stock is True

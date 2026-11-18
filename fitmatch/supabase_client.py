@@ -298,8 +298,23 @@ class SupabaseClient:
     def upsert_products(self, products: List[Dict[str, Any]]) -> bool:
         if not products:
             return True
-        res = self._request("products", method="POST", data=products, upsert=True)
-        return res.get("status") in (200, 201)
+        # Normalize keys across all dicts to avoid PostgREST PGRST102 ("All object keys must match")
+        all_keys = set().union(*(p.keys() for p in products))
+        normalized = [{k: p.get(k) for k in all_keys} for p in products]
+        all_ok = True
+        for idx in range(0, len(normalized), 10):
+            chunk = normalized[idx:idx + 10]
+            res = self._request("products", method="POST", data=chunk, upsert=True)
+            if res.get("status") not in (200, 201):
+                # Retry individually on timeout/conflict so one slow row doesn't drop the batch
+                chunk_ok = True
+                for row in chunk:
+                    r1 = self._request("products", method="POST", data=[row], upsert=True)
+                    if r1.get("status") not in (200, 201):
+                        chunk_ok = False
+                if not chunk_ok:
+                    all_ok = False
+        return all_ok
 
     def upsert_offers(self, offers: List[Dict[str, Any]]) -> bool:
         if not offers:
@@ -584,14 +599,13 @@ class SupabaseClient:
                     "brand": it.get("brand"),
                     "category": it.get("category", "running_shoes"),
                     "gender": it.get("gender", "Unisex"),
+                    "image_url": clean_off_img,
                     "gallery_images": list(off_gallery),
                     "updated_at": now_iso
                 }
-                if clean_off_img:
-                    p_entry["image_url"] = clean_off_img
                 prod_map[ck] = p_entry
             else:
-                if clean_off_img and "image_url" not in prod_map[ck]:
+                if clean_off_img and not prod_map[ck].get("image_url"):
                     prod_map[ck]["image_url"] = clean_off_img
                 for g_img in off_gallery:
                     if g_img not in prod_map[ck].get("gallery_images", []):

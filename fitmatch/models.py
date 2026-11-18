@@ -229,6 +229,9 @@ def normalize_sizes(
         # Normalize Unicode fractions (Top4Running/EU stores use ½, ⅓, ⅔) and ASCII fractions (42 2/3, 41 1/3, 42.1/2)
         s_str = s_str.replace("½", ".5").replace("⅓", ".5").replace("⅔", ".5")
         s_str = re.sub(r"\s+\.5\b", ".5", s_str)
+        # Strip inline audience descriptors between unit prefix and number (e.g. 'US UNISEX 6.5', 'UK MEN 9')
+        s_str = re.sub(r"\b(?:UNISEX|MEN|WOMEN|MAN|WOMAN|UOMO|DONNA)\b", "", s_str, flags=re.IGNORECASE)
+        s_str = re.sub(r"\s+", " ", s_str).strip()
         s_str = re.sub(r"\bEU\b", "", s_str, flags=re.IGNORECASE).strip()
         s_str = re.sub(r"(\d+)[.\s]+(?:1/2|1/3|2/3)", r"\1.5", s_str)
 

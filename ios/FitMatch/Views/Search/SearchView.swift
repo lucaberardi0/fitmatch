@@ -189,6 +189,7 @@ struct SearchView: View {
                         executeVisualSearch(image: capturedImage, description: optionalDescription, isFollowUp: runAsFollowUp)
                     }
                 )
+                .presentationDragIndicator(.visible)
             }
             .sheet(item: $feedbackConfig) { config in
                 ShopSearchFeedbackSheet(
@@ -4013,30 +4014,28 @@ struct ShopVisualSearchSheet: View {
     @State private var userDescription: String = ""
     @State private var selectedQuickHints: [String] = []
     @FocusState private var isDescriptionFocused: Bool
+    @State private var sheetDetent: PresentationDetent = .medium
 
     @State private var isAnalyzing: Bool = false
-    @State private var scanOffset: CGFloat = -110
-    @State private var pulseViewfinder: Bool = false
     @State private var analysisResult: VisualSearchResponse? = nil
     @State private var analysisError: String? = nil
 
     private struct VisualQuickHint: Identifiable {
         let id: String
         let label: String
-        let icon: String
     }
 
     private var availableQuickHints: [VisualQuickHint] {
         var hints: [VisualQuickHint] = []
         let prefSize = prefsManager.preferences.preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines)
         if !prefSize.isEmpty {
-            hints.append(VisualQuickHint(id: "size", label: "Taglia EU \(prefSize)", icon: "ruler"))
+            hints.append(VisualQuickHint(id: "size", label: "Taglia EU \(prefSize)"))
         }
         hints.append(contentsOf: [
-            VisualQuickHint(id: "men", label: "Uomo", icon: "figure.stand"),
-            VisualQuickHint(id: "women", label: "Donna", icon: "figure.stand.dress"),
-            VisualQuickHint(id: "budget", label: "Sotto 150€", icon: "eurosign.circle"),
-            VisualQuickHint(id: "alt", label: "Alternative economiche", icon: "sparkles")
+            VisualQuickHint(id: "men", label: "Uomo"),
+            VisualQuickHint(id: "women", label: "Donna"),
+            VisualQuickHint(id: "budget", label: "Sotto 150€"),
+            VisualQuickHint(id: "alt", label: "Alternative economiche")
         ])
         return hints
     }
@@ -4057,71 +4056,19 @@ struct ShopVisualSearchSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 16) {
-                    // Custom Header Bar (Consistent with FitMatch Shop Design)
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack(spacing: 5) {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 10.5, weight: .bold))
-                                Text("RICERCA VISIVA IA")
-                                    .font(.system(size: 10.5, weight: .heavy, design: .rounded))
-                                    .tracking(0.6)
-                            }
-                            .foregroundColor(.shopPurple)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Color.shopPurpleLight)
-                            .clipShape(Capsule())
-
-                            Text(selectedImage == nil ? "Trova dalla foto" : "Pronta per l'analisi")
-                                .font(.system(size: 24, weight: .bold, design: .rounded))
-                                .foregroundColor(.shopDark)
-
-                            Text(
-                                selectedImage == nil
-                                ? "Scatta o carica un articolo sportivo per trovare subito il prezzo migliore."
-                                : "Aggiungi una nota facoltativa per affinare modello, taglia o budget."
-                            )
-                            .font(.system(size: 13.5))
-                            .foregroundColor(.shopTextMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        Spacer()
-
-                        Button(action: { dismiss() }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.shopDark)
-                                .shopNavCircle(size: 38)
-                        }
-                        .buttonStyle(ShopCardPressStyle(scale: 0.92))
-                    }
-                    .padding(.horizontal, ShopLayout.screenPadding)
-                    .padding(.top, 16)
-
-                    // Studio Viewfinder / Selected Photo Stage
+                VStack(spacing: ShopLayout.cardSpacing) {
                     visualStageCard
                         .padding(.horizontal, ShopLayout.screenPadding)
 
-                    // Source Controls (Prominent cards before photo; overlay controls handle photo swap after selection)
                     if selectedImage == nil {
                         sourceControlsSection
                             .padding(.horizontal, ShopLayout.screenPadding)
-
-                        visualUsageTipsBar
-                            .padding(.horizontal, ShopLayout.screenPadding)
-                    }
-
-                    // Optional Description Composer (after photo is selected)
-                    if let image = selectedImage, analysisResult == nil && !isAnalyzing {
+                    } else if let image = selectedImage, analysisResult == nil && !isAnalyzing {
                         descriptionComposerSection(for: image)
                             .padding(.horizontal, ShopLayout.screenPadding)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
-                    // Results or Error
                     if let error = analysisError, !isAnalyzing {
                         visualErrorCard(error)
                             .padding(.horizontal, ShopLayout.screenPadding)
@@ -4129,22 +4076,27 @@ struct ShopVisualSearchSheet: View {
                     } else if let result = analysisResult, !isAnalyzing {
                         visualResultSection(result)
                     }
-
-                    Spacer(minLength: selectedImage != nil ? 28 : 24)
                 }
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(Color.shopSurface.ignoresSafeArea())
-            .toolbar(.hidden, for: .navigationBar)
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .navigationTitle("Ricerca visiva")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(Color(red: 190/255, green: 190/255, blue: 200/255))
+                    }
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 if let image = selectedImage, analysisResult == nil && !isAnalyzing {
                     stickySearchActionDock(for: image)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .onAppear {
-                withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
-                    pulseViewfinder = true
                 }
             }
             .fullScreenCover(isPresented: $showCameraPicker) {
@@ -4153,6 +4105,7 @@ struct ShopVisualSearchSheet: View {
                         selectedImage = capturedImage
                         analysisResult = nil
                         analysisError = nil
+                        sheetDetent = .large
                     }
                 }
                 .ignoresSafeArea()
@@ -4168,6 +4121,7 @@ struct ShopVisualSearchSheet: View {
                                 selectedImage = uiImg
                                 analysisResult = nil
                                 analysisError = nil
+                                sheetDetent = .large
                             }
                         }
                     } else {
@@ -4189,102 +4143,47 @@ struct ShopVisualSearchSheet: View {
                 Text(cameraAlertMessage)
             }
         }
+        .presentationDetents([.medium, .large], selection: $sheetDetent)
     }
 
     @ViewBuilder
     private func stickySearchActionDock(for image: UIImage) -> some View {
         VStack(spacing: 0) {
             Divider()
-                .opacity(0.6)
 
             Button(action: {
                 triggerVisualSearch(with: image)
             }) {
-                HStack(spacing: 8) {
+                HStack(spacing: 7) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 15, weight: .bold))
-                    Text(combinedUserDescription == nil ? "Cerca con IA" : "Cerca con IA e nota")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .font(.system(size: 14, weight: .bold))
+                    Text(combinedUserDescription == nil ? "Cerca prodotto" : "Cerca con nota")
+                        .font(.system(size: 15.5, weight: .bold))
                 }
                 .foregroundColor(.white)
-                .frame(maxWidth: .infinity, minHeight: 52)
-                .background(
-                    LinearGradient(
-                        colors: [Color.shopPurple, Color(red: 112/255, green: 62/255, blue: 248/255)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(Color.shopPurple)
                 .clipShape(Capsule())
-                .shadow(color: Color.shopPurple.opacity(0.32), radius: 12, x: 0, y: 5)
             }
             .buttonStyle(ShopCardPressStyle(scale: 0.98))
             .padding(.horizontal, ShopLayout.screenPadding)
             .padding(.top, 12)
             .padding(.bottom, 10)
         }
-        .background(.ultraThinMaterial)
-    }
-
-    @ViewBuilder
-    private var visualUsageTipsBar: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(Color.shopPurpleLight)
-                    .frame(width: 32, height: 32)
-                Image(systemName: "lightbulb.fill")
-                    .font(.system(size: 13.5))
-                    .foregroundColor(.shopPurple)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Consiglio rapido")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundColor(.shopDark)
-                Text("Funziona benissimo anche con screenshot da Instagram, TikTok o Strava.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.shopTextMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.shopBorder, lineWidth: 1)
-        )
+        .background(Color(.systemBackground))
     }
 
     @ViewBuilder
     private func descriptionComposerSection(for image: UIImage) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 7) {
-                Image(systemName: "text.bubble.fill")
-                    .font(.system(size: 12.5))
-                    .foregroundColor(.shopPurple)
-
-                Text("Aiuta l'IA a cercare meglio")
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundColor(.shopDark)
-
-                Spacer()
-
-                Text("Facoltativo")
-                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                    .foregroundColor(.shopPurple)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3.5)
-                    .background(Color.shopPurpleLight)
-                    .clipShape(Capsule())
-            }
-
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "pencil.line")
+                    .font(.system(size: 14))
+                    .foregroundColor(.shopTextMuted)
+                    .padding(.top, 2)
+
                 TextField(
-                    "Es. modello donna, taglia 42.5, sotto 130€, solo l'orologio…",
+                    "Aggiungi una nota facoltativa (taglia, budget…)",
                     text: $userDescription,
                     axis: .vertical
                 )
@@ -4303,7 +4202,7 @@ struct ShopVisualSearchSheet: View {
                             .font(.system(size: 16))
                             .foregroundColor(Color(red: 170/255, green: 170/255, blue: 180/255))
                     }
-                    .padding(.top, 2)
+                    .padding(.top, 1)
                 }
             }
             .padding(.horizontal, 14)
@@ -4312,10 +4211,9 @@ struct ShopVisualSearchSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isDescriptionFocused ? Color.shopPurple.opacity(0.5) : Color.shopBorder, lineWidth: isDescriptionFocused ? 1.5 : 1)
+                    .stroke(isDescriptionFocused ? Color.shopPurple.opacity(0.45) : Color.shopBorder, lineWidth: 1)
             )
 
-            // Quick-intent hint pills
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(availableQuickHints) { hint in
@@ -4330,29 +4228,23 @@ struct ShopVisualSearchSheet: View {
                                 }
                             }
                         }) {
-                            HStack(spacing: 5) {
-                                Image(systemName: isSelected ? "checkmark" : hint.icon)
-                                    .font(.system(size: 10.5, weight: .bold))
-                                Text(hint.label)
-                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            }
-                            .foregroundColor(isSelected ? .shopPurple : .shopDark)
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 7)
-                            .background(isSelected ? Color.shopPurpleLight : Color.shopSurface)
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule()
-                                    .stroke(isSelected ? Color.shopPurple.opacity(0.45) : Color.shopBorder, lineWidth: 1)
-                            )
+                            Text(hint.label)
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundColor(isSelected ? .white : .shopDark)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(isSelected ? Color.shopDark : Color.shopSurface)
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(isSelected ? Color.clear : Color.shopBorder, lineWidth: 1)
+                                )
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.vertical, 1)
             }
         }
-        .shopCard(padding: 15, cornerRadius: 20)
     }
 
     private func triggerVisualSearch(with image: UIImage) {
@@ -4369,317 +4261,155 @@ struct ShopVisualSearchSheet: View {
 
     @ViewBuilder
     private var visualStageCard: some View {
-        ZStack {
-            if let image = selectedImage {
-                ZStack {
-                    // Ambient blurred backdrop eliminates awkward sidebars while keeping full product visible
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(height: 248)
-                        .frame(maxWidth: .infinity)
-                        .blur(radius: 26)
-                        .overlay(Color.black.opacity(0.30))
-                        .clipped()
+        if let image = selectedImage {
+            ZStack {
+                RoundedRectangle(cornerRadius: ShopLayout.cardRadius, style: .continuous)
+                    .fill(Color.shopSurface)
 
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 222)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .shadow(color: Color.black.opacity(0.28), radius: 14, x: 0, y: 6)
-                        .padding(12)
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 204)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(12)
 
-                    VisualScannerReticle(color: .white.opacity(0.75))
-                        .padding(18)
-
-                    if isAnalyzing {
-                        Rectangle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.clear, Color.shopPurple.opacity(0.92), Color.white.opacity(0.9), Color.shopPurple.opacity(0.92), .clear],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .frame(height: 3)
-                            .offset(y: scanOffset)
-                            .shadow(color: .shopPurple, radius: 10)
-
-                        VStack {
-                            Spacer()
-                            HStack(spacing: 9) {
-                                ProgressView()
-                                    .tint(.white)
-                                    .scaleEffect(0.88)
-                                Text("Analisi modello con IA…")
-                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.white)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(.ultraThinMaterial.opacity(0.92))
-                            .background(Color.black.opacity(0.45))
-                            .clipShape(Capsule())
-                            .padding(.bottom, 14)
-                        }
-                    } else {
-                        VStack {
-                            HStack(spacing: 8) {
-                                // Quick camera retake button
-                                Button(action: handleCameraButtonTap) {
-                                    Image(systemName: "camera.fill")
-                                        .font(.system(size: 11.5, weight: .bold))
-                                        .foregroundColor(.white)
-                                        .frame(width: 30, height: 30)
-                                        .background(.ultraThinMaterial)
-                                        .background(Color.black.opacity(0.36))
-                                        .clipShape(Circle())
-                                }
-                                .buttonStyle(ShopCardPressStyle(scale: 0.94))
-
-                                // Quick gallery swap button
-                                PhotosPicker(
-                                    selection: $selectedPhotoItem,
-                                    matching: .images,
-                                    photoLibrary: .shared()
-                                ) {
-                                    HStack(spacing: 5) {
-                                        Image(systemName: "photo.on.rectangle")
-                                            .font(.system(size: 11, weight: .bold))
-                                        Text("Cambia")
-                                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                                    }
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(.ultraThinMaterial)
-                                    .background(Color.black.opacity(0.36))
-                                    .clipShape(Capsule())
-                                }
-
-                                Spacer()
-
-                                Button(action: resetSelectedPhoto) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "xmark")
-                                            .font(.system(size: 10.5, weight: .bold))
-                                        Text("Rimuovi")
-                                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                                    }
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(.ultraThinMaterial)
-                                    .background(Color.black.opacity(0.36))
-                                    .clipShape(Capsule())
-                                }
-                                .buttonStyle(ShopCardPressStyle(scale: 0.94))
-                            }
-                            .padding(12)
-                            Spacer()
-                        }
+                if isAnalyzing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .tint(.white)
+                            .scaleEffect(0.85)
+                        Text("Analisi in corso…")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white)
                     }
-                }
-                .frame(height: 248)
-                .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.08), radius: 16, x: 0, y: 6)
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.white, Color.shopPurpleLight.opacity(0.38)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .stroke(Color.shopPurple.opacity(0.12), lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(0.04), radius: 14, x: 0, y: 5)
-
-                    VisualScannerReticle(color: .shopPurple.opacity(0.32))
-                        .padding(20)
-
-                    VStack(spacing: 15) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.shopPurpleLight.opacity(pulseViewfinder ? 0.72 : 0.42))
-                                .frame(width: 90, height: 90)
-                                .scaleEffect(pulseViewfinder ? 1.05 : 0.96)
-
-                            Circle()
-                                .fill(Color.shopPurpleLight)
-                                .frame(width: 64, height: 64)
-
-                            Image(systemName: "camera.viewfinder")
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundColor(.shopPurple)
-                        }
-
-                        VStack(spacing: 4) {
-                            Text("Inquadra il prodotto")
-                                .font(.system(size: 16.5, weight: .bold, design: .rounded))
-                                .foregroundColor(.shopDark)
-                            Text("Foto nitide di scarpe, smartwatch, capi o accessori sportivi")
-                                .font(.system(size: 12.5))
-                                .foregroundColor(.shopTextMuted)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 28)
-                        }
-
-                        HStack(spacing: 6) {
-                            ForEach([
-                                ("Scarpe", "shoe.fill"),
-                                ("Orologi", "applewatch"),
-                                ("Capi", "tshirt.fill"),
-                                ("Zaini", "backpack.fill")
-                            ], id: \.0) { label, icon in
-                                HStack(spacing: 4) {
-                                    Image(systemName: icon)
-                                        .font(.system(size: 9.5, weight: .semibold))
-                                        .foregroundColor(.shopPurple)
-                                    Text(label)
-                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                        .foregroundColor(.shopDark.opacity(0.78))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.shopDark.opacity(0.82))
+                    .clipShape(Capsule())
+                } else {
+                    VStack {
+                        HStack {
+                            PhotosPicker(
+                                selection: $selectedPhotoItem,
+                                matching: .images,
+                                photoLibrary: .shared()
+                            ) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "photo.on.rectangle")
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Text("Cambia")
+                                        .font(.system(size: 12, weight: .semibold))
                                 }
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 5)
-                                .background(Color.white.opacity(0.9))
+                                .foregroundColor(.shopDark)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.95))
                                 .clipShape(Capsule())
                                 .overlay(
                                     Capsule()
-                                        .stroke(Color.shopBorder.opacity(0.8), lineWidth: 1)
+                                        .stroke(Color.shopBorder, lineWidth: 1)
                                 )
                             }
+
+                            Spacer()
+
+                            Button(action: resetSelectedPhoto) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 28, height: 28)
+                                    .background(Color.black.opacity(0.45))
+                                    .clipShape(Circle())
+                            }
+                            .buttonStyle(ShopCardPressStyle(scale: 0.92))
                         }
+                        .padding(12)
+                        Spacer()
                     }
-                    .padding(.vertical, 20)
                 }
-                .frame(height: 256)
             }
+            .frame(height: 228)
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: ShopLayout.cardRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: ShopLayout.cardRadius, style: .continuous)
+                    .stroke(Color.shopBorder, lineWidth: 1)
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        } else {
+            VStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.shopPurpleLight)
+                        .frame(width: 56, height: 56)
+                    Image(systemName: "camera.viewfinder")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundColor(.shopPurple)
+                }
+
+                VStack(spacing: 4) {
+                    Text("Cerca da una foto")
+                        .font(.system(size: 16.5, weight: .bold))
+                        .foregroundColor(.shopDark)
+                    Text("Scatta una foto o carica uno screenshot di scarpe, orologi o capi sportivi.")
+                        .font(.system(size: 13))
+                        .foregroundColor(.shopTextMuted)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 28)
+            .background(Color.shopSurface)
+            .clipShape(RoundedRectangle(cornerRadius: ShopLayout.cardRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: ShopLayout.cardRadius, style: .continuous)
+                    .stroke(Color.shopBorder, lineWidth: 1)
+            )
         }
     }
 
     @ViewBuilder
     private var sourceControlsSection: some View {
-        if selectedImage == nil {
-            HStack(spacing: 12) {
-                Button(action: handleCameraButtonTap) {
-                    HStack(spacing: 10) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.white.opacity(0.14))
-                                .frame(width: 36, height: 36)
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Fotocamera")
-                                .font(.system(size: 14.5, weight: .bold, design: .rounded))
-                                .foregroundColor(.white)
-                            Text("Scatta ora")
-                                .font(.system(size: 11.5))
-                                .foregroundColor(.white.opacity(0.72))
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(maxWidth: .infinity, minHeight: 62)
-                    .background(Color.shopDark)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 4)
+        HStack(spacing: 10) {
+            Button(action: handleCameraButtonTap) {
+                HStack(spacing: 7) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Fotocamera")
+                        .font(.system(size: 15, weight: .semibold))
                 }
-                .buttonStyle(ShopCardPressStyle(scale: 0.97))
-                .disabled(isAnalyzing)
-
-                PhotosPicker(
-                    selection: $selectedPhotoItem,
-                    matching: .images,
-                    photoLibrary: .shared()
-                ) {
-                    HStack(spacing: 10) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.shopPurpleLight)
-                                .frame(width: 36, height: 36)
-                            Image(systemName: "photo.on.rectangle.angled")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.shopPurple)
-                        }
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Galleria")
-                                .font(.system(size: 14.5, weight: .bold, design: .rounded))
-                                .foregroundColor(.shopDark)
-                            Text("Scegli foto")
-                                .font(.system(size: 11.5))
-                                .foregroundColor(.shopTextMuted)
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(maxWidth: .infinity, minHeight: 62)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.shopBorder, lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 3)
-                }
-                .disabled(isAnalyzing)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(Color.shopDark)
+                .clipShape(Capsule())
             }
-        } else {
-            HStack(spacing: 10) {
-                Button(action: handleCameraButtonTap) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "camera.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Nuova foto")
-                            .font(.system(size: 13.5, weight: .semibold, design: .rounded))
-                    }
-                    .foregroundColor(.shopDark)
-                    .frame(maxWidth: .infinity, minHeight: 42)
-                    .background(Color.white)
-                    .clipShape(Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.shopBorder, lineWidth: 1)
-                    )
-                }
-                .buttonStyle(ShopCardPressStyle(scale: 0.97))
-                .disabled(isAnalyzing)
+            .buttonStyle(ShopCardPressStyle(scale: 0.97))
+            .disabled(isAnalyzing)
 
-                PhotosPicker(
-                    selection: $selectedPhotoItem,
-                    matching: .images,
-                    photoLibrary: .shared()
-                ) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "photo.on.rectangle")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Cambia da Galleria")
-                            .font(.system(size: 13.5, weight: .semibold, design: .rounded))
-                    }
-                    .foregroundColor(.shopPurple)
-                    .frame(maxWidth: .infinity, minHeight: 42)
-                    .background(Color.shopPurpleLight)
-                    .clipShape(Capsule())
+            PhotosPicker(
+                selection: $selectedPhotoItem,
+                matching: .images,
+                photoLibrary: .shared()
+            ) {
+                HStack(spacing: 7) {
+                    Image(systemName: "photo.on.rectangle")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Galleria")
+                        .font(.system(size: 15, weight: .semibold))
                 }
-                .disabled(isAnalyzing)
+                .foregroundColor(.shopDark)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(Color.shopSurface)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color.shopBorder, lineWidth: 1)
+                )
             }
+            .disabled(isAnalyzing)
         }
     }
 
@@ -4687,18 +4417,13 @@ struct ShopVisualSearchSheet: View {
     private func visualErrorCard(_ error: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(Color(red: 254/255, green: 226/255, blue: 226/255))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 15))
-                        .foregroundColor(.shopRed)
-                }
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(.shopRed)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Analisi non riuscita")
-                        .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                        .font(.system(size: 14.5, weight: .bold))
                         .foregroundColor(.shopDark)
                     Text(error)
                         .font(.system(size: 13))
@@ -4711,21 +4436,17 @@ struct ShopVisualSearchSheet: View {
                 Button(action: {
                     analyzePickedImage(image, description: combinedUserDescription)
                 }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 13, weight: .bold))
-                        Text("Riprova analisi")
-                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(Color.shopPurple)
-                    .clipShape(Capsule())
+                    Text("Riprova")
+                        .font(.system(size: 14.5, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color.shopPurple)
+                        .clipShape(Capsule())
                 }
                 .buttonStyle(ShopCardPressStyle(scale: 0.98))
             }
         }
-        .shopCard()
+        .shopCard(shadowOpacity: 0)
     }
 
     @ViewBuilder
@@ -4733,17 +4454,12 @@ struct ShopVisualSearchSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             if !result.is_sport_product {
                 HStack(alignment: .top, spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.shopPurpleLight)
-                            .frame(width: 36, height: 36)
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(.shopPurple)
-                    }
+                    Image(systemName: "info.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.shopPurple)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Articolo sportivo non rilevato")
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.shopDark)
                         Text(result.note ?? "Prova a fotografare meglio scarpe, smartwatch, abbigliamento o attrezzatura sportiva.")
                             .font(.system(size: 13))
@@ -4752,67 +4468,25 @@ struct ShopVisualSearchSheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .shopCard()
+                .shopCard(shadowOpacity: 0)
             } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 6) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 11.5))
-                            Text(result.confidence == "high" ? "Modello identificato" : "Possibile corrispondenza")
-                                .font(.system(size: 11.5, weight: .bold, design: .rounded))
-                        }
-                        .foregroundColor(.shopGreen)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(Color.shopGreenLight)
-                        .clipShape(Capsule())
-
-                        Spacer()
-
-                        if let cat = result.category, !cat.isEmpty {
-                            Text(cat)
-                                .font(.system(size: 11, weight: .bold, design: .rounded))
-                                .foregroundColor(.shopPurple)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 4)
-                                .background(Color.shopPurpleLight)
-                                .clipShape(Capsule())
-                        }
+                VStack(alignment: .leading, spacing: 10) {
+                    if let brand = result.brand, !brand.isEmpty {
+                        Text(brand.uppercased())
+                            .font(.system(size: 11, weight: .bold))
+                            .tracking(0.6)
+                            .foregroundColor(.shopTextMuted)
                     }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let brand = result.brand, !brand.isEmpty {
-                            Text(brand.uppercased())
-                                .font(.system(size: 11, weight: .bold, design: .rounded))
-                                .tracking(0.6)
-                                .foregroundColor(.shopTextMuted)
-                        }
-
-                        Text(result.recognized_model)
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopDark)
-                    }
+                    Text(result.recognized_model)
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(.shopDark)
 
                     if let note = result.note, !note.isEmpty {
                         Text(note)
                             .font(.system(size: 13.5))
                             .foregroundColor(.shopTextMuted)
                             .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    if result.catalog_matches_count > 0 {
-                        HStack(spacing: 6) {
-                            Image(systemName: "tag.fill")
-                                .font(.system(size: 11))
-                            Text("\(result.catalog_matches_count) corrispondenze trovate su FitMatch")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        }
-                        .foregroundColor(.shopPurple)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.shopPurpleLight.opacity(0.65))
-                        .clipShape(Capsule())
                     }
 
                     Button(action: {
@@ -4825,23 +4499,22 @@ struct ShopVisualSearchSheet: View {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 14, weight: .bold))
                             Text("Cerca e confronta prezzi")
-                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .font(.system(size: 15, weight: .bold))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .background(Color.shopPurple)
                         .clipShape(Capsule())
-                        .shadow(color: Color.shopPurple.opacity(0.28), radius: 10, x: 0, y: 4)
                     }
                     .buttonStyle(ShopCardPressStyle(scale: 0.98))
-                    .padding(.top, 2)
+                    .padding(.top, 4)
                 }
-                .shopCard()
+                .shopCard(shadowOpacity: 0)
 
                 if !result.alternatives.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Oppure cerca una variante simile")
-                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                        Text("Varianti simili")
+                            .font(.system(size: 12.5, weight: .semibold))
                             .foregroundColor(.shopTextMuted)
 
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -4852,22 +4525,17 @@ struct ShopVisualSearchSheet: View {
                                         dismiss()
                                         onSelectModel(alt, imgUrl)
                                     }) {
-                                        HStack(spacing: 5) {
-                                            Image(systemName: "arrow.up.right")
-                                                .font(.system(size: 10.5, weight: .bold))
-                                                .foregroundColor(.shopPurple)
-                                            Text(alt)
-                                                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
-                                                .foregroundColor(.shopDark)
-                                        }
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color.white)
-                                        .clipShape(Capsule())
-                                        .overlay(
-                                            Capsule()
-                                                .stroke(Color.shopBorder, lineWidth: 1)
-                                        )
+                                        Text(alt)
+                                            .font(.system(size: 12.5, weight: .semibold))
+                                            .foregroundColor(.shopDark)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(Color.shopSurface)
+                                            .clipShape(Capsule())
+                                            .overlay(
+                                                Capsule()
+                                                    .stroke(Color.shopBorder, lineWidth: 1)
+                                            )
                                     }
                                     .buttonStyle(ShopCardPressStyle(scale: 0.96))
                                 }
@@ -4889,6 +4557,7 @@ struct ShopVisualSearchSheet: View {
             analysisResult = nil
             analysisError = nil
             isAnalyzing = false
+            sheetDetent = .medium
         }
     }
 
@@ -4931,11 +4600,6 @@ struct ShopVisualSearchSheet: View {
         isAnalyzing = true
         analysisResult = nil
         analysisError = nil
-        scanOffset = -110
-
-        withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) {
-            scanOffset = 110
-        }
 
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
@@ -4976,46 +4640,6 @@ struct ShopVisualSearchSheet: View {
             image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
         return rendered.jpegData(compressionQuality: quality)
-    }
-}
-
-private struct VisualScannerReticle: View {
-    let color: Color
-    private let length: CGFloat = 20
-    private let lineWidth: CGFloat = 2.5
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            Path { path in
-                // Top-left
-                path.move(to: CGPoint(x: 0, y: length))
-                path.addLine(to: CGPoint(x: 0, y: 4))
-                path.addQuadCurve(to: CGPoint(x: 4, y: 0), control: .zero)
-                path.addLine(to: CGPoint(x: length, y: 0))
-
-                // Top-right
-                path.move(to: CGPoint(x: w - length, y: 0))
-                path.addLine(to: CGPoint(x: w - 4, y: 0))
-                path.addQuadCurve(to: CGPoint(x: w, y: 4), control: CGPoint(x: w, y: 0))
-                path.addLine(to: CGPoint(x: w, y: length))
-
-                // Bottom-left
-                path.move(to: CGPoint(x: 0, y: h - length))
-                path.addLine(to: CGPoint(x: 0, y: h - 4))
-                path.addQuadCurve(to: CGPoint(x: 4, y: h), control: CGPoint(x: 0, y: h))
-                path.addLine(to: CGPoint(x: length, y: h))
-
-                // Bottom-right
-                path.move(to: CGPoint(x: w - length, y: h))
-                path.addLine(to: CGPoint(x: w - 4, y: h))
-                path.addQuadCurve(to: CGPoint(x: w, y: h - 4), control: CGPoint(x: w, y: h))
-                path.addLine(to: CGPoint(x: w, y: h - length))
-            }
-            .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
-        }
-        .allowsHitTesting(false)
     }
 }
 
