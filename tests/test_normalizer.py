@@ -233,5 +233,39 @@ def test_cross_store_matching_and_category_refinements(normalizer):
     assert normalizer.detect_article_type("Decathlon Bevanda Energetica Powder Iso") == "nutrition"
 
 
+def test_subbrand_resolution_and_false_positive_prevention(normalizer):
+    # Sub-brands resolve to parent brand cleanly without false-positive Bullpadel / football_boots collisions
+    assert normalizer.extract_brand("ACG Lava Flow (Smanicato Therma-FIT ADV – Donna)") == "Nike"
+    assert normalizer.detect_article_type("ACG Lava Flow (Smanicato Therma-FIT ADV – Donna)") == "jacket"
+    assert normalizer.detect_article_type("ACG Rope de Dope (Smanicato da trail running Therma-FIT ADV – Donna)") == "jacket"
+
+    assert normalizer.extract_brand("Nike Acg Pegasus Trail - Summit White/black/phantom/safety Orange") == "Nike"
+    assert normalizer.detect_article_type("Nike Acg Pegasus Trail - Summit White/black/phantom/safety Orange") == "shoes"
+
+    assert normalizer.extract_brand("Mount To Coast Mount To Coast M1") == "Mount To Coast"
+    assert normalizer.detect_article_type("Mount To Coast Mount To Coast M1") == "gear"
+
+    assert normalizer.extract_brand("Nikecourt Tshirt Tennis Max90") == "Nike"
+    assert normalizer.detect_article_type("Nikecourt Tshirt Tennis Max90") == "top"
+
+    assert normalizer.is_non_sport_junk("Trixie Pettorina Cani Trekking New Premium 20 Mm") is True
+    assert normalizer.is_non_sport_junk("Victorinox Fiaschetta Trekking Inossidabile C30") is True
+    assert normalizer.is_non_sport_junk("Invertika Slip Sgambato V") is True
+
+    # Parenthetical garment words and full model tokens survive clean_title and extract_cluster_key
+    o_ls = Offer(
+        store_id="nike",
+        store_name="Nike",
+        title="ACG Radical AirFlow NXT (Maglia da trail running a manica lunga Dri-FIT – Uomo)",
+        price=149.99,
+        url="http://nike",
+    )
+    key_ls = normalizer.extract_cluster_key(o_ls)
+    assert "acg radical airflow nxt" in key_ls
+    assert "lunga" in key_ls
+    assert "[top]" in key_ls
+
+
+
 
 

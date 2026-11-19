@@ -990,8 +990,9 @@ class SupabaseClient:
             w for w in re.findall(r"\b\w+\b", query_clean.lower())
             if w not in BASE_STOPWORDS and w not in brand_tokens and len(w) > 1
         ] if query_clean else []
-        # Strip generic sport context words if there are other specific tokens (brand/model/garment)
-        specific_tokens = [w for w in all_tokens if w not in SPORT_CONTEXT_WORDS]
+        # Preserve "trail" when querying apparel/gear/uncategorized items so "Nike trail maglia" keeps trail context
+        keep_trail = (not category) or (category.lower().strip() in ("top", "apparel", "jacket", "pants", "socks", "gear", "hydration"))
+        specific_tokens = [w for w in all_tokens if w not in SPORT_CONTEXT_WORDS or (keep_trail and w == "trail")]
         words = specific_tokens if specific_tokens else all_tokens
         # PostgreSQL pg_trgm indexes only tokens >= 3 chars; keep >= 3 chars in SQL when available
         trgm_words = [w for w in words if len(w) >= 3]
@@ -999,10 +1000,11 @@ class SupabaseClient:
             words = trgm_words
 
         if words:
+            use_direct_cname = bool(brand_tokens) or len(words) >= 2
             for w in words[:4]:
                 w_enc = urllib.parse.quote(w)
-                if brand_tokens:
-                    # Brand already filtered above; scan canonical_name trigram directly instead of BitmapOr on brand
+                if use_direct_cname:
+                    # Scan pg_trgm-indexed canonical_name directly to avoid multi-BitmapOr statement timeouts
                     and_clauses.append(f"canonical_name.ilike.*{w_enc}*")
                 else:
                     and_clauses.append(f"or(canonical_name.ilike.*{w_enc}*,brand.ilike.*{w_enc}*)")
@@ -1020,9 +1022,11 @@ class SupabaseClient:
         raw_prods = resp.get("data") or []
         seen_pids = {p.get("id") for p in raw_prods if p.get("id")}
 
-        # Also check store_offers.raw_title if query has specific terms and few products matched canonical_name
-        if words and len(raw_prods) < 8:
-            offer_and_parts = [f"raw_title=ilike.*{urllib.parse.quote(w)}*" for w in words[:3]]
+        # Also check store_offers.raw_title if query has specific >=4-char terms and very few products matched canonical_name
+        # (short <=3 char tokens like 'h10'/'hrm'/'h9' cannot use pg_trgm indexes efficiently on store_offers).
+        offer_words = [w for w in words[:3] if len(w) >= 4]
+        if offer_words and len(raw_prods) < 3:
+            offer_and_parts = [f"raw_title=ilike.*{urllib.parse.quote(w)}*" for w in offer_words]
             off_endpoint = f"store_offers?{'&'.join(offer_and_parts)}&select=product_id&limit=40"
             off_resp = self._request(off_endpoint)
             off_rows = off_resp.get("data") or []
@@ -1092,16 +1096,37 @@ class SupabaseClient:
         from fitmatch.matcher.normalizer import ProductNormalizer
         norm = ProductNormalizer()
 
-        # Self-healing check: ensure canonical_name & brand are consistent with the product's actual offers
+        # Self-healing check: ensure canonical_name, category & brand are consistent with the product's actual offers
         sorted_offers_raw = sorted(offers_raw, key=lambda x: x.get("current_price") or 99999)
         primary_raw_title = (sorted_offers_raw[0].get("raw_title") or "").strip()
         p_brand = (p.get("brand") or "").strip()
+        p_cat = (p.get("category") or "").strip()
         c_name = (p.get("canonical_name") or "").strip()
 
+        if norm.is_non_sport_junk(primary_raw_title) or norm.is_non_sport_junk(c_name):
+            return None
+
         if primary_raw_title:
-            inferred_brand = norm.extract_brand(primary_raw_title)
-            if inferred_brand and (not p_brand or p_brand.lower() in ("generic", "elite", "scarpa", "on") and inferred_brand.lower() != p_brand.lower()):
+            inferred_brand = norm.extract_brand(primary_raw_title) or (norm.extract_brand(c_name) if c_name else None)
+            brand_repaired = False
+            is_false_bullpadel = (p_brand.lower() == "bullpadel" and "bullpadel" not in primary_raw_title.lower())
+            if inferred_brand and (
+                not p_brand
+                or is_false_bullpadel
+                or (p_brand.lower() in ("generic", "elite", "scarpa", "on") and inferred_brand.lower() != p_brand.lower())
+            ):
                 p_brand = inferred_brand
+                brand_repaired = True
+
+            inferred_art = norm.detect_article_type(primary_raw_title)
+            if p_cat == "football_boots" and inferred_art == "football_boots" and c_name:
+                inferred_art_c = norm.detect_article_type(c_name)
+                if inferred_art_c != "football_boots":
+                    inferred_art = inferred_art_c
+            if p_cat == "football_boots" and inferred_art != "football_boots":
+                p_cat = inferred_art
+            elif p_cat in ("shoes", "gear") and inferred_art in ("top", "jacket", "pants", "socks", "hydration", "eyewear", "sensor"):
+                p_cat = inferred_art
 
             # Check token overlap between canonical_name and primary offer raw_title
             cname_tokens = {w for w in re.findall(r"\b[a-z0-9]{3,}\b", c_name.lower()) if w not in ("uomo", "donna", "unisex", "generic")}
@@ -1112,7 +1137,7 @@ class SupabaseClient:
             ) or (
                 ("manica" in cname_tokens or "lunga" in cname_tokens) and ("long" in raw_tokens or "sleeve" in raw_tokens)
             )
-            if not c_name or c_name.lower().startswith("generic ") or (cname_tokens and raw_tokens and not cname_tokens.intersection(raw_tokens) and not has_bilingual_match):
+            if brand_repaired or not c_name or c_name.lower().startswith("generic ") or (cname_tokens and raw_tokens and not cname_tokens.intersection(raw_tokens) and not has_bilingual_match):
                 c_name = ProductNormalizer.build_canonical_display_name(primary_raw_title, brand=p_brand)
             else:
                 c_name = ProductNormalizer.build_canonical_display_name(c_name, brand=p_brand)
@@ -1185,7 +1210,7 @@ class SupabaseClient:
 
             from fitmatch.models import is_female_context, CLOTHING_ORDER
             off_gender = "women" if is_female_context(gender=p.get("gender"), title=o.get("raw_title") or c_name) else p.get("gender")
-            off_sizes = normalize_sizes(o.get("available_sizes"), gender=off_gender, category=p.get("category"))
+            off_sizes = normalize_sizes(o.get("available_sizes"), gender=off_gender, category=p_cat or p.get("category"))
             offers.append({
                 "store_id": o.get("store_id"),
                 "store_name": o.get("store_name"),
@@ -1238,7 +1263,7 @@ class SupabaseClient:
             "id": p["id"],
             "canonical_name": c_name,
             "brand": p_brand or p.get("brand"),
-            "category": p.get("category"),
+            "category": p_cat or p.get("category"),
             "gender": p.get("gender", "Unisex"),
             "image_url": p_img,
             "gallery_images": prod_gallery[:6],
@@ -1354,6 +1379,18 @@ class SupabaseClient:
             raw_q_part or eff_query_str,
             context_query=ctx_q_part or None,
         )
+        spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(raw_q_part, brand=brand)
+        if not spec_tokens and ctx_q_part and not QueryProductGuardrail.is_category_switch(raw_q_part, ctx_q_part):
+            spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(ctx_q_part, brand=brand)
+
+        def _count_spec_token_matches(prod: Dict[str, Any]) -> int:
+            if not spec_tokens:
+                return 0
+            pname = (prod.get("canonical_name") or "").lower()
+            pbrand = (prod.get("brand") or "").lower()
+            off_titles = " ".join((o.get("raw_title") or o.get("title") or "") for o in (prod.get("offers") or [])[:3]).lower()
+            probe = f"{pname} {pbrand} {off_titles}"
+            return sum(1 for st in spec_tokens if re.search(rf"\b{re.escape(st)}\b", probe))
 
         eff_max_price: Optional[float] = None
         if max_price is not None:
@@ -1415,10 +1452,12 @@ class SupabaseClient:
                     seen_names.add(p_ident)
                     raw_results.append(p)
 
-        # Only broaden across categories if all category-scoped keyword queries returned 0 results
-        if not raw_results and category:
+        # Broaden across categories when all category-scoped queries returned 0 results,
+        # OR when a model-only query (detected_product_type is None) has specific entity tokens
+        if (not raw_results and category) or (detected_product_type is None and spec_tokens and category):
+            broad_q = " ".join(spec_tokens) if spec_tokens else keywords_to_query[0].strip()
             broad_prods = self.search_indexed(
-                query=keywords_to_query[0].strip(),
+                query=broad_q,
                 category=None,
                 limit=limit,
                 brand=brand,
@@ -1430,15 +1469,49 @@ class SupabaseClient:
                     seen_names.add(p_ident)
                     raw_results.append(p)
 
-        # True Hybrid Search: run pgvector semantic retrieval both when lexical results are sparse
-        # (< 8) and when query is natural/descriptive (>= 4 words without numeric SKU)
+        # Catalog-grounded product_type inference for model-only queries (e.g. 'ACG Radical AirFlow NXT' -> 'top')
+        effective_product_type = detected_product_type
+        if effective_product_type is None and spec_tokens and raw_results:
+            scored_hits = [(_count_spec_token_matches(p), p) for p in raw_results]
+            entity_hits = [(h, p) for h, p in scored_hits if h > 0]
+            if entity_hits:
+                max_hits = max(h for h, _ in entity_hits)
+                if max_hits >= 2:
+                    top_hits = [p for h, p in entity_hits if h >= max(2, max_hits - 1)]
+                    from collections import Counter
+                    cat_counts = Counter((p.get("category") or "").lower() for p in top_hits if p.get("category"))
+                    if cat_counts:
+                        dom_cat, dom_count = cat_counts.most_common(1)[0]
+                        if dom_count / len(top_hits) >= 0.70:
+                            cat_to_ptype = {
+                                "top": "top", "apparel": "top", "jacket": "jacket",
+                                "pants": "pants_shorts", "socks": "socks",
+                                "sensor": "heart_rate_monitor", "gps_watch": "gps_watch",
+                                "eyewear": "eyewear", "hydration": "hydration", "swim": "swim",
+                                "football_boots": "football_boots", "padel": "padel_racket",
+                                "tennis": "tennis_racket", "basketball": "basketball",
+                                "winter_sports": "winter_sports", "nutrition": "nutrition",
+                                "running_shoes": "shoes", "trail_running": "shoes", "shoes": "shoes",
+                            }
+                            effective_product_type = cat_to_ptype.get(dom_cat)
+
+        # True Hybrid Search: run pgvector semantic retrieval only when lexical results are sparse
+        # (< 8) or query is descriptive, AND skip it when specific entity lexical matches already succeeded.
+        lexical_entity_hits = sum(1 for p in raw_results if _count_spec_token_matches(p) > 0) if spec_tokens else 0
         raw_words = re.findall(r"\b\w+\b", (raw_query or "").lower())
         is_descriptive_query = len(raw_words) >= 4 and not any(w.isdigit() and len(w) >= 2 for w in raw_words)
-        if target_keywords and (len(raw_results) < 8 or is_descriptive_query):
+        should_run_semantic = bool(target_keywords) and not (spec_tokens and lexical_entity_hits >= 2) and (len(raw_results) < 8 or is_descriptive_query)
+        if should_run_semantic:
             sem_query = raw_query.strip() if raw_query and raw_query.strip() else " ".join([k for k in target_keywords[:2] if k.strip()])
             if sem_query:
-                sem_prods = self.search_semantic(query=sem_query, threshold=0.36, limit=max(limit, 25))
+                sem_threshold = 0.48 if spec_tokens else 0.40
+                sem_prods = self.search_semantic(query=sem_query, threshold=sem_threshold, limit=max(limit, 25))
+                allowed_cats = set(self.CATEGORY_EQUIVALENTS.get(category.lower(), [category.lower()])) if category else None
                 for sp in sem_prods:
+                    if not QueryProductGuardrail.is_product_compatible(sp, effective_product_type, raw_query=eff_query_str):
+                        continue
+                    if allowed_cats and (sp.get("category") or "").lower() not in allowed_cats:
+                        continue
                     p_ident = sp.get("id") or sp.get("canonical_name")
                     if p_ident not in seen_names:
                         seen_names.add(p_ident)
@@ -1470,7 +1543,7 @@ class SupabaseClient:
             p_name = (p.get("canonical_name") or "").lower()
 
             # Product-Type Guardrail: block watches/towels on shoe searches, caps/short-sleeves on long-sleeve searches, etc.
-            if not QueryProductGuardrail.is_product_compatible(p, detected_product_type, raw_query=eff_query_str):
+            if not QueryProductGuardrail.is_product_compatible(p, effective_product_type, raw_query=eff_query_str):
                 continue
 
             # Strict Brand Filter: if brand is requested, product MUST match brand in brand field or canonical name
@@ -1585,6 +1658,16 @@ class SupabaseClient:
             tokens = set(re.findall(r"\b\w+\b", combined_text))
             p_digits = set(re.findall(r"\b\d+\b", pname))
 
+            matched_sc = _count_spec_token_matches(prod)
+            prod["_matched_spec_count"] = matched_sc
+            if spec_tokens:
+                if matched_sc > 0:
+                    score += matched_sc * 180.0
+                    if matched_sc == len(spec_tokens):
+                        score += 220.0
+                else:
+                    score -= 250.0
+
             if raw_query_model_digits:
                 if raw_query_model_digits.intersection(p_digits):
                     score += 240.0
@@ -1623,12 +1706,12 @@ class SupabaseClient:
                         score -= 75.0  # Penalize mismatched generation/model numbers on specific SKU queries
 
             # Domain-specific relevance boosts
-            if detected_product_type == "heart_rate_monitor":
+            if effective_product_type == "heart_rate_monitor":
                 if pcat == "sensor":
                     score += 120.0
                 if re.search(r"\b(polar\s*h10|polar\s*h9|hrm[\s-]*(?:200|600|pro|dual|fit|swim|belt)|coros\s*heart\s*rate|trackr\s*hr|fascia\s*cardio|cardiofrequenzimetro|verity\s*sense)\b", combined_text):
                     score += 160.0
-            elif detected_product_type == "gps_watch":
+            elif effective_product_type == "gps_watch":
                 if wants_hr_strap:
                     if re.search(r"\b(fascia|hrm|h10|h9|verity|cardiofrequenzimetro)\b", combined_text):
                         score += 150.0
@@ -1639,17 +1722,17 @@ class SupabaseClient:
                         score += 110.0
                     if re.search(r"\b(corsa|running|maratona)\b", q_str_low) and re.search(r"\b(forerunner|coros\s*pace|polar\s*pacer|suunto\s*run|suunto\s*race)\b", combined_text):
                         score += 65.0
-            elif detected_product_type == "bike_computer":
+            elif effective_product_type == "bike_computer":
                 if re.search(r"\b(garmin\s*edge|\bedge\s*(?:530|540|830|840|1030|1040|1050|explore)\b|wahoo\s*elemnt|bryton|igpsport\s*bsc)\b", combined_text):
                     score += 120.0
-            elif detected_product_type == "long_sleeve_top":
+            elif effective_product_type == "long_sleeve_top":
                 if any(b in pbrand for b in ("adidas", "nike", "asics", "salomon", "odlo", "mizuno", "kiprun", "hoka", "brooks", "craft", "under armour", "gorewear", "puma", "new balance")):
                     score += 65.0
                 if re.search(r"\b(running|run|adizero|cross\s*run|active\s*warm|warmalite|element)\b", combined_text):
                     score += 50.0
                 if re.search(r"\b(street\s*jam|basketball|nba|replica|casual|felpa\s*con\s*cappuccio)\b", combined_text):
                     score -= 160.0
-            elif detected_product_type in ("short_sleeve_top", "pants_shorts", "jacket", "socks"):
+            elif effective_product_type in ("short_sleeve_top", "top", "pants_shorts", "jacket", "socks"):
                 if any(b in pbrand for b in ("adidas", "nike", "asics", "salomon", "odlo", "mizuno", "kiprun", "hoka", "brooks", "craft", "under armour", "gorewear", "puma", "new balance", "cep", "compressport", "uyn")):
                     score += 55.0
                 if re.search(r"\b(running|run|adizero|dri[\s-]*fit|miler|stride|challenger|bonatti|zeroweight|fujitrail)\b", combined_text):
@@ -1658,13 +1741,13 @@ class SupabaseClient:
                     score += 125.0
                 if wants_waterproof and re.search(r"\b(gtx|gore[\s-]*tex|impermeabil\w*|waterproof|bonatti|storm|rain|pioggia|shakedry)\b", combined_text):
                     score += 110.0
-            elif detected_product_type == "padel_racket":
+            elif effective_product_type == "padel_racket":
                 if re.search(r"\b(vertex|hack|at10|ml10|technical\s*viper|air\s*viper|counter\s*viper|metalbone|adipower|speed\s*pro|extreme\s*pro|diablo|electra)\b", combined_text):
                     score += 95.0
-            elif detected_product_type == "eyewear":
+            elif effective_product_type == "eyewear":
                 if re.search(r"\b(sutro|radar\s*ev|radar|jawbreaker|encoder|sphaera|bisphaera)\b", combined_text):
                     score += 90.0
-            elif detected_product_type == "football_boots":
+            elif effective_product_type == "football_boots":
                 if pcat == "football_boots":
                     score += 110.0
                 if re.search(r"\b(mercurial|superfly|vapor|tiempo|phantom|predator|copa|future|magnetico|f50|top\s*sala|top\s*flex|king)\b", combined_text):
@@ -1673,7 +1756,7 @@ class SupabaseClient:
                     score += 65.0
                 if re.search(r"\b(maglia|pantaloncin|calzetton|parastinchi|borsone|guanti)\b", pname):
                     score -= 180.0
-            elif detected_product_type == "swim":
+            elif effective_product_type == "swim":
                 if pcat == "swim":
                     score += 110.0
                 if "occhialin" in q_str_low or "goggles" in q_str_low:
@@ -1681,26 +1764,26 @@ class SupabaseClient:
                         score += 130.0
                     elif re.search(r"\b(costume|boxer|slip|muta|cuffia|pinne|tavoletta)\b", pname):
                         score -= 150.0
-            elif detected_product_type == "basketball_shoes":
+            elif effective_product_type == "basketball_shoes":
                 if re.search(r"\b(basket|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame|curry|jordan|kyrie)\b", combined_text):
                     score += 135.0
                 if "alt" in q_str_low and re.search(r"\b(high|mid|alte)\b", pname):
                     score += 35.0
                 if re.search(r"\b(nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|speedgoat|trabuco)\b", pname):
                     score -= 180.0
-            elif detected_product_type == "tennis_shoes":
+            elif effective_product_type == "tennis_shoes":
                 if re.search(r"\b(tennis|terra\s*battuta|clay|resolution|court\s*ff|dedicate|nikecourt|barricade|vapor|challenger|rush\s*pro|jet\s*mach)\b", combined_text):
                     score += 135.0
                 if re.search(r"terra\s*battuta|clay", q_str_low) and re.search(r"\b(terra\s*battuta|clay)\b", combined_text):
                     score += 60.0
                 if re.search(r"\b(nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|pegasus|speedgoat)\b", pname):
                     score -= 180.0
-            elif detected_product_type == "volleyball_shoes":
+            elif effective_product_type == "volleyball_shoes":
                 if re.search(r"\b(pallavolo|volley|spike|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner|upcourt|gel[\s-]*task)\b", combined_text):
                     score += 135.0
                 if re.search(r"\b(nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|pegasus|speedgoat)\b", pname):
                     score -= 180.0
-            elif detected_product_type == "hydration":
+            elif effective_product_type == "hydration":
                 if re.search(r"\b(zain|gilet|vest|adv\s*skin|active\s*skin|sense\s*pro|flask|borracci)\b", combined_text):
                     score += 80.0
                 cap_match = re.search(r"\b(\d{1,2})\s*l\b", q_str_low)
@@ -1717,7 +1800,7 @@ class SupabaseClient:
                     score += 140.0
                 elif any(m in combined_text for m in ("dropset", "deviate nitro", "velocity nitro", "metcon")):
                     score += 95.0
-            elif detected_product_type == "shoes" or (detected_product_type is None and category in ("running_shoes", "shoes")):
+            elif effective_product_type == "shoes" or (effective_product_type is None and category in ("running_shoes", "shoes")):
                 if not wants_trail:
                     if pcat == "trail_running" or re.search(r"\b(trail|speedcross|trabuco|speedgoat|cascadia|ultra\s*raptor|akasha|bushido|sonoma|mujin|daichi|terrex\s*agravic|hierro|peregrine)\b", pname):
                         score -= 75.0
@@ -1787,6 +1870,32 @@ class SupabaseClient:
         for p in filtered:
             p["relevance_score"] = compute_relevance(p, keywords_to_query)
 
+        # Hard entity & relevance cutoff so unrelated catalog/semantic noise never leaks in
+        if spec_tokens:
+            entity_matched = [p for p in filtered if (p.get("_matched_spec_count") or 0) > 0]
+            if entity_matched:
+                if len(spec_tokens) >= 2 and any((p.get("_matched_spec_count") or 0) >= 2 for p in entity_matched):
+                    entity_matched = [p for p in entity_matched if (p.get("_matched_spec_count") or 0) >= 2]
+                if len(entity_matched) >= 2 or not brand:
+                    filtered = entity_matched
+                else:
+                    allowed_fb_cats = set(self.CATEGORY_EQUIVALENTS.get(category.lower(), [category.lower()])) if category else None
+                    same_brand_extras = [
+                        p for p in filtered
+                        if p not in entity_matched
+                        and float(p.get("relevance_score") or 0.0) > 0
+                        and (not allowed_fb_cats or (p.get("category") or "").lower() in allowed_fb_cats)
+                    ][:4]
+                    filtered = entity_matched + same_brand_extras
+
+        if filtered:
+            top_rel = max(float(p.get("relevance_score") or 0.0) for p in filtered)
+            if top_rel >= 120.0:
+                min_keep = max(20.0, top_rel * (0.22 if spec_tokens else 0.12))
+                kept_tail = [p for p in filtered if float(p.get("relevance_score") or 0.0) >= min_keep]
+                if kept_tail and (spec_tokens or len(kept_tail) >= min(len(filtered), 4)):
+                    filtered = kept_tail
+
         filtered.sort(
             key=lambda x: (
                 float(x.get("relevance_score") or 0.0),
@@ -1797,25 +1906,60 @@ class SupabaseClient:
         )
 
         # Deduplicate / disambiguate products that share the same cleaned canonical_name
+        # or reordered cross-store apparel titles of the exact same model, gender, and sleeve type.
+        _APPAREL_NOISE = {
+            "maglia", "maglietta", "tshirt", "t", "shirt", "trail", "running", "corsa",
+            "uomo", "donna", "unisex", "manica", "maniche", "lunga", "lunghe", "corta", "corte",
+            "long", "sleeve", "short", "tecnica", "tecnico", "da", "a", "in", "per"
+        }
+
+        def _apparel_core_sig(prod: Dict[str, Any]):
+            p_cat_l = (prod.get("category") or "").lower().strip()
+            if p_cat_l not in ("top", "apparel", "jacket", "pants", "socks"):
+                return None
+            pb_l = (prod.get("brand") or "").lower().strip()
+            cn_l = (prod.get("canonical_name") or "").lower().strip()
+            if re.search(r"\b(manic(?:a|he)\s*lung(?:a|he)|long[\s-]*sleeve|1\s*4\s*zip|1\s*2\s*zip|half[\s-]*zip)\b", cn_l):
+                sleeve_t = "ls"
+            elif re.search(r"\b(manic(?:a|he)\s*cort[ae]|short[\s-]*sleeve|maglietta|tshirt|t[\s-]*shirt)\b", cn_l):
+                sleeve_t = "ss"
+            elif re.search(r"\b(canott[ae]|singlet|smanicat[ao])\b", cn_l):
+                sleeve_t = "sl"
+            else:
+                sleeve_t = ""
+            g_l = (prod.get("gender") or "Unisex").lower().strip()
+            norm_g = "donna" if g_l == "donna" else ("junior" if g_l == "junior" else "adult")
+            pb_toks = set(pb_l.split())
+            core = sorted({
+                t for t in re.findall(r"\b[a-z0-9]{2,}\b", cn_l)
+                if t not in _APPAREL_NOISE and t not in pb_toks
+            })
+            if len(core) < 2:
+                return None
+            return (pb_l, p_cat_l, norm_g, sleeve_t, tuple(core))
+
         deduped = []
-        seen_canon_gender = {}
         for p in filtered:
+            p.pop("_matched_spec_count", None)
             cname = (p.get("canonical_name") or "").strip()
             cname_key = cname.lower()
             gend = (p.get("gender") or "Unisex").strip()
             p_img = p.get("image_url") or ""
             p_price = round(float(p.get("best_price") or 0.0), 2)
+            p_app_sig = _apparel_core_sig(p)
 
-            # Check if an identical card (same canonical name & either same gender or same image+price) is already present
+            # Check if an identical card (same canonical name / reordered apparel model) is already present
             duplicate_found = False
             for existing in deduped:
                 ex_name = (existing.get("canonical_name") or "").strip().lower()
                 ex_base_name = re.sub(r"\s*\((uomo|donna)\)$", "", ex_name, flags=re.IGNORECASE)
-                if ex_base_name == cname_key:
+                ex_app_sig = _apparel_core_sig(existing)
+                same_apparel_model = bool(p_app_sig and ex_app_sig and p_app_sig == ex_app_sig)
+                if ex_base_name == cname_key or same_apparel_model:
                     ex_gend = (existing.get("gender") or "Unisex").strip()
                     ex_img = existing.get("image_url") or ""
                     ex_price = round(float(existing.get("best_price") or 0.0), 2)
-                    if ex_gend.lower() == gend.lower() or (ex_img == p_img and ex_price == p_price):
+                    if same_apparel_model or ex_gend.lower() == gend.lower() or (ex_img == p_img and ex_price == p_price):
                         # Merge any unique offers into existing product
                         ex_urls = {o.get("url") for o in existing.get("offers", [])}
                         for o in p.get("offers", []):

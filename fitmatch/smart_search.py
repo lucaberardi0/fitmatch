@@ -1798,8 +1798,158 @@ class QueryProductGuardrail:
         "taglia", "taglie", "numero", "misura", "invece", "mostrami", "mostramene",
         "fammi", "vedere", "filtra", "cerca", "trova", "cerco", "vorrei", "solo",
         "anche", "meglio", "esempi", "alternativa", "alternative", "opzioni",
-        "iniziare", "principiante", "principianti", "quindi", "allora", "cioè", "dunque"
+        "iniziare", "principiante", "principianti", "quindi", "allora", "cioè", "dunque",
+        "mentre", "sempre", "pure", "magari", "comunque", "piuttosto",
+        "rimanendo", "restare", "rimanere", "stessa", "stesso", "stessi", "stesse",
+        "tipo", "genere", "qualcosa", "qualche", "consigli", "consigliami",
+        "consigliarmi", "consiglio", "potrei", "potresti", "sapresti", "avrei",
+        "bisogno", "serve", "servono", "servirebbe", "cerchiamo", "voglio",
+        "volevo", "prendere", "comprare", "acquistare", "usare", "utilizzo", "uso"
     }
+
+    SUB_BRAND_TO_PARENT_BRAND = {
+        "acg": ("Nike", "acg"),
+        "nikecourt": ("Nike", "nikecourt"),
+        "nikelab": ("Nike", "nikelab"),
+        "nikeskims": ("Nike", "nikeskims"),
+        "dri-fit": ("Nike", "dri-fit"),
+        "drifit": ("Nike", "dri-fit"),
+        "therma-fit": ("Nike", "therma-fit"),
+        "aeroswift": ("Nike", "aeroswift"),
+        "tech fleece": ("Nike", "tech fleece"),
+        "terrex": ("Adidas", "terrex"),
+        "adizero": ("Adidas", "adizero"),
+        "adi365": ("Adidas", "adi365"),
+        "clima365": ("Adidas", "clima365"),
+        "s/lab": ("Salomon", "lab"),
+        "s-lab": ("Salomon", "lab"),
+        "slab": ("Salomon", "lab"),
+        "bonatti": ("Salomon", "bonatti"),
+        "sense aero": ("Salomon", "sense aero"),
+        "fujitrail": ("Asics", "fujitrail"),
+        "zeroweight": ("Odlo", "zeroweight"),
+        "active warm": ("Odlo", "active warm"),
+        "warmalite": ("Mizuno", "warmalite"),
+    }
+
+    GENERIC_ENTITY_STOPWORDS = SPORT_CONTEXT_STOPWORDS | {
+        # Garments & footwear
+        "maglia", "maglie", "maglietta", "magliette", "t", "shirt", "shirts", "tshirt", "tshirts",
+        "long", "sleeve", "sleeves", "longsleeve", "manica", "maniche", "lunga", "lunghe",
+        "short", "shorts", "corta", "corte", "canotta", "canotte", "canottiera", "canottiere",
+        "singlet", "tank", "top", "tops", "sleeveless", "smanicato", "smanicata",
+        "giacca", "giacche", "jacket", "jackets", "jkt", "antivento", "windbreaker", "kway", "guscio",
+        "pantaloncini", "pantaloncino", "leggings", "tights", "tight", "fuseaux",
+        "pantaloni", "pantalone", "pants", "calze", "calza", "calzini", "calzino", "calzettoni",
+        "socks", "sock", "cappellino", "cappello", "berretto", "berretti", "scaldacollo",
+        "felpa", "felpe", "hoodie", "abbigliamento", "completo", "kit", "sneaker", "sneakers", "calzature",
+        # Tech & equipment categories
+        "orologio", "orologi", "smartwatch", "sportwatch", "watch", "gps", "ciclocomputer",
+        "computer", "bici", "bicicletta", "ciclismo", "fascia", "fasce", "cardio",
+        "cardiofrequenzimetro", "sensore", "sensori", "frequenza", "cardiaca", "toracica",
+        "occhiali", "occhialini", "nuoto", "nuotare", "piscina", "costume", "costumi", "cuffia",
+        "zaino", "zaini", "gilet", "borraccia", "borracce", "idratazione",
+        "racchetta", "racchette", "pala", "padel", "tennis", "basket", "pallacanestro",
+        "pallavolo", "volley", "calcio", "calcetto", "scarpini", "scarpino", "scarponi",
+        "scarponcini", "futsal", "trekking", "escursionismo", "hiking", "sci", "snowboard",
+        "rullo", "rulli", "trainer", "gel", "barretta", "barrette", "integratori",
+        # Descriptors, colors, conversational words
+        "termica", "termiche", "termico", "termici", "invernale", "invernali", "estivo", "estiva",
+        "leggera", "leggere", "leggero", "leggeri", "traspirante", "traspiranti",
+        "impermeabile", "impermeabili", "antipioggia", "pioggia", "freddo", "caldo", "fango", "neve",
+        "asfalto", "strada", "montagna", "sentieri", "sentiero", "bosco", "terra", "battuta",
+        "comoda", "comode", "morbida", "morbide", "reattiva", "reattive", "veloce", "veloci",
+        "ammortizzata", "ammortizzate", "ammortizzato", "ammortizzamento", "massima", "massimo",
+        "mezza", "zip", "half", "quarter", "tasche", "tasca", "taschino", "telefono", "smartphone",
+        "vesciche", "anti", "intermedio", "avanzato", "livello", "quale", "quali",
+        "differenza", "confronta", "confronto", "buona", "buone", "buono", "buoni",
+        "valida", "valide", "valido", "validi", "vanno", "bene", "sono", "come", "cosa", "che",
+        "chi", "dove", "quando", "perche", "perché", "quanto", "dura", "durano", "calza", "calzano",
+        "alte", "alti", "bassa", "basse", "nere", "neri", "nera", "nero", "bianche", "bianchi",
+        "bianca", "bianco", "blu", "rosse", "rossi", "rossa", "rosso", "verdi", "verde", "grigio", "grigia",
+        "prezzo", "prezzi", "economiche", "economici", "online", "negozi", "negozio", "miglior",
+        "ottimo", "ottima", "sconto", "nuove", "nuova", "nuovo", "nuovi",
+        "il", "lo", "la", "i", "gli", "le", "un", "una", "uno", "del", "al", "nel", "sul", "tra", "fra", "e", "o",
+        "xs", "s", "m", "l", "xl", "xxl", "eu", "us", "uk", "tg", "gtx", "gore", "tex",
+        "pronazione", "pronatori", "iperpronazione", "antipronazione", "piedi", "piatti", "arco", "basso",
+        "stabilita", "stabilità", "supporto", "mediale", "pesanti", "peso", "chili", "ginocchia", "ginocchio",
+        "schiena", "fascite", "tendinite", "periostite", "crossfit", "pesi", "sollevamento", "funzionale",
+        "hyrox", "ripetute", "piastra", "carbonio", "sterrato", "lungo", "lunghi", "lunghe",
+        "caratteristiche", "avanzate", "funzionalita", "funzionalità", "analisi", "prestazioni",
+        "recupero", "protezione", "sole", "acqua", "venti", "vento",
+        "training", "racing", "cushioning", "outdoor", "marathon", "recovery", "road",
+        "gym", "indoor", "turf", "clay", "hybrid", "ibrido", "ibrida", "pista", "campo",
+        "misto", "entry", "level", "gamma", "versione", "edizione", "colore", "colori",
+        "sconti", "entro", "piu", "più", "altri", "altre", "alcuni", "alcune", "almeno",
+        "circa", "oppure", "non", "molto", "poco", "tanto", "troppo", "abbastanza", "ancora",
+        "economico", "economica", "caro", "costoso", "costosa", "medio", "media",
+        "rigido", "rigida", "flessibile", "stabile", "stabili", "neutro", "neutra", "neutri", "neutre",
+        "camminata", "camminare", "escursioni", "arrampicata", "triathlon", "maratonina", "mezza",
+        "10k", "5k", "42k", "21k", "daily", "allenamenti", "allenarsi", "corse", "uscite", "facili",
+        "rigeneranti", "shoe", "watches", "vest", "flask", "bottle", "goggles", "racket", "racquet",
+        "helmet", "gloves", "waterproof", "thermal", "windproof", "breathable", "lightweight",
+        "pocket", "pockets", "man", "woman", "kids", "junior", "size", "sizes", "price",
+        "under", "over", "best", "good", "versus", "compare", "comparison", "between",
+        "for", "with", "without", "and", "the", "of", "to", "from", "more", "other", "no", "si", "sì",
+    }
+
+    @classmethod
+    def detect_sub_brand_in_text(cls, text: str) -> Optional[tuple]:
+        t = (text or "").strip().lower()
+        if not t:
+            return None
+        for sb_key in sorted(cls.SUB_BRAND_TO_PARENT_BRAND.keys(), key=len, reverse=True):
+            if sb_key in ("s/lab", "s-lab"):
+                if re.search(r"\bs[/\-]lab\b", t):
+                    return cls.SUB_BRAND_TO_PARENT_BRAND[sb_key]
+            elif re.search(rf"\b{re.escape(sb_key)}\b", t):
+                return cls.SUB_BRAND_TO_PARENT_BRAND[sb_key]
+        return None
+
+    @classmethod
+    def extract_specific_entity_tokens(cls, query: str, brand: Optional[str] = None) -> List[str]:
+        """Extract specific model/sub-brand/line tokens that MUST anchor catalog retrieval and ranking."""
+        if not query:
+            return []
+        t = query.strip().lower()
+        t = re.sub(r"\bs[/\-]lab\b", " lab ", t)
+        t = re.sub(
+            r"\b(?:sotto\s*i?|sopra\s*i?|meno\s*di|pi[uù]\s*di|fino\s*a|budget\s*di?|max|min|massimo|minimo)\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\b",
+            " ",
+            t,
+        )
+        t = re.sub(r"\b\d+(?:[.,]\d+)?\s*(?:€|euro|eur|km|kg|g|mm|cm|l|ml|%)\b", " ", t)
+        t = re.sub(r"\b(?:taglia|numero|misura|tg\.?|porto\s*(?:il|la)?)\s*(?:[0-9]{2}(?:[.,][0-9])?|[xsml]{1,3})\b", " ", t)
+        t = re.sub(r"(?<![\d\.,])\b(?:3[5-9]|4[0-9])[\.,](?:5|3|7|2|8)\b", " ", t)
+        t = re.sub(r"\b(?:1\s*/\s*[24]\s*(?:di\s+)?zip|[12]\s*[/\s]\s*[24]\s*zip|2\s*in\s*1|2in1|calcio\s*a\s*[57])\b", " ", t)
+        # Strip bare integer shoe sizes when query explicitly targets shoes
+        if re.search(r"\b(scarp[ae]|scarpin[oi]|running|corsa|trail|men|mens|women|womens|uomo|donna)\b", t):
+            sz = extract_size_from_text(query)
+            if sz:
+                t = re.sub(rf"\b{re.escape(sz.lower())}\b", " ", t)
+
+        brand_toks = set()
+        if brand:
+            b_low = brand.strip().lower()
+            brand_toks.update(re.findall(r"\b[a-z0-9]+\b", b_low))
+            brand_toks.discard("the")
+        # Also strip explicit primary brand words from query so brand-relaxation passes (brand=None)
+        # do not lock entity filtering to the removed brand, while preserving sub-brand tokens.
+        sub_brand_toks = {v[1] for v in cls.SUB_BRAND_TO_PARENT_BRAND.values()} | set(cls.SUB_BRAND_TO_PARENT_BRAND.keys())
+        for kb in KNOWN_BRANDS:
+            if len(kb) >= 3 and re.search(rf"\b{re.escape(kb)}\b", t):
+                for bt in re.findall(r"\b[a-z0-9]+\b", kb.lower()):
+                    if bt not in sub_brand_toks:
+                        brand_toks.add(bt)
+
+        raw_tokens = re.findall(r"\b[a-z0-9]{2,}\b|\b\d+\b", t)
+        out: List[str] = []
+        for tok in raw_tokens:
+            if tok in cls.GENERIC_ENTITY_STOPWORDS or tok in brand_toks:
+                continue
+            if tok not in out:
+                out.append(tok)
+        return out
 
     @classmethod
     def strip_markdown_bold(cls, text: str) -> str:
@@ -1979,6 +2129,7 @@ class QueryProductGuardrail:
         cat = str(product.get("category") or "").lower()
         brand = str(product.get("brand") or "").lower().strip()
         cname = str(product.get("canonical_name") or "").lower()
+        p_gender = str(product.get("gender") or "").strip().lower()
         full_text = cls._product_full_text(product)
         q_lower = (raw_query or "").lower()
         try:
@@ -1989,10 +2140,10 @@ class QueryProductGuardrail:
         # Global junk/non-sport/accessory/kids guardrails across all searches unless explicitly requested
         if cat == "non_sport":
             return False
-        if re.search(r"\b(furygan|dainese|alpinestars|d3o\s*ghost|protezion[ei]\s+gomit|vetus|scambiatore\s+calore|garlando|calciobalilla|biliardino|barbie|bambol[ae]|panzerglass|vetro\s*temp[ea]?rato|pellicol[ae]|idrogel|hydrogel|screen\s*protector|protezion[ei]\s*(?:lo\s*)?schermo|sportenzia|second\s*hand|ricondizionat[ao])\b", full_text):
+        if re.search(r"\b(furygan|dainese|alpinestars|d3o\s*ghost|protezion[ei]\s+gomit|vetus|scambiatore\s+calore|garlando|calciobalilla|biliardino|barbie|bambol[ae]|panzerglass|vetro\s*temp[ea]?rato|pellicol[ae]|idrogel|hydrogel|screen\s*protector|protezion[ei]\s*(?:lo\s*)?schermo|sportenzia|second\s*hand|ricondizionat[ao]|trixie|pettorina\s+cani|cuccia|guinzagli[oi]|croccantin[oi]|victorinox|fiaschetta\s+trekking\s+inossidabile|invertika)\b", full_text):
             return False
         if not re.search(r"\b(junior|jr\b|bambin[oi]|kids?|ragazz[oi])\b", q_lower):
-            if re.search(r"\b(junior|\bjr\b|bambin[oi]|kids?)\b", cname):
+            if p_gender == "junior" or re.search(r"\b(junior|\bjr\b|bambin[oi]|kids?)\b", cname):
                 return False
 
         if not product_type:
@@ -2071,7 +2222,7 @@ class QueryProductGuardrail:
             if brand in cls.CASUAL_NON_RUNNING_BRANDS or any(cb in cname for cb in ["woolrich", "only t shirt", "ciao bella", "vero moda", "jack & jones"]) or re.search(r"\b(street\s*jam|nba|replica\s*jersey)\b", full_text):
                 return False
             if not re.search(
-                r"\b(long[\s-]*sleeve|longsleeve|manic(?:a|he)\s*lung(?:a|he)|l/s\b|\bls\b|half[\s-]*zip|1\s*[/\s]\s*[24][\s-]*zip|quarter[\s-]*zip|mezza\s*zip|maglia\s*termica|intimo\s*termico|active\s*warm|run\s*warm|warmalite|warm\b|termic[ao]|midlayer|mid[\s-]*layer|crew\s*neck)\b",
+                r"\b(long[\s-]*sleeve|longsleeve|manic(?:a|he)\s*lung(?:a|he)|l/s\b|\bls\b|half[\s-]*zip|1\s*[/\s]\s*[24][\s-]*(?:di\s+)?zip|quarter[\s-]*zip|mezza\s*zip|maglia\s*termica|intimo\s*termico|active\s*warm|run\s*warm|warmalite|warm\b|termic[ao]|midlayer|mid[\s-]*layer|crew\s*neck)\b",
                 full_text
             ):
                 return False
@@ -2081,18 +2232,38 @@ class QueryProductGuardrail:
             if cat in {"running_shoes", "shoes", "gps_watch", "eyewear", "hydration", "nutrition", "padel", "cycling", "pants", "jacket", "socks", "underwear", "swim", "bag", "gloves", "strap", "mount", "case"}:
                 return False
             if re.search(
-                r"\b(scarp[ae]|shoe|sneaker|cappellin[oi]|\bcap\b|berrett[oi]|calz[ae]|calzin[oi]|pantaloncin[oi]|shorts?|leggings|tights|pantalon[ie]|zain[oi]|borracc(?:ia|e)|orologi[o]?|piumino|giacc(?:a|he)|jacket|long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)|canott[ae]|singlet|sleeveless|reggiseno|\bbra\b|slip|boxer)\b",
+                r"\b(scarp[ae]|shoe|sneaker|cappellin[oi]|\bcap\b|berrett[oi]|calz[ae]|calzin[oi]|pantaloncin[oi]|shorts?|leggings|tights|pantalon[ie]|zain[oi]|borracc(?:ia|e)|orologi[o]?|piumino|giacc(?:a|he)|jacket|canott[ae]|singlet|sleeveless|reggiseno|\bbra\b|slip|boxer)\b",
                 full_text
             ):
                 return False
+            if re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae]|t[\s-]*shirt|magliett[ae])\b", q_lower):
+                if re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he))\b", full_text):
+                    return False
             if brand in cls.CASUAL_NON_RUNNING_BRANDS:
                 return False
-            return bool(re.search(r"\b(t[\s-]*shirt|magli[ae]|magliett[ae]|short[\s-]*sleeve|manic(?:a|he)\s*cort[ae]|top|tee\b)\b", full_text))
+            return bool(re.search(r"\b(t[\s-]*shirt|tshirt|magli[ae]|magliett[ae]|short[\s-]*sleeve|manic(?:a|he)\s*cort[ae]|long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)|top|tee\b)\b", full_text))
 
         if product_type == "singlet_top":
             if cat in {"running_shoes", "shoes", "gps_watch", "eyewear", "hydration", "nutrition", "pants", "jacket", "socks"}:
                 return False
             return bool(re.search(r"\b(canott[ae]|canottier[ae]|singlet|tank\s*top|sleeveless|smanicat[ao])\b", full_text))
+
+        if product_type == "top":
+            if cat in {
+                "running_shoes", "trail_running", "shoes", "football_boots", "gps_watch",
+                "eyewear", "hydration", "nutrition", "padel", "cycling", "pants", "jacket",
+                "socks", "underwear", "swim", "bag", "gloves", "strap", "mount", "case",
+                "gear", "racket", "sensor", "tennis", "basketball", "winter_sports"
+            }:
+                return False
+            if re.search(
+                r"\b(scarp[ae]|shoe|sneaker|cappellin[oi]|\bcap\b|berrett[oi]|beanie|visier[ae]|calz[ae]|calzin[oi]|socks?|pantaloncin[oi]|shorts?|leggings|tights|fuseaux|pantalon[ie]|zain[oi]|backpack|borracc(?:ia|e)|flask|fiaschett[ae]|pettorin[ae]|orologi[o]?|smartwatch|occhial[ie]|piumino|giacc(?:a|he)|jacket|scaldacollo)\b",
+                full_text
+            ):
+                return False
+            if brand in cls.CASUAL_NON_RUNNING_BRANDS:
+                return False
+            return cat in ("top", "apparel") or bool(re.search(r"\b(t[\s-]*shirt|tshirt|magli[ae]|magliett[ae]|canott[ae]|singlet|long[\s-]*sleeve|short[\s-]*sleeve|manic(?:a|he)|felp[ae]|hoodie|zip|top|tee\b)\b", full_text))
 
         if product_type == "jacket":
             if cat in {"running_shoes", "shoes", "gps_watch", "eyewear", "hydration", "nutrition", "pants", "socks", "strap", "mount"}:
@@ -2282,6 +2453,7 @@ class QueryProductGuardrail:
         if not kw:
             return ""
         kw_low = kw.strip().lower()
+        kw_low = re.sub(r"\bs[/\-]lab\b", "lab", kw_low)
         # Strip explicit price/size/budget phrases before tokenizing so filter values ("50", "160", "42", "44,5") don't become SKU keywords
         kw_low = re.sub(
             r"\b(?:sotto\s*i?|sopra\s*i?|meno\s*di|pi[uù]\s*di|fino\s*a|budget\s*di?|max|min|massimo|minimo)\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\b",
@@ -2310,7 +2482,11 @@ class QueryProductGuardrail:
                 return kw_low
 
         tokens = re.findall(r"\b[a-zA-Z0-9\-\.]+\b", kw_low)
-        meaningful = [t for t in tokens if t not in cls.SPORT_CONTEXT_STOPWORDS]
+        has_apparel_ctx = any(t in ("maglia", "maglietta", "t-shirt", "tshirt", "giacca", "pantaloncini", "pantaloni", "shorts", "canotta") for t in tokens)
+        meaningful = [
+            t for t in tokens
+            if (t not in cls.SPORT_CONTEXT_STOPWORDS) or (has_apparel_ctx and t == "trail")
+        ]
         if meaningful:
             return " ".join(meaningful)
         return ""
@@ -2321,7 +2497,10 @@ class QueryProductGuardrail:
         "gara", "trail", "palestra", "training", "orologio", "orologi", "smartwatch",
         "sportwatch", "sport watch", "gps", "cardiofrequenzimetro", "ciclocomputer",
         "maglia", "t-shirt", "top", "pantaloncini", "pantaloni", "pants", "giacca",
-        "calze", "occhiali", "zaino", "racchetta", "padel", "frequenza cardiaca", "monitoraggio"
+        "calze", "occhiali", "zaino", "racchetta", "padel", "frequenza cardiaca", "monitoraggio",
+        "comfort", "supporto", "stabilita", "stabilità", "leggerezza", "reattivita",
+        "reattività", "traspirabilita", "traspirabilità", "principianti", "principiante",
+        "iniziare", "protezione", "morbidi", "morbide", "versatili", "versatile",
     }
 
     @classmethod
@@ -2331,12 +2510,18 @@ class QueryProductGuardrail:
         product_type: Optional[str],
         brand: Optional[str],
         existing_keywords: List[str],
-        intent_extra_keywords: Optional[List[str]] = None
+        intent_extra_keywords: Optional[List[str]] = None,
+        context_query: Optional[str] = None,
     ) -> List[str]:
         q_low = (raw_query or "").strip().lower()
         brand_low = (brand or "").strip().lower()
         result: List[str] = []
         deferred_generic: List[str] = []
+
+        spec_tokens = cls.extract_specific_entity_tokens(raw_query, brand=brand)
+        if not spec_tokens and context_query and not cls.is_category_switch(raw_query, context_query):
+            spec_tokens = cls.extract_specific_entity_tokens(context_query, brand=brand)
+        spec_token_set = set(spec_tokens)
 
         def _add(k: str):
             k_clean = k.strip().lower()
@@ -2349,9 +2534,34 @@ class QueryProductGuardrail:
             if k_clean not in result:
                 result.append(k_clean)
 
+        # 0. When specific entity/model/sub-brand tokens exist (e.g. 'acg', 'terrex', 'radical airflow nxt', 's/lab'),
+        # anchor target_keywords directly on those specific tokens and bilingual product-type variants!
+        if spec_tokens:
+            entity_phrase = " ".join(spec_tokens)
+            if product_type == "long_sleeve_top":
+                _add(f"{entity_phrase} manica lunga")
+                _add(f"{entity_phrase} long sleeve")
+            elif product_type == "short_sleeve_top":
+                _add(f"{entity_phrase} maglia")
+                _add(f"{entity_phrase} tshirt")
+            elif product_type == "jacket":
+                _add(f"{entity_phrase} giacca")
+                _add(f"{entity_phrase} jacket")
+            elif product_type == "pants_shorts":
+                _add(f"{entity_phrase} pantaloncini")
+                _add(f"{entity_phrase} shorts")
+            if brand_low and brand_low not in entity_phrase:
+                _add(f"{brand_low} {entity_phrase}")
+            _add(entity_phrase)
+            if len(spec_tokens) >= 3:
+                _add(" ".join(spec_tokens[:3]))
+            if len(spec_tokens) >= 2:
+                _add(" ".join(spec_tokens[:2]))
+                _add(" ".join(spec_tokens[1:]))
+
         # 1. If user searched a broad brand (e.g. "Nike", "Adidas", "Asics", "Hoka", "Garmin"),
         # prioritize the brand's flagship models first so the catalog returns iconic products!
-        if brand_low and brand_low in BRAND_POPULAR_MODELS and product_type in (None, "shoes", "gps_watch"):
+        if not spec_tokens and brand_low and brand_low in BRAND_POPULAR_MODELS and product_type in (None, "shoes", "gps_watch"):
             q_without_size = re.sub(r"(?<![\d\.,])\b(?:3[5-9]|4[0-9])[\.,](?:5|3|7|2|8)\b", " ", q_low)
             non_brand_tokens = [
                 t for t in re.findall(r"\b[a-zA-Z0-9]+\b", q_without_size)
@@ -2362,17 +2572,50 @@ class QueryProductGuardrail:
                     _add(m)
                 _add(brand_low)
 
+        def _is_competing_brand_kw(k_str: str) -> bool:
+            if not brand_low:
+                return False
+            b_norms = {brand_low, brand_low.replace("-", " "), brand_low.replace(" ", "-")}
+            if any(bn in k_str for bn in b_norms):
+                return False
+            from fitmatch.matcher.normalizer import KNOWN_BRANDS as _KB
+            for kb in _KB:
+                if kb not in b_norms and len(kb) >= 3 and re.search(rf"\b{re.escape(kb)}\b", k_str):
+                    return True
+            for sb_k, (parent_b, _) in cls.SUB_BRAND_TO_PARENT_BRAND.items():
+                if parent_b.lower() not in b_norms and re.search(rf"\b{re.escape(sb_k)}\b", k_str):
+                    return True
+            return False
+
         # 2. Clean and add specific existing keywords from parser/LLM
         for kw in (existing_keywords or []):
             cleaned = cls.clean_keyword_for_catalog(kw)
             if cleaned:
+                if spec_token_set:
+                    cleaned_toks = set(re.findall(r"\b[a-z0-9]+\b", cleaned))
+                    if not cleaned_toks.intersection(spec_token_set):
+                        continue
                 _add(cleaned)
 
         # 3. Add specific model keywords extracted from spotlight, spec_comparisons, and curated_sections
         for kw in (intent_extra_keywords or []):
             cleaned = cls.clean_keyword_for_catalog(kw)
             if cleaned:
+                if spec_token_set:
+                    cleaned_toks = set(re.findall(r"\b[a-z0-9]+\b", cleaned))
+                    if not cleaned_toks.intersection(spec_token_set):
+                        continue
+                elif _is_competing_brand_kw(cleaned):
+                    continue
                 _add(cleaned)
+
+        # If specific entity tokens were already provided by the user, DO NOT dilute with unrelated generic brand/model templates!
+        if spec_tokens:
+            if len(spec_tokens[0]) >= 3:
+                _add(spec_tokens[0])
+            if brand_low and len(result) < 3:
+                _add(brand_low)
+            return result[:12]
 
         # 4. Domain-specific flagship model expansions by product_type / archetype
         archetype_models: List[str] = []
@@ -2534,8 +2777,11 @@ class QueryProductGuardrail:
                 ]
 
         for m in archetype_models:
-            if brand_low and product_type in ("shoes", "gps_watch", "heart_rate_monitor", "bike_computer", "padel_racket", "basketball_shoes", "tennis_shoes", "volleyball_shoes"):
-                if brand_low in m or any(bv in m for bv in (brand_low.replace("-", " "),)):
+            if brand_low:
+                if product_type in ("shoes", "gps_watch", "heart_rate_monitor", "bike_computer", "padel_racket", "basketball_shoes", "tennis_shoes", "volleyball_shoes"):
+                    if brand_low in m or any(bv in m for bv in (brand_low.replace("-", " "),)):
+                        _add(m)
+                elif not _is_competing_brand_kw(m):
                     _add(m)
             else:
                 _add(m)
@@ -2582,24 +2828,35 @@ class QueryProductGuardrail:
         ):
             intent.is_conversational_advice = False
 
-        # 0. Prevent LLM from hallucinating a brand filter when the user didn't mention a brand or brand-specific model
+        # 0. Prevent LLM from hallucinating a brand filter when the user didn't mention a brand or brand-specific model,
+        #    while recognizing sub-brands/lines (ACG -> Nike, Terrex -> Adidas, S/Lab -> Salomon, etc.)
+        brand_check_text = q_low if cls.is_category_switch(user_query, context_query) else combined_q
+        sub_brand_info = cls.detect_sub_brand_in_text(brand_check_text)
+        if not intent.brand and sub_brand_info:
+            intent.brand = sub_brand_info[0]
         if intent.brand:
             b_low = intent.brand.strip().lower()
             b_variants = {b_low, b_low.replace("-", " "), b_low.replace(" ", "-")}
-            brand_check_text = q_low if cls.is_category_switch(user_query, context_query) else combined_q
             explicit_brand_in_q = any(re.search(rf"\b{re.escape(bv)}\b", brand_check_text) for bv in b_variants)
             if not explicit_brand_in_q:
-                from fitmatch.matcher.normalizer import ICONIC_MODEL_BRANDS
-                implied_brand = None
-                for mod_kw, mod_brand in ICONIC_MODEL_BRANDS.items():
-                    if re.search(rf"\b{re.escape(mod_kw)}\b", brand_check_text):
-                        implied_brand = mod_brand
-                        break
-                if implied_brand and implied_brand.lower() in b_variants:
-                    intent.brand = implied_brand
+                if sub_brand_info and sub_brand_info[0].lower() in b_variants:
+                    intent.brand = sub_brand_info[0]
                 else:
-                    intent.brand = None
-                    intent.chips = [c for c in (intent.chips or []) if c.param_key != "brand"]
+                    from fitmatch.matcher.normalizer import ICONIC_MODEL_BRANDS
+                    implied_brand = None
+                    for mod_kw, mod_brand in ICONIC_MODEL_BRANDS.items():
+                        if re.search(rf"\b{re.escape(mod_kw)}\b", brand_check_text):
+                            implied_brand = mod_brand
+                            break
+                    if implied_brand and implied_brand.lower() in b_variants:
+                        intent.brand = implied_brand
+                    else:
+                        intent.brand = None
+                        intent.chips = [c for c in (intent.chips or []) if c.param_key != "brand"]
+
+        spec_tokens = cls.extract_specific_entity_tokens(user_query, brand=intent.brand)
+        if not spec_tokens and context_query and not cls.is_category_switch(user_query, context_query):
+            spec_tokens = cls.extract_specific_entity_tokens(context_query, brand=intent.brand)
 
         # 1. Fix category based on detected product_type
         if product_type == "long_sleeve_top" or product_type == "short_sleeve_top" or product_type == "singlet_top":
@@ -2645,6 +2902,10 @@ class QueryProductGuardrail:
                 intent.category = "running_shoes"
             if re.search(r"\b(trail|sterrato|sentier)\b", q_low) and intent.category == "running_shoes":
                 intent.category = "trail_running"
+        elif spec_tokens and not re.search(r"\b(trail|sterrato|sentier|outdoor|running|corsa|scarpe|maglia|giacca|pantalon|zaino|orolog|watch|calcio|padel|tennis|basket|nuoto)\b", q_low):
+            # Model/entity-only query (e.g. 'ACG Radical AirFlow NXT', 'Salomon S/Lab'):
+            # do not let guessed categories filter out the actual catalog product category.
+            intent.category = None
 
         # 2. Populate domain structure defaults only when not already tailored (preserve follow-up / constrained / OpenRouter text!)
         has_active_filters = bool(
@@ -2658,18 +2919,19 @@ class QueryProductGuardrail:
         )
         template_key = None
         template_header = None
-        if "hyrox" in q_low and product_type == "shoes" and not intent.brand:
-            template_key = "hyrox"
-            template_header = "Ho cercato Scarpe Hyrox"
-        elif product_type == "long_sleeve_top" and not intent.brand:
-            template_key = "running_apparel_long_sleeve"
-            template_header = "Ho cercato Maglie a Manica Lunga da Corsa"
-        elif product_type == "heart_rate_monitor" and not intent.brand:
-            template_key = "heart_rate_monitor"
-            template_header = "Ho cercato Fasce Cardio & Sensori Frequenza Cardiaca"
-        elif product_type == "bike_computer" and not intent.brand:
-            template_key = "bike_computer"
-            template_header = "Ho cercato Ciclocomputer GPS"
+        if not spec_tokens:
+            if "hyrox" in q_low and product_type == "shoes" and not intent.brand:
+                template_key = "hyrox"
+                template_header = "Ho cercato Scarpe Hyrox"
+            elif product_type == "long_sleeve_top" and not intent.brand:
+                template_key = "running_apparel_long_sleeve"
+                template_header = "Ho cercato Maglie a Manica Lunga da Corsa"
+            elif product_type == "heart_rate_monitor" and not intent.brand:
+                template_key = "heart_rate_monitor"
+                template_header = "Ho cercato Fasce Cardio & Sensori Frequenza Cardiaca"
+            elif product_type == "bike_computer" and not intent.brand:
+                template_key = "bike_computer"
+                template_header = "Ho cercato Ciclocomputer GPS"
 
         if template_key and template_key in SPORTS_KNOWLEDGE:
             tmpl = SPORTS_KNOWLEDGE[template_key]
@@ -2705,6 +2967,7 @@ class QueryProductGuardrail:
             brand=intent.brand,
             existing_keywords=intent.target_keywords,
             intent_extra_keywords=intent_extra_kws,
+            context_query=context_query,
         )
 
         # Ensure exact user model query (with model number) is honored in spotlight and top keyword
@@ -3557,12 +3820,13 @@ class LocalHeuristicParser:
             fuzzy_matched = False
             has_qmark = w.endswith("?")
             w_core = clean_w.rstrip("?.,!;:")
-            for m in KNOWN_MODELS:
-                max_d = 2 if len(m) >= 7 else 1
-                if w_core and _lev(w_core, m) <= max_d:
-                    cleaned_words.append(f"{m}?" if has_qmark else m)
-                    fuzzy_matched = True
-                    break
+            if len(w_core) >= 4 and w_core not in {"match", "march", "magic", "basic", "short", "pasta"}:
+                for m in KNOWN_MODELS:
+                    max_d = 2 if len(m) >= 7 else 1
+                    if w_core and _lev(w_core, m) <= max_d:
+                        cleaned_words.append(f"{m}?" if has_qmark else m)
+                        fuzzy_matched = True
+                        break
             if not fuzzy_matched:
                 cleaned_words.append(clean_w)
 
@@ -3667,7 +3931,7 @@ class LocalHeuristicParser:
         elif re.search(r"\b(uomo|uomini|ragazzo|maschil[eia]|mens?|men)\b", text):
             gender = "Uomo"
 
-        # 4. Brand extraction (longest match first)
+        # 4. Brand extraction (longest match first, then sub-brands/lines)
         detected_brand = None
         for b in sorted(KNOWN_BRANDS, key=len, reverse=True):
             if re.search(rf"\b{re.escape(b)}\b", text):
@@ -3682,6 +3946,10 @@ class LocalHeuristicParser:
                 else:
                     detected_brand = b.capitalize()
                 break
+        if not detected_brand:
+            sub_b = QueryProductGuardrail.detect_sub_brand_in_text(text)
+            if sub_b:
+                detected_brand = sub_b[0]
 
         # 5. Domain Category & Archetype Detection
         archetype_key = "daily_trainer"
@@ -3708,9 +3976,9 @@ class LocalHeuristicParser:
             archetype_key = "running_shorts"
         elif is_pants:
             archetype_key = "running_pants"
-        elif re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|1/2\s*zip|half[\s-]*zip|mezza\s*zip)\b", text):
+        elif re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|1/2\s*zip|1/4\s*zip|half[\s-]*zip|quarter[\s-]*zip|mezza\s*zip)\b", text):
             archetype_key = "running_apparel_long_sleeve"
-        elif re.search(r"\b(t[\s-]*shirt|magliett[ae]|magli[ae]\s*(?:da\s*)?(?:running|corsa|trail)|canott[ae]|singlet|abbigliamento\s*(?:running|corsa))\b", text) or is_short_sleeve:
+        elif re.search(r"\b(t[\s-]*shirt|tshirt|magliett[ae]|magli[ae](?!\s*(?:cinturin|orolog))|canott[ae]|singlet|abbigliamento\s*(?:running|corsa|trail))\b", text) or is_short_sleeve:
             archetype_key = "running_apparel"
         elif re.search(r"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way|gilet\s*antivento|guscio)\b", text):
             archetype_key = "jacket"
@@ -3856,6 +4124,18 @@ class LocalHeuristicParser:
         arch = SPORTS_KNOWLEDGE.get(archetype_key, SPORTS_KNOWLEDGE["daily_trainer"])
         category = arch["category"]
 
+        cur_ptype = QueryProductGuardrail.detect_product_type(user_query, context_query=ctx_text or None)
+        spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(text, brand=detected_brand)
+        if not spec_tokens and has_any_context and not QueryProductGuardrail.is_category_switch(user_query, context_query=ctx_text, session_context=session_context):
+            ctx_probe = ctx_text or str((session_context or {}).get("last_search_query") or "")
+            spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(ctx_probe, brand=detected_brand)
+
+        if spec_tokens and cur_ptype is None and not re.search(
+            r"\b(trail|sterrato|sentier|outdoor|running|corsa|scarpe|maglia|giacca|pantalon|zaino|orolog|watch|calcio|padel|tennis|basket|nuoto)\b",
+            text,
+        ):
+            category = None
+
         # 6. Generate Target Keywords
         mentioned_models = FitMatchSportsAdvisor.extract_mentioned_models(text)
         _MOD_SUF = r"(?:\s+(?:\d+(?:[.,]\d+)?|v\d+|pro|elite|ultra|plus|max|lite|wide|gtx|gore[\s-]*tex|trail|tf|ag|fg|mg|music|solar|se|sl|evo|control|speed|sweep))?"
@@ -3888,6 +4168,24 @@ class LocalHeuristicParser:
                 target_keywords = [f"{detected_brand.lower()} {exact_val}", exact_val]
             else:
                 target_keywords = [exact_val]
+        elif spec_tokens:
+            target_keywords = QueryProductGuardrail.expand_keywords(
+                raw_query=text,
+                product_type=cur_ptype,
+                brand=detected_brand,
+                existing_keywords=[],
+                context_query=ctx_text or None,
+            )
+            feature_kw_boost: List[str] = []
+            entity_phrase = " ".join(spec_tokens)
+            if is_half_zip:
+                feature_kw_boost.extend([f"{entity_phrase} half zip", f"{entity_phrase} 1/2 zip", "half zip"])
+            if is_thermal:
+                feature_kw_boost.extend([f"{entity_phrase} warm", f"{entity_phrase} termica"])
+            if is_pockets:
+                feature_kw_boost.extend([f"{entity_phrase} tasche", f"{entity_phrase} 2in1"])
+            if feature_kw_boost:
+                target_keywords = list(dict.fromkeys(feature_kw_boost + list(target_keywords or [])))[:10]
         else:
             numeric_filter_values = set()
             if max_price:
@@ -3936,7 +4234,17 @@ class LocalHeuristicParser:
                 w for w in re.findall(r"\b[a-zA-Z0-9]+\b", clean_tok_text)
                 if w not in stopwords and w not in numeric_filter_values and len(w) > 1
             ]
-            if tokens and len(tokens) >= 2 and archetype_key in ("daily_trainer", "running_shorts", "running_pants", "running_apparel") and not detected_brand:
+            if "trail" in text and detected_brand and archetype_key in ("running_apparel", "running_apparel_long_sleeve", "jacket", "running_shorts", "running_pants"):
+                b_low_t = detected_brand.lower()
+                garment_w = (
+                    "manica lunga" if archetype_key == "running_apparel_long_sleeve"
+                    else "giacca" if archetype_key == "jacket"
+                    else "pantaloncini" if archetype_key == "running_shorts"
+                    else "pantaloni" if archetype_key == "running_pants"
+                    else "maglia"
+                )
+                target_keywords = [f"{b_low_t} trail {garment_w}", f"{b_low_t} trail", f"{b_low_t} {garment_w}", b_low_t]
+            elif tokens and len(tokens) >= 2 and archetype_key in ("daily_trainer", "running_shorts", "running_pants", "running_apparel") and not detected_brand:
                 target_keywords = [" ".join(tokens), tokens[0]]
             elif archetype_key not in ("daily_trainer",) and detected_brand and any(detected_brand.lower() in m for m in arch.get("models", [])):
                 brand_lower = detected_brand.lower()
@@ -4023,6 +4331,35 @@ class LocalHeuristicParser:
 
         # 9. Conversational Header & Summary (Exact Shopify Shop style)
         is_short_sleeve = bool(re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b", text))
+        header_qualifiers: List[str] = []
+        summary_qualifiers: List[str] = []
+        if gender:
+            header_qualifiers.append(gender)
+            summary_qualifiers.append(f"da {gender.lower()}")
+        if is_half_zip:
+            header_qualifiers.append("Mezza Zip")
+            summary_qualifiers.append("con mezza zip (1/2 zip)")
+        if is_thermal and archetype_key == "running_apparel_long_sleeve":
+            header_qualifiers.append("Termiche")
+            summary_qualifiers.append("termiche / invernali")
+        if is_pockets:
+            header_qualifiers.append("Con Tasche")
+            summary_qualifiers.append("con tasche")
+        if is_waterproof:
+            header_qualifiers.append("Impermeabili / GTX")
+            summary_qualifiers.append("impermeabili / Gore-Tex")
+        if max_price is not None:
+            p_str = f"€{int(max_price) if float(max_price).is_integer() else max_price}"
+            header_qualifiers.append(f"fino a {p_str}")
+            summary_qualifiers.append(f"entro {p_str}")
+        if min_price is not None:
+            p_str = f"€{int(min_price) if float(min_price).is_integer() else min_price}"
+            header_qualifiers.append(f"da {p_str}")
+            summary_qualifiers.append(f"da almeno {p_str}")
+        if size:
+            header_qualifiers.append(f"Taglia {size}")
+            summary_qualifiers.append(f"in taglia **{size}**")
+
         if is_multi_model_comparison:
             comp_names = [m[0] for m in mentioned_models[:3]]
             comp_title = " vs ".join(comp_names[:2])
@@ -4069,41 +4406,54 @@ class LocalHeuristicParser:
                         subtitle=s["subtitle"],
                         keywords=s.get("keywords", target_keywords[:2])
                     ))
+        elif spec_tokens:
+            _ACRO = {"acg", "nxt", "gtx", "uv", "adv", "sl", "sg", "ag", "tf", "fg", "mg", "se", "pro", "hr", "hrm", "gps"}
+            fmt_tokens = [t.upper() if t in _ACRO else t.title() for t in spec_tokens]
+            raw_entity = " ".join(fmt_tokens)
+            if detected_brand and detected_brand.lower() not in raw_entity.lower():
+                entity_title = f"{detected_brand} {raw_entity}"
+            else:
+                entity_title = raw_entity
+
+            ptype_prefix_map = {
+                "long_sleeve_top": f"Maglie a Manica Lunga {entity_title}",
+                "short_sleeve_top": f"Maglie {entity_title}",
+                "singlet_top": f"Canotte {entity_title}",
+                "jacket": f"Giacche {entity_title}",
+                "pants_shorts": f"Pantaloni & Shorts {entity_title}",
+                "socks": f"Calze {entity_title}",
+                "shoes": f"Scarpe {entity_title}",
+            }
+            clean_subject = ptype_prefix_map.get(cur_ptype, entity_title)
+            if header_qualifiers:
+                conversational_header = f"{clean_subject} — {' · '.join(header_qualifiers)}"
+                qual_desc = ", ".join(summary_qualifiers)
+                conversational_summary = (
+                    f"Ecco i modelli **{clean_subject}** filtrati per {qual_desc}, "
+                    f"confrontati in tempo reale al miglior prezzo disponibile:"
+                )
+            else:
+                conversational_header = f"Ho cercato {clean_subject}"
+                conversational_summary = (
+                    f"Ecco i modelli **{clean_subject}** disponibili in catalogo, "
+                    f"confrontati in tempo reale tra tutti i negozi partner:"
+                )
+            curated_sections = [
+                CuratedSectionDef(
+                    id="sec_entity_primary",
+                    title=f"Modelli {clean_subject}",
+                    subtitle=f"Tutti i prodotti {entity_title} trovati al miglior prezzo verificato.",
+                    keywords=target_keywords[:4]
+                )
+            ]
         else:
             clean_subject = detected_brand or arch["label"]
-            if detected_brand and ("scarpe" in text or archetype_key in ("daily_trainer", "beginner_running")):
+            if "trail" in text and detected_brand and archetype_key in ("running_apparel", "running_apparel_long_sleeve", "jacket"):
+                clean_subject = f"Abbigliamento Trail {detected_brand}"
+            elif detected_brand and ("scarpe" in text or archetype_key in ("daily_trainer", "beginner_running")):
                 clean_subject = f"{arch['label']} {detected_brand}" if archetype_key == "beginner_running" else f"Scarpe da Corsa {detected_brand}"
             elif detected_brand and archetype_key != "daily_trainer":
                 clean_subject = f"{arch['label']} {detected_brand}"
-
-            header_qualifiers: List[str] = []
-            summary_qualifiers: List[str] = []
-            if gender:
-                header_qualifiers.append(gender)
-                summary_qualifiers.append(f"da {gender.lower()}")
-            if is_half_zip:
-                header_qualifiers.append("Mezza Zip")
-                summary_qualifiers.append("con mezza zip (1/2 zip)")
-            if is_thermal and archetype_key == "running_apparel_long_sleeve":
-                header_qualifiers.append("Termiche")
-                summary_qualifiers.append("termiche / invernali")
-            if is_pockets:
-                header_qualifiers.append("Con Tasche")
-                summary_qualifiers.append("con tasche")
-            if is_waterproof:
-                header_qualifiers.append("Impermeabili / GTX")
-                summary_qualifiers.append("impermeabili / Gore-Tex")
-            if max_price is not None:
-                p_str = f"€{int(max_price) if float(max_price).is_integer() else max_price}"
-                header_qualifiers.append(f"fino a {p_str}")
-                summary_qualifiers.append(f"entro {p_str}")
-            if min_price is not None:
-                p_str = f"€{int(min_price) if float(min_price).is_integer() else min_price}"
-                header_qualifiers.append(f"da {p_str}")
-                summary_qualifiers.append(f"da almeno {p_str}")
-            if size:
-                header_qualifiers.append(f"Taglia {size}")
-                summary_qualifiers.append(f"in taglia **{size}**")
 
             base_header = f"Ho cercato {clean_subject}" if clean_subject else "Ho cercato prodotti"
             if header_qualifiers:
@@ -4139,16 +4489,19 @@ class LocalHeuristicParser:
                 ))
 
         # 11. Structured Comparative Spec Cards ("Come orientarsi" - Exact Shopify Shop style)
-        spec_comparisons_raw = arch.get("spec_comparisons", [])
-        spec_comparisons = [
-            SpecComparisonDef(
-                model_name=s["model_name"],
-                ideal_for=s["ideal_for"],
-                strengths=s["strengths"],
-                target_keyword=s.get("target_keyword")
-            )
-            for s in spec_comparisons_raw
-        ]
+        if spec_tokens and not exact_model_match and not is_multi_model_comparison:
+            spec_comparisons = []
+        else:
+            spec_comparisons_raw = arch.get("spec_comparisons", [])
+            spec_comparisons = [
+                SpecComparisonDef(
+                    model_name=s["model_name"],
+                    ideal_for=s["ideal_for"],
+                    strengths=s["strengths"],
+                    target_keyword=s.get("target_keyword")
+                )
+                for s in spec_comparisons_raw
+            ]
 
         # Specialized GPS Watch & Multi-Turn Follow-Up Handling
         is_forerunner_165 = archetype_key == "gps_watch" and ("165" in text and ("forerunner" in text or "garmin" in text or "forerunner" in ctx_text or "garmin" in ctx_text))
@@ -4550,6 +4903,17 @@ class LocalHeuristicParser:
                         f"Modello di riferimento {clean_subject} per massime prestazioni",
                         "Materiali tecnici avanzati e ammortizzazione performante",
                         "Miglior offerta verificata in tempo reale tra i partner"
+                    ]
+                )
+            elif spec_tokens:
+                default_spot_kw = target_keywords[0] if target_keywords else " ".join(spec_tokens)
+                spotlight_def = SpotlightDef(
+                    target_keyword=default_spot_kw,
+                    badge_text="Miglior Scelta",
+                    highlights=[
+                        f"Modello {clean_subject} selezionato dal catalogo",
+                        "Specifiche tecniche e vestibilità verificate",
+                        "Prezzo confrontato in tempo reale tra i negozi partner"
                     ]
                 )
             else:
@@ -5312,6 +5676,10 @@ class ConversationContextMerger:
                 else:
                     out["brand"] = b.capitalize()
                 break
+        if "brand" not in out:
+            sub_b = QueryProductGuardrail.detect_sub_brand_in_text(t)
+            if sub_b:
+                out["brand"] = sub_b[0]
 
         turn_features: List[str] = []
         if re.search(r"\b(impermeabil[ei]|gtx|gore[\s-]tex|pioggia|fango)\b", t):
@@ -5334,9 +5702,9 @@ class ConversationContextMerger:
             out["archetype_key"] = "running_shorts"
         elif is_pants_t:
             out["archetype_key"] = "running_pants"
-        elif re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|1/2\s*zip|half[\s-]*zip|mezza\s*zip)\b", t):
+        elif re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|1/2\s*zip|1/4\s*zip|half[\s-]*zip|quarter[\s-]*zip|mezza\s*zip)\b", t):
             out["archetype_key"] = "running_apparel_long_sleeve"
-        elif re.search(r"\b(t[\s-]*shirt|magliett[ae]|magli[ae]\s*(?:da\s*)?(?:running|corsa|trail)|canott[ae]|singlet|abbigliamento\s*(?:running|corsa))\b", t) or is_short_sleeve_t:
+        elif re.search(r"\b(t[\s-]*shirt|tshirt|magliett[ae]|magli[ae](?!\s*(?:cinturin|orolog))|canott[ae]|singlet|abbigliamento\s*(?:running|corsa|trail))\b", t) or is_short_sleeve_t:
             out["archetype_key"] = "running_apparel"
         elif re.search(r"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way|gilet\s*antivento|guscio)\b", t):
             out["archetype_key"] = "jacket"
@@ -5633,6 +6001,8 @@ class SmartSearchEngine:
         if len(FitMatchSportsAdvisor.extract_mentioned_models(q)) >= 2:
             return True
         if self.is_more_examples_query(q) or self.is_complex_natural_query(q) or intent.source == "openrouter":
+            return True
+        if QueryProductGuardrail.extract_specific_entity_tokens(q, brand=intent.brand):
             return True
         if context_query and context_query.strip():
             return True

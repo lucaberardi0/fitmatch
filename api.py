@@ -771,6 +771,9 @@ def _execute_smart_search(
 
     from fitmatch.smart_search import QueryProductGuardrail, ConversationContextMerger
     detected_product_type = QueryProductGuardrail.detect_product_type(q, eff_resolved_context)
+    spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(q, brand=intent.brand)
+    if not spec_tokens and eff_resolved_context and not QueryProductGuardrail.is_category_switch(q, eff_resolved_context, session_context=session_context):
+        spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(eff_resolved_context, brand=intent.brand)
 
     # Use explicit query overrides if user modified/toggled active chips
     eff_max_price = eff_max_price_param if eff_max_price_param is not None else intent.max_price
@@ -828,6 +831,32 @@ def _execute_smart_search(
         )
 
     guardrail_query = f"{eff_resolved_context} {q}".strip() if eff_resolved_context else q
+
+    # Catalog-grounded category & product_type sync for model-only queries (e.g. 'ACG Radical AirFlow NXT')
+    if detected_product_type is None and products and spec_tokens:
+        from collections import Counter
+        top_sample = products[:8]
+        cat_counts = Counter((p.get("category") or "").lower() for p in top_sample if p.get("category"))
+        if cat_counts:
+            dom_cat, dom_count = cat_counts.most_common(1)[0]
+            share = dom_count / len(top_sample)
+            if share >= 0.70:
+                if eff_category is None:
+                    eff_category = dom_cat
+                    intent.category = dom_cat
+                cat_to_ptype = {
+                    "top": "top", "apparel": "top", "jacket": "jacket",
+                    "pants": "pants_shorts", "socks": "socks",
+                    "sensor": "heart_rate_monitor", "gps_watch": "gps_watch",
+                    "eyewear": "eyewear", "hydration": "hydration", "swim": "swim",
+                    "football_boots": "football_boots", "padel": "padel_racket",
+                    "tennis": "tennis_racket", "basketball": "basketball",
+                    "winter_sports": "winter_sports", "nutrition": "nutrition",
+                }
+                if dom_cat in cat_to_ptype:
+                    detected_product_type = cat_to_ptype[dom_cat]
+                elif dom_cat in ("running_shoes", "trail_running", "shoes") and share >= 0.75:
+                    detected_product_type = "shoes"
 
     def _apply_hard_guardrails(prod_list: list) -> list:
         out = list(prod_list or [])
@@ -947,7 +976,7 @@ def _execute_smart_search(
             products = brand_relaxed
             relaxed_brand = intent.brand
 
-    elif 1 <= len(products) <= 3 and intent.brand and not intent.is_off_topic:
+    elif 1 <= len(products) <= 3 and intent.brand and not intent.is_off_topic and not spec_tokens:
         # Scarcity supplementation (e.g. "Long sleeve Puma" has only 1-3 items in catalog):
         # keep the exact brand items first and supplement with top multi-brand alternatives in the same category.
         cat_fallback_kws = QueryProductGuardrail.expand_keywords(
@@ -1368,7 +1397,14 @@ def _execute_smart_search(
                 })
 
     # If remaining relevant products were not placed in any section, either enrich the sole section or add a second section
-    unused_products = [p for p in products if p.get("id") not in used_product_ids]
+    unused_products = _apply_hard_guardrails([p for p in products if p.get("id") not in used_product_ids])
+
+    def _matches_any_spec_tok(prod: dict) -> bool:
+        if not spec_tokens:
+            return True
+        probe = f"{(prod.get('canonical_name') or '')} {(prod.get('brand') or '')}".lower()
+        return any(re.search(rf"\b{re.escape(st)}\b", probe) for st in spec_tokens)
+
     if not curated_sections_out and products:
         curated_sections_out.append({
             "id": "sec_all",
@@ -1377,18 +1413,34 @@ def _execute_smart_search(
             "products": products[:10]
         })
     elif len(curated_sections_out) == 1 and unused_products:
-        is_exact_sec = curated_sections_out[0].get("id") == "sec_exact_model"
-        if not is_exact_sec and len(curated_sections_out[0]["products"]) < 6:
-            need = 8 - len(curated_sections_out[0]["products"])
-            curated_sections_out[0]["products"].extend(unused_products[:need])
-            unused_products = unused_products[need:]
-        if unused_products:
-            curated_sections_out.append({
-                "id": "sec_more_options",
-                "title": "Altre Opzioni Consigliate",
-                "subtitle": "Ulteriori modelli tecnici compatibili con la tua ricerca.",
-                "products": unused_products[:8]
-            })
+        is_exact_sec = curated_sections_out[0].get("id") in ("sec_exact_model", "sec_entity_primary")
+        if spec_tokens:
+            unused_entity = [p for p in unused_products if _matches_any_spec_tok(p)]
+            unused_rest = [p for p in unused_products if p not in unused_entity]
+            if not is_exact_sec and len(curated_sections_out[0]["products"]) < 6 and unused_entity:
+                need = 8 - len(curated_sections_out[0]["products"])
+                curated_sections_out[0]["products"].extend(unused_entity[:need])
+                unused_entity = unused_entity[need:]
+            remaining_sec2 = unused_entity + unused_rest
+            if remaining_sec2:
+                curated_sections_out.append({
+                    "id": "sec_more_options",
+                    "title": "Altre Opzioni Consigliate",
+                    "subtitle": "Ulteriori modelli tecnici compatibili con la tua ricerca.",
+                    "products": remaining_sec2[:8]
+                })
+        else:
+            if not is_exact_sec and len(curated_sections_out[0]["products"]) < 6:
+                need = 8 - len(curated_sections_out[0]["products"])
+                curated_sections_out[0]["products"].extend(unused_products[:need])
+                unused_products = unused_products[need:]
+            if unused_products:
+                curated_sections_out.append({
+                    "id": "sec_more_options",
+                    "title": "Altre Opzioni Consigliate",
+                    "subtitle": "Ulteriori modelli tecnici compatibili con la tua ricerca.",
+                    "products": unused_products[:8]
+                })
 
     # Populate Comparative Spec Cards ("Confronto rapido" section matching Shopify Shop)
     comparative_cards_out = []

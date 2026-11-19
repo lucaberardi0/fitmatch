@@ -1251,9 +1251,20 @@ class Database:
                 else:
                     prod["cross_store_savings"] = 0.0
 
+                from fitmatch.smart_search import QueryProductGuardrail
+                eff_q_sqlite = " ".join(x for x in (context_query or "", raw_query or "") if x).strip()
+                det_ptype_sqlite = QueryProductGuardrail.detect_product_type(raw_query or eff_q_sqlite, context_query=context_query)
+                if not QueryProductGuardrail.is_product_compatible(prod, det_ptype_sqlite, raw_query=eff_q_sqlite):
+                    continue
+
                 # Relevance score for SQLite ranking alignment
                 pbrand = (prod.get("brand") or "").lower()
                 rel = 0.0
+                spec_toks_sqlite = QueryProductGuardrail.extract_specific_entity_tokens(raw_query or "", brand=brand)
+                if spec_toks_sqlite:
+                    probe_sqlite = f"{pname} {pbrand} {' '.join((o.get('title') or '') for o in offers[:3]).lower()}"
+                    matched_sc = sum(1 for st in spec_toks_sqlite if _re.search(rf"\b{_re.escape(st)}\b", probe_sqlite))
+                    rel += matched_sc * 180.0 if matched_sc > 0 else -250.0
                 for idx, kw in enumerate(target_keywords or []):
                     kw_low = kw.lower().strip()
                     if not kw_low:

@@ -7,8 +7,8 @@ KNOWN_BRANDS = [
     # Top Running & Athletic Brands
     "nike", "adidas", "asics", "brooks", "hoka", "on running", "on", "saucony",
     "puma", "new balance", "mizuno", "under armour", "salomon", "altra", "la sportiva",
-    "scarpa", "dynafit", "inov-8", "topo athletic", "joma", "newton", "craft", "diadora",
-    "nnormal", "reebok", "veja", "scott", "merrell", "361", "karhu", "ronhill",
+    "scarpa", "dynafit", "inov-8", "inov8", "topo athletic", "joma", "newton", "craft", "diadora",
+    "nnormal", "reebok", "veja", "scott", "merrell", "361", "karhu", "ronhill", "mount to coast",
 
     # Technical Running & Outdoor Apparel Brands
     "odlo", "saysky", "maloja", "alé", "x-bionic", "xbionic", "uyn", "2xu",
@@ -17,6 +17,7 @@ KNOWN_BRANDS = [
     "regatta", "helly hansen", "haglöfs", "haglofs", "rab", "salewa", "mammut",
     "millet", "the north face", "north face", "patagonia", "columbia", "arc'teryx", "arcteryx",
     "black diamond", "petzl", "leki", "camelbak", "osprey", "deuter", "buff", "compressport",
+    "assos", "cep", "mico",
 
     # Electronics & Optics
     "garmin", "polar", "suunto", "coros", "amazfit", "wahoo", "bryton", "igpsport", "oakley", "bliz",
@@ -40,11 +41,11 @@ KNOWN_BRANDS = [
     "dynastar", "elan", "colmar", "spyder",
 
     # Swim & Triathlon
-    "arena", "speedo", "tyr", "jaked", "finis", "zoggs", "cressi", "aqua sphere",
+    "arena", "speedo", "tyr", "jaked", "finis", "zoggs", "cressi", "aqua sphere", "zone3",
 
     # Recovery, Fitness & Nutrition
     "therabody", "theragun", "hyperice", "compex", "enervit", "isostar", "sis", "maurten",
-    "named sport", "powerbar", "ethic sport", "226ers", "leone 1947",
+    "named sport", "namedsport", "powerbar", "ethic sport", "226ers", "leone 1947", "näak", "naak",
 
     # Decathlon Brands
     "decathlon", "kiprun", "evadict", "kalenji", "quechua", "forclaz", "btwin",
@@ -82,7 +83,14 @@ BRAND_ALIASES = {
     "uyn": "UYN",
     "cmp": "CMP",
     "alé": "Alé",
-    "igpsport": "iGPSPORT"
+    "igpsport": "iGPSPORT",
+    "inov8": "Inov-8",
+    "namedsport": "Named Sport",
+    "naak": "Näak",
+    "näak": "Näak",
+    "cep": "CEP",
+    "zone3": "Zone3",
+    "mount to coast": "Mount To Coast",
 }
 
 NON_SPORT_JUNK_PATTERNS = [
@@ -96,17 +104,23 @@ NON_SPORT_JUNK_PATTERNS = [
     r"\bdrake\s*2\s*tex\s*pants\b", r"\bfly\s*racing\b", r"\bkenny\s+(?:casco\s+moto|mascherina)\b",
     r"\bbarbie\b", r"\bbambol[ae]\b", r"\bposter\b", r"\baction\s+figure\b", r"\bfunko\b",
     r"\biphone\s*\d+\b", r"\bbirkenstock\b",
+    r"\btrixie\b", r"\bpettorina\s+cani\b", r"\bcuccia\b", r"\bguinzagli[oi]\b",
+    r"\bcroccantin[oi]\b", r"\bdogu00b4ou00b4rado\b",
+    r"\bvictorinox\b", r"\bfiaschetta\s+trekking\s+inossidabile\b",
+    r"\binvertika\b",
 ]
 
 ICONIC_MODEL_BRANDS = {
     # Adidas
     "supernova": "Adidas", "adizero": "Adidas", "adios": "Adidas", "boston": "Adidas",
     "takumi": "Adidas", "terrex": "Adidas", "ultraboost": "Adidas", "sl20": "Adidas", "dropset": "Adidas",
-    "hyperboost": "Adidas", "evo sl": "Adidas",
+    "hyperboost": "Adidas", "evo sl": "Adidas", "adi365": "Adidas", "clima365": "Adidas", "own the run": "Adidas",
     # Nike
     "pegasus": "Nike", "vomero": "Nike", "alphafly": "Nike", "vaporfly": "Nike",
     "invincible": "Nike", "streakfly": "Nike", "infinity": "Nike", "wildhorse": "Nike",
-    "zegama": "Nike", "metcon": "Nike",
+    "zegama": "Nike", "metcon": "Nike", "acg": "Nike", "nikecourt": "Nike", "nikelab": "Nike",
+    "nikeskims": "Nike", "dri-fit": "Nike", "therma-fit": "Nike", "aeroswift": "Nike",
+    "tech fleece": "Nike", "terra kiger": "Nike",
     # Reebok
     "nano": "Reebok", "nanoflex": "Reebok",
     # Under Armour
@@ -116,7 +130,7 @@ ICONIC_MODEL_BRANDS = {
     # Asics
     "nimbus": "Asics", "cumulus": "Asics", "kayano": "Asics", "novablast": "Asics",
     "superblast": "Asics", "metaspeed": "Asics", "magic speed": "Asics", "trabuco": "Asics",
-    "gt-2000": "Asics", "gt-1000": "Asics", "fujitrail": "Asics",
+    "gt-2000": "Asics", "gt-1000": "Asics", "fujitrail": "Asics", "excite": "Asics", "gel-excite": "Asics",
     # Brooks
     "ghost": "Brooks", "glycerin": "Brooks", "adrenaline": "Brooks", "hyperion": "Brooks",
     "cascadia": "Brooks", "launch": "Brooks", "catamount": "Brooks", "caldera": "Brooks",
@@ -128,6 +142,7 @@ ICONIC_MODEL_BRANDS = {
     "kinvara": "Saucony", "peregrine": "Saucony", "tempus": "Saucony",
     # Mizuno
     "wave rider": "Mizuno", "wave inspire": "Mizuno", "wave rebellion": "Mizuno", "wave sky": "Mizuno",
+    "warmalite": "Mizuno",
     # On
     "cloudmonster": "On", "cloudsurfer": "On", "cloudrunner": "On", "cloudflow": "On",
     "cloudboom": "On", "cloudstratus": "On", "cloudtilt": "On", "cloudeclipse": "On",
@@ -144,11 +159,14 @@ ICONIC_MODEL_BRANDS = {
     "suunto race": "Suunto", "suunto vertical": "Suunto", "suunto run": "Suunto",
     # Salomon
     "speedcross": "Salomon", "sense ride": "Salomon", "pulsar": "Salomon", "xa pro": "Salomon",
-    "active skin": "Salomon", "adv skin": "Salomon",
+    "active skin": "Salomon", "adv skin": "Salomon", "s/lab": "Salomon", "s-lab": "Salomon",
+    "bonatti": "Salomon", "sense aero": "Salomon", "cross run": "Salomon",
+    # Odlo
+    "zeroweight": "Odlo", "active warm": "Odlo",
     # Oakley
     "sutro": "Oakley", "radar": "Oakley", "jawbreaker": "Oakley", "encoder": "Oakley",
     # Bullpadel & Tennis
-    "hack": "Bullpadel", "vertex": "Bullpadel", "flow": "Bullpadel", "indiga": "Bullpadel",
+    "hack": "Bullpadel", "vertex": "Bullpadel", "indiga": "Bullpadel",
     "pure drive": "Babolat", "pure aero": "Babolat", "pure strike": "Babolat",
     "pro staff": "Wilson", "ezone": "Yonex", "vcore": "Yonex", "percept": "Yonex",
     # Basketball
@@ -168,7 +186,7 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\bidrogel\b", r"\bhydrogel\b", r"\bsportenzia\b"
     ]),
     ("mount", [
-        r"\bsupport[oi]\b", r"\bstaff[ae]\b", r"\bmounts?\b", r"\bstaffetta\b", r"\bportaborracc(?:ia|e|ie)\b",
+        r"\bsupport[oi]\b", r"\bstaff[ae]\b", r"\bmounts?\b(?!\s+to\s+coast)", r"\bstaffetta\b", r"\bportaborracc(?:ia|e|ie)\b",
         r"\bflush\s+out\s+front\b", r"\bextended\s+out\b"
     ]),
     ("strap", [
@@ -234,7 +252,7 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\bpure\s+(?:drive|aero|strike)\b", r"\bpro\s+staff\b", r"\bblade\s+(?:98|100|v\d)\b",
         r"\bezone\b", r"\bvcore\b", r"\bpercept\b", r"\bt-?fight\b",
         r"\bmatass[ae]\b", r"\bincordatur[ae]\b", r"\bborsone\s+tennis\b", r"\bantivibrazioni\b",
-        r"^(?!.*\b(?:scarp[ae]|shoes?|sneakers?|pantaloncin[oi]|shorts|gonna|magli[ae]|canott[ae])\b).*\btennis\b"
+        r"^(?!.*\b(?:scarp[ae]|shoes?|sneakers?|pantaloncin[oi]|shorts|gonna|magli[ae]|t-?shirts?|tshirt|canott[ae])\b).*\btennis\b"
     ]),
     ("basketball", [
         r"\b(?:pallon[ei]\s*(?:da\s*)?basket|canestro|tabellone\s+basket|spalding|molten)\b",
@@ -262,7 +280,7 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
     ("jacket", [
         r"\bgiacc(?:a|he)\b", r"\bgiubbin[oi]\b", r"\bgiubbott[oi]\b", r"\bjackets?\b", r"\bjkt\b",
         r"\bantivento\b", r"\bwindbreaker\b", r"\bwindstopper\b", r"\bgilet\b", r"\bvest\b",
-        r"\banorak\b", r"\bshell\b", r"\bpiumin[oi]\b", r"\bcappott[oi]\b", r"\bparka\b",
+        r"\bsmanicat[aoe]\b", r"\banorak\b", r"\bshell\b", r"\bpiumin[oi]\b", r"\bcappott[oi]\b", r"\bparka\b",
         r"\bbetter\s+sweater\b", r"\bdown\s+hooded\b", r"\b2[\.,]5\s*layer\b"
     ]),
     ("socks", [
@@ -365,16 +383,34 @@ _EDGE_MODEL_RE = re.compile(r"\bedge\s+(?:130|530|540|550|830|840|1030|1040|1050
 _FALLBACK_SHOE_HINT_RE = re.compile(
     r"\b(run|running|runner|trail|gore[\s-]*tex|gtx|maratona|crossfit|hyrox|mtb\s*boa|flat\s*pedal|gravel\s*\w*\s*lace)\b"
 )
-_HALF_ZIP_RE = re.compile(r"\b1\s*/\s*2\s*zip\b", flags=re.IGNORECASE)
+_HALF_ZIP_RE = re.compile(r"\b1\s*/\s*2\s*(?:di\s+)?zip\b", flags=re.IGNORECASE)
+_QUARTER_ZIP_RE = re.compile(r"\b1\s*/\s*4\s*(?:di\s+)?zip\b", flags=re.IGNORECASE)
 _LONG_SLEEVE_RE = re.compile(r"\ba\s+maniche\s+lunghe\b|\bmaniche\s+lunghe\b", flags=re.IGNORECASE)
 _SHORT_SLEEVE_RE = re.compile(r"\ba\s+maniche\s+corte\b|\bmaniche\s+corte\b", flags=re.IGNORECASE)
 _SKU_CODE_RE = re.compile(r"\b[A-Za-z0-9]{4,10}[-_][A-Za-z0-9]{2,6}\b")
 _ALNUM_WORD_RE = re.compile(r"\b[a-zA-Z0-9]+\b")
 _GORETEX_RE = re.compile(r"\bgore[\s-]*tex\b|\bgoretex\b")
 _SUPERCOMP_RE = re.compile(r"\bsuper\s+comp\b")
-_PARENS_RE = re.compile(r"\(.*?\)")
+_PARENS_RE = re.compile(r"[()]")
 _PUNCT_RE = re.compile(r"[^\w\s]")
 _LONG_DIGITS_RE = re.compile(r"^\d{6,}$")
+_APPAREL_NO_SHOE_RE = re.compile(
+    r"\b(magli[ae]|magliett[ae]|t[\s-]*shirt|tshirt|pantaloncin[oi]|pantalon[ie]|shorts?|giacc(?:a|he)|smanicat[aoe]|canott[ae]|singlet|felp[ae]|hoodie|calz[ae]|calzin[oi]|gonn[ae]|berrett[oi]|cappellin[oi]|zain[oi]|scaldacollo)\b"
+)
+_AMBIGUOUS_SHOE_MODEL_KEYS = {"ride", "guide", "launch", "challenger", "mach", "infinity", "edge", "boston", "excite"}
+_SUB_BRAND_MODEL_KEYS = {
+    "acg", "nikecourt", "nikelab", "nikeskims", "dri-fit", "therma-fit", "aeroswift", "tech fleece",
+    "terrex", "adizero", "adi365", "clima365", "own the run",
+    "s/lab", "s-lab", "bonatti", "sense aero", "cross run",
+    "zeroweight", "active warm", "warmalite", "fujitrail",
+}
+_FOOTBALL_EXPLICIT_RE = re.compile(r"\b(calcio|calcetto|futsal|scarpin[oi]|fg|ag|tf|sg|mg)\b")
+_NON_FOOTBALL_CUE_RE = re.compile(r"\b(trail|running|corsa|pegasus|vomero|vaporfly|alphafly|nikecourt|tennis|padel|acg)\b")
+_CLUSTER_GENERIC_PREFIX_WORDS = {
+    "maglia", "maglietta", "tshirt", "manica", "lunga", "corta", "giacca", "smanicato",
+    "pantaloni", "pantaloncini", "corti", "scarpe", "top", "vento", "impermeabile",
+    "outdoor", "trail", "tecnica", "termica", "intima", "intimo"
+}
 _ICONIC_MODEL_PATTERNS: List[Tuple[str, str, re.Pattern]] = [
     (model_sub, brand_name, re.compile(rf"\b{re.escape(model_sub)}\b"))
     for model_sub, brand_name in ICONIC_MODEL_BRANDS.items()
@@ -461,10 +497,21 @@ class ProductNormalizer:
         is_bike_headset = any(w in lower_title for w in ("sterzo", "chris king", "headset", "nothreadset", "griplock", "is42"))
         if not is_junk:
             is_birkenstock_clog = any(w in lower_title for w in ("birkenstock", "suede", "oiled", "eva", "ciabatt", "zoccol"))
+            is_apparel_item = bool(_APPAREL_NO_SHOE_RE.search(lower_title))
+            # Check sub-brand lines first so they take precedence over generic shoe words (e.g. 'acg ... challenger')
             for model_sub, brand_name, m_pat in _ICONIC_MODEL_PATTERNS:
+                if model_sub not in _SUB_BRAND_MODEL_KEYS:
+                    continue
+                if m_pat.search(lower_title):
+                    return brand_name
+            for model_sub, brand_name, m_pat in _ICONIC_MODEL_PATTERNS:
+                if model_sub in _SUB_BRAND_MODEL_KEYS:
+                    continue
                 if model_sub == "dropset" and is_bike_headset:
                     continue
                 if model_sub == "boston" and is_birkenstock_clog:
+                    continue
+                if model_sub in _AMBIGUOUS_SHOE_MODEL_KEYS and is_apparel_item:
                     continue
                 if m_pat.search(lower_title):
                     return brand_name
@@ -516,13 +563,31 @@ class ProductNormalizer:
         tl = (title or "").lower()
         if cls.is_non_sport_junk(tl):
             return "non_sport"
+        # Strip trailing colorway suffix (e.g. '- Summit White/black/phantom') when checking colorway-sensitive patterns
+        parts = _SPLIT_DASH_RE.split(tl)
+        tl_main = tl
+        if len(parts) > 1:
+            is_sku_prefix = bool(_SKU_CODE_RE.search(parts[0]))
+            is_store_prefix = any(s in parts[0] for s in ("decathlon", "cisalfa", "maxisport", "nencini", "top4running", "misterrunning"))
+            tokens_0 = set(_ALNUM_WORD_RE.findall(parts[0]))
+            if not is_sku_prefix and not is_store_prefix and not tokens_0.issubset(_GENERIC_TITLE_WORDS):
+                tl_main = parts[0]
+
         for atype, patterns in _COMPILED_ARTICLE_PATTERNS:
+            if atype == "football_boots":
+                if _NON_FOOTBALL_CUE_RE.search(tl_main) and not _FOOTBALL_EXPLICIT_RE.search(tl_main):
+                    continue
+                for pattern in patterns:
+                    if pattern.search(tl_main):
+                        return atype
+                continue
             for pattern in patterns:
                 if pattern.search(tl):
                     return atype
         # Check if it matches any iconic shoe/watch model before defaulting
+        is_apparel_item = bool(_APPAREL_NO_SHOE_RE.search(tl))
         for model_sub, brand_name, m_pat in _ICONIC_MODEL_PATTERNS:
-            if m_pat.search(tl):
+            if m_pat.search(tl_main):
                 if brand_name in ("Garmin", "Polar", "Coros", "Suunto"):
                     if model_sub in ("hrm 200", "hrm 600", "hrm-pro"):
                         return "sensor"
@@ -547,6 +612,8 @@ class ProductNormalizer:
                     if brand_name.lower() in tl or "trainer" in tl or "rullo" in tl or "rulli" in tl:
                         return "trainer"
                     continue
+                if model_sub in _SUB_BRAND_MODEL_KEYS or (model_sub in _AMBIGUOUS_SHOE_MODEL_KEYS and is_apparel_item):
+                    continue
                 return "shoes"
         # Do NOT blindly dump unknown items (neckwear, bike parts, accessories) into 'shoes'
         if _FALLBACK_SHOE_HINT_RE.search(tl):
@@ -556,8 +623,9 @@ class ProductNormalizer:
     @classmethod
     def clean_title(cls, title: str, brand: Optional[str] = None) -> Tuple[str, Optional[str]]:
         """Splits off colorway/descriptions and strips noise words while preserving model version and garment type."""
-        # Normalize fractions like 1/2 zip before splitting on slashes/punctuation
+        # Normalize fractions like 1/2 zip and 1/4 zip before splitting on slashes/punctuation
         norm_title = _HALF_ZIP_RE.sub("half zip", title or "")
+        norm_title = _QUARTER_ZIP_RE.sub("quarter zip", norm_title)
         norm_title = _LONG_SLEEVE_RE.sub("manica lunga", norm_title)
         norm_title = _SHORT_SLEEVE_RE.sub("manica corta", norm_title)
 
@@ -588,7 +656,7 @@ class ProductNormalizer:
                     colorway = parts[0].strip()
 
         text = base.lower()
-        text = _PARENS_RE.sub("", text)
+        text = _PARENS_RE.sub(" ", text)
         # Preserve x-bionic and gt-2000 compounds before stripping punctuation
         text = _XBIONIC_RE.sub("xbionic", text)
         text = _TREX_RE.sub("trex", text)
@@ -662,6 +730,7 @@ class ProductNormalizer:
 
         tokens = cleaned_base.split()
         model_parts: List[str] = []
+        specific_count = 0
         i = 0
 
         important_qualifiers = {
@@ -675,6 +744,8 @@ class ProductNormalizer:
                 i += 1
                 continue
             model_parts.append(t)
+            if t not in _CLUSTER_GENERIC_PREFIX_WORDS:
+                specific_count += 1
             # Only treat digits, v+digits, or multi-char Roman numerals (ii, iii, iv, vi...) as version numbers
             # NEVER treat single 'x', 'i', 'v' as Roman numerals (fixes 'Puma x Hyrox', 'X-Bionic', etc.)
             is_num = bool(re.search(r"\d", t) or re.match(r"^(v\d+|ii|iii|iv|vi|vii|viii|ix|xi|xii|xiii|xiv|xv)$", t))
@@ -692,9 +763,9 @@ class ProductNormalizer:
                         model_parts.append(nxt)
                     i += 1
                     break
-            elif len(model_parts) >= 4:
+            elif specific_count >= 4:
                 for rem_t in tokens[i + 1:]:
-                    if (rem_t in ("gtx", "lunga", "sleeve", "warm", "merino", "zip") or bool(re.search(r"\d", rem_t))) and rem_t not in model_parts:
+                    if (rem_t in ("gtx", "lunga", "corta", "sleeve", "warm", "merino", "zip") or bool(re.search(r"\d", rem_t))) and rem_t not in model_parts:
                         model_parts.append(rem_t)
                 break
             i += 1
