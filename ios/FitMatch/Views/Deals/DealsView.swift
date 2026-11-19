@@ -492,7 +492,7 @@ struct DealsView: View {
             HStack(spacing: 12) {
                 NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
                     HStack(spacing: 12) {
-                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 44, hasRedRing: true)
+                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 44, hasRedRing: true, logoURL: showcase.logo_url)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(showcase.store_name)

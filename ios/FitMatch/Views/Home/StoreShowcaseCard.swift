@@ -11,7 +11,7 @@ struct StoreShowcaseCard: View {
                 NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
                     HStack(spacing: 12) {
                         // Store Avatar with Official Logo
-                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 38)
+                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 38, logoURL: showcase.logo_url)
 
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 4) {

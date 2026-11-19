@@ -61,6 +61,23 @@ final class DynamicCatalogRegistry {
         }
     }
 
+    /// Updates store metadata directly from Supabase while preserving cached categories and brands.
+    func updateStores(_ stores: [ActiveStoreItem]) {
+        guard !stores.isEmpty else { return }
+        lock.lock()
+        let merged = ActiveStoresResponse(
+            active_stores: stores,
+            categories: categoriesList.isEmpty ? nil : categoriesList,
+            known_brands: brandsList.isEmpty ? nil : brandsList
+        )
+        apply(merged)
+        lock.unlock()
+
+        if let encoded = try? JSONEncoder().encode(merged) {
+            UserDefaults.standard.set(encoded, forKey: storageKey)
+        }
+    }
+
     func storeItem(for identifier: String) -> ActiveStoreItem? {
         let low = identifier.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !low.isEmpty else { return nil }

@@ -399,6 +399,14 @@ class UserPreferencesManager: ObservableObject {
     }
 
     func fetchActiveStores(apiService: APIService) async {
+        // 1. Hydrate stores directly from Supabase so logos, ratings, and shipping rules are always fresh
+        let directStores = await SupabaseManager.shared.fetchActiveStoresDirect()
+        if !directStores.isEmpty {
+            DynamicCatalogRegistry.shared.updateStores(directStores)
+            self.activeStores = directStores
+        }
+
+        // 2. Sync full catalog metadata (dynamic categories & known brands) from API
         guard let url = URL(string: "\(apiService.baseURL)/api/stores") else { return }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
@@ -412,7 +420,9 @@ class UserPreferencesManager: ObservableObject {
                 self.dynamicBrands = brands
             }
         } catch {
-            print("Errore caricamento store attivi: \(error)")
+            if directStores.isEmpty {
+                print("Errore caricamento store attivi: \(error)")
+            }
         }
     }
 

@@ -104,14 +104,13 @@ struct ActiveStoreItem: Codable, Identifiable, Hashable {
     var computedInitials: String {
         let lower = name.lowercased()
         let knownOverrides: [(String, String)] = [
-            ("starcow", "STARCOW"), ("peakpulse", "PP"), ("diez", "10"),
-            ("drip", "DRIP"), ("outlet", "SO"), ("end", "END."),
-            ("arc", "ARC"), ("cisalfa", "CS"), ("maxi", "MS"),
-            ("mister", "MR"), ("nencini", "NS"), ("top4", "T4"),
-            ("warehouse", "RW"), ("depor", "DV"), ("alltricks", "AT"),
-            ("decathlon", "DC"), ("sportler", "SP"), ("sportit", "SI"),
-            ("tennis", "TP"), ("basketball", "BS"), ("nonsolosport", "NS"),
-            ("intersport", "IS"), ("bshopzone", "BZ"), ("nike", "NK"), ("adidas", "AD")
+            ("cisalfa", "CS"), ("maxi", "MS"), ("mister", "MR"),
+            ("nencini", "NS"), ("top4", "T4"), ("warehouse", "RW"),
+            ("depor", "DV"), ("alltricks", "AT"), ("decathlon", "DC"),
+            ("sportler", "SP"), ("sportit", "SI"), ("df sport", "DF"),
+            ("sportspecialist", "DF"), ("tradeinn", "TI"), ("tennis", "TP"),
+            ("basketball", "BS"), ("nonsolosport", "NS"), ("intersport", "IS"),
+            ("bshopzone", "BZ"), ("nike", "NK"), ("adidas", "AD")
         ]
         for (token, code) in knownOverrides where lower.contains(token) {
             return code

@@ -171,24 +171,7 @@ struct OnboardingView: View {
             .padding(.top, 14)
             .padding(.bottom, 6)
         } else {
-            HStack(spacing: 12) {
-                Button(action: goBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.shopDark)
-                        .frame(width: 40, height: 40)
-                        .background(Color.white)
-                        .clipShape(Circle())
-                        .overlay(
-                            Circle()
-                                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
-                }
-                .buttonStyle(ShopCardPressStyle(scale: 0.92))
-
-                Spacer()
-
+            ZStack {
                 HStack(spacing: 6) {
                     ForEach(OnboardingStep.allCases.filter { $0 != .overview }) { step in
                         Capsule()
@@ -197,30 +180,47 @@ struct OnboardingView: View {
                             .animation(.spring(response: 0.34, dampingFraction: 0.85), value: currentStep)
                     }
                 }
+                .frame(maxWidth: .infinity)
 
-                Spacer()
-
-                if currentStep != .notifications || !notifManager.isAuthorized {
-                    Button(action: handleSkipButton) {
-                        Text("Salta")
-                            .font(.system(size: 14.5, weight: .semibold))
+                HStack(spacing: 12) {
+                    Button(action: goBack) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.shopDark)
-                            .padding(.horizontal, 18)
-                            .frame(height: 40)
+                            .frame(width: 40, height: 40)
                             .background(Color.white)
-                            .clipShape(Capsule())
+                            .clipShape(Circle())
                             .overlay(
-                                Capsule()
-                                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                                Circle()
+                                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
                             )
-                            .shadow(color: Color.black.opacity(0.07), radius: 10, x: 0, y: 3)
+                            .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
                     }
-                    .buttonStyle(ShopCardPressStyle(scale: 0.94))
-                    .disabled(isRequestingNotifications)
-                } else {
-                    Color.clear.frame(width: 74, height: 40)
+                    .buttonStyle(ShopCardPressStyle(scale: 0.92))
+
+                    Spacer()
+
+                    if currentStep != .notifications || !notifManager.isAuthorized {
+                        Button(action: handleSkipButton) {
+                            Text("Salta")
+                                .font(.system(size: 14.5, weight: .semibold))
+                                .foregroundColor(.shopDark)
+                                .padding(.horizontal, 18)
+                                .frame(height: 40)
+                                .background(Color.white)
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                                )
+                                .shadow(color: Color.black.opacity(0.07), radius: 10, x: 0, y: 3)
+                        }
+                        .buttonStyle(ShopCardPressStyle(scale: 0.94))
+                        .disabled(isRequestingNotifications)
+                    }
                 }
             }
+            .frame(height: 40)
             .padding(.horizontal, 18)
             .padding(.top, 10)
             .padding(.bottom, 8)

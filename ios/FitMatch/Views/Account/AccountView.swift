@@ -18,17 +18,26 @@ struct AccountView: View {
     @State private var legalSheetType: AccountLegalType? = nil
 
     private let fallbackPartnerStores: [(String, String, String, String)] = [
-        ("decathlon", "Decathlon", "Marketplace & Catalogo Globale", "store_decathlon"),
-        ("cisalfa", "Cisalfa Sport", "Salesforce Commerce Cloud", "store_cisalfa"),
-        ("maxisport", "Maxi Sport", "Magento REST API", "store_maxisport"),
-        ("misterrunning", "Mister Running", "Clerk Fast Search", "store_misterrunning"),
-        ("nencini", "Nencini Sport", "CSRF Session & GTM Sync", "store_nencini"),
-        ("top4running", "Top4Running", "Luigi's Box AI Search", "store_top4running"),
-        ("runningwarehouse", "Running Warehouse EU", "VAT IT & Multi-Store", "store_runningwarehouse"),
-        ("deporvillage", "Deporvillage", "Algolia Fast Search", "store_deporvillage"),
-        ("alltricks", "Alltricks", "Constructor.io API", "store_alltricks"),
-        ("sportler", "Sportler", "FactFinder & GTM Alpino", "store_sportler"),
-        ("nike", "Nike Official Store", "Next.js Wall State & PDP Engine", "store_nike")
+        ("nike", "Nike", "Store ufficiale Nike · Sped. da €5,00", "store_nike"),
+        ("adidas", "Adidas", "Store ufficiale Adidas · Gratis da €50", "store_adidas"),
+        ("misterrunning", "Mister Running", "DHL / UPS · Gratis da €49", "store_misterrunning"),
+        ("cisalfa", "Cisalfa Sport", "BRT / GLS · Gratis da €99", "store_cisalfa"),
+        ("maxisport", "Maxi Sport", "GLS / DHL · Gratis da €99", "store_maxisport"),
+        ("top4running", "Top4Running", "DPD / BRT · Gratis da €75", "store_top4running"),
+        ("runningwarehouse", "Running Warehouse Europe", "UPS / FedEx · Gratis da €59", "store_runningwarehouse"),
+        ("deporvillage", "Deporvillage", "GLS / DPD · Gratis da €80", "store_deporvillage"),
+        ("alltricks", "Alltricks", "Bartolini (BRT) · Gratis da €69", "store_alltricks"),
+        ("decathlon", "Decathlon", "Corriere Espresso · Gratis da €60", "store_decathlon"),
+        ("nencini", "Nencini Sport", "BRT / UPS · Gratis da €100", "store_nencini"),
+        ("sportler", "Sportler", "SDA / Espresso · Gratis da €100", "store_sportler"),
+        ("df_sportspecialist", "DF Sport Specialist", "Corriere Espresso · Gratis da €100", "store_df_sportspecialist"),
+        ("tradeinn", "Tradeinn", "DHL / UPS · Sped. da €4,99", "store_tradeinn"),
+        ("sportit", "SportIT", "GLS / DHL · Gratis da €59,90", "store_sportit"),
+        ("tennis_point", "Tennis-Point", "DHL / UPS · Gratis da €59", "store_tennis_point"),
+        ("basketballstore", "Basketball Store", "BRT / UPS · Gratis da €50", "store_basketballstore"),
+        ("nonsolosport", "NonSoloSport", "BRT · Gratis da €89,99", "store_nonsolosport"),
+        ("intersport", "Intersport Italia", "GLS / BRT · Gratis da €59", "store_intersport"),
+        ("bshopzone", "Bshopzone", "BRT / GLS · Gratis da €100", "store_bshopzone")
     ]
 
     var partnerStores: [(String, String, String, String)] {

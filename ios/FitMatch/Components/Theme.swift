@@ -29,6 +29,70 @@ extension Color {
         let a = Double(intVal & 0xFF) / 255.0
         self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
     }
+
+    /// Extracts HSB components in sRGB space for building harmonious multi-stop gradients.
+    var hsbComponents: (hue: CGFloat, saturation: CGFloat, brightness: CGFloat, alpha: CGFloat) {
+        let uiColor = UIColor(self)
+        var h: CGFloat = 0
+        var s: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        if uiColor.getHue(&h, saturation: &s, brightness: &b, alpha: &a) {
+            return (h, s, b, a)
+        }
+        var w: CGFloat = 0
+        if uiColor.getWhite(&w, alpha: &a) {
+            return (0, 0, w, a)
+        }
+        return (0.28, 0.31, 0.49, 1.0)
+    }
+
+    /// Derives a 3-stop (topLeading highlight, authentic mid, bottomTrailing depth) gradient
+    /// tuned to preserve white foreground text contrast across dark, saturated, and bright brand colors.
+    func cardGradientStops() -> (start: Color, mid: Color, end: Color) {
+        let (h, s, b, _) = hsbComponents
+
+        // Near-achromatic dark brand colors (e.g. #111111) -> slate-to-obsidian gradient
+        if s < 0.10 && b < 0.24 {
+            let start = Color(hue: 0.63, saturation: 0.12, brightness: Double(max(b + 0.17, 0.24)))
+            let mid = Color(hue: 0.63, saturation: 0.10, brightness: Double(max(b + 0.06, 0.14)))
+            let end = Color(hue: 0.63, saturation: 0.14, brightness: Double(max(b * 0.65, 0.05)))
+            return (start, mid, end)
+        }
+
+        // Pale low-saturation accents -> deepen gently so white text remains crisp
+        if s < 0.20 && b >= 0.72 {
+            let start = Color(hue: Double(h), saturation: Double(max(s, 0.22)), brightness: 0.56)
+            let mid = Color(hue: Double(h), saturation: Double(max(s + 0.08, 0.28)), brightness: 0.44)
+            let end = Color(hue: Double(h), saturation: Double(max(s + 0.14, 0.34)), brightness: 0.30)
+            return (start, mid, end)
+        }
+
+        let wrapHue: (CGFloat) -> Double = { raw in
+            let mod = raw.truncatingRemainder(dividingBy: 1.0)
+            return Double(mod < 0 ? mod + 1.0 : mod)
+        }
+
+        let isWarm = (h < 0.14 || h > 0.88)
+        let startHue = wrapHue(isWarm ? h + 0.032 : h - 0.032)
+        let endHue = wrapHue(isWarm ? h - 0.036 : h + 0.042)
+
+        let maxStartBrightness: CGFloat = s < 0.45 ? 0.64 : 0.84
+        let startBrightness = Double(min(max(b + 0.10, 0.36), maxStartBrightness))
+        let startSaturation = Double(max(s * 0.88, min(s, 0.22)))
+
+        let midBrightness = Double(min(max(b, 0.28), 0.78))
+        let midSaturation = Double(s)
+
+        let endBrightness = Double(max(b * 0.58, 0.16))
+        let endSaturation = Double(min(s * 1.12, 1.0))
+
+        return (
+            start: Color(hue: startHue, saturation: startSaturation, brightness: startBrightness),
+            mid: Color(hue: Double(h), saturation: midSaturation, brightness: midBrightness),
+            end: Color(hue: endHue, saturation: endSaturation, brightness: endBrightness)
+        )
+    }
 }
 
 // MARK: - Unified Design Tokens & Layout Modifiers
@@ -163,20 +227,16 @@ struct ShopStoreLogo: View {
     var showLabel: Bool = true
     var size: CGFloat = 16
     var hasRedRing: Bool = false
+    var logoURL: String? = nil
 
     var assetName: String? {
         let s = storeName.lowercased()
-        if s.contains("end") { return "store_end" }
-        if s.contains("arc") { return "store_arcteryx" }
         if s.contains("cisalfa") { return "store_cisalfa" }
         if s.contains("maxi") { return "store_maxisport" }
         if s.contains("mister") { return "store_misterrunning" }
         if s.contains("nencini") { return "store_nencini" }
         if s.contains("top4") { return "store_top4running" }
         if s.contains("running warehouse") || s.contains("warehouse") { return "store_runningwarehouse" }
-        if s.contains("deporvillage") || s.contains("depor") { return "store_deporvillage" }
-        if s.contains("alltricks") { return "store_alltricks" }
-        if s.contains("decathlon") { return "store_decathlon" }
         if s.contains("nike") { return "store_nike" }
         if s.contains("adidas") { return "store_adidas" }
         return nil
@@ -187,13 +247,6 @@ struct ShopStoreLogo: View {
             return dynamic.computedInitials
         }
         let s = storeName.lowercased()
-        if s.contains("starcow") { return "STARCOW" }
-        if s.contains("peakpulse") || s.contains("peak") { return "PP" }
-        if s.contains("diez") || s.contains("numero") { return "10" }
-        if s.contains("drip") { return "DRIP" }
-        if s.contains("outlet") { return "SO" }
-        if s.contains("end") { return "END." }
-        if s.contains("arc") { return "ARC" }
         if s.contains("cisalfa") { return "CS" }
         if s.contains("maxi") { return "MS" }
         if s.contains("mister") { return "MR" }
@@ -205,6 +258,8 @@ struct ShopStoreLogo: View {
         if s.contains("decathlon") { return "DC" }
         if s.contains("sportler") { return "SP" }
         if s.contains("sportit") { return "SI" }
+        if s.contains("df sport") || s.contains("sportspecialist") { return "DF" }
+        if s.contains("tradeinn") { return "TI" }
         if s.contains("tennis-point") || s.contains("tennis_point") { return "TP" }
         if s.contains("basketball") { return "BS" }
         if s.contains("nonsolosport") { return "NS" }
@@ -225,33 +280,51 @@ struct ShopStoreLogo: View {
             return parsed
         }
         let s = storeName.lowercased()
-        if s.contains("starcow") { return Color.black }
-        if s.contains("peak") { return Color(red: 24/255, green: 24/255, blue: 27/255) }
-        if s.contains("diez") || s.contains("numero") { return Color(red: 235/255, green: 235/255, blue: 230/255) }
-        if s.contains("cisalfa") { return Color(red: 227/255, green: 28/255, blue: 37/255) }
+        if s.contains("cisalfa") { return Color(red: 200/255, green: 16/255, blue: 46/255) }
         if s.contains("maxi") { return Color(red: 245/255, green: 130/255, blue: 32/255) }
-        if s.contains("mister") { return Color(red: 0/255, green: 114/255, blue: 206/255) }
-        if s.contains("nencini") { return Color(red: 0/255, green: 140/255, blue: 70/255) }
+        if s.contains("mister") { return Color(red: 0/255, green: 94/255, blue: 184/255) }
+        if s.contains("nencini") { return Color(red: 0/255, green: 122/255, blue: 61/255) }
         if s.contains("top4") { return Color(red: 0/255, green: 185/255, blue: 241/255) }
         if s.contains("running warehouse") || s.contains("warehouse") { return Color(red: 10/255, green: 55/255, blue: 140/255) }
-        if s.contains("deporvillage") || s.contains("depor") { return Color(red: 232/255, green: 67/255, blue: 17/255) }
-        if s.contains("alltricks") { return Color(red: 0/255, green: 163/255, blue: 224/255) }
+        if s.contains("deporvillage") || s.contains("depor") { return Color(red: 214/255, green: 59/255, blue: 14/255) }
+        if s.contains("alltricks") { return Color(red: 0/255, green: 122/255, blue: 184/255) }
         if s.contains("decathlon") { return Color(red: 0/255, green: 130/255, blue: 200/255) }
-        if s.contains("sportler") { return Color(red: 220/255, green: 30/255, blue: 40/255) }
-        if s.contains("sportit") { return Color(red: 230/255, green: 85/255, blue: 20/255) }
-        if s.contains("tennis-point") || s.contains("tennis_point") { return Color(red: 240/255, green: 120/255, blue: 0/255) }
-        if s.contains("basketball") { return Color(red: 200/255, green: 50/255, blue: 35/255) }
-        if s.contains("nonsolosport") { return Color(red: 18/255, green: 75/255, blue: 155/255) }
-        if s.contains("intersport") { return Color(red: 0/255, green: 60/255, blue: 145/255) }
-        if s.contains("bshopzone") { return Color(red: 25/255, green: 115/255, blue: 165/255) }
-        if s.contains("nike") { return Color(red: 17/255, green: 17/255, blue: 17/255) }
+        if s.contains("sportler") { return Color(red: 184/255, green: 24/255, blue: 32/255) }
+        if s.contains("sportit") { return Color(red: 0/255, green: 85/255, blue: 164/255) }
+        if s.contains("df sport") || s.contains("sportspecialist") { return Color(red: 227/255, green: 6/255, blue: 19/255) }
+        if s.contains("tradeinn") { return Color(red: 242/255, green: 90/255, blue: 36/255) }
+        if s.contains("tennis-point") || s.contains("tennis_point") { return Color(red: 227/255, green: 6/255, blue: 19/255) }
+        if s.contains("basketball") { return Color(red: 255/255, green: 107/255, blue: 0/255) }
+        if s.contains("nonsolosport") { return Color(red: 29/255, green: 29/255, blue: 27/255) }
+        if s.contains("intersport") { return Color(red: 226/255, green: 0/255, blue: 26/255) }
+        if s.contains("bshopzone") { return Color(red: 46/255, green: 125/255, blue: 50/255) }
+        if s.contains("nike") { return Color(red: 98/255, green: 125/255, blue: 86/255) }
+        if s.contains("adidas") { return Color(red: 17/255, green: 17/255, blue: 17/255) }
         return .shopPurple
     }
 
     var remoteLogoURL: URL? {
+        if let explicit = logoURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty,
+           let parsed = URL(string: explicit) {
+            return parsed
+        }
         guard let raw = DynamicCatalogRegistry.shared.storeItem(for: storeName)?.logo_url,
               !raw.isEmpty else { return nil }
         return URL(string: raw)
+    }
+
+    @ViewBuilder
+    private var localOrInitialsFallback: some View {
+        if let asset = assetName, let uiImage = UIImage(named: asset) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size * 0.84, height: size * 0.84)
+                .clipShape(Circle())
+        } else {
+            initialsBadge
+        }
     }
 
     @ViewBuilder
@@ -285,13 +358,7 @@ struct ShopStoreLogo: View {
                             .stroke(hasRedRing ? Color(red: 225/255, green: 55/255, blue: 45/255) : Color.shopBorder, lineWidth: hasRedRing ? 1.6 : 0.8)
                     )
 
-                if let asset = assetName, let uiImage = UIImage(named: asset) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: size * 0.84, height: size * 0.84)
-                        .clipShape(Circle())
-                } else if let logoURL = remoteLogoURL {
+                if let logoURL = remoteLogoURL {
                     ShopCachedAsyncImage(url: logoURL) { phase in
                         if let img = phase.image {
                             img
@@ -300,11 +367,11 @@ struct ShopStoreLogo: View {
                                 .frame(width: size * 0.84, height: size * 0.84)
                                 .clipShape(Circle())
                         } else {
-                            initialsBadge
+                            localOrInitialsFallback
                         }
                     }
                 } else {
-                    initialsBadge
+                    localOrInitialsFallback
                 }
             }
 

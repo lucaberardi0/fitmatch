@@ -704,7 +704,7 @@ struct HomeView: View {
         HStack(spacing: 12) {
             NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
                 HStack(spacing: 12) {
-                    ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 44)
+                    ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 44, logoURL: showcase.logo_url)
 
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
@@ -774,8 +774,14 @@ struct HomeView: View {
             if let hex = showcase.accent_color, let c = Color(hex: hex) {
                 return c
             }
+            if let registryHex = (DynamicCatalogRegistry.shared.storeItem(for: showcase.store_id)
+                ?? DynamicCatalogRegistry.shared.storeItem(for: showcase.store_name))?.accent_color,
+               let c = Color(hex: registryHex) {
+                return c
+            }
             return Color(red: 98/255, green: 125/255, blue: 86/255) // #627D56 authentic olive fallback
         }()
+        let stops = cardBgColor.cardGradientStops()
 
         return VStack(alignment: .leading, spacing: ShopLayout.cardSpacing) {
             shopStoreCardHeader(showcase: showcase, isDarkBackground: true)
@@ -794,9 +800,43 @@ struct HomeView: View {
 
             shopStoreCardFooter(showcase: showcase, isDarkBackground: true)
         }
-        .background(cardBgColor)
+        .background(
+            ZStack {
+                LinearGradient(
+                    stops: [
+                        .init(color: stops.start, location: 0.0),
+                        .init(color: stops.mid, location: 0.46),
+                        .init(color: stops.end, location: 1.0)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                RadialGradient(
+                    colors: [
+                        Color.white.opacity(0.14),
+                        Color.white.opacity(0.03),
+                        Color.clear
+                    ],
+                    center: .topLeading,
+                    startRadius: 12,
+                    endRadius: 260
+                )
+            }
+        )
         .clipShape(RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous))
-        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 3)
+        .overlay(
+            RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.24), Color.white.opacity(0.06)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: cardBgColor.opacity(0.22), radius: 12, x: 0, y: 5)
     }
 
     // MARK: - 3. Clean White Horizontal Carousel Store Card (Screenshots 1 & 5: PeakPulse / dripuniqueuk)
@@ -1168,7 +1208,9 @@ struct HomeView: View {
                     self.rankedShowcases = ranked
                 }
             }
-            // Prioritize visible top-4 stores' images first, then prefetch the remaining feed
+            // Prioritize visible top-4 stores' images & store logos first, then prefetch the remaining feed
+            let logoUrls = ranked.compactMap { URL(string: $0.logo_url ?? "") }
+            ImageCacheManager.shared.prefetch(urls: logoUrls, maxPixelSize: 300)
             let topUrls = ranked.prefix(4).flatMap { $0.products.prefix(4) }.compactMap { URL(string: $0.image_url ?? "") }
             ImageCacheManager.shared.prefetch(urls: topUrls)
             let remainingUrls = ranked.dropFirst(4).flatMap { $0.products.prefix(3) }.compactMap { URL(string: $0.image_url ?? "") }

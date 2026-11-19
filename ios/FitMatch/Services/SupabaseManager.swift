@@ -2738,4 +2738,74 @@ class SupabaseManager: ObservableObject {
         }
         return http.statusCode == 200 || http.statusCode == 204
     }
+
+    /// Fetches all active stores directly from Supabase `stores` table (fast baseline independent of Render cold starts).
+    func fetchActiveStoresDirect() async -> [ActiveStoreItem] {
+        struct RawStoreRow: Codable {
+            let id: String
+            let name: String
+            let base_url: String?
+            let rating: Double?
+            let review_count: Int?
+            let formatted_review_count: String?
+            let accent_color: String?
+            let card_theme: String?
+            let free_shipping_threshold: Double?
+            let standard_shipping_cost: Double?
+            let courier: String?
+            let logo_url: String?
+        }
+
+        let select = "id,name,base_url,rating,review_count,formatted_review_count,accent_color,card_theme,free_shipping_threshold,standard_shipping_cost,courier,logo_url"
+        guard let url = URL(string: "\(restURL)/stores?select=\(select)&order=name.asc") else {
+            return []
+        }
+
+        var req = URLRequest(url: url)
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+
+        guard let (data, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200,
+              let rows = try? JSONDecoder().decode([RawStoreRow].self, from: data) else {
+            return []
+        }
+
+        let euStores: Set<String> = ["top4running", "deporvillage", "alltricks", "runningwarehouse", "tradeinn"]
+        return rows.map { row in
+            let sid = row.id.lowercased()
+            let baseUrl = row.base_url ?? ""
+            let lowerUrl = baseUrl.lowercased()
+            let country: String = (euStores.contains(sid) || lowerUrl.contains(".eu") || lowerUrl.contains(".es") || lowerUrl.contains(".de") || lowerUrl.contains(".fr")) ? "EU" : "IT"
+
+            var subParts: [String] = []
+            if let courier = row.courier, !courier.isEmpty {
+                subParts.append(courier)
+            }
+            if let thresh = row.free_shipping_threshold {
+                let tStr = thresh.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(thresh))" : String(format: "%.2f", thresh)
+                subParts.append("Gratis da €\(tStr)")
+            } else if let stdCost = row.standard_shipping_cost {
+                subParts.append(String(format: "Sped. da €%.2f", stdCost))
+            }
+            let subtitle = subParts.isEmpty ? nil : subParts.joined(separator: " · ")
+
+            return ActiveStoreItem(
+                id: row.id,
+                name: row.name,
+                base_url: baseUrl,
+                rating: row.rating,
+                review_count: row.review_count,
+                formatted_review_count: row.formatted_review_count,
+                accent_color: row.accent_color,
+                card_theme: row.card_theme,
+                free_shipping_threshold: row.free_shipping_threshold,
+                standard_shipping_cost: row.standard_shipping_cost,
+                courier: row.courier,
+                country: country,
+                logo_url: row.logo_url,
+                is_new: nil,
+                subtitle: subtitle
+            )
+        }
+    }
 }

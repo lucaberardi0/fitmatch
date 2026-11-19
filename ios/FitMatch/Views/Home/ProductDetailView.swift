@@ -18,20 +18,27 @@ struct StoreRatingHelper {
             return String(format: "%.1f", r).replacingOccurrences(of: ".", with: ",")
         }
         let s = storeName.lowercased()
-        if s.contains("one block") { return "4,8" }
-        if s.contains("top4") { return "4,9" }
-        if s.contains("mister") { return "4,8" }
-        if s.contains("cisalfa") { return "4,7" }
-        if s.contains("maxi") { return "4,8" }
-        if s.contains("nencini") { return "4,6" }
-        if s.contains("end") { return "4,9" }
-        if s.contains("running") || s.contains("warehouse") { return "4,8" }
-        if s.contains("deporvillage") { return "4,7" }
-        if s.contains("alltricks") { return "4,7" }
-        if s.contains("decathlon") { return "4,6" }
-        if s.contains("nike") { return "4,9" }
-        if s.contains("adidas") { return "4,9" }
-        return "4,8"
+        if s.contains("top4") { return "4,8" }
+        if s.contains("mister") { return "4,9" }
+        if s.contains("cisalfa") { return "2,6" }
+        if s.contains("maxi") { return "3,9" }
+        if s.contains("nencini") { return "4,8" }
+        if s.contains("running") || s.contains("warehouse") { return "3,5" }
+        if s.contains("deporvillage") { return "4,5" }
+        if s.contains("alltricks") { return "4,2" }
+        if s.contains("decathlon") { return "1,5" }
+        if s.contains("sportler") { return "3,6" }
+        if s.contains("df sport") || s.contains("sportspecialist") { return "4,6" }
+        if s.contains("tradeinn") { return "3,3" }
+        if s.contains("sportit") { return "4,8" }
+        if s.contains("tennis") { return "4,1" }
+        if s.contains("basketball") { return "4,9" }
+        if s.contains("nonsolosport") { return "4,5" }
+        if s.contains("intersport") { return "4,3" }
+        if s.contains("bshopzone") { return "4,5" }
+        if s.contains("nike") { return "1,5" }
+        if s.contains("adidas") { return "1,5" }
+        return "4,5"
     }
 
     static func reviewCount(for storeName: String, storeId: String? = nil) -> String {
@@ -45,15 +52,18 @@ struct StoreRatingHelper {
             }
         }
         let s = storeName.lowercased()
-        if s.contains("one block") { return "657" }
-        if s.contains("top4") { return "1.240" }
-        if s.contains("mister") { return "890" }
-        if s.contains("cisalfa") { return "2.150" }
-        if s.contains("maxi") { return "950" }
-        if s.contains("nencini") { return "657" }
-        if s.contains("end") { return "3.420" }
-        if s.contains("running") || s.contains("warehouse") { return "1.120" }
-        return "657"
+        if s.contains("top4") { return "7,9K" }
+        if s.contains("mister") { return "37,3K" }
+        if s.contains("cisalfa") { return "1,9K" }
+        if s.contains("maxi") { return "1,5K" }
+        if s.contains("nencini") { return "170K" }
+        if s.contains("running") || s.contains("warehouse") { return "32" }
+        if s.contains("deporvillage") { return "486K" }
+        if s.contains("alltricks") { return "1,3K" }
+        if s.contains("decathlon") { return "2,7K" }
+        if s.contains("nike") { return "13,2K" }
+        if s.contains("adidas") { return "603" }
+        return "1,2K"
     }
 }
 

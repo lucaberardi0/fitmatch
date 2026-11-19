@@ -42,22 +42,25 @@ struct FollowingView: View {
                 return PartnerStoreItem(id: store.id, name: store.name, subtitle: subtitle)
             }
         }
-        // Fallback partner stores before first backend sync
-        let baseStores: [(id: String, name: String, count: Int, highlight: String)] = [
-            ("nike", "Nike", 702, "Novità serie ZoomX e scarpe da gara"),
-            ("misterrunning", "Mister Running", 981, "Modelli corsa con sconti fino al 68%"),
-            ("alltricks", "Alltricks", 980, "Articoli per running, trail e ciclismo"),
-            ("cisalfa", "Cisalfa Sport", 641, "Offerte running & sneaker a catalogo"),
-            ("maxisport", "Maxi Sport", 631, "Articoli streetwear e scarpe running"),
-            ("top4running", "Top4Running", 613, "Modelli top con sconti di stagione"),
-            ("decathlon", "Decathlon", 478, "Modelli per corsa, trail e palestra"),
-            ("deporvillage", "Deporvillage", 475, "Offerte outdoor, scarpe e GPS Garmin"),
-            ("runningwarehouse", "Running Warehouse Europe", 218, "Modelli scarpe da gara e allenamento"),
-            ("nencini", "Nencini Sport", 110, "Articoli sportivi multimarca")
+        // Fallback partner stores before first backend/Supabase sync
+        let baseStores: [(id: String, name: String, highlight: String)] = [
+            ("nike", "Nike", "Store ufficiale Nike"),
+            ("adidas", "Adidas", "Store ufficiale Adidas"),
+            ("misterrunning", "Mister Running", "Specialista scarpe da corsa e trail"),
+            ("alltricks", "Alltricks", "Running, trail, ciclismo e GPS"),
+            ("cisalfa", "Cisalfa Sport", "Multisport, sneaker e abbigliamento"),
+            ("maxisport", "Maxi Sport", "Running, outdoor e sportswear"),
+            ("top4running", "Top4Running", "Scarpe racing e pista"),
+            ("decathlon", "Decathlon", "Corsa, trail, fitness e outdoor"),
+            ("deporvillage", "Deporvillage", "Ciclismo, outdoor e smartwatch GPS"),
+            ("runningwarehouse", "Running Warehouse Europe", "Scarpe da gara e allenamento"),
+            ("nencini", "Nencini Sport", "Articoli sportivi multimarca")
         ]
         return baseStores.map { s in
-            let c = fallbackStoreCounts[s.id] ?? s.count
-            return PartnerStoreItem(id: s.id, name: s.name, subtitle: "\(c) articoli • \(s.highlight)")
+            if let c = fallbackStoreCounts[s.id] {
+                return PartnerStoreItem(id: s.id, name: s.name, subtitle: "\(c) articoli • \(s.highlight)")
+            }
+            return PartnerStoreItem(id: s.id, name: s.name, subtitle: s.highlight)
         }
     }
 
