@@ -1,9 +1,9 @@
-name: FitMatch Autonomous Price Sync & Keep-Alive
+name: FitMatch Scheduled Price Sync
 
 on:
   schedule:
-    # Runs every hour at minute 15 (e.g. 01:15, 02:15, 03:15, ...)
-    - cron: "15 * * * *"
+    # Runs 3 times/day (04:15, 12:15, 20:15 UTC) to keep Render free-tier hours low
+    - cron: "15 4,12,20 * * *"
   workflow_dispatch:
     inputs:
       action:

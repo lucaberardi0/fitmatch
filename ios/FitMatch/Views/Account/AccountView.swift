@@ -108,8 +108,6 @@ struct AccountView: View {
             .background(Color.shopSurface.ignoresSafeArea())
             .navigationBarHidden(true)
             .task {
-                _ = await api.checkHealth()
-                await prefs.checkUpdaterStatus(apiService: api)
                 await prefs.fetchActiveStores(apiService: api)
             }
             .sheet(isPresented: $showingAuthSheet) {
@@ -1469,7 +1467,6 @@ private struct AccountPrivacyDataView: View {
 
                             Button(action: {
                                 Task {
-                                    _ = await api.checkHealth()
                                     _ = await supabase.checkCloudHealth()
                                     await wishlist.syncWithDatabase()
                                 }

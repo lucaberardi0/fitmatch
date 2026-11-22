@@ -81,7 +81,6 @@ class FollowedStoresManager: ObservableObject {
                 Task {
                     for s in toRemove {
                         _ = try? await SupabaseManager.shared.unfollowStore(storeId: s.store_id)
-                        _ = try? await APIService.shared.unfollowStore(storeId: s.store_id)
                     }
                 }
             }
@@ -185,10 +184,9 @@ class FollowedStoresManager: ObservableObject {
         }
         saveToCache()
 
-        // Background Sync to Supabase & Backend API
+        // Background Sync directly to Supabase
         Task {
             _ = try? await SupabaseManager.shared.followStore(storeId: cleanId, storeName: storeName, storeLogo: storeLogo)
-            _ = try? await APIService.shared.followStore(storeId: cleanId, storeName: storeName, storeLogo: storeLogo)
         }
     }
 
@@ -199,10 +197,9 @@ class FollowedStoresManager: ObservableObject {
         }
         saveToCache()
 
-        // Background Sync to Supabase & Backend API
+        // Background Sync directly to Supabase
         Task {
             _ = try? await SupabaseManager.shared.unfollowStore(storeId: cleanId)
-            _ = try? await APIService.shared.unfollowStore(storeId: cleanId)
         }
     }
 

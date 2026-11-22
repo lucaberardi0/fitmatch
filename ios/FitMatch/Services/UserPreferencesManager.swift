@@ -404,9 +404,10 @@ class UserPreferencesManager: ObservableObject {
         if !directStores.isEmpty {
             DynamicCatalogRegistry.shared.updateStores(directStores)
             self.activeStores = directStores
+            return
         }
 
-        // 2. Sync full catalog metadata (dynamic categories & known brands) from API
+        // 2. Fallback to API only if Supabase direct query returned empty
         guard let url = URL(string: "\(apiService.baseURL)/api/stores") else { return }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)

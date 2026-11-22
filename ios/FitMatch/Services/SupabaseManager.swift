@@ -1072,15 +1072,7 @@ class SupabaseManager: ObservableObject {
             print("[SupabaseManager] submitStoreReview network error: \(error)")
         }
 
-        // Fallback to local FastAPI if Supabase fails
-        let apiFallback = (try? await APIService.shared.submitStoreReview(
-            storeId: storeId,
-            authorName: cleanAuthor.isEmpty ? "Cliente Verificato" : cleanAuthor,
-            rating: rating,
-            reviewText: cleanText
-        )) ?? false
-
-        return apiFallback
+        return false
     }
 
     // MARK: - Robust Date Parsing
@@ -2807,5 +2799,501 @@ class SupabaseManager: ObservableObject {
                 subtitle: subtitle
             )
         }
+    }
+
+    // MARK: - Direct Store Details (Catalog, Metadata & Reviews)
+
+    func fetchStoreDetailsDirect(
+        storeId: String,
+        query: String = "",
+        sort: String = "discount",
+        limit: Int = 100
+    ) async throws -> StoreDetailResponse {
+        struct RawStoreRow: Codable {
+            let id: String
+            let name: String
+            let base_url: String?
+            let rating: Double?
+            let formatted_review_count: String?
+            let description: String?
+            let full_description: String?
+            let contact_email: String?
+            let contact_phone: String?
+            let social_instagram: String?
+            let refund_policy: String?
+            let shipping_policy: String?
+            let privacy_policy_url: String?
+            let terms_url: String?
+            let city_or_location: String?
+            let free_shipping_threshold: Double?
+            let standard_shipping_cost: Double?
+            let courier: String?
+        }
+
+        struct StoreProductJoin: Codable {
+            let id: String?
+            let canonical_name: String?
+            let brand: String?
+            let category: String?
+            let gallery_images: [String]?
+        }
+
+        struct RawOfferRow: Codable {
+            let id: String
+            let product_id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+            let gallery_images: [String]?
+            let available_sizes: [String]?
+            let shipping_cost: Double?
+            let free_shipping_threshold: Double?
+            let courier: String?
+            let products: StoreProductJoin?
+        }
+
+        struct StatRow: Codable {
+            let total_offers: Int
+            let avg_discount: Double?
+        }
+
+        let sid = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let encodedSid = sid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw URLError(.badURL)
+        }
+
+        let orderClause: String
+        switch sort {
+        case "price_asc":
+            orderClause = "current_price.asc"
+        case "price_desc":
+            orderClause = "current_price.desc"
+        case "name":
+            orderClause = "raw_title.asc"
+        default:
+            orderClause = "discount_pct.desc.nullslast,current_price.desc"
+        }
+
+        let publicHeaders = makeHeaders(isPublic: true)
+        let urlSession = session
+        let baseRest = restURL
+
+        async let storeTask: RawStoreRow? = {
+            guard let url = URL(string: "\(baseRest)/stores?id=eq.\(encodedSid)&limit=1") else { return nil }
+            var req = URLRequest(url: url)
+            for (k, v) in publicHeaders { req.setValue(v, forHTTPHeaderField: k) }
+            guard let (data, resp) = try? await urlSession.data(for: req),
+                  let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                  let rows = try? JSONDecoder().decode([RawStoreRow].self, from: data) else {
+                return nil
+            }
+            return rows.first
+        }()
+
+        async let statTask: StatRow? = {
+            guard let url = URL(string: "\(baseRest)/store_catalog_stats?store_id=eq.\(encodedSid)&select=total_offers,avg_discount") else { return nil }
+            var req = URLRequest(url: url)
+            for (k, v) in publicHeaders { req.setValue(v, forHTTPHeaderField: k) }
+            guard let (data, resp) = try? await urlSession.data(for: req),
+                  let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                  let rows = try? JSONDecoder().decode([StatRow].self, from: data) else {
+                return nil
+            }
+            return rows.first
+        }()
+
+        async let reviewsTask: [StoreCustomerReview] = fetchStoreReviews(storeId: sid, limit: 20)
+
+        let selectCols = "id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,available_sizes,shipping_cost,free_shipping_threshold,courier,products(id,canonical_name,brand,category,gallery_images)"
+
+        func fetchOffers(keywords: [String]) async throws -> (rows: [RawOfferRow], exactTotal: Int?) {
+            var params = [
+                "store_id=eq.\(encodedSid)",
+                "select=\(selectCols)",
+                "order=\(orderClause)",
+                "limit=\(limit)"
+            ]
+            for kw in keywords {
+                let cleaned = kw.replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleaned.isEmpty,
+                      let encKw = cleaned.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { continue }
+                params.append("raw_title=ilike.*\(encKw)*")
+            }
+            guard let url = URL(string: "\(baseRest)/store_offers?\(params.joined(separator: "&"))") else {
+                throw URLError(.badURL)
+            }
+            var req = URLRequest(url: url)
+            for (k, v) in publicHeaders { req.setValue(v, forHTTPHeaderField: k) }
+            req.setValue("count=exact", forHTTPHeaderField: "Prefer")
+
+            let (data, response) = try await urlSession.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                throw URLError(.badServerResponse)
+            }
+            let rows = try JSONDecoder().decode([RawOfferRow].self, from: data)
+
+            var exactCount: Int? = nil
+            if let rangeHeader = http.value(forHTTPHeaderField: "Content-Range") ?? http.value(forHTTPHeaderField: "content-range"),
+               let totalPart = rangeHeader.split(separator: "/").last,
+               let parsedTotal = Int(totalPart) {
+                exactCount = parsedTotal
+            }
+            return (rows, exactCount)
+        }
+
+        let cleanWords = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { $0.count > 1 }
+
+        var offersResult = try await fetchOffers(keywords: cleanWords)
+        if offersResult.rows.isEmpty && cleanWords.count > 1 {
+            let primary = cleanWords.filter { $0.count > 2 }.first ?? cleanWords[0]
+            offersResult = try await fetchOffers(keywords: [primary])
+        }
+
+        let (storeRow, statRow, reviews) = await (storeTask, statTask, reviewsTask)
+        if storeRow == nil && offersResult.rows.isEmpty {
+            throw URLError(.resourceUnavailable)
+        }
+
+        let storeName = storeRow?.name ?? offersResult.rows.first?.store_name ?? sid.capitalized
+        let baseUrl = storeRow?.base_url ?? ""
+        let ratingStr = storeRow?.rating.map { String(format: "%.1f", $0) } ?? "4.8"
+        let reviewCountStr = storeRow?.formatted_review_count ?? "1,2K"
+        let desc = storeRow?.description ?? "Rivenditore autorizzato con offerte esclusive per lo sport e running."
+        let fullDesc = storeRow?.full_description ?? desc
+        let refundPolicy = storeRow?.refund_policy ?? "Reso garantito entro 30 giorni."
+        let shippingPolicy: String = {
+            if let sp = storeRow?.shipping_policy, !sp.isEmpty { return sp }
+            if let thresh = storeRow?.free_shipping_threshold {
+                let std = storeRow?.standard_shipping_cost ?? 4.90
+                return String(format: "Spedizione standard %.2f € • Gratuita da %.2f €", std, thresh)
+            }
+            return "Spedizione rapida con corriere espresso."
+        }()
+
+        let products: [StoreShowcaseProduct] = offersResult.rows.map { r in
+            let stdCost = storeRow?.standard_shipping_cost ?? r.shipping_cost ?? 0.0
+            let freeThresh = r.free_shipping_threshold ?? storeRow?.free_shipping_threshold
+            let computedShipping: Double
+            if let th = freeThresh, th > 0 {
+                computedShipping = r.current_price >= th ? 0.0 : stdCost
+            } else {
+                computedShipping = r.shipping_cost ?? 0.0
+            }
+            let isFree = computedShipping == 0.0
+            let courier = r.courier ?? storeRow?.courier
+            let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.products?.brand ?? storeName)
+
+            var mergedGallery: [String] = []
+            if let img = r.image_url, !img.isEmpty { mergedGallery.append(img) }
+            for g in (r.gallery_images ?? []) where !g.isEmpty && !mergedGallery.contains(g) {
+                mergedGallery.append(g)
+            }
+            for g in (r.products?.gallery_images ?? []) where !g.isEmpty && !mergedGallery.contains(g) {
+                mergedGallery.append(g)
+            }
+
+            return StoreShowcaseProduct(
+                id: r.id,
+                title: r.raw_title,
+                brand: extractedBrand,
+                image_url: r.image_url ?? mergedGallery.first,
+                gallery_images: mergedGallery.isEmpty ? nil : mergedGallery,
+                available_sizes: r.available_sizes,
+                current_price: r.current_price,
+                original_price: r.original_price,
+                discount_pct: r.discount_pct,
+                product_url: r.product_url,
+                canonical_name: r.products?.canonical_name ?? r.raw_title,
+                product_id: r.product_id,
+                shipping_cost: computedShipping,
+                total_price: (r.current_price + computedShipping),
+                is_free_shipping: isFree,
+                shipping_label: isFree ? "Spedizione Gratuita" : String(format: "+%.2f € sped.", computedShipping),
+                free_shipping_threshold: freeThresh,
+                courier: courier
+            )
+        }
+
+        let prices = products.map(\.current_price).filter { $0 > 0 }
+        let discounts = products.compactMap(\.discount_pct).filter { $0 > 0 }
+        let avgDiscount = statRow?.avg_discount ?? (discounts.isEmpty ? 0.0 : (discounts.reduce(0, +) / Double(discounts.count)))
+        let totalOffers = offersResult.exactTotal ?? statRow?.total_offers ?? products.count
+
+        var customerPhotos: [String] = []
+        for p in products {
+            if let img = p.image_url, !img.isEmpty, !customerPhotos.contains(img) {
+                customerPhotos.append(img)
+            }
+            for g in (p.gallery_images ?? []) where !g.isEmpty && !customerPhotos.contains(g) {
+                customerPhotos.append(g)
+            }
+            if customerPhotos.count >= 8 { break }
+        }
+
+        let ratingScore = storeRow?.rating ?? 4.8
+        let ratingBreakdown = StoreRatingBreakdown(
+            score: ratingScore,
+            positive_pct: ratingScore >= 4.8 ? "96%" : "92%",
+            review_count: reviewCountStr,
+            platform: "Recensioni Verificate"
+        )
+
+        var badges = ["Rivenditore Verificato", "100% Originale"]
+        if let thresh = storeRow?.free_shipping_threshold {
+            badges.append("Sped. Gratis da \(Int(thresh)) €")
+        }
+        if let c = storeRow?.courier, !c.isEmpty {
+            badges.append(c)
+        }
+
+        return StoreDetailResponse(
+            store_id: sid,
+            store_name: storeName,
+            base_url: baseUrl,
+            rating: ratingStr,
+            review_count: reviewCountStr,
+            description: desc,
+            full_description: fullDesc,
+            badges: badges,
+            highlights: nil,
+            location: storeRow?.city_or_location,
+            shipping_info: shippingPolicy,
+            return_policy: refundPolicy,
+            rating_breakdown: ratingBreakdown,
+            total_offers: totalOffers,
+            avg_discount: (avgDiscount * 10).rounded() / 10,
+            min_price: prices.min() ?? 0.0,
+            products: products,
+            contact_email: storeRow?.contact_email ?? "supporto@\(sid).com",
+            contact_phone: storeRow?.contact_phone,
+            social_instagram: storeRow?.social_instagram ?? "@\(sid)",
+            privacy_policy_url: storeRow?.privacy_policy_url ?? baseUrl,
+            terms_url: storeRow?.terms_url ?? baseUrl,
+            refund_policy: refundPolicy,
+            shipping_policy: shippingPolicy,
+            city_or_location: storeRow?.city_or_location,
+            customer_reviews: reviews.isEmpty ? nil : reviews,
+            customer_photos: customerPhotos.isEmpty ? nil : customerPhotos
+        )
+    }
+
+    // MARK: - Direct Price History
+
+    func fetchPriceHistoryDirect(
+        canonicalName: String,
+        productId: String? = nil,
+        days: Int = 90
+    ) async throws -> PriceHistoryResponse {
+        struct ProductRow: Codable {
+            let id: String
+            let canonical_name: String
+        }
+        struct OfferRow: Codable {
+            let id: String
+            let store_name: String?
+            let current_price: Double?
+            let original_price: Double?
+        }
+        struct HistoryRow: Codable {
+            let offer_id: String
+            let price: Double
+            let recorded_at: String
+        }
+
+        let headers = makeHeaders(isPublic: true)
+        var resolvedProductId = productId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var resolvedCanonical = canonicalName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let pid = resolvedProductId, !pid.isEmpty,
+           let encPid = pid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let url = URL(string: "\(restURL)/products?id=eq.\(encPid)&select=id,canonical_name&limit=1") {
+            var req = URLRequest(url: url)
+            for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+            if let (data, resp) = try? await session.data(for: req),
+               let http = resp as? HTTPURLResponse, http.statusCode == 200,
+               let rows = try? JSONDecoder().decode([ProductRow].self, from: data),
+               let first = rows.first {
+                resolvedProductId = first.id
+                resolvedCanonical = first.canonical_name
+            }
+        } else if !resolvedCanonical.isEmpty {
+            let cleaned = resolvedCanonical.replacingOccurrences(of: "*", with: "")
+            if let enc = cleaned.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+               let url = URL(string: "\(restURL)/products?canonical_name=ilike.*\(enc)*&select=id,canonical_name&limit=1") {
+                var req = URLRequest(url: url)
+                for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+                if let (data, resp) = try? await session.data(for: req),
+                   let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                   let rows = try? JSONDecoder().decode([ProductRow].self, from: data),
+                   let first = rows.first {
+                    resolvedProductId = first.id
+                    resolvedCanonical = first.canonical_name
+                }
+            }
+        }
+
+        var offers: [OfferRow] = []
+        if let pid = resolvedProductId, !pid.isEmpty,
+           let encPid = pid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let url = URL(string: "\(restURL)/store_offers?product_id=eq.\(encPid)&select=id,store_name,current_price,original_price") {
+            var req = URLRequest(url: url)
+            for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+            if let (data, resp) = try? await session.data(for: req),
+               let http = resp as? HTTPURLResponse, http.statusCode == 200,
+               let rows = try? JSONDecoder().decode([OfferRow].self, from: data) {
+                offers = rows
+            }
+        }
+
+        if offers.isEmpty && !resolvedCanonical.isEmpty {
+            let cleaned = resolvedCanonical.replacingOccurrences(of: "*", with: "")
+            if let enc = cleaned.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+               let url = URL(string: "\(restURL)/store_offers?raw_title=ilike.*\(enc)*&select=id,store_name,current_price,original_price&limit=15") {
+                var req = URLRequest(url: url)
+                for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+                if let (data, resp) = try? await session.data(for: req),
+                   let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                   let rows = try? JSONDecoder().decode([OfferRow].self, from: data) {
+                    offers = rows
+                }
+            }
+        }
+
+        var offerStoreMap: [String: String] = [:]
+        var offerCurrentMap: [String: Double] = [:]
+        var offerOrigMap: [String: Double] = [:]
+        for o in offers {
+            offerStoreMap[o.id] = o.store_name ?? "Store"
+            if let p = o.current_price { offerCurrentMap[o.id] = p }
+            if let op = o.original_price { offerOrigMap[o.id] = op }
+        }
+
+        let now = Date()
+        let iso = ISO8601DateFormatter()
+        let startIso = iso.string(from: now.addingTimeInterval(TimeInterval(-days * 86400)))
+        var rawPoints: [PriceHistoryPoint] = []
+
+        if !offers.isEmpty {
+            let ids = offers.prefix(30).map { "\"\($0.id)\"" }.joined(separator: ",")
+            if let encIn = ids.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+               let encStart = startIso.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+               let url = URL(string: "\(restURL)/price_history?offer_id=in.(\(encIn))&recorded_at=gte.\(encStart)&order=recorded_at.asc&limit=500") {
+                var req = URLRequest(url: url)
+                for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+                if let (data, resp) = try? await session.data(for: req),
+                   let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                   let rows = try? JSONDecoder().decode([HistoryRow].self, from: data) {
+                    for r in rows {
+                        rawPoints.append(PriceHistoryPoint(
+                            date: r.recorded_at,
+                            price: r.price,
+                            store_name: offerStoreMap[r.offer_id] ?? "Store",
+                            offer_id: r.offer_id
+                        ))
+                    }
+                }
+            }
+        }
+
+        let nowStr = iso.string(from: now)
+        for (oid, curP) in offerCurrentMap {
+            rawPoints.append(PriceHistoryPoint(
+                date: nowStr,
+                price: curP,
+                store_name: offerStoreMap[oid] ?? "Store",
+                offer_id: oid
+            ))
+        }
+
+        if rawPoints.count == offerCurrentMap.count, !offerCurrentMap.isEmpty,
+           let maxOrig = offerOrigMap.values.max(),
+           let minCur = offerCurrentMap.values.min(),
+           maxOrig > minCur {
+            let past30d = iso.string(from: now.addingTimeInterval(-30 * 86400))
+            rawPoints.insert(PriceHistoryPoint(
+                date: past30d,
+                price: (maxOrig * 100).rounded() / 100,
+                store_name: "Listino Ufficiale",
+                offer_id: nil
+            ), at: 0)
+        }
+
+        rawPoints.sort { $0.date < $1.date }
+
+        var filteredPoints: [PriceHistoryPoint] = []
+        var seenKeys = Set<String>()
+        for pt in rawPoints {
+            let dShort = String(pt.date.prefix(10))
+            let roundedP = (pt.price * 100).rounded() / 100
+            let key = "\(dShort)_\(pt.store_name)_\(roundedP)"
+            if !seenKeys.contains(key) {
+                seenKeys.insert(key)
+                filteredPoints.append(pt)
+            }
+        }
+
+        var allPrices = filteredPoints.map(\.price).filter { $0 > 0 }
+        if allPrices.isEmpty && !offerCurrentMap.isEmpty {
+            allPrices = Array(offerCurrentMap.values)
+        }
+
+        let currentPrice = offerCurrentMap.values.min() ?? allPrices.last ?? 0.0
+        let lowestPrice = allPrices.min() ?? currentPrice
+        let highestPrice = allPrices.max() ?? currentPrice
+        let averagePrice = allPrices.isEmpty ? currentPrice : ((allPrices.reduce(0, +) / Double(allPrices.count)) * 100).rounded() / 100
+        let isAllTimeLow = currentPrice > 0 && currentPrice <= (lowestPrice + 0.50)
+        let dropPct = (averagePrice > currentPrice && averagePrice > 0)
+            ? (((averagePrice - currentPrice) / averagePrice) * 1000).rounded() / 10
+            : 0.0
+        let dropAmt = (averagePrice > currentPrice)
+            ? ((averagePrice - currentPrice) * 100).rounded() / 100
+            : 0.0
+
+        return PriceHistoryResponse(
+            canonical_name: resolvedCanonical.isEmpty ? (resolvedProductId ?? "") : resolvedCanonical,
+            product_id: resolvedProductId,
+            current_price: (currentPrice * 100).rounded() / 100,
+            lowest_price: (lowestPrice * 100).rounded() / 100,
+            highest_price: (highestPrice * 100).rounded() / 100,
+            average_price: averagePrice,
+            is_all_time_low: isAllTimeLow,
+            price_drop_percentage: dropPct,
+            price_drop_amount: dropAmt,
+            history_points: filteredPoints,
+            total_data_points: filteredPoints.count,
+            first_recorded_date: filteredPoints.first?.date,
+            last_recorded_date: filteredPoints.last?.date
+        )
+    }
+
+    // MARK: - Direct Chat Turn Feedback
+
+    func updateChatMessageFeedbackDirect(sessionId: String, turnId: String, feedback: Int) async -> Bool {
+        let sid = sessionId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let tid = turnId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !sid.isEmpty, !tid.isEmpty,
+              let sidEnc = sid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let tidEnc = tid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(restURL)/chat_messages?id=eq.\(tidEnc)&session_id=eq.\(sidEnc)"),
+              let body = try? JSONSerialization.data(withJSONObject: ["user_feedback": feedback]) else {
+            return false
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+        req.httpBody = body
+        guard let (_, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse else {
+            return false
+        }
+        return (200...299).contains(http.statusCode)
     }
 }

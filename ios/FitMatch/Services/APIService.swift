@@ -118,6 +118,19 @@ class APIService: ObservableObject {
             return cached.results
         }
 
+        // 1. Direct Supabase Cloud catalog query (avoids waking Render for indexed products)
+        let direct = await SupabaseManager.shared.fetchSmartProductsDirect(
+            category: nil,
+            keywords: [query],
+            size: size,
+            limit: 30
+        )
+        if !direct.isEmpty {
+            liveSearchCache[cacheKey] = (direct, Date().addingTimeInterval(600))
+            return direct
+        }
+
+        // 2. Fallback to live federated search backend only if nothing is indexed in Supabase
         var components = URLComponents(string: "\(baseURL)/api/search")!
         var queryItems = [URLQueryItem(name: "q", value: query)]
         if let size = size, !size.isEmpty {
@@ -127,40 +140,18 @@ class APIService: ObservableObject {
 
         guard let url = components.url else { throw URLError(.badURL) }
 
-        do {
-            let data = try await fetchFastData(url: url, timeout: 4.0)
-            let decoded = try JSONDecoder().decode(SearchResponse.self, from: data)
-            liveSearchCache[cacheKey] = (decoded.matched_products, Date().addingTimeInterval(600))
-            return decoded.matched_products
-        } catch {
-            let direct = await SupabaseManager.shared.fetchSmartProductsDirect(
-                category: nil,
-                keywords: [query],
-                size: size,
-                limit: 30
-            )
-            if !direct.isEmpty {
-                liveSearchCache[cacheKey] = (direct, Date().addingTimeInterval(600))
-                return direct
-            }
-            throw error
-        }
+        let data = try await fetchFastData(url: url, timeout: 6.0)
+        let decoded = try JSONDecoder().decode(SearchResponse.self, from: data)
+        liveSearchCache[cacheKey] = (decoded.matched_products, Date().addingTimeInterval(600))
+        return decoded.matched_products
     }
 
     func fetchPriceHistory(canonicalName: String, productId: String? = nil, days: Int = 90) async throws -> PriceHistoryResponse {
-        var components = URLComponents(string: "\(baseURL)/api/products/price-history")!
-        var queryItems = [
-            URLQueryItem(name: "canonical_name", value: canonicalName),
-            URLQueryItem(name: "days", value: "\(days)")
-        ]
-        if let pid = productId, !pid.isEmpty {
-            queryItems.append(URLQueryItem(name: "product_id", value: pid))
-        }
-        components.queryItems = queryItems
-        guard let url = components.url else { throw URLError(.badURL) }
-
-        let data = try await fetchDataWithRetry(url: url)
-        return try JSONDecoder().decode(PriceHistoryResponse.self, from: data)
+        return try await SupabaseManager.shared.fetchPriceHistoryDirect(
+            canonicalName: canonicalName,
+            productId: productId,
+            days: days
+        )
     }
 
     private func isMoreExamplesQuery(_ query: String) -> Bool {
@@ -221,6 +212,39 @@ class APIService: ObservableObject {
         return "\(cleanQuery)_\(mode ?? "")_\(maxPrice ?? 0)_\(size ?? "")_\(category ?? "")_\(store ?? "")_\(contextQuery ?? "")_\(preferredSize ?? "")"
     }
 
+    private var edgeFunctionsBaseURL: String {
+        "\(SupabaseManager.shared.projectURL)/functions/v1"
+    }
+
+    private func makeEdgeRequest(url: URL, method: String = "GET", timeout: TimeInterval = 25.0) -> URLRequest {
+        var req = URLRequest(url: url, timeoutInterval: timeout)
+        req.httpMethod = method
+        let key = SupabaseManager.shared.anonKey
+        req.setValue(key, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        return req
+    }
+
+    private func fetchEdgeDataWithRetry(url: URL, maxRetries: Int = 1) async throws -> Data {
+        var lastError: Error?
+        for attempt in 0...maxRetries {
+            do {
+                let req = makeEdgeRequest(url: url, method: "GET", timeout: 25.0)
+                let (data, response) = try await session.data(for: req)
+                if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                    return data
+                }
+                throw URLError(.badServerResponse)
+            } catch {
+                lastError = error
+                if attempt < maxRetries {
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                }
+            }
+        }
+        throw lastError ?? URLError(.unknown)
+    }
+
     private func buildSmartSearchURL(
         path: String,
         query: String,
@@ -234,10 +258,14 @@ class APIService: ObservableObject {
         deviceId: String?,
         userId: String?,
         preferredSize: String?,
-        userImageURL: String? = nil
+        userImageURL: String? = nil,
+        stream: Bool = false
     ) throws -> URL {
-        var components = URLComponents(string: "\(baseURL)\(path)")!
-        var queryItems = [URLQueryItem(name: "q", value: query)]
+        var components = URLComponents(string: "\(edgeFunctionsBaseURL)\(path)")!
+        var queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "stream", value: stream ? "1" : "0")
+        ]
         if let mode = mode {
             queryItems.append(URLQueryItem(name: "mode", value: mode))
         }
@@ -327,7 +355,7 @@ class APIService: ObservableObject {
         }
 
         let url = try buildSmartSearchURL(
-            path: "/api/search/smart",
+            path: "/smart-search",
             query: query,
             mode: mode,
             maxPrice: maxPrice,
@@ -339,11 +367,16 @@ class APIService: ObservableObject {
             deviceId: deviceId,
             userId: resolvedUserId,
             preferredSize: preferredSize,
-            userImageURL: userImageURL
+            userImageURL: userImageURL,
+            stream: false
         )
 
         do {
-            let data = try await fetchFastData(url: url, timeout: 25.0)
+            let edgeReq = makeEdgeRequest(url: url, method: "GET", timeout: 25.0)
+            let (data, response) = try await session.data(for: edgeReq)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                throw URLError(.badServerResponse)
+            }
             let decoded = try JSONDecoder().decode(SmartSearchResponse.self, from: data)
             let enriched = await validateAndEnrichSmartSearchResponse(
                 decoded,
@@ -442,7 +475,7 @@ class APIService: ObservableObject {
         }
 
         let streamURL = try buildSmartSearchURL(
-            path: "/api/search/smart/stream",
+            path: "/smart-search",
             query: query,
             mode: mode,
             maxPrice: maxPrice,
@@ -454,10 +487,11 @@ class APIService: ObservableObject {
             deviceId: deviceId,
             userId: resolvedUserId,
             preferredSize: preferredSize,
-            userImageURL: userImageURL
+            userImageURL: userImageURL,
+            stream: true
         )
 
-        var request = URLRequest(url: streamURL, timeoutInterval: 30.0)
+        var request = makeEdgeRequest(url: streamURL, method: "GET", timeout: 30.0)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
@@ -1419,7 +1453,7 @@ class APIService: ObservableObject {
         deviceId: String? = nil,
         userId: String? = nil
     ) async throws -> AIAdviceResponse {
-        var components = URLComponents(string: "\(baseURL)/api/ai/advise")!
+        var components = URLComponents(string: "\(edgeFunctionsBaseURL)/ai-advise")!
         var items = [URLQueryItem(name: "prompt", value: prompt)]
         if let sid = sessionId, !sid.isEmpty {
             items.append(URLQueryItem(name: "session_id", value: sid))
@@ -1435,7 +1469,7 @@ class APIService: ObservableObject {
 
         guard let url = components.url else { throw URLError(.badURL) }
 
-        let data = try await fetchDataWithRetry(url: url)
+        let data = try await fetchEdgeDataWithRetry(url: url)
         return try JSONDecoder().decode(AIAdviceResponse.self, from: data)
     }
 
@@ -1443,69 +1477,27 @@ class APIService: ObservableObject {
 
     func fetchChatSessions(deviceId: String, userId: String? = nil, limit: Int = 20) async -> [ChatSessionSummary] {
         let resolvedUid = await resolveUserId(userId)
-        var components = URLComponents(string: "\(baseURL)/api/chats")
-        var items = [
-            URLQueryItem(name: "device_id", value: deviceId),
-            URLQueryItem(name: "limit", value: "\(limit)")
-        ]
-        if let uid = resolvedUid, !uid.isEmpty {
-            items.append(URLQueryItem(name: "user_id", value: uid))
-        }
-        components?.queryItems = items
-        if let url = components?.url {
-            if let data = try? await fetchFastData(url: url, timeout: 6.0),
-               let decoded = try? JSONDecoder().decode(ChatSessionsListResponse.self, from: data) {
-                return decoded.sessions
-            }
-        }
         return await SupabaseManager.shared.fetchChatSessionsDirect(deviceId: deviceId, userId: resolvedUid, limit: limit)
     }
 
     func fetchChatSessionDetail(sessionId: String) async -> ChatSessionDetail? {
-        if let enc = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-           let url = URL(string: "\(baseURL)/api/chats/\(enc)") {
-            if let data = try? await fetchFastData(url: url, timeout: 6.0),
-               let decoded = try? JSONDecoder().decode(ChatSessionDetail.self, from: data) {
-                return decoded
-            }
-        }
         return await SupabaseManager.shared.fetchChatSessionDetailDirect(sessionId: sessionId)
     }
 
     func deleteChatSession(sessionId: String, deviceId: String) async -> Bool {
-        if let enc = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-           var components = URLComponents(string: "\(baseURL)/api/chats/\(enc)") {
-            components.queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
-            if let url = components.url {
-                var req = URLRequest(url: url)
-                req.httpMethod = "DELETE"
-                req.timeoutInterval = 8
-                if let (_, resp) = try? await session.data(for: req),
-                   let http = resp as? HTTPURLResponse, http.statusCode == 200 {
-                    return true
-                }
-            }
-        }
         return await SupabaseManager.shared.deleteChatSessionDirect(sessionId: sessionId, deviceId: deviceId)
     }
 
     func submitChatTurnFeedback(sessionId: String, turnId: String, feedback: Int) async {
-        guard let sidEnc = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let tidEnc = turnId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "\(baseURL)/api/chats/\(sidEnc)/messages/\(tidEnc)/feedback"),
-              let body = try? JSONSerialization.data(withJSONObject: ["feedback": feedback]) else {
-            return
-        }
-        var req = URLRequest(url: url)
-        req.httpMethod = "PATCH"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = body
-        req.timeoutInterval = 6
-        _ = try? await session.data(for: req)
+        _ = await SupabaseManager.shared.updateChatMessageFeedbackDirect(
+            sessionId: sessionId,
+            turnId: turnId,
+            feedback: feedback
+        )
     }
 
     func compareModels(modelA: String, modelB: String) async throws -> ModelComparisonResponse {
-        var components = URLComponents(string: "\(baseURL)/api/ai/compare")!
+        var components = URLComponents(string: "\(edgeFunctionsBaseURL)/ai-compare")!
         components.queryItems = [
             URLQueryItem(name: "model_a", value: modelA),
             URLQueryItem(name: "model_b", value: modelB)
@@ -1513,43 +1505,41 @@ class APIService: ObservableObject {
 
         guard let url = components.url else { throw URLError(.badURL) }
 
-        let data = try await fetchDataWithRetry(url: url)
+        let data = try await fetchEdgeDataWithRetry(url: url)
         return try JSONDecoder().decode(ModelComparisonResponse.self, from: data)
     }
 
     func searchCatalog(query: String = "", category: String? = nil, limit: Int = 40) async throws -> [MatchedProduct] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effCat = (category != nil && category != "all" && category != "tutti") ? category : nil
+        let direct = await SupabaseManager.shared.fetchSmartProductsDirect(
+            category: effCat,
+            keywords: trimmed.isEmpty ? [] : [trimmed],
+            limit: limit
+        )
+        if !direct.isEmpty {
+            return direct
+        }
+
         var components = URLComponents(string: "\(baseURL)/api/catalog")!
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "limit", value: "\(limit)")
         ]
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             queryItems.append(URLQueryItem(name: "q", value: trimmed))
         }
-        if let cat = category, !cat.isEmpty, cat != "all", cat != "tutti" {
+        if let cat = effCat, !cat.isEmpty {
             queryItems.append(URLQueryItem(name: "category", value: cat))
         }
         components.queryItems = queryItems
 
         guard let url = components.url else { throw URLError(.badURL) }
-        do {
-            let data = try await fetchDataWithRetry(url: url)
-            struct CatalogResultResponse: Decodable {
-                let results: [MatchedProduct]
-            }
-            let decoded = try JSONDecoder().decode(CatalogResultResponse.self, from: data)
-            return decoded.results
-        } catch {
-            let direct = await SupabaseManager.shared.fetchSmartProductsDirect(
-                category: category,
-                keywords: trimmed.isEmpty ? [] : [trimmed],
-                limit: limit
-            )
-            if !direct.isEmpty {
-                return direct
-            }
-            throw error
+        let data = try await fetchDataWithRetry(url: url)
+        struct CatalogResultResponse: Decodable {
+            let results: [MatchedProduct]
         }
+        let decoded = try JSONDecoder().decode(CatalogResultResponse.self, from: data)
+        return decoded.results
     }
 
     func getStats() async throws -> CatalogStatsResponse {
@@ -1740,19 +1730,12 @@ class APIService: ObservableObject {
     }
 
     func getStoreDetails(storeId: String, query: String = "", sort: String = "discount") async throws -> StoreDetailResponse {
-        var components = URLComponents(string: "\(baseURL)/api/stores/\(storeId)")!
-        var queryItems: [URLQueryItem] = [
-            URLQueryItem(name: "sort", value: sort),
-            URLQueryItem(name: "limit", value: "100")
-        ]
-        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            queryItems.append(URLQueryItem(name: "q", value: query))
-        }
-        components.queryItems = queryItems
-
-        guard let url = components.url else { throw URLError(.badURL) }
-        let data = try await fetchDataWithRetry(url: url)
-        return try JSONDecoder().decode(StoreDetailResponse.self, from: data)
+        return try await SupabaseManager.shared.fetchStoreDetailsDirect(
+            storeId: storeId,
+            query: query,
+            sort: sort,
+            limit: 100
+        )
     }
 
     // MARK: - Wishlist & Collections (Database Connected)
@@ -1940,28 +1923,13 @@ class APIService: ObservableObject {
         comment: String? = nil,
         productEvaluations: [[String: Any]]? = nil
     ) async {
-        // 1. Send to Supabase directly
+        // Persist directly to Supabase Cloud (no Render call needed)
         _ = try? await SupabaseManager.shared.submitSearchFeedback(
             query: query,
             feedbackType: feedbackType,
             comment: comment,
             productEvaluations: productEvaluations
         )
-
-        // 2. Also send to FastAPI backend endpoint if available
-        guard let url = URL(string: "\(baseURL)/api/search/feedback") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var payload: [String: Any] = [
-            "query": query,
-            "feedback_type": feedbackType,
-            "device_id": SupabaseManager.shared.deviceId
-        ]
-        if let c = comment { payload["comment"] = c }
-        if let evals = productEvaluations { payload["product_evaluations"] = evals }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
-        _ = try? await session.data(for: request)
     }
 
     // MARK: - Outbound Affiliate Monetization
@@ -1973,22 +1941,26 @@ class APIService: ObservableObject {
         source: String = "app"
     ) -> URL {
         let clean = targetUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var components = URLComponents(string: "\(baseURL)/api/outbound/redirect") else {
-            return URL(string: clean) ?? URL(string: "https://fitmatch.it")!
+        guard !clean.isEmpty else {
+            return URL(string: "https://fitmatch.it")!
         }
-        var queryItems: [URLQueryItem] = [
-            URLQueryItem(name: "url", value: clean),
-            URLQueryItem(name: "source", value: source),
-            URLQueryItem(name: "device_id", value: SupabaseManager.shared.deviceId)
-        ]
-        if let s = storeId, !s.isEmpty {
-            queryItems.append(URLQueryItem(name: "store_id", value: s))
+
+        let sovrnKey = "bc9e0db8eb869194e60dcb42219bf689"
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+
+        if !sovrnKey.isEmpty, let encodedTarget = clean.addingPercentEncoding(withAllowedCharacters: allowed) {
+            let cleanStore = (storeId ?? "gen").lowercased().filter { $0.isLetter || $0.isNumber }
+            let cleanSource = source.lowercased().filter { $0.isLetter || $0.isNumber }
+            let randomHash = UUID().uuidString.prefix(6).lowercased()
+            let cuid = "fm_\(cleanStore.prefix(8))_\(cleanSource.prefix(6))_\(randomHash)"
+            let viglinkString = "https://redirect.viglink.com?key=\(sovrnKey)&u=\(encodedTarget)&cuid=\(cuid)"
+            if let vigUrl = URL(string: viglinkString) {
+                return vigUrl
+            }
         }
-        if let o = offerId, !o.isEmpty {
-            queryItems.append(URLQueryItem(name: "offer_id", value: o))
-        }
-        components.queryItems = queryItems
-        return components.url ?? (URL(string: clean) ?? URL(string: "https://fitmatch.it")!)
+
+        return URL(string: clean) ?? URL(string: "https://fitmatch.it")!
     }
 
     // MARK: - Affiliate Link Generator for Sharing
@@ -2031,7 +2003,7 @@ class APIService: ObservableObject {
     // MARK: - Visual Search (Camera & Gallery Photo Recognition)
 
     func analyzeVisualSearchImage(imageData: Data, mimeType: String = "image/jpeg", description: String? = nil) async throws -> VisualSearchResponse {
-        guard let url = URL(string: "\(baseURL)/api/search/visual") else {
+        guard let url = URL(string: "\(edgeFunctionsBaseURL)/visual-search") else {
             throw URLError(.badURL)
         }
 
@@ -2049,9 +2021,7 @@ class APIService: ObservableObject {
         var lastError: Error?
 
         for attempt in 0...maxRetries {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 35
+            var request = makeEdgeRequest(url: url, method: "POST", timeout: 35)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = bodyData
 
@@ -2075,7 +2045,7 @@ class APIService: ObservableObject {
                         domain: "FitMatchVisualSearch",
                         code: 404,
                         userInfo: [
-                            NSLocalizedDescriptionKey: "Servizio di ricerca visiva non ancora attivo sul server (404). Completa il deploy del backend su Render."
+                            NSLocalizedDescriptionKey: "Servizio di ricerca visiva non ancora attivo su Supabase (404)."
                         ]
                     )
                 }
