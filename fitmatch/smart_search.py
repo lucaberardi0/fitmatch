@@ -1843,6 +1843,8 @@ class QueryProductGuardrail:
         "pantaloni", "pantalone", "pants", "calze", "calza", "calzini", "calzino", "calzettoni",
         "socks", "sock", "cappellino", "cappello", "berretto", "berretti", "scaldacollo",
         "felpa", "felpe", "hoodie", "abbigliamento", "completo", "kit", "sneaker", "sneakers", "calzature",
+        "ciabatta", "ciabatte", "sandalo", "sandali", "infradito", "slide", "slides",
+        "dopo", "prima", "durante", "post", "pre",
         # Tech & equipment categories
         "orologio", "orologi", "smartwatch", "sportwatch", "watch", "gps", "ciclocomputer",
         "computer", "bici", "bicicletta", "ciclismo", "fascia", "fasce", "cardio",
@@ -1871,7 +1873,10 @@ class QueryProductGuardrail:
         "ottimo", "ottima", "sconto", "nuove", "nuova", "nuovo", "nuovi",
         "il", "lo", "la", "i", "gli", "le", "un", "una", "uno", "del", "al", "nel", "sul", "tra", "fra", "e", "o",
         "xs", "s", "m", "l", "xl", "xxl", "eu", "us", "uk", "tg", "gtx", "gore", "tex",
-        "pronazione", "pronatori", "iperpronazione", "antipronazione", "piedi", "piatti", "arco", "basso",
+        "pronazione", "pronatori", "pronatore", "iperpronazione", "iperpronatore", "iperpronatori",
+        "antipronazione", "supinazione", "supinatore", "supinatori", "piedi", "piatti", "arco", "basso",
+        "maratoneta", "maratoneti", "runner", "runners", "atleta", "atleti", "escursionista", "escursionisti",
+        "camminatore", "camminatori",
         "stabilita", "stabilità", "supporto", "mediale", "pesanti", "peso", "chili", "ginocchia", "ginocchio",
         "schiena", "fascite", "tendinite", "periostite", "crossfit", "pesi", "sollevamento", "funzionale",
         "hyrox", "ripetute", "piastra", "carbonio", "sterrato", "lungo", "lunghi", "lunghe",
@@ -1906,12 +1911,53 @@ class QueryProductGuardrail:
                 return cls.SUB_BRAND_TO_PARENT_BRAND[sb_key]
         return None
 
+    _TYPO_SUBSTITUTIONS = [
+        (r"\b(?:garmen|gamrin|garmn|garmmin)\b", "garmin"),
+        (r"\b(?:forunner|fore\s*runner|forerun|forerunne)\b", "forerunner"),
+        (r"\b(?:fennix|fenx)\b", "fenix"),
+        (r"\b(?:garmin\s+forerunner|garmin|forerunner)\s*(165|265|965|55|255|955)\b", r"garmin forerunner \1"),
+        (r"\b(?:alpha\s*fl[yie]+|alphafly+)\b", "alphafly"),
+        (r"\b(?:vapor\s*fl[yie]+|vaporfly+)\b", "vaporfly"),
+        (r"\b(?:ultra\s*fl[yie]+|ultrafly+)\b", "ultrafly"),
+        (r"\b(?:streak\s*fl[yie]+|streakfly+)\b", "streakfly"),
+        (r"\b(?:tempo\s*next)\b", "tempo next"),
+        (r"\b(?:zom\s*fli|zoomfly|zomfly|zoom\s*fli)\b", "zoom fly"),
+        (r"\b(?:peg|pegas|pegasuss)\b", "pegasus"),
+        (r"\b(?:invincibl|invincibile|invinciblle)\b", "invincible"),
+        (r"\b(?:vomer|vomer18|vomerro)\b", "vomero"),
+        (r"\b(?:speedgot|speed\s*got)\b", "speedgoat"),
+        (r"\b(?:okley|oakly)\b", "oakley"),
+        (r"\b(?:adizero\s*pro|adios\s*pro)\b", "adizero"),
+        (r"\b(?:nimb|nimbus\s*26)\b", "nimbus"),
+    ]
+
+    @classmethod
+    def normalize_typo_aliases(cls, text: str) -> str:
+        """Apply deterministic brand/model typo normalizations without altering valid words."""
+        res = (text or "").strip().lower()
+        for pat, repl in cls._TYPO_SUBSTITUTIONS:
+            res = re.sub(pat, repl, res, flags=re.IGNORECASE)
+        return res
+
+    @classmethod
+    def is_entity_broadening_followup(cls, query: str) -> bool:
+        """Return True when a follow-up asks for alternatives, comparisons, or broader category models rather than filtering the previous model."""
+        t = (query or "").strip().lower()
+        if not t:
+            return False
+        return bool(re.search(
+            r"\b(alternativ[aeio]|altri\s+modelli|altre\s+opzioni|modelli\s+(?:di|per|con)|"
+            r"funzionalit[aà]\s+avanzate|analisi\s+delle\s+prestazioni|metriche\s+avanzate|"
+            r"confronta|confronto|\bvs\b|differenz[ae]|top\s+di\s+gamma|fascia\s+(?:alta|superiore))\b",
+            t,
+        ))
+
     @classmethod
     def extract_specific_entity_tokens(cls, query: str, brand: Optional[str] = None) -> List[str]:
         """Extract specific model/sub-brand/line tokens that MUST anchor catalog retrieval and ranking."""
         if not query:
             return []
-        t = query.strip().lower()
+        t = cls.normalize_typo_aliases(query)
         t = re.sub(r"\bs[/\-]lab\b", " lab ", t)
         t = re.sub(
             r"\b(?:sotto\s*i?|sopra\s*i?|meno\s*di|pi[uù]\s*di|fino\s*a|budget\s*di?|max|min|massimo|minimo)\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\b",
@@ -1952,6 +1998,27 @@ class QueryProductGuardrail:
         return out
 
     @classmethod
+    def resolve_entity_tokens(
+        cls,
+        query: str,
+        context_query: Optional[str] = None,
+        brand: Optional[str] = None,
+        session_context: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        """Extract entity tokens from query, inheriting from context only on constraint-refinement follow-ups."""
+        toks = cls.extract_specific_entity_tokens(query, brand=brand)
+        if toks:
+            return toks
+        ctx_probe = (context_query or "").strip() or str((session_context or {}).get("last_search_query") or "").strip()
+        if not ctx_probe:
+            return []
+        if cls.is_category_switch(query, context_query=context_query, session_context=session_context):
+            return []
+        if cls.is_entity_broadening_followup(query):
+            return []
+        return cls.extract_specific_entity_tokens(ctx_probe, brand=brand)
+
+    @classmethod
     def strip_markdown_bold(cls, text: str) -> str:
         if not text:
             return ""
@@ -1961,8 +2028,8 @@ class QueryProductGuardrail:
 
     @classmethod
     def detect_product_type(cls, query: str, context_query: Optional[str] = None) -> Optional[str]:
-        q = (query or "").strip().lower()
-        ctx = (context_query or "").strip().lower()
+        q = cls.normalize_typo_aliases(query)
+        ctx = cls.normalize_typo_aliases(context_query)
 
         def _detect_single(t: str) -> Optional[str]:
             if not t:
@@ -2518,9 +2585,7 @@ class QueryProductGuardrail:
         result: List[str] = []
         deferred_generic: List[str] = []
 
-        spec_tokens = cls.extract_specific_entity_tokens(raw_query, brand=brand)
-        if not spec_tokens and context_query and not cls.is_category_switch(raw_query, context_query):
-            spec_tokens = cls.extract_specific_entity_tokens(context_query, brand=brand)
+        spec_tokens = cls.resolve_entity_tokens(raw_query, context_query=context_query, brand=brand)
         spec_token_set = set(spec_tokens)
 
         def _add(k: str):
@@ -2802,10 +2867,10 @@ class QueryProductGuardrail:
 
     @classmethod
     def sanitize_intent(cls, intent: SmartSearchIntent, user_query: str, context_query: Optional[str] = None) -> SmartSearchIntent:
-        q_low = (user_query or "").strip().lower()
-        ctx_low = (context_query or "").strip().lower()
+        q_low = cls.normalize_typo_aliases(user_query)
+        ctx_low = cls.normalize_typo_aliases(context_query)
         combined_q = f"{q_low} {ctx_low}".strip()
-        product_type = cls.detect_product_type(user_query, context_query)
+        product_type = cls.detect_product_type(q_low, ctx_low)
 
         # Defense-in-depth: never allow LLM false off-topic classification when deterministic guardrail recognized sports gear
         if getattr(intent, "is_off_topic", False) and not getattr(intent, "is_unsafe", False) and product_type is not None:
@@ -2854,9 +2919,7 @@ class QueryProductGuardrail:
                         intent.brand = None
                         intent.chips = [c for c in (intent.chips or []) if c.param_key != "brand"]
 
-        spec_tokens = cls.extract_specific_entity_tokens(user_query, brand=intent.brand)
-        if not spec_tokens and context_query and not cls.is_category_switch(user_query, context_query):
-            spec_tokens = cls.extract_specific_entity_tokens(context_query, brand=intent.brand)
+        spec_tokens = cls.resolve_entity_tokens(user_query, context_query=context_query, brand=intent.brand)
 
         # 1. Fix category based on detected product_type
         if product_type == "long_sleeve_top" or product_type == "short_sleeve_top" or product_type == "singlet_top":
@@ -2902,7 +2965,7 @@ class QueryProductGuardrail:
                 intent.category = "running_shoes"
             if re.search(r"\b(trail|sterrato|sentier)\b", q_low) and intent.category == "running_shoes":
                 intent.category = "trail_running"
-        elif spec_tokens and not re.search(r"\b(trail|sterrato|sentier|outdoor|running|corsa|scarpe|maglia|giacca|pantalon|zaino|orolog|watch|calcio|padel|tennis|basket|nuoto)\b", q_low):
+        elif spec_tokens and intent.category in (None, "running_shoes") and not re.search(r"\b(trail|sterrato|sentier|outdoor|running|corsa|scarpe|maglia|giacca|pantalon|zaino|orolog|watch|calcio|padel|tennis|basket|nuoto)\b", q_low):
             # Model/entity-only query (e.g. 'ACG Radical AirFlow NXT', 'Salomon S/Lab'):
             # do not let guessed categories filter out the actual catalog product category.
             intent.category = None
@@ -2988,7 +3051,7 @@ class QueryProductGuardrail:
         # conversational_summary, spotlight.target_keyword, or top target_keywords!
         user_norm = LocalHeuristicParser.normalize_typos(user_query.lower())
         user_garmin_nums = re.findall(r"\b(165|265|965|55|255|955)\b", user_norm)
-        if not user_garmin_nums and context_query and product_type in (None, "gps_watch"):
+        if not user_garmin_nums and context_query and product_type in (None, "gps_watch") and not cls.is_entity_broadening_followup(user_query):
             last_ctx = context_query.split(">>")[-1]
             ctx_norm = LocalHeuristicParser.normalize_typos(last_ctx.lower())
             user_garmin_nums = re.findall(r"\b(165|265|965|55|255|955)\b", ctx_norm)
@@ -3830,30 +3893,7 @@ class LocalHeuristicParser:
             if not fuzzy_matched:
                 cleaned_words.append(clean_w)
 
-        res = " ".join(cleaned_words)
-
-        substitutions = [
-            (r"\b(?:garmen|gamrin|garmn|garmmin)\b", "garmin"),
-            (r"\b(?:forunner|fore\s*runner|forerun|forerunne)\b", "forerunner"),
-            (r"\b(?:fennix|fenx)\b", "fenix"),
-            (r"\b(?:garmin\s+forerunner|garmin|forerunner)\s*(165|265|965|55|255|955)\b", r"garmin forerunner \1"),
-            (r"\b(?:alpha\s*fl[yie]+|alphafly+)\b", "alphafly"),
-            (r"\b(?:vapor\s*fl[yie]+|vaporfly+)\b", "vaporfly"),
-            (r"\b(?:ultra\s*fl[yie]+|ultrafly+)\b", "ultrafly"),
-            (r"\b(?:streak\s*fl[yie]+|streakfly+)\b", "streakfly"),
-            (r"\b(?:tempo\s*next)\b", "tempo next"),
-            (r"\b(?:zom\s*fli|zoomfly|zomfly|zoom\s*fli)\b", "zoom fly"),
-            (r"\b(?:peg|pegas|pegasuss)\b", "pegasus"),
-            (r"\b(?:invincibl|invincibile|invinciblle)\b", "invincible"),
-            (r"\b(?:vomer|vomer18|vomerro)\b", "vomero"),
-            (r"\b(?:speedgot|speed\s*got)\b", "speedgoat"),
-            (r"\b(?:okley|oakly)\b", "oakley"),
-            (r"\b(?:adizero\s*pro|adios\s*pro)\b", "adizero"),
-            (r"\b(?:nimb|nimbus\s*26)\b", "nimbus"),
-        ]
-        for pat, repl in substitutions:
-            res = re.sub(pat, repl, res, flags=re.IGNORECASE)
-        return res
+        return QueryProductGuardrail.normalize_typo_aliases(" ".join(cleaned_words))
 
     @staticmethod
     def parse(
@@ -4124,13 +4164,15 @@ class LocalHeuristicParser:
         arch = SPORTS_KNOWLEDGE.get(archetype_key, SPORTS_KNOWLEDGE["daily_trainer"])
         category = arch["category"]
 
-        cur_ptype = QueryProductGuardrail.detect_product_type(user_query, context_query=ctx_text or None)
-        spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(text, brand=detected_brand)
-        if not spec_tokens and has_any_context and not QueryProductGuardrail.is_category_switch(user_query, context_query=ctx_text, session_context=session_context):
-            ctx_probe = ctx_text or str((session_context or {}).get("last_search_query") or "")
-            spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(ctx_probe, brand=detected_brand)
+        cur_ptype = QueryProductGuardrail.detect_product_type(text, context_query=ctx_text or None)
+        spec_tokens = QueryProductGuardrail.resolve_entity_tokens(
+            text,
+            context_query=ctx_text or None,
+            brand=detected_brand,
+            session_context=session_context,
+        )
 
-        if spec_tokens and cur_ptype is None and not re.search(
+        if spec_tokens and cur_ptype is None and archetype_key == "daily_trainer" and not re.search(
             r"\b(trail|sterrato|sentier|outdoor|running|corsa|scarpe|maglia|giacca|pantalon|zaino|orolog|watch|calcio|padel|tennis|basket|nuoto)\b",
             text,
         ):

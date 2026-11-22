@@ -771,9 +771,12 @@ def _execute_smart_search(
 
     from fitmatch.smart_search import QueryProductGuardrail, ConversationContextMerger
     detected_product_type = QueryProductGuardrail.detect_product_type(q, eff_resolved_context)
-    spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(q, brand=intent.brand)
-    if not spec_tokens and eff_resolved_context and not QueryProductGuardrail.is_category_switch(q, eff_resolved_context, session_context=session_context):
-        spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(eff_resolved_context, brand=intent.brand)
+    spec_tokens = QueryProductGuardrail.resolve_entity_tokens(
+        q,
+        context_query=eff_resolved_context,
+        brand=intent.brand,
+        session_context=session_context,
+    )
 
     # Use explicit query overrides if user modified/toggled active chips
     eff_max_price = eff_max_price_param if eff_max_price_param is not None else intent.max_price

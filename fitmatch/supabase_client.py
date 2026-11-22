@@ -1125,8 +1125,9 @@ class SupabaseClient:
                     inferred_art = inferred_art_c
             if p_cat == "football_boots" and inferred_art != "football_boots":
                 p_cat = inferred_art
-            elif p_cat in ("shoes", "gear") and inferred_art in ("top", "jacket", "pants", "socks", "hydration", "eyewear", "sensor"):
-                p_cat = inferred_art
+            elif p_cat in ("shoes", "running_shoes", "trail_running", "gear") and inferred_art in ("top", "jacket", "pants", "socks", "hydration", "eyewear", "sensor"):
+                if not re.search(r"\b(scarp[ae]|shoes?|sneakers?|scarpon[ie]|scarponcin[oi])\b", primary_raw_title.lower()):
+                    p_cat = inferred_art
 
             # Check token overlap between canonical_name and primary offer raw_title
             cname_tokens = {w for w in re.findall(r"\b[a-z0-9]{3,}\b", c_name.lower()) if w not in ("uomo", "donna", "unisex", "generic")}
@@ -1379,9 +1380,11 @@ class SupabaseClient:
             raw_q_part or eff_query_str,
             context_query=ctx_q_part or None,
         )
-        spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(raw_q_part, brand=brand)
-        if not spec_tokens and ctx_q_part and not QueryProductGuardrail.is_category_switch(raw_q_part, ctx_q_part):
-            spec_tokens = QueryProductGuardrail.extract_specific_entity_tokens(ctx_q_part, brand=brand)
+        spec_tokens = QueryProductGuardrail.resolve_entity_tokens(
+            raw_q_part,
+            context_query=ctx_q_part or None,
+            brand=brand,
+        )
 
         def _count_spec_token_matches(prod: Dict[str, Any]) -> int:
             if not spec_tokens:
@@ -1477,7 +1480,8 @@ class SupabaseClient:
             if entity_hits:
                 max_hits = max(h for h, _ in entity_hits)
                 if max_hits >= 2:
-                    top_hits = [p for h, p in entity_hits if h >= max(2, max_hits - 1)]
+                    exact_hits = [p for h, p in entity_hits if h == max_hits]
+                    top_hits = exact_hits if (max_hits >= 3 and len(exact_hits) >= 2) else [p for h, p in entity_hits if h >= max(2, max_hits - 1)]
                     from collections import Counter
                     cat_counts = Counter((p.get("category") or "").lower() for p in top_hits if p.get("category"))
                     if cat_counts:
@@ -1874,8 +1878,12 @@ class SupabaseClient:
         if spec_tokens:
             entity_matched = [p for p in filtered if (p.get("_matched_spec_count") or 0) > 0]
             if entity_matched:
-                if len(spec_tokens) >= 2 and any((p.get("_matched_spec_count") or 0) >= 2 for p in entity_matched):
-                    entity_matched = [p for p in entity_matched if (p.get("_matched_spec_count") or 0) >= 2]
+                if len(spec_tokens) >= 2:
+                    max_matched = max((p.get("_matched_spec_count") or 0) for p in entity_matched)
+                    if max_matched >= 3 and sum(1 for p in entity_matched if (p.get("_matched_spec_count") or 0) == max_matched) >= 3:
+                        entity_matched = [p for p in entity_matched if (p.get("_matched_spec_count") or 0) == max_matched]
+                    elif any((p.get("_matched_spec_count") or 0) >= 2 for p in entity_matched):
+                        entity_matched = [p for p in entity_matched if (p.get("_matched_spec_count") or 0) >= 2]
                 if len(entity_matched) >= 2 or not brand:
                     filtered = entity_matched
                 else:
