@@ -1,13 +1,33 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
+  buildCatalogSearchTerms,
   callOpenRouterJSON,
   corsHeaders,
   createServiceClient,
+  detectProductType,
+  detectSingleProductType,
+  detectSubBrand,
+  extractBrand,
+  extractSpecificEntityTokens,
+  isBroadeningFollowUp,
   jsonResponse,
+  mapProductTypeToCategory,
   MatchedProductOut,
+  normalizeProductTypeGroup,
+  normalizeQueryTypos,
+  ProductType,
   saveChatTurn,
   searchCatalogOffers,
-} from "./catalog.ts";
+} from "../_shared/catalog.ts";
+
+const VALID_PRODUCT_TYPES = new Set<ProductType>([
+  "leggings_tights", "shorts", "pants", "long_sleeve_top", "short_sleeve_top",
+  "singlet_top", "top", "jacket", "socks", "headwear", "heart_rate_monitor",
+  "bike_computer", "gps_watch", "eyewear", "hydration", "swim", "padel_racket",
+  "tennis_racket", "football_boots", "basketball_shoes", "tennis_shoes",
+  "volleyball_shoes", "trail_shoes", "shoes", "winter_sports", "nutrition",
+  "smart_trainer",
+]);
 
 function evaluateGuardrail(q: string): { isOffTopic: boolean; isUnsafe: boolean; reason?: string } {
   const low = q.toLowerCase();
@@ -18,7 +38,7 @@ function evaluateGuardrail(q: string): { isOffTopic: boolean; isUnsafe: boolean;
       reason: "Posso aiutarti solo con ricerche su scarpe e attrezzatura sportiva su FitMatch.",
     };
   }
-  if (/\b(ricetta|cucina|politica|elezioni|oroscopo|meteo|bitcoin|crypto|codice\s+python|scrivi\s+un\s+programma|compiti\s+di\s+storia)\b/i.test(low)) {
+  if (/\b(ricetta|cucina|politica|elezioni|oroscopo|meteo|bitcoin|crypto|codice\s+python|scrivi\s+un\s+programma|compiti\s+di\s+storia|film\s+da\s+vedere|ristorante)\b/i.test(low)) {
     return {
       isOffTopic: true,
       isUnsafe: false,
@@ -29,45 +49,113 @@ function evaluateGuardrail(q: string): { isOffTopic: boolean; isUnsafe: boolean;
 }
 
 function parseLocalConstraints(q: string) {
-  const low = q.toLowerCase();
-  const maxPriceMatch = low.match(/(?:sotto\s*i?|meno\s*di|max|massimo|entro\s*i?|budget\s*(?:di)?)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?/);
-  const minPriceMatch = low.match(/(?:sopra\s*i?|almeno|da|minimo)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)/);
-  const sizeMatch = low.match(/(?:taglia|numero|misura|eu)\s*([0-9]{2}(?:[.,][0-9])?|[xsml]{1,3})/i);
+  const norm = normalizeQueryTypos(q);
+  const low = norm.toLowerCase();
+
+  // Range price: "tra 100 e 180 euro"
+  const rangeMatch = low.match(/\b(?:tra|da)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?\s*(?:e|a|-)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?\b/);
+  const maxPriceMatch = low.match(/(?:sotto\s*i?|meno\s*di|max|massimo|entro\s*i?|fino\s*a|budget\s*(?:di)?)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?/);
+  const minPriceMatch = low.match(/(?:sopra\s*i?|almeno|pi[uù]\s*di|minimo)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro)?/);
+
+  const explicitSizeMatch = low.match(/\b(?:tagli[ae]|numero|misur[ae]|size|tg\.?|eu)\s*(\d{2}(?:[.,]\d)?|(?:xxs|xs|s|m|l|xl|xxl))\b/i);
+  const decimalShoeSizeMatch = low.match(/(?<![\d.,])\b(3[5-9]|4[0-9])[.,](5)\b(?![\d.,])/);
 
   let gender: string | null = null;
-  if (/\b(donna|femmin[aei]|ragazza|wmns|women)\b/i.test(low)) gender = "Donna";
-  else if (/\b(uomo|maschil[ei]|ragazzo|men|mens)\b/i.test(low)) gender = "Uomo";
+  if (/\b(donna|donne|femmin[aei]|ragazza|wmns?|women|woman)\b/i.test(low)) gender = "Donna";
+  else if (/\b(uomo|uomini|maschil[ei]|ragazzo|mens?|men|man)\b/i.test(low)) gender = "Uomo";
+  else if (/\b(unisex|tutti\s+i\s+generi)\b/i.test(low)) gender = "Unisex";
 
-  const isDeepDive = q.trim().split(/\s+/).length >= 4 ||
-    /\b(consiglia|miglior[ie]|quale|confronta|differenza|per\s+(?:correre|maratona|trail|ginocchia|peso)|fascite|ammortizzat|principiant)\b/i.test(low);
+  const isDeepDive = norm.split(/\s+/).length >= 4 ||
+    /\b(consiglia|consigliami|miglior[ie]|quale|quali|confronta|differenza|per\s+(?:correre|maratona|mezza|trail|ginocchia|peso|iniziare)|fascite|ammortizzat|principiant|pronat)\b/i.test(low);
+
+  let maxPrice: number | null = null;
+  let minPrice: number | null = null;
+  if (rangeMatch) {
+    minPrice = Number(rangeMatch[1].replace(",", "."));
+    maxPrice = Number(rangeMatch[2].replace(",", "."));
+  } else {
+    if (maxPriceMatch) maxPrice = Number(maxPriceMatch[1].replace(",", "."));
+    if (minPriceMatch) minPrice = Number(minPriceMatch[1].replace(",", "."));
+  }
+
+  let size: string | null = null;
+  if (explicitSizeMatch) {
+    size = explicitSizeMatch[1].replace(",", ".").toUpperCase();
+  } else if (decimalShoeSizeMatch) {
+    size = `${decimalShoeSizeMatch[1]}.${decimalShoeSizeMatch[2]}`;
+  }
 
   return {
-    max_price: maxPriceMatch ? Number(maxPriceMatch[1].replace(",", ".")) : null,
-    min_price: minPriceMatch ? Number(minPriceMatch[1].replace(",", ".")) : null,
-    size: sizeMatch ? sizeMatch[1].replace(",", ".").toUpperCase() : null,
+    normalizedQuery: norm,
+    max_price: maxPrice != null && Number.isFinite(maxPrice) ? maxPrice : null,
+    min_price: minPrice != null && Number.isFinite(minPrice) ? minPrice : null,
+    size,
     gender,
     is_deep_dive: isDeepDive,
   };
 }
 
-function buildCuratedSections(results: MatchedProductOut[]) {
-  if (results.length === 0) return [];
-  const sections: Array<{ id: string; title: string; subtitle: string; products: MatchedProductOut[] }> = [];
+interface CuratedSection {
+  id: string;
+  title: string;
+  subtitle: string;
+  products: MatchedProductOut[];
+}
 
+function buildCuratedSections(
+  results: MatchedProductOut[],
+  opts: {
+    isExactModel: boolean;
+    modelDisplayLabel: string | null;
+    relatedAlternatives?: MatchedProductOut[];
+  },
+): CuratedSection[] {
+  if (results.length === 0) return [];
+  const sections: CuratedSection[] = [];
+
+  // Exact model query with few exact variants (e.g. Garmin Forerunner 165 + 165 Music, Nike Zoom Fly 6)
+  if (opts.isExactModel && results.length <= 5) {
+    const label = opts.modelDisplayLabel || results[0].canonical_name;
+    sections.push({
+      id: "exact_model_offers",
+      title: `Offerte ${label}`,
+      subtitle: "Modelli esatti trovati e confrontati in tempo reale nei negozi partner",
+      products: results,
+    });
+
+    if (opts.relatedAlternatives && opts.relatedAlternatives.length > 0) {
+      sections.push({
+        id: "related_alternatives",
+        title: "Modelli Simili & Alternative",
+        subtitle: "Altre opzioni della stessa categoria da confrontare",
+        products: opts.relatedAlternatives.slice(0, 6),
+      });
+    }
+    return sections;
+  }
+
+  // Category / brand / advisory query with rich verified results
   const multiStore = results.filter((p) => p.offers.length > 1);
-  if (multiStore.length > 0) {
+  if (multiStore.length >= 2) {
     sections.push({
       id: "best_comparison",
       title: "Migliori Confronti Multi-Store",
       subtitle: "Modelli disponibili su più negozi per risparmiare subito",
       products: multiStore.slice(0, 8),
     });
+  } else {
+    sections.push({
+      id: "top_matches",
+      title: "Migliori Risultati",
+      subtitle: "Prodotti più pertinenti alla tua ricerca",
+      products: results.slice(0, 8),
+    });
   }
 
   const discounted = [...results]
     .filter((p) => (p.offers[0]?.discount_pct ?? 0) >= 15)
     .sort((a, b) => (b.offers[0]?.discount_pct ?? 0) - (a.offers[0]?.discount_pct ?? 0));
-  if (discounted.length > 0) {
+  if (discounted.length >= 2) {
     sections.push({
       id: "top_discounts",
       title: "Sconti più Alti",
@@ -76,13 +164,15 @@ function buildCuratedSections(results: MatchedProductOut[]) {
     });
   }
 
-  const lowestPrice = [...results].sort((a, b) => (a.best_price ?? 9999) - (b.best_price ?? 9999));
-  sections.push({
-    id: "best_value",
-    title: "Miglior Prezzo Finale",
-    subtitle: "Offerte ordinate dal prezzo più basso",
-    products: lowestPrice.slice(0, 8),
-  });
+  if (results.length >= 2) {
+    const lowestPrice = [...results].sort((a, b) => (a.best_price ?? 9999) - (b.best_price ?? 9999));
+    sections.push({
+      id: "best_value",
+      title: "Miglior Prezzo Finale",
+      subtitle: "Offerte ordinate dal prezzo più basso",
+      products: lowestPrice.slice(0, 8),
+    });
+  }
 
   return sections;
 }
@@ -96,12 +186,45 @@ function buildChips(intent: {
 }) {
   const chips: Array<{ id: string; label: string; param_key: string; value: string }> = [];
   if (intent.brand) chips.push({ id: "chip_brand", label: intent.brand, param_key: "brand", value: intent.brand });
-  if (intent.gender) chips.push({ id: "chip_gender", label: intent.gender, param_key: "gender", value: intent.gender });
+  if (intent.gender && intent.gender !== "Unisex") {
+    chips.push({ id: "chip_gender", label: intent.gender, param_key: "gender", value: intent.gender });
+  }
   if (intent.size) chips.push({ id: "chip_size", label: `Taglia ${intent.size}`, param_key: "size", value: intent.size });
   if (intent.max_price != null) {
     chips.push({ id: "chip_price", label: `Sotto €${Math.round(intent.max_price)}`, param_key: "max_price", value: String(intent.max_price) });
   }
   return chips;
+}
+
+function buildDefaultFollowUps(opts: {
+  isExactModel: boolean;
+  brand: string | null;
+  productType: ProductType | null;
+  maxPrice: number | null;
+  gender: string | null;
+  topProduct: MatchedProductOut | null;
+}): string[] {
+  const out: string[] = [];
+  if (opts.isExactModel && opts.topProduct) {
+    if (opts.brand) out.push(`Altri modelli ${opts.brand} simili`);
+    if (opts.maxPrice == null && opts.topProduct.best_price != null) {
+      const budget = Math.max(30, Math.round((opts.topProduct.best_price * 0.9) / 10) * 10);
+      out.push(`Alternative sotto ${budget} euro`);
+    }
+    if (!opts.gender && opts.productType && ["shoes", "trail_shoes", "leggings_tights", "shorts", "pants", "top", "long_sleeve_top", "short_sleeve_top", "jacket"].includes(opts.productType)) {
+      out.push("Mostrami versione Donna");
+    } else {
+      out.push("Quali sono le caratteristiche principali?");
+    }
+  } else {
+    if (opts.maxPrice == null && opts.topProduct?.best_price != null) {
+      const target = Math.max(25, Math.round((opts.topProduct.best_price * 1.15) / 10) * 10);
+      out.push(`Solo sotto ${target} euro`);
+    }
+    if (!opts.gender) out.push("Filtra per Donna");
+    out.push("Mostrami altri modelli simili");
+  }
+  return out.slice(0, 3);
 }
 
 Deno.serve(async (req: Request) => {
@@ -166,7 +289,7 @@ Deno.serve(async (req: Request) => {
         curated_sections: [],
         comparative_cards: [],
         spotlight: null,
-        follow_up_suggestions: ["Nike Pegasus 41", "Scarpe running ammortizzate", "Garmin Forerunner 265"],
+        follow_up_suggestions: ["Nike Pegasus 41", "Scarpe running ammortizzate", "Garmin Forerunner 165"],
         intent: {
           raw_query: q,
           search_mode: "classic",
@@ -200,7 +323,7 @@ Deno.serve(async (req: Request) => {
       id: "intent",
       status: "running",
       title: "Analisi della richiesta",
-      detail: contextQuery ? "Collego il contesto della conversazione" : "Interpreto modello, filtri e necessità tecniche",
+      detail: contextQuery ? "Collego il contesto della conversazione" : "Interpreto modello, categoria e filtri",
       elapsed_ms: Date.now() - startedAt,
     });
 
@@ -218,36 +341,88 @@ Deno.serve(async (req: Request) => {
     }
 
     const local = parseLocalConstraints(q);
-    const effectiveQuery = contextQuery && contextQuery.trim()
-      ? `${contextQuery.trim()} -> follow-up: ${q}`
-      : q;
+    const normalizedQ = local.normalizedQuery;
+    const isFollowUp = Boolean(contextQuery && contextQuery.trim());
+
+    // Deterministic analysis of current query & follow-up transition
+    const currentBrand = extractBrand(normalizedQ, null);
+    const subBrand = detectSubBrand(normalizedQ);
+    const currentSinglePType = detectSingleProductType(normalizedQ);
+    const prevPTypeRaw = prevContext?.product_type && VALID_PRODUCT_TYPES.has(prevContext.product_type as ProductType)
+      ? (prevContext.product_type as ProductType)
+      : (contextQuery ? detectProductType(contextQuery) : null);
+
+    const categorySwitched = Boolean(
+      currentSinglePType && prevPTypeRaw &&
+      normalizeProductTypeGroup(currentSinglePType) !== normalizeProductTypeGroup(prevPTypeRaw),
+    );
+    const broadeningFollowUp = isFollowUp && isBroadeningFollowUp(normalizedQ);
+
+    const currentEntities = extractSpecificEntityTokens(normalizedQ, currentBrand);
+    const prevBrand = !categorySwitched && prevContext?.brand ? String(prevContext.brand) : null;
+    const brandSwitched = Boolean(currentBrand && prevBrand && currentBrand.toLowerCase() !== prevBrand.toLowerCase());
+
+    const shouldInheritPrevEntities = isFollowUp &&
+      currentEntities.length === 0 &&
+      !categorySwitched &&
+      !brandSwitched &&
+      !broadeningFollowUp;
+
+    const prevEntities = shouldInheritPrevEntities && Array.isArray(prevContext?.entity_tokens)
+      ? prevContext.entity_tokens.map(String).filter(Boolean)
+      : [];
+
+    const detProductType: ProductType | null = currentSinglePType ??
+      (!categorySwitched ? prevPTypeRaw : null) ??
+      detectProductType(normalizedQ, isFollowUp ? contextQuery : null);
+
+    const effectiveQueryForLLM = isFollowUp && !categorySwitched
+      ? `${contextQuery!.trim()} -> follow-up: ${normalizedQ}`
+      : normalizedQ;
 
     const systemPrompt =
-      "Sei il motore di ricerca AI sportivo di FitMatch (comparatore prezzi di scarpe da running, trail, smartwatch GPS, abbigliamento e accessori sportivi).\n" +
-      "Analizza la query dell'utente (e l'eventuale contesto precedente) ed estrai l'intent strutturato.\n" +
+      "Sei il motore di ricerca AI sportivo di FitMatch (comparatore prezzi multi-store di calzature, smartwatch GPS, abbigliamento tecnico e attrezzatura sportiva).\n" +
+      "Analizza la richiesta dell'utente, correggi eventuali errori di battitura (es. 'leggins' -> 'leggings', 'garmen forunner' -> 'garmin forerunner') ed estrai l'intent preciso per interrogare il catalogo prodotti.\n" +
+      "REGOLE CRITICHE:\n" +
+      "1. 'query_type':\n" +
+      "   - 'exact_model' se l'utente chiede un modello specifico (es. 'Garmin Forerunner 165', 'Nike Zoom Fly 6', 'Salomon Adv Skin 12').\n" +
+      "   - 'category_brand' se l'utente chiede una categoria + brand senza modello specifico (es. 'leggins under armour da corsa', 'scarpe hoka donna').\n" +
+      "   - 'advisory' se chiede consigli/raccomandazioni/caratteristiche (es. 'migliori scarpe ammortizzate 85kg', 'scarpe maratona sotto 180 euro').\n" +
+      "   - 'comparison' se confronta 2+ modelli.\n" +
+      "   - 'followup_filter' se raffina i filtri del turno precedente (prezzo, taglia, genere).\n" +
+      "2. 'product_type': scegli il tipo ESATTO tra: leggings_tights, shorts, pants, long_sleeve_top, short_sleeve_top, singlet_top, top, jacket, socks, headwear, heart_rate_monitor, bike_computer, gps_watch, eyewear, hydration, swim, padel_racket, tennis_racket, football_boots, basketball_shoes, tennis_shoes, volleyball_shoes, trail_shoes, shoes, winter_sports, nutrition, smart_trainer, oppure null.\n" +
+      "3. 'target_keywords': 2-5 stringhe brevi pulite per cercare nel catalogo.\n" +
+      "   - MAI inserire un nome di brand da solo (es. MAI 'Nike' o 'Under Armour' da solo) se c'è una categoria o modello!\n" +
+      "   - Se query_type='exact_model': metti SOLO il modello esatto richiesto (es. ['Garmin Forerunner 165', 'Forerunner 165'] o ['Nike Zoom Fly 6', 'Zoom Fly 6']). NON aggiungere altri modelli!\n" +
+      "   - Se query_type='category_brand': includi sinonimi catalogo IT/EN con il brand (es. ['Under Armour leggings', 'Under Armour tights', 'Under Armour calzamaglia']).\n" +
+      "   - Se query_type='advisory': elenca 4-5 modelli reali di riferimento nel mercato italiano adatti alla richiesta.\n" +
+      "4. 'brand': valorizza SOLO se l'utente ha chiesto esplicitamente un brand (o lo eredita da follow-up), altrimenti null.\n" +
+      "5. 'model_tokens': token specifici del modello/versione citati dall'utente (es. ['forerunner', '165'] o ['zoom', 'fly', '6']), oppure [] se non cita un modello specifico.\n" +
       "Rispondi ESCLUSIVAMENTE con JSON valido:\n" +
       "{\n" +
-      '  "search_mode": "deep_dive" | "classic",\n' +
+      '  "query_type": "exact_model|category_brand|advisory|comparison|followup_filter",\n' +
+      '  "corrected_query": "query corretta",\n' +
       '  "is_deep_dive": true | false,\n' +
-      '  "target_keywords": ["parola o modello 1", "modello 2"],\n' +
+      '  "target_keywords": ["keyword 1", "keyword 2"],\n' +
+      '  "model_tokens": ["token1", "token2"],\n' +
       '  "brand": string | null,\n' +
-      '  "category": "running_shoes|trail_running|gps_watch|eyewear|hydration|fitness|nutrition|apparel|null",\n' +
+      '  "product_type": string | null,\n' +
       '  "gender": "Uomo" | "Donna" | null,\n' +
       '  "max_price": number | null,\n' +
       '  "min_price": number | null,\n' +
       '  "size": string | null,\n' +
       '  "features": ["es. ammortizzata", "piastra carbonio"],\n' +
       '  "conversational_header": "Titolo breve (max 6 parole)",\n' +
-      '  "conversational_summary": "Consiglio tecnico sintetico e chiaro in 2 frasi in italiano",\n' +
-      '  "follow_up_suggestions": ["Follow-up 1", "Follow-up 2", "Follow-up 3"]\n' +
+      '  "conversational_summary": "Consiglio tecnico chiaro in 2 frasi in italiano coerente col prodotto richiesto",\n' +
+      '  "follow_up_suggestions": ["Follow-up pertinente 1", "Follow-up pertinente 2", "Follow-up pertinente 3"]\n' +
       "}";
 
     const primaryModel = (Deno.env.get("OPENROUTER_MODEL") ?? "").trim() || "openai/gpt-4o-mini";
     const llmIntent = await callOpenRouterJSON({
       systemPrompt,
-      userPrompt: prevContext
-        ? `Contesto sessione precedente: ${JSON.stringify(prevContext)}\nRichiesta attuale: ${effectiveQuery}`
-        : effectiveQuery,
+      userPrompt: prevContext && !categorySwitched
+        ? `Contesto sessione precedente: ${JSON.stringify(prevContext)}\nRichiesta attuale: ${effectiveQueryForLLM}`
+        : effectiveQueryForLLM,
       models: [primaryModel, "meta-llama/llama-3.3-70b-instruct"],
       temperature: 0.1,
       maxTokens: 550,
@@ -255,24 +430,87 @@ Deno.serve(async (req: Request) => {
       timeoutMs: 9_000,
     });
 
-    const explicitMaxPrice = maxPriceParam != null && maxPriceParam !== "" ? Number(maxPriceParam) : null;
-    const maxPrice = explicitMaxPrice ?? (typeof llmIntent?.max_price === "number" ? llmIntent.max_price : local.max_price);
-    const minPrice = typeof llmIntent?.min_price === "number" ? llmIntent.min_price : local.min_price;
-    const size = (sizeParam && sizeParam.trim()) ||
-      (llmIntent?.size ? String(llmIntent.size) : local.size) ||
-      (preferredSize && preferredSize.trim() ? preferredSize.trim() : null);
-    const gender = (llmIntent?.gender ? String(llmIntent.gender) : null) ?? local.gender ??
-      (prevContext?.gender ? String(prevContext.gender) : null);
-    const brand = llmIntent?.brand ? String(llmIntent.brand) : null;
-    const category = (categoryParam && categoryParam.trim()) ||
-      (llmIntent?.category && llmIntent.category !== "null" ? String(llmIntent.category) : null);
+    // Deterministic reconciliation over LLM output (LLM helps, guardrails guarantee reliability!)
+    const llmPTypeRaw = typeof llmIntent?.product_type === "string"
+      ? llmIntent.product_type.trim().toLowerCase()
+      : null;
+    const llmPType = llmPTypeRaw && VALID_PRODUCT_TYPES.has(llmPTypeRaw as ProductType)
+      ? (llmPTypeRaw as ProductType)
+      : null;
 
-    let targetKeywords = Array.isArray(llmIntent?.target_keywords)
+    const productType: ProductType | null = detProductType ?? llmPType;
+
+    const explicitMaxPrice = maxPriceParam != null && maxPriceParam !== "" ? Number(maxPriceParam) : null;
+    const maxPrice = explicitMaxPrice ??
+      local.max_price ??
+      (typeof llmIntent?.max_price === "number" ? llmIntent.max_price : null) ??
+      (!categorySwitched && isFollowUp && typeof prevContext?.max_price === "number" ? prevContext.max_price : null);
+
+    const minPrice = local.min_price ??
+      (typeof llmIntent?.min_price === "number" ? llmIntent.min_price : null);
+
+    const size = (sizeParam && sizeParam.trim()) ||
+      local.size ||
+      (llmIntent?.size ? String(llmIntent.size).trim() : null) ||
+      (!categorySwitched && isFollowUp && prevContext?.size ? String(prevContext.size) : null);
+
+    const gender = local.gender === "Unisex"
+      ? null
+      : (local.gender ??
+        (llmIntent?.gender && ["Uomo", "Donna"].includes(String(llmIntent.gender)) ? String(llmIntent.gender) : null) ??
+        (!categorySwitched && isFollowUp && prevContext?.gender ? String(prevContext.gender) : null));
+
+    // Only enforce a brand if explicitly present in current query, sub-brand, or inherited from non-switched follow-up!
+    const llmBrand = llmIntent?.brand && String(llmIntent.brand).trim().toLowerCase() !== "null"
+      ? String(llmIntent.brand).trim()
+      : null;
+    const brand = currentBrand ??
+      (subBrand ? subBrand[0] : null) ??
+      (isFollowUp && !categorySwitched ? prevBrand : null) ??
+      (llmBrand && normalizedQ.toLowerCase().includes(llmBrand.toLowerCase()) ? llmBrand : null);
+
+    const category = (categoryParam && categoryParam.trim() && categoryParam !== "all" && categoryParam !== "tutti")
+      ? categoryParam.trim()
+      : mapProductTypeToCategory(productType);
+
+    // Combine deterministic entity tokens with validated LLM model tokens
+    const entityTokens: string[] = [...(currentEntities.length > 0 ? currentEntities : prevEntities)];
+    if (entityTokens.length === 0 && !broadeningFollowUp && Array.isArray(llmIntent?.model_tokens)) {
+      const qLow = normalizedQ.toLowerCase();
+      for (const mt of llmIntent.model_tokens) {
+        const tok = normalizeQueryTypos(String(mt ?? "")).toLowerCase().trim();
+        if (tok.length >= 2 && qLow.includes(tok) && !entityTokens.includes(tok)) {
+          entityTokens.push(tok);
+        }
+      }
+    }
+
+    const queryType = String(llmIntent?.query_type ?? "").toLowerCase();
+    const isComparison = queryType === "comparison" ||
+      /\b(confronta|confronto|\bvs\b|versus|differenz[ae])\b/i.test(normalizedQ);
+    const isAdvisory = queryType === "advisory" && currentEntities.length === 0;
+    const isExactModel = entityTokens.length > 0 && !broadeningFollowUp && !isComparison && !isAdvisory;
+    const effectiveEntityTokens = isAdvisory ? [] : entityTokens;
+
+    const rawLlmKeywords = Array.isArray(llmIntent?.target_keywords)
       ? llmIntent.target_keywords.map((k) => String(k ?? "").trim()).filter(Boolean)
       : [];
-    if (targetKeywords.length === 0) {
-      targetKeywords = [q];
-    }
+
+    // Inherit previous search keywords on pure filter follow-ups
+    const prevKeywords = shouldInheritPrevEntities && Array.isArray(prevContext?.last_keywords)
+      ? prevContext.last_keywords.map(String).filter(Boolean)
+      : [];
+
+    const searchKeywords = buildCatalogSearchTerms({
+      rawQuery: shouldInheritPrevEntities && prevContext?.last_query
+        ? String(prevContext.last_query)
+        : normalizedQ,
+      keywords: rawLlmKeywords.length > 0 ? rawLlmKeywords : prevKeywords,
+      brand,
+      productType,
+      entityTokens: effectiveEntityTokens,
+      isComparison,
+    });
 
     const isDeepDive = mode === "deep_dive" ||
       (mode !== "classic" && (Boolean(llmIntent?.is_deep_dive) || local.is_deep_dive));
@@ -281,79 +519,176 @@ Deno.serve(async (req: Request) => {
       id: "intent",
       status: "done",
       title: "Richiesta compresa",
-      detail: targetKeywords.slice(0, 3).join(", "),
+      detail: searchKeywords.slice(0, 3).join(", ") || normalizedQ,
       elapsed_ms: Date.now() - startedAt,
     });
 
     emitStep?.({
       id: "catalog",
       status: "running",
-      title: "Ricerca semantica e prezzi nei negozi",
-      detail: "Confronto catalogo multi-store su Supabase",
+      title: "Ricerca nel catalogo multi-store",
+      detail: "Confronto modelli, categorie e prezzi verificati",
       elapsed_ms: Date.now() - startedAt,
     });
 
+    const effectiveRawForSearch = shouldInheritPrevEntities && prevContext?.last_query
+      ? `${String(prevContext.last_query)} ${normalizedQ}`
+      : normalizedQ;
+
     const results = await searchCatalogOffers(supabase, {
-      keywords: targetKeywords,
+      rawQuery: effectiveRawForSearch,
+      keywords: searchKeywords,
       brand,
       category,
+      productType,
+      entityTokens: effectiveEntityTokens,
+      isComparison,
       maxPrice: maxPrice != null && Number.isFinite(maxPrice) ? maxPrice : null,
       minPrice: minPrice != null && Number.isFinite(minPrice) ? minPrice : null,
       size,
+      preferredSize: preferredSize && preferredSize.trim() ? preferredSize.trim() : null,
       gender,
       store: storeParam,
-      semanticQuery: `${q} ${targetKeywords.join(" ")}`,
+      semanticQuery: `${normalizedQ} ${searchKeywords.slice(0, 3).join(" ")}`,
+      allowSemantic: !isExactModel, // Exact models use precision lexical search; semantic only if lexical returns 0
       limit: Math.min(Math.max(limit, 1), 60),
     });
+
+    // If exact-model search returned 0 results strictly, try one careful semantic+relaxed pass (still strictly gated by brand & productType!)
+    let finalResults = results;
+    if (finalResults.length === 0 && isExactModel) {
+      finalResults = await searchCatalogOffers(supabase, {
+        rawQuery: effectiveRawForSearch,
+        keywords: searchKeywords,
+        brand,
+        category,
+        productType,
+        entityTokens: [],
+        maxPrice: maxPrice != null && Number.isFinite(maxPrice) ? maxPrice : null,
+        minPrice: minPrice != null && Number.isFinite(minPrice) ? minPrice : null,
+        size,
+        preferredSize: preferredSize && preferredSize.trim() ? preferredSize.trim() : null,
+        gender,
+        store: storeParam,
+        semanticQuery: normalizedQ,
+        allowSemantic: true,
+        limit: 12,
+      });
+    }
+
+    // For exact-model queries with 1-3 exact variants, optionally fetch strictly compatible same-category alternatives
+    // for a clearly separated "Modelli Simili & Alternative" section (NEVER polluting primary results or spotlight!)
+    let relatedAlternatives: MatchedProductOut[] = [];
+    if (isExactModel && finalResults.length >= 1 && finalResults.length <= 3 && productType) {
+      const exactIds = new Set(finalResults.map((p) => p.id));
+      const exactNames = new Set(finalResults.map((p) => p.canonical_name.toLowerCase()));
+      const altTerms = buildCatalogSearchTerms({
+        rawQuery: brand ? `${brand} ${productType}` : productType,
+        keywords: [],
+        brand,
+        productType,
+        entityTokens: [],
+      });
+      const altCandidates = await searchCatalogOffers(supabase, {
+        rawQuery: brand ? `${brand} ${productType}` : normalizedQ,
+        keywords: altTerms,
+        brand,
+        category,
+        productType,
+        entityTokens: [],
+        maxPrice: maxPrice != null && Number.isFinite(maxPrice) ? maxPrice : null,
+        minPrice: minPrice != null && Number.isFinite(minPrice) ? minPrice : null,
+        size,
+        gender,
+        store: storeParam,
+        allowSemantic: false,
+        limit: 10,
+      });
+      relatedAlternatives = altCandidates
+        .filter((p) => !exactIds.has(p.id) && !exactNames.has(p.canonical_name.toLowerCase()))
+        .slice(0, 6);
+    }
 
     emitStep?.({
       id: "catalog",
       status: "done",
-      title: `${results.length} modelli trovati`,
-      detail: "Offerte ordinate per disponibilità multi-store e miglior prezzo",
+      title: `${finalResults.length} ${finalResults.length === 1 ? "modello trovato" : "modelli trovati"}`,
+      detail: finalResults.length > 0
+        ? "Risultati verificati e ordinati per pertinenza e miglior prezzo"
+        : "Nessuna offerta attiva per questi filtri",
       elapsed_ms: Date.now() - startedAt,
     });
 
-    const header = String(llmIntent?.conversational_header ?? "").trim() ||
-      (results.length > 0 ? `Migliori offerte per "${q}"` : `Nessuna offerta esatta per "${q}"`);
-    const summary = String(llmIntent?.conversational_summary ?? "").trim() ||
-      (results.length > 0
-        ? `Ho trovato ${results.length} modelli compatibili confrontando i negozi partner.`
-        : "Prova con parole chiave più ampie o rimuovi alcuni filtri.");
+    const topProduct = finalResults[0] ?? null;
+    const modelDisplayLabel = isExactModel && topProduct
+      ? topProduct.canonical_name.replace(/\s*\((Uomo|Donna)\)$/i, "")
+      : null;
 
-    const curatedSections = buildCuratedSections(results);
-    const spotlight = results[0]
+    let header = String(llmIntent?.conversational_header ?? "").trim() ||
+      (topProduct ? `Offerte per ${modelDisplayLabel ?? normalizedQ}` : `Nessuna offerta per "${q}"`);
+    let summary = String(llmIntent?.conversational_summary ?? "").trim();
+
+    if (finalResults.length === 0) {
+      header = `Nessuna offerta per "${q}"`;
+      const filterNotes: string[] = [];
+      if (maxPrice != null) filterNotes.push(`sotto €${Math.round(maxPrice)}`);
+      if (size) filterNotes.push(`taglia ${size}`);
+      if (gender) filterNotes.push(gender);
+      if (storeParam) filterNotes.push(`su ${storeParam}`);
+      summary = filterNotes.length > 0
+        ? `Non ho trovato offerte attive per **${normalizedQ}** con i filtri selezionati (${filterNotes.join(", ")}). Prova ad ampliare il budget o rimuovere un filtro per vedere i modelli disponibili.`
+        : `Al momento non ho trovato offerte attive in catalogo per **${normalizedQ}**. Prova con un nome modello leggermente diverso o una ricerca più ampia.`;
+    } else if (!summary) {
+      summary = topProduct?.best_price != null
+        ? `Ho trovato **${finalResults.length}** ${finalResults.length === 1 ? "modello compatibile" : "modelli compatibili"}: miglior offerta a partire da **€${topProduct.best_price.toFixed(2)}** confrontando i negozi partner.`
+        : `Ho trovato ${finalResults.length} modelli compatibili confrontando i negozi partner.`;
+    }
+
+    const curatedSections = buildCuratedSections(finalResults, {
+      isExactModel,
+      modelDisplayLabel,
+      relatedAlternatives,
+    });
+
+    const spotlight = topProduct
       ? {
-          product: results[0],
-          badge_text: results[0].offers.length > 1 ? `Confrontato su ${results[0].offers.length} negozi` : "Miglior Prezzo",
+          product: topProduct,
+          badge_text: topProduct.offers.length > 1
+            ? `Confrontato su ${topProduct.offers.length} negozi`
+            : "Miglior Prezzo",
           highlights: [
-            results[0].best_price != null ? `Da €${results[0].best_price.toFixed(2)}` : "Prezzo verificato",
-            results[0].cross_store_savings != null && results[0].cross_store_savings > 1
-              ? `Risparmi fino a €${results[0].cross_store_savings.toFixed(2)}`
-              : "Spedizione trasparente",
+            topProduct.best_price != null ? `Miglior offerta da €${topProduct.best_price.toFixed(2)}` : "Prezzo verificato",
+            topProduct.cross_store_savings != null && topProduct.cross_store_savings > 1
+              ? `Risparmi fino a €${topProduct.cross_store_savings.toFixed(2)} tra gli store`
+              : "Disponibilità e spedizione verificate",
           ],
         }
       : null;
 
-    const comparativeCards = isDeepDive
-      ? results.slice(0, 3).map((p) => ({
+    const comparativeCards = isDeepDive && finalResults.length >= 2
+      ? finalResults.slice(0, 3).map((p) => ({
           product: p,
           model_name: p.canonical_name,
           ideal_for: p.brand ? `Selezione ${p.brand}` : "Uso sportivo tecnico",
-          strengths: p.best_price != null ? `Miglior prezzo €${p.best_price.toFixed(2)} (${p.offers.length} offerte)` : `${p.offers.length} offerte`,
+          strengths: p.best_price != null
+            ? `Miglior prezzo €${p.best_price.toFixed(2)} (${p.offers.length} ${p.offers.length === 1 ? "offerta" : "offerte"})`
+            : `${p.offers.length} offerte`,
           section_title: "Confronto rapido",
         }))
       : [];
 
-    const followUps = Array.isArray(llmIntent?.follow_up_suggestions) && llmIntent.follow_up_suggestions.length > 0
-      ? llmIntent.follow_up_suggestions.map(String).slice(0, 3)
-      : ["Solo sotto 120€", "Mostra più sconti", "Alternative simili"];
+    const rawFollowUps = Array.isArray(llmIntent?.follow_up_suggestions)
+      ? llmIntent.follow_up_suggestions.map((s) => String(s ?? "").trim()).filter(Boolean).slice(0, 3)
+      : [];
+    const followUps = rawFollowUps.length > 0
+      ? rawFollowUps
+      : buildDefaultFollowUps({ isExactModel, brand, productType, maxPrice, gender, topProduct });
 
     const intentObj = {
       raw_query: q,
       search_mode: isDeepDive ? "deep_dive" : "classic",
       is_deep_dive: isDeepDive,
-      target_keywords: targetKeywords,
+      target_keywords: searchKeywords,
       brand,
       category,
       gender,
@@ -362,7 +697,7 @@ Deno.serve(async (req: Request) => {
       size,
       features: Array.isArray(llmIntent?.features) ? llmIntent.features.map(String) : [],
       explanation: summary,
-      source: llmIntent ? "supabase_edge_openrouter" : "supabase_edge_heuristic",
+      source: llmIntent ? "supabase_edge_v2_hybrid" : "supabase_edge_v2_heuristic",
       is_off_topic: false,
       is_unsafe: false,
       is_conversational_advice: isDeepDive,
@@ -378,14 +713,14 @@ Deno.serve(async (req: Request) => {
         userId,
         chatType: "smart_search",
         query: q,
-        isFollowUp: Boolean(contextQuery && contextQuery.trim()),
+        isFollowUp,
         payload: {
           conversational_header: header,
           conversational_summary: summary,
           is_conversational_advice: isDeepDive,
           intent: intentObj,
           chips,
-          results,
+          results: finalResults,
           curated_sections: curatedSections,
           comparative_cards: comparativeCards,
           spotlight,
@@ -394,8 +729,10 @@ Deno.serve(async (req: Request) => {
           is_unsafe: false,
         },
         contextState: {
-          last_query: q,
-          last_keywords: targetKeywords,
+          last_query: normalizedQ,
+          last_keywords: searchKeywords,
+          entity_tokens: entityTokens,
+          product_type: productType,
           brand,
           category,
           gender,
@@ -419,8 +756,8 @@ Deno.serve(async (req: Request) => {
       follow_up_suggestions: followUps,
       intent: intentObj,
       chips,
-      total_found: results.length,
-      results,
+      total_found: finalResults.length,
+      results: finalResults,
       is_off_topic: false,
       is_unsafe: false,
       session_id: savedIds?.session_id ?? sessionId ?? null,

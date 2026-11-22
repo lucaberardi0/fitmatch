@@ -2479,7 +2479,15 @@ class SupabaseManager: ObservableObject {
             let minP = prices.min() ?? 0.0
             let maxP = prices.max() ?? minP
             let savings = prices.count > 1 ? max(0.0, maxP - minP) : 0.0
-            let primaryImg = p.image_url ?? formattedOffers.first?.image_url
+            let isValidImg: (String?) -> Bool = { raw in
+                guard let s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return false }
+                let low = s.lowercased()
+                return !low.contains("no-image") && !low.contains("no_image") && !low.contains("placeholder")
+            }
+            let primaryImg = (isValidImg(p.image_url) ? p.image_url : nil)
+                ?? formattedOffers.first(where: { isValidImg($0.image_url) })?.image_url
+                ?? p.image_url
+                ?? formattedOffers.first?.image_url
 
             results.append(MatchedProduct(
                 id_val: p.id,

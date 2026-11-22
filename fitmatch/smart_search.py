@@ -1912,6 +1912,9 @@ class QueryProductGuardrail:
         return None
 
     _TYPO_SUBSTITUTIONS = [
+        (r"\b(?:leggins|legins|legings|leggin)\b", "leggings"),
+        (r"\b(?:calzamaglie)\b", "calzamaglia"),
+        (r"\b(?:under\s*armor|underarmour|underarmor)\b", "under armour"),
         (r"\b(?:garmen|gamrin|garmn|garmmin)\b", "garmin"),
         (r"\b(?:forunner|fore\s*runner|forerun|forerunne)\b", "forerunner"),
         (r"\b(?:fennix|fenx)\b", "fenix"),
@@ -2043,7 +2046,7 @@ class QueryProductGuardrail:
                 return "short_sleeve_top"
             if re.search(r"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way|gilet\s*antivento|guscio)\b", t):
                 return "jacket"
-            if re.search(r"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|tights?|fuseaux|pantalon[ie]|corsar[oi]|ciclisti|sprinter|bermuda)\b", t) and not re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b", t):
+            if re.search(r"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|leggins|tights?|tight|calzamagli[ae]|fuseaux|pantacollant|collant|pantalon[ie]|corsar[oi]|ciclisti|sprinter|bermuda)\b", t) and not re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b", t):
                 return "pants_shorts"
             if re.search(r"\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b", t):
                 return "socks"
@@ -2344,7 +2347,7 @@ class QueryProductGuardrail:
                 return False
             if re.search(r"\b(scarp[ae]|shoe|sneaker|magli[ae]|t[\s-]*shirt|shirt\b|tee\b|top\b|short[\s-]*sleeve|manic(?:a|he)|canott[ae]|singlet|giacc(?:a|he)|jacket|calz[ae]|calzin[oi]|orologi[o]?|zain[oi]|cappellin[oi])\b", full_text):
                 return False
-            return bool(re.search(r"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|tights?|fuseaux|pantalon[ie]|corsar[oi]|sprinter|ciclisti|bermuda)\b", full_text))
+            return bool(re.search(r"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|leggins|tights?|tight|calzamagli[ae]|fuseaux|pantacollant|collant|pantalon[ie]|corsar[oi]|sprinter|ciclisti|bermuda)\b", full_text))
 
         if product_type == "socks":
             if cat in {"running_shoes", "shoes", "top", "jacket", "pants", "gps_watch", "eyewear", "padel", "cycling", "hydration", "nutrition", "strap", "mount"}:

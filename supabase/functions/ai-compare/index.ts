@@ -5,7 +5,7 @@ import {
   createServiceClient,
   jsonResponse,
   searchCatalogOffers,
-} from "./catalog.ts";
+} from "../_shared/catalog.ts";
 
 interface ModelSpecs {
   name: string;

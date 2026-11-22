@@ -647,7 +647,7 @@ class APIService: ObservableObject {
                 effectiveCategory = "eyewear"
             } else if combined.range(of: #"\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b"#, options: .regularExpression) != nil {
                 effectiveCategory = "socks"
-            } else if !isShortSleeveCombined && combined.range(of: #"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|tights?|pantalon[ie]|ciclisti|sprinter|bermuda)\b"#, options: .regularExpression) != nil {
+            } else if !isShortSleeveCombined && combined.range(of: #"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|leggins|legins|tights?|tight|calzamagli[ae]|fuseaux|pantacollant|collant|pantalon[ie]|ciclisti|sprinter|bermuda)\b"#, options: .regularExpression) != nil {
                 effectiveCategory = "pants"
             } else if isShortSleeveCombined || combined.range(of: #"\b(magli[ae]|t[\s-]*shirt|long\s*sleeve|canott[ae]|singlet)\b"#, options: .regularExpression) != nil {
                 effectiveCategory = "top"
@@ -728,7 +728,11 @@ class APIService: ObservableObject {
             } else if effectiveCategory == "gps_watch" {
                 keywordsToSearch = ["garmin", "forerunner"]
             } else if effectiveCategory == "pants" {
-                keywordsToSearch = ["shorts", "pantaloncini"]
+                if combined.range(of: #"\b(leggings?|leggins|legins|tights?|tight|calzamagli[ae]|fuseaux|pantacollant|collant)\b"#, options: .regularExpression) != nil {
+                    keywordsToSearch = ["leggings", "tights", "calzamaglia", "fuseaux"]
+                } else {
+                    keywordsToSearch = ["shorts", "pantaloncini"]
+                }
             } else if effectiveCategory == "football_boots" {
                 keywordsToSearch = ["mercurial", "predator", "phantom", "tiempo", "top sala", "calcio"]
             } else if effectiveCategory == "swim" {
@@ -999,6 +1003,7 @@ class APIService: ObservableObject {
         case swim
         case socks
         case jacket
+        case leggings
         case pants
         case top
         case shoes
@@ -1051,7 +1056,10 @@ class APIService: ObservableObject {
         if q.range(of: #"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way)\b"#, options: .regularExpression) != nil {
             return .jacket
         }
-        if !isShortSleeve && q.range(of: #"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|tights?|pantalon[ie]|fuseaux|sprinter|ciclisti|bermuda)\b"#, options: .regularExpression) != nil {
+        if q.range(of: #"\b(leggings?|leggins|legins|tights?|tight|calzamagli[ae]|fuseaux|pantacollant|collant)\b"#, options: .regularExpression) != nil {
+            return .leggings
+        }
+        if !isShortSleeve && q.range(of: #"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|pantalon[ie]|sprinter|ciclisti|bermuda)\b"#, options: .regularExpression) != nil {
             return .pants
         }
         if isShortSleeve || q.range(of: #"\b(magli[ae]|t[\s-]*shirt|long\s*sleeve|longsleeve|manic(?:a|he)|canott[ae]|singlet|half\s*zip|1/4\s*zip|quarter\s*zip|intimo\s*termic|termic[ao])\b"#, options: .regularExpression) != nil {
@@ -1138,11 +1146,17 @@ class APIService: ObservableObject {
         case .jacket:
             return fullText.range(of: #"\b(giacc(?:a|he)|jacket|antivento|windbreaker|k[\s-]*way|gilet|guscio|impermeabil[ei])\b"#, options: .regularExpression) != nil
 
-        case .pants:
-            if fullText.range(of: #"\b(scarp[ae]|shoe|shoes|sneakers?|magli[ae]|t[\s-]*shirt|shirt\b|tee\b|top\b|short[\s-]*sleeve|manic(?:a|he)|canott[ae]|singlet|giacc(?:a|he)|jacket|calz[ae]|calzin[oi]|orologi[o]?|zain[oi]|cappellin[oi])\b"#, options: .regularExpression) != nil {
+        case .leggings:
+            if fullText.range(of: #"\b(scarp[ae]|shoe|shoes|sneakers?|magli[ae]|t[\s-]*shirt|shirt\b|tee\b|top\b|jsy\b|jersey|short[\s-]*sleeve|manic(?:a|he)|canott[ae]|singlet|giacc(?:a|he)|jacket|calz[ae]|calzin[oi]|socks?|orologi[o]?|zain[oi]|cappellin[oi]|reggisen[oi]|\bbra\b)\b"#, options: .regularExpression) != nil {
                 return false
             }
-            return fullText.range(of: #"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|tights?|pantalon[ie]|fuseaux|sprinter|ciclisti|bermuda)\b"#, options: .regularExpression) != nil
+            return fullText.range(of: #"\b(leggings?|leggins|tights?|tight|calzamagli[ae]|fuseaux|pantacollant|collant)\b"#, options: .regularExpression) != nil
+
+        case .pants:
+            if fullText.range(of: #"\b(scarp[ae]|shoe|shoes|sneakers?|magli[ae]|t[\s-]*shirt|shirt\b|tee\b|top\b|jsy\b|jersey|short[\s-]*sleeve|manic(?:a|he)|canott[ae]|singlet|giacc(?:a|he)|jacket|calz[ae]|calzin[oi]|socks?|orologi[o]?|zain[oi]|cappellin[oi])\b"#, options: .regularExpression) != nil {
+                return false
+            }
+            return fullText.range(of: #"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|leggins|tights?|tight|calzamagli[ae]|pantalon[ie]|fuseaux|pantacollant|sprinter|ciclisti|bermuda)\b"#, options: .regularExpression) != nil
 
         case .top:
             if fullText.range(of: #"\b(scarp[ae]|pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings|calz[ae]|orologi[o]?|zain[oi]|cappellin[oi]|visier[ae])\b"#, options: .regularExpression) != nil {
@@ -1169,7 +1183,7 @@ class APIService: ObservableObject {
             return fullText.range(of: #"\b(pallavolo|volley|spike|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner|upcourt|gel[\s-]*task)\b"#, options: .regularExpression) != nil
 
         case .shoes:
-            if fullText.range(of: #"\b(orologi[o]?|smartwatch|garmin|polar|suunto|coros|igpsport|bsc100|bsc200|ciclocomputer|bike\s*computer|contatore|magli[ae]|magliett[ae]|t[\s-]*shirt|shirt|tee\b|long\s*sleeve|longsleeve|manic(?:a|he)|canott[ae]|canottier[ae]|singlet|snglt|tank|crop|reggisen[oi]|bra\b|pantaloncin[oi]|shorts?|coscial[ei]|pacer|2in1|3inch|giacc(?:a|he)|jacket|jkt|felp[ae]|hoodie|pantalon[ie]|costum[ei]|mut[ae]|calz[ae]|calzin[oi]|cappellin[oi]|visier[ae]|berrett[oi]|cappell[oi]|zain[oi]|marsupi[oi]|bors[ae]|borracc|guant[oi]|casch?[oi]|ciabatt[ae]|sandal[oi]|adilette|birkenstock|rull[oi]|bike\s*trainer|occhial[ie]|racchett[ae]|crankbrothers|scarpin[oi]|calcio|calcetto|futsal|mercurial|predator|\bxcs\b|avanti\s*tyo|ambition|finesse|prime\s*sp|distancestar|sprintstar|throwstar|chiodat[ae])\b"#, options: .regularExpression) != nil {
+            if fullText.range(of: #"\b(orologi[o]?|smartwatch|garmin|polar|suunto|coros|igpsport|bsc100|bsc200|ciclocomputer|bike\s*computer|contatore|magli[ae]|magliett[ae]|t[\s-]*shirt|shirt|tee\b|jsy\b|jersey\b|top\s*ss\b|crew\s*top\b|trk\s*jkt\b|pant\s*kp\b|dry\s*park\d*|park\s*20\b|woven\b|long\s*sleeve|longsleeve|manic(?:a|he)|canott[ae]|canottier[ae]|singlet|snglt|tank|crop|reggisen[oi]|bra\b|pantaloncin[oi]|shorts?|leggings?|leggins|tights?|calzamagli[ae]|fuseaux|coscial[ei]|pacer|2in1|3inch|giacc(?:a|he)|jacket|jkt|felp[ae]|hoodie|pantalon[ie]|pants\b|costum[ei]|mut[ae]|calz[ae]|calzin[oi]|socks?|cappellin[oi]|visier[ae]|berrett[oi]|cappell[oi]|zain[oi]|marsupi[oi]|bors[ae]|borracc|guant[oi]|casch?[oi]|ciabatt[ae]|sandal[oi]|adilette|birkenstock|rull[oi]|bike\s*trainer|occhial[ie]|racchett[ae]|crankbrothers|scarpin[oi]|calcio|calcetto|futsal|mercurial|predator|\bxcs\b|avanti\s*tyo|ambition|finesse|prime\s*sp|distancestar|sprintstar|throwstar|chiodat[ae])\b"#, options: .regularExpression) != nil {
                 return false
             }
             return true
@@ -1230,7 +1244,14 @@ class APIService: ObservableObject {
             }
         }
 
-        let needsDirectEnrichment = validResults.count < 5 || (response.results.count > 0 && Double(validResults.count) / Double(response.results.count) < 0.6)
+        let isPrecisionServerV2 = (response.intent?.source ?? "").hasPrefix("supabase_edge_v2")
+        // Never pollute clean exact-model results (e.g. 1-4 exact model variants) with generic category fallbacks!
+        // Only run direct fallback enrichment if the server returned 0 valid products (and wasn't an intentional empty v2 response)
+        // or if a legacy server returned mostly incompatible items.
+        let needsDirectEnrichment = !isPrecisionServerV2 && (
+            validResults.isEmpty ||
+            (response.results.count >= 5 && Double(validResults.count) / Double(response.results.count) < 0.5)
+        )
 
         var finalResults = validResults
         if needsDirectEnrichment {
@@ -1264,6 +1285,9 @@ class APIService: ObservableObject {
             case .jacket:
                 fallbackCategory = "jacket"
                 fallbackKeywords = ["giacca antivento", "salomon bonatti", "nike stride", "adizero", "odlo"]
+            case .leggings:
+                fallbackCategory = "pants"
+                fallbackKeywords = ["leggings", "tights", "calzamaglia", "fuseaux"]
             case .pants:
                 fallbackCategory = "pants"
                 if query.lowercased().contains("compression") || query.lowercased().contains("ciclisti") {
@@ -1342,7 +1366,7 @@ class APIService: ObservableObject {
         var cleanedSections: [CuratedProductSection] = []
         var usedIds = Set<String>()
         for sec in (response.curated_sections ?? []) {
-            var validSecProds = sec.products.filter { isProductCompatible($0, with: kind) }
+            var validSecProds = sec.products.filter { isProductCompatible($0, with: kind) && matchesGenderConstraint($0, gender: effGender) }
             if let mp = effMaxPrice {
                 validSecProds = validSecProds.compactMap { prod in
                     let validOffers = prod.offers.filter { $0.price <= mp }

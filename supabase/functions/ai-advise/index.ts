@@ -6,7 +6,7 @@ import {
   jsonResponse,
   saveChatTurn,
   searchCatalogOffers,
-} from "./catalog.ts";
+} from "../_shared/catalog.ts";
 
 const KNOWLEDGE_BASE: Record<string, { name: string; description: string; models: string[] }> = {
   max_cushion: {
