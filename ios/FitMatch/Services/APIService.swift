@@ -953,8 +953,10 @@ class APIService: ObservableObject {
             is_conversational_advice: isAdvice,
             conversational_header: headerTitle,
             conversational_summary: summaryText,
+            searched_queries: keywordsToSearch,
             curated_sections: sections,
             comparative_cards: compCards,
+            featured_cards: [spotlight],
             spotlight: spotlight,
             follow_up_suggestions: followUps,
             intent: SmartSearchIntent(
@@ -1159,10 +1161,10 @@ class APIService: ObservableObject {
             return fullText.range(of: #"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|leggins|tights?|tight|calzamagli[ae]|pantalon[ie]|fuseaux|pantacollant|sprinter|ciclisti|bermuda)\b"#, options: .regularExpression) != nil
 
         case .top:
-            if fullText.range(of: #"\b(scarp[ae]|pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings|calz[ae]|orologi[o]?|zain[oi]|cappellin[oi]|visier[ae])\b"#, options: .regularExpression) != nil {
+            if fullText.range(of: #"\b(scarp[ae]|pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings|calz[ae]|orologi[o]?|zain[oi]|cappellin[oi]|cappell[oi]|visier[ae]|balaclava|scaldacollo)\b"#, options: .regularExpression) != nil {
                 return false
             }
-            return fullText.range(of: #"\b(magli[ae]|magliett[ae]|t[\s-]*shirt|shirt|tee\b|long\s*sleeve|longsleeve|\bls\b|short\s*sleeve|manic(?:a|he)|canott[ae]|singlet|tank|top|half\s*zip|1/4\s*zip|quarter\s*zip|zip\s*top|cloudspun|felp[ae]|hoodie|sweatshirt|pullover|midlayer|base\s*layer|intimo\s*termic|termic[ao])\b"#, options: .regularExpression) != nil
+            return fullText.range(of: #"\b(magli[ae]|magliett[ae]|t[\s-]*shirt|shirt|tee\b|long\s*sleeve|longsleeve|\bls\b|short\s*sleeve|manic(?:a|he)|canott[ae]|singlet|tank|top|half\s*zip|1/4\s*zip|quarter\s*zip|zip\s*top|zip\s*met[aà]|cloudspun|felp[ae]|hoodie|sweatshirt|pullover|midlayer|base\s*layer|intimo\s*termic|termic[ao]|therma[\s-]*fit|fleece|pile\b|polar\b|girocollo|wolf\s*grid|wolf\s*tree|wolf\s*lichen|chinati|wildsee)\b"#, options: .regularExpression) != nil
 
         case .basketballShoes:
             if fullText.range(of: #"\b(nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|speedgoat|trabuco|magli[ae]|canott[ae]|pantaloncin[oi]|calz[ae]|cappellin[oi]|zain[oi]|orologi[o]?|pallon[ei])\b"#, options: .regularExpression) != nil {
@@ -1244,7 +1246,13 @@ class APIService: ObservableObject {
             }
         }
 
-        let isPrecisionServerV2 = (response.intent?.source ?? "").hasPrefix("supabase_edge_v2")
+        let serverSource = response.intent?.source ?? ""
+        let isPrecisionServerV2 = serverSource.hasPrefix("supabase_edge_v2") || serverSource.hasPrefix("supabase_edge_v3")
+        // For v3 Shop-grade server responses, the server already ran strict product-type, brand, price, size & gender gating
+        // and built disjoint thematic sections + grounded featured cards — preserve them cleanly!
+        if serverSource.hasPrefix("supabase_edge_v3") {
+            return response
+        }
         // Never pollute clean exact-model results (e.g. 1-4 exact model variants) with generic category fallbacks!
         // Only run direct fallback enrichment if the server returned 0 valid products (and wasn't an intentional empty v2 response)
         // or if a legacy server returned mostly incompatible items.
@@ -1449,14 +1457,19 @@ class APIService: ObservableObject {
             )
         }
 
+        // Clean featured cards
+        let cleanedFeatured = (response.featured_cards ?? []).filter { isProductCompatible($0.product, with: kind) }
+
         return SmartSearchResponse(
             search_mode: response.search_mode,
             is_deep_dive: response.is_deep_dive,
             is_conversational_advice: response.is_conversational_advice,
             conversational_header: response.conversational_header,
             conversational_summary: response.conversational_summary,
+            searched_queries: response.searched_queries,
             curated_sections: cleanedSections,
-            comparative_cards: cleanedComps,
+            comparative_cards: isPrecisionServerV2 ? (response.comparative_cards ?? []) : cleanedComps,
+            featured_cards: cleanedFeatured.isEmpty ? (cleanedSpotlight.map { [$0] } ?? []) : cleanedFeatured,
             spotlight: cleanedSpotlight,
             follow_up_suggestions: response.follow_up_suggestions,
             intent: response.intent,

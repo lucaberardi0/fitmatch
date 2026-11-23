@@ -46,6 +46,7 @@ export async function callOpenRouterJSON(opts: {
   maxTokens?: number;
   title?: string;
   timeoutMs?: number;
+  disableReasoning?: boolean;
 }): Promise<Record<string, unknown> | null> {
   const apiKey = (Deno.env.get("OPENROUTER_API_KEY") ?? "").trim();
   if (!apiKey) return null;
@@ -61,8 +62,11 @@ export async function callOpenRouterJSON(opts: {
       temperature: opts.temperature ?? 0.1,
       max_tokens: opts.maxTokens ?? 800,
     };
-    if (model.startsWith("openai/")) {
+    if (model.startsWith("openai/") || model.startsWith("google/gemini")) {
       payload.response_format = { type: "json_object" };
+    }
+    if (opts.disableReasoning && model.startsWith("google/gemini-2.5")) {
+      payload.reasoning = { effort: "none" };
     }
     try {
       const resp = await fetch(OPENROUTER_URL, {
@@ -165,8 +169,14 @@ export const SUB_BRAND_TO_PARENT: Record<string, [string, string]> = {
   "drifit": ["Nike", "dri-fit"],
   "therma-fit": ["Nike", "therma-fit"],
   "aeroswift": ["Nike", "aeroswift"],
+  "metcon": ["Nike", "metcon"],
+  "solar chase": ["Nike", "solar chase"],
+  "wolf grid": ["Nike", "wolf grid"],
+  "wolf tree": ["Nike", "wolf tree"],
+  "chinati": ["Nike", "chinati"],
   "terrex": ["Adidas", "terrex"],
   "adizero": ["Adidas", "adizero"],
+  "dropset": ["Adidas", "dropset"],
   "s/lab": ["Salomon", "lab"],
   "s-lab": ["Salomon", "lab"],
   "slab": ["Salomon", "lab"],
@@ -177,6 +187,8 @@ export const SUB_BRAND_TO_PARENT: Record<string, [string, string]> = {
   "warmalite": ["Mizuno", "warmalite"],
   "heatgear": ["Under Armour", "heatgear"],
   "coldgear": ["Under Armour", "coldgear"],
+  "forerunner": ["Garmin", "forerunner"],
+  "fenix": ["Garmin", "fenix"],
 };
 
 const CASUAL_NON_SPORT_BRANDS = new Set([
@@ -236,6 +248,24 @@ export function detectSubBrand(text: string): [string, string] | null {
     }
   }
   return null;
+}
+
+export function extractAllBrands(text: string): string[] {
+  const norm = normalizeQueryTypos(text).toLowerCase();
+  const found: string[] = [];
+  for (const b of KNOWN_BRANDS) {
+    const bLow = b.toLowerCase();
+    if (bLow === "on") {
+      if (/\bon\s+(?:running|cloud\w*)\b/i.test(norm) && !found.includes("On")) found.push("On");
+      continue;
+    }
+    if (new RegExp(`\\b${escapeRegExp(bLow)}\\b`, "i").test(norm) && !found.includes(b)) {
+      found.push(b);
+    }
+  }
+  const sub = detectSubBrand(norm);
+  if (sub && !found.includes(sub[0])) found.push(sub[0]);
+  return found;
 }
 
 export function extractBrand(text: string, fallback?: string | null): string | null {
@@ -306,6 +336,12 @@ const GENERIC_ENTITY_STOPWORDS = new Set([
   "occhiali", "occhialini", "goggles", "costume", "costumi", "cuffia",
   "zaino", "zaini", "gilet", "borraccia", "borracce", "flask", "idratazione",
   "racchetta", "racchette", "pala", "rullo", "rulli", "gel", "barretta", "barrette", "integratori",
+  // Descriptive / biomechanical / condition adjectives (never specific model names!)
+  "delicata", "delicate", "delicato", "delicati", "sensibile", "sensibili", "pesante", "pesanti",
+  "quotidiana", "quotidiane", "quotidiano", "quotidiani", "protettiva", "protettive", "protettivo", "protettivi",
+  "ideale", "ideali", "perfetta", "perfette", "perfetto", "perfetti", "adatta", "adatte", "adatto", "adatti",
+  "dolore", "dolori", "articolazione", "articolazioni", "tendinite", "tallonite", "plantare", "pianta", "larga", "largo", "stretta", "stretto", "piatto", "piatti", "appoggio",
+  "esigenze", "livello", "cercando", "cerco", "voglio", "servono", "serve", "durata", "durano", "calzano", "vestono",
   // Colors
   "nero", "nera", "neri", "nere", "bianco", "bianca", "bianchi", "bianche", "blu", "rosso", "rossa",
   "rossi", "rosse", "verde", "verdi", "grigio", "grigia", "giallo", "gialla", "arancione", "rosa", "viola",
@@ -373,7 +409,7 @@ export function detectSingleProductType(rawText: string): ProductType | null {
   if (/\b(felp[ae]|hoodie|sweatshirt)\b/.test(t)) {
     return "top";
   }
-  if (/\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way|gilet\s*antivento|guscio|antipioggia)\b/.test(t)) {
+  if (/\b(giacc(?:a|he)|jacket|rain\s*jacket|antivento|windbreaker|windproof|k[\s-]*way|gilet\s*antivento|guscio|shell\s*jacket|anorak|antipioggia)\b/.test(t)) {
     return "jacket";
   }
   // Leggings / Tights / Calzamaglia MUST be distinguished from Shorts & Long Pants!
@@ -390,12 +426,12 @@ export function detectSingleProductType(rawText: string): ProductType | null {
   if (/\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b/.test(t)) {
     return "socks";
   }
-  if (/\b(cappellin[oi]|cappell[oi]|berrett[oi]|visier[ae]|fascia\s*testa|scaldacollo|guant[oi])\b/.test(t)) {
+  if (/\b(cappellin[oi]|cappell[oi]|berrett[oi]|visier[ae]|fascia\s*testa|scaldacollo|guant[oi]|beanie|visor|headband|gloves|neck\s*gaiter|running\s*cap|running\s*hat)\b/.test(t)) {
     return "headwear";
   }
 
   // 2. Tech & Hardgoods
-  if (/\b(fasci[ae]\s*cardio(?:frequenzimetr[oi])?|fascia\s*hrm|fascia\s*toracica|sensore\s*(?:cardio|cardiaco|frequenza\s*cardiaca|hr)|polar\s*(?:h10|h9|verity|oh1)|garmin\s*hrm|hrm[\s-]*(?:pro|dual|200|600|fit|swim)|wahoo\s*(?:trackr|tickr)|coros\s*(?:heart\s*rate|fascia\s*cardio))\b/.test(t)) {
+  if (/\b(fasci[ae]\s*cardio(?:frequenzimetr[oi])?|fascia\s*hrm|fascia\s*toracica|sensore\s*(?:cardio|cardiaco|frequenza\s*cardiaca|hr)|heart\s*rate\s*(?:monitor|strap|sensor)|chest\s*strap|polar\s*(?:h10|h9|verity|oh1)|garmin\s*hrm|hrm[\s-]*(?:pro|dual|200|600|fit|swim)|wahoo\s*(?:trackr|tickr)|coros\s*(?:heart\s*rate|fascia\s*cardio))\b/.test(t)) {
     return "heart_rate_monitor";
   }
   if (/\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*(?:bici|gps)?|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|wahoo\s*elemnt|bryton|igpsport|hammerhead\s*karoo)\b/.test(t)) {
@@ -407,59 +443,59 @@ export function detectSingleProductType(rawText: string): ProductType | null {
   if (/\bgps\b/.test(t) && !/\b(bici|ciclismo|mtb|gravel|manubrio|ciclocomputer|edge)\b/.test(t)) {
     return "gps_watch";
   }
-  if (/\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|nuot[ao]|nuotare|piscina|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno)|pinn[ae]\s*(?:da\s*)?nuoto)\b/.test(t)) {
+  if (/\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|swim(?:ming)?\s*goggles|goggles|swimsuit|nuot[ao]|nuotare|piscina|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno)|pinn[ae]\s*(?:da\s*)?nuoto)\b/.test(t)) {
     return "swim";
   }
-  if (/\b(occhial[ie]|oakley|sutro|radar\s*ev|jawbreaker|rudy\s*project|bliz)\b/.test(t)) {
+  if (/\b(occhial[ie]|sunglasses|eyewear|oakley|sutro|radar\s*ev|jawbreaker|rudy\s*project|bliz)\b/.test(t)) {
     return "eyewear";
   }
-  if (/\b(gilet\s*(?:idratazione|trail)|zain[oi]|soft\s*flask|borracc(?:ia|e|ie)|sacca\s*idrica|active\s*skin|adv\s*skin|camelbak)\b/.test(t)) {
+  if (/\b(gilet\s*(?:idratazione|trail|running)|(?:trail|running|hydration)\s*vest|\bvest\b|zain[oi]|backpack|hydration\s*pack|soft\s*flask|flask|borracc(?:ia|e|ie)|water\s*bottle|sacca\s*idrica|active\s*skin|adv\s*skin|camelbak)\b/.test(t)) {
     return "hydration";
   }
-  if (/\b(racchett[ae]\s*(?:da\s*)?tennis|pure\s*drive|pure\s*aero|yonex\s*(?:ezone|vcore|percept)|wilson\s*(?:blade|pro\s*staff|clash|ultra)|head\s*(?:speed|radical|gravity|extreme\s*mp)|tecnifibre\s*t[\s-]*fight)\b/.test(t)) {
+  if (/\b((?:racchett[ae]|racket|racquet)\s*(?:da\s*)?tennis|tennis\s*(?:racket|racquet)|pure\s*drive|pure\s*aero|yonex\s*(?:ezone|vcore|percept)|wilson\s*(?:blade|pro\s*staff|clash|ultra)|head\s*(?:speed|radical|gravity|extreme\s*mp)|tecnifibre\s*t[\s-]*fight)\b/.test(t)) {
     return "tennis_racket";
   }
   if (/\b(scarpon[ei]\s*(?:da\s*)?sci|mascher[ae]\s*(?:da\s*)?sci|casc[oh]\s*(?:da\s*)?sci|tavol[ae]\s*snowboard|snowboard|scialpinismo|sci\s*alpino|atomic\s*(?:hawx|redster|bent)|nordica\s*(?:speedmachine|promachine)|rossignol\s*(?:hero|alltrack))\b/.test(t)) {
     return "winter_sports";
   }
-  if (/\b(racchett[ae]|pala\s*padel|bullpadel|nox\s*at10|padel)\b/.test(t) && !/\bscarp[ae]\b/.test(t)) {
+  if (/\b(racchett[ae]|padel\s*(?:racket|racquet)|pala\s*padel|bullpadel|nox\s*at10|padel)\b/.test(t) && !/\b(scarp[ae]|shoes?)\b/.test(t)) {
     return "padel_racket";
   }
   if (/\b(rull[oi]|smart\s*trainer|wahoo\s*kickr|tacx\s*(?:flux|neo))\b/.test(t)) {
     return "smart_trainer";
   }
-  if (/\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis)|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali|enervit|maurten|namedsport)\b/.test(t)) {
+  if (/\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis)|energy\s*gels?|electrolytes?|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali|enervit|maurten|namedsport)\b/.test(t)) {
     return "nutrition";
   }
 
   // 3. Sport-specific footwear
-  if (/\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|scarpin[oi]|calcetto|futsal|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b/.test(t) ||
+  if (/\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|football\s*boots?|soccer\s*cleats?|scarpin[oi]|calcetto|futsal|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b/.test(t) ||
       (/\bcalcio\s*a\s*[57]\b/.test(t) && !/\b(magli[ae]|kit|pantaloncin[oi]|pallon[ei]|guant[oi])\b/.test(t))) {
     return "football_boots";
   }
-  if (/\b(basket|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b/.test(t) &&
-      !/\b(magli[ae]|canott[ae]|pantaloncin[oi]|calz[ae]|pallon[ei]|canestro)\b/.test(t)) {
+  if (/\b(basket|basketball|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b/.test(t) &&
+      !/\b(magli[ae]|jersey|canott[ae]|pantaloncin[oi]|shorts?|calz[ae]|pallon[ei]|canestro)\b/.test(t)) {
     return "basketball_shoes";
   }
   if (/\b(tennis|terra\s*battuta|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b/.test(t) &&
-      !/\b(racchett[ae]|pallin[ae]|abbigliamento|pantaloncin[oi]|magli[ae])\b/.test(t)) {
+      !/\b(racchett[ae]|racket|racquet|pallin[ae]|abbigliamento|pantaloncin[oi]|shorts?|magli[ae])\b/.test(t)) {
     return "tennis_shoes";
   }
-  if (/\b(pallavolo|volley|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b/.test(t) &&
+  if (/\b(pallavolo|volley|volleyball|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b/.test(t) &&
       !/\b(ginocchier[ae]|pallon[ei]|magli[ae]|pantaloncin[oi]|manicotti)\b/.test(t)) {
     return "volleyball_shoes";
   }
 
   // 4. Trail vs Road Shoes
   if (/\b(trail|sterrato|montagna|sentier[oi]|speedgoat|cascadia|trabuco|speedcross|ultra\s*raptor|peregrine|bushido|hierro|mafate|tecton)\b/.test(t) &&
-      !/\b(zain[oi]|gilet|giacc[ae]|pantalon|magli|orologi)\b/.test(t)) {
+      !/\b(zain[oi]|gilet|vest|backpack|pack|flask|bottle|giacc[ae]|jacket|pantalon|pants|shorts?|tights?|magli|shirt|tee|orologi|watch|poles|bastoncini|gel|belt|marsupio|hat|cap|gloves|socks)\b/.test(t)) {
     return "trail_shoes";
   }
   if (/\b(scarp[ae]|sneakers?|calzatur[ae]|zoom\s*fly|pegasus|vomero|alphafly|vaporfly|streakfly|invincible|structure|nimbus|kayano|cumulus|novablast|superblast|metaspeed|clifton|bondi|mach|cielo|rincon|glycerin|ghost|hyperion|adrenaline|endorphin|triumph|ride|tempus|deviate|velocity|magmax|adizero\s*(?:adios|boston|takumi|sl|evo|prime|dropset)|dropset|metcon|nano|ultraboost|supernova|cloudmonster|cloudsurfer|cloudboom|cloudrunner|cloudstratus|wave\s*rider|wave\s*rebellion|wave\s*sky|fresh\s*foam|fuelcell|1080|rebel|hyrox|infinite\s*(?:elite|pro))\b/.test(t)) {
     return "shoes";
   }
   if (/\b(running|corsa|correre|maratona|mezza\s*maratona|ammortizzat[ae]|pronazione|supinazione)\b/.test(t) &&
-      !/\b(abbigliamento|completo|kit|accessori|orologi[o]?|smartwatch|ciclocomputer)\b/.test(t)) {
+      !/\b(abbigliamento|completo|kit|accessori|orologi[o]?|smartwatch|watch|ciclocomputer|vest|backpack|pack|jacket|shirt|shorts|tights|gel|belt|marsupio|flask|bottle|poles)\b/.test(t)) {
     return "shoes";
   }
   return null;
@@ -799,11 +835,11 @@ interface RpcProductRow {
 // Hard Product-Type & Quality Compatibility Gating
 // ============================================================================
 
-const GLOBAL_JUNK_RE = /\b(furygan|dainese|alpinestars|d3o\s*ghost|protezion[ei]\s+gomit|vetus|scambiatore\s+calore|garlando|calciobalilla|biliardino|barbie|bambol[ae]|panzerglass|vetro\s*temp[ea]?rato|pellicol[ae]|idrogel|hydrogel|screen\s*protector|protezion[ei]\s*(?:lo\s*)?schermo|sportenzia|second\s*hand|ricondizionat[ao]|trixie|pettorina\s+cani|cuccia|guinzagli[oi]|victorinox|invertika|birkenstock)\b/i;
+const GLOBAL_JUNK_RE = /\b(furygan|dainese|alpinestars|d3o\s*ghost|protezion[ei]\s+gomit|vetus|scambiatore\s+calore|garlando|calciobalilla|biliardino|barbie|bambol[ae]|panzerglass|vetro\s*temp[ea]?rato|pellicol[ae]|idrogel|hydrogel|screen\s*protector|protezion[ei]\s*(?:lo\s*)?schermo|sportenzia|second\s*hand|ricondizionat[ao]|trixie|pettorina\s+cani|cuccia|guinzagli[oi]|victorinox|invertika|birkenstock|chris\s*king|nothreadset|griplock|schwalbe)\b/i;
 
-const KIDS_MARKER_RE = /(?:^|\s)(?:junior|jr|bambin[oi]|kids?|youth|ragazz[oi])(?:\s|$)|\bnike\s+y\s+/i;
+const KIDS_MARKER_RE = /(?:^|\s|\(|–|-)(?:junior|jr|bambin[oi]|kids?|youth|ragazz[oi](?:\/a)?)(?:\s|$|\)|\/)/i;
 
-const BIKE_HARDWARE_RE = /\b(serie\s+sterzo|headset|attacco\s+manubrio|supporto\s+manubrio|movimento\s+centrale|pignoni|guarnitura|pastiglie|disco\s+freno|forcella|tubeless|pedali?)\b/i;
+const BIKE_HARDWARE_RE = /\b(serie\s+sterzo|sistema\s+sterzo|headset|attacco\s+manubrio|supporto\s+manubrio|movimento\s+centrale|pignoni|guarnitura|pastiglie|disco\s+freno|forcella|tubeless|pedali?|copertone|pneumatic[oi]|cuffi[ae]\s+integrat[ae]|is42)\b/i;
 
 function isApparelOnlySizes(sizes: string[]): boolean {
   if (!sizes || sizes.length === 0) return false;
@@ -843,11 +879,14 @@ export function isProductCompatible(
   // 2. Kids / Junior / Nike Youth ("Nike Y ...") filter unless explicitly requested
   if (!/\b(junior|jr|bambin[oi]|kids?|youth|ragazz[oi])\b/.test(qLow)) {
     if (pGender === "junior" || KIDS_MARKER_RE.test(cname)) return false;
+    if (prod.offers.length > 0 && prod.offers.every((o) => KIDS_MARKER_RE.test((o.title ?? "").toLowerCase()))) {
+      return false;
+    }
   }
 
   // 3. Bike hardware filter unless cycling hardware query
   if (!/\b(bici|ciclismo|sterzo|headset|bike|freno|pedali|tubeless)\b/.test(qLow)) {
-    if (BIKE_HARDWARE_RE.test(cname)) return false;
+    if (BIKE_HARDWARE_RE.test(fullText)) return false;
   }
 
   if (!productType) return true;
@@ -859,8 +898,8 @@ export function isProductCompatible(
     case "shoes":
     case "trail_shoes": {
       if (isApparelOnlySizes(prod.available_sizes ?? [])) return false;
-      // Block apparel/tech/accessories including Nike/Adidas abbreviations (jsy, woven, park20, top ss, trk jkt, pant kp)
-      if (/\b(t[\s-]*rex|smartwatch|orologi[o]?|garmin|amazfit|polar|suunto|coros|igpsport|bsc\d+|ciclocomputer|bike\s*computer|telo\s*microfibra|asciugaman[oi]|towel|borracc(?:ia|e)|soft\s*flask|zain[oi]|backpack|calz[ae]|calzin[oi]|socks?|light\s*crew|t[\s-]*shirt|magli[ae]|magliett[ae]|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet|snglt|tank\b|crop\b|cropped|tee\b|jsy\b|jersey\b|top\s*ss\b|crew\s*top\b|trk\s*jkt\b|pant\s*kp\b|dry\s*park\d*|park\s*20\b|woven\b|felp[ae]|hoodie|hooded|polare|fleece|giacc(?:a|he)|jacket|jkt\b|piumin[oi]|pantaloncin[oi]|shorts?|leggings?|tights?|calzamagli[ae]|fuseaux|pantalon[ie]|pants\b|coscial[ei]|gonn[ae]|skirt|2in1|2\s*in\s*1|cappellin[oi]|\bcap\b|berrett[oi]|beanie|visier[ae]|scaldacollo|neck\s*gaiter|gaiter\b|bandana|manicott[oi]|marsupi[oi]|run\s*belt|borson[ei]|duffel|guant[oi]|gloves|occhial[ie]|gel\s*energetico|barrett[ae]|rull[oi]|casc(?:o|hi)|helmet|racchett[ae]|pala\s*padel|reggisen[oi]|\bbra\b|slip\b|boxer\b|crankbrothers|scarpin[oi]|calcio|calcetto|futsal|mercurial|predator)\b/.test(fullText)) {
+      // Block apparel/tech/accessories/mats/insoles/bike tires/headsets including French & Italian store abbreviations
+      if (/\b(t[\s-]*rex|smartwatch|orologi[o]?|garmin|amazfit|polar|suunto|coros|igpsport|bsc\d+|ciclocomputer|bike\s*computer|tappetino|yogamat|yoga\s*mat|solett[ae]|insole|plantar[ei]|lacci\b|stringhe\b|deodorant|impermeabilizzant|asciugascarpe|telo\s*microfibra|asciugaman[oi]|towel|borracc(?:ia|e)|soft\s*flask|zain[oi]|backpack|calz[ae]|calzin[oi]|socks?|socquette|light\s*crew|t[\s-]*shirt|magli[ae]|magliett[ae]|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet|snglt|tank\b|crop\b|cropped|tee\b|jsy\b|jersey\b|top\s*ss\b|crew\s*top\b|trk\s*jkt\b|pant\s*kp\b|dry\s*park\d*|park\s*20\b|woven\b|felp[ae]|hoodie|hooded|polare|fleece|giacc(?:a|he)|jacket|jkt\b|piumin[oi]|tuta\b|pantaloncin[oi]|shorts?|leggings?|tights?|calzamagli[ae]|fuseaux|pantalon[ie]|pants\b|coscial[ei]|gonn[ae]|skirt|2in1|2\s*in\s*1|cappellin[oi]|cappell[oi]|\bcap\b|berrett[oi]|beanie|visier[ae]|scaldacollo|scaldamuscoli|balaclava|neck\s*gaiter|gaiter\b|bandana|manicott[oi]|marsupi[oi]|run\s*belt|borson[ei]|bors[ae]|sacca\b|tote\b|duffel|guant[oi]|gloves|occhial[ie]|gel\s*energetico|barrett[ae]|rull[oi]|casc(?:o|hi)|helmet|racchett[ae]|pala\s*padel|reggisen[oi]|\bbra\b|slip\b|boxer\b|crankbrothers|cuffi[ae]|scarpin[oi]|calcio|calcetto|futsal|mercurial|predator|copertone|pneumatic|24x1|rig\s*24)\b/.test(fullText)) {
         return false;
       }
       if (!/\b(ciabatt[ae]|slide|recovery|recupero|sandal[oi]|infradito)\b/.test(qLow)) {
@@ -870,7 +909,7 @@ export function isProductCompatible(
         if (/\b(shox|air\s*force|force\s*1|dunk\b|cortez|blazer\s*mid|blazer\s*low|air\s*max\s*(?:90|95|97|plus|tn)|street\s*jam|kappa\s*(?:kombat|kontroll))\b/.test(fullText)) return false;
       }
       if (!/\b(pista|chiodat|spike|atletica|campestre|cross\s*country|\bxcs\b|dragonfly|maxfly|avanti|ambition|rugby|pallamano|handball)\b/.test(qLow)) {
-        if (/\b(chiodat[ae]|track\s*and\s*field|\bxcs\b|adizero\s*(?:avanti|ambition|finesse)|prime\s*sp|distancestar|sprintstar|throwstar|jumpstar|dragonfly|maxfly|zoom\s*rival|rugby|pallamano|handball)\b/.test(fullText)) {
+        if (/\b(chiodat[ae]|track\s*(?:and\s*)?field|\bxcs\b|adizero\s*(?:avanti|ambition|finesse)|prime\s*sp|distancestar|sprintstar|throwstar|jumpstar|dragonfly|maxfly|zoom\s*rival|metaspeed\s*(?:md|sp|ld)|rugby|pallamano|handball)\b/.test(fullText)) {
           return false;
         }
       }
@@ -902,10 +941,15 @@ export function isProductCompatible(
 
     case "long_sleeve_top": {
       if (CASUAL_NON_SPORT_BRANDS.has(brand)) return false;
-      if (/\b(scarp[ae]|shoe|sneaker|cappellin[oi]|\bcap\b|berrett[oi]|calz[ae]|calzin[oi]|socks?|pantaloncin[oi]|shorts?|leggings?|tights?|calzamagli[ae]|pantalon[ie]|zain[oi]|orologi[o]?|occhial[ie]|piumino|canott[ae]|singlet|sleeveless|smanicat[ao]|manic(?:a|he)\s*cort[ae]|short[\s-]*sleeve|reggiseno|\bbra\b)\b/.test(fullText)) {
+      if (/\b(scarp[ae]|shoe|sneaker|cappellin[oi]|cappell[oi]|\bcap\b|berrett[oi]|scaldacollo|scaldamuscoli|balaclava|calz[ae]|calzin[oi]|socks?|pantaloncin[oi]|shorts?|leggings?|tights?|calzamagli[ae]|pantalon[ie]|zain[oi]|bors[ae]|sacca\b|tote\b|orologi[o]?|occhial[ie]|piumin[oi]|giacc(?:a|he)|jacket|jkt\b|canott[ae]|singlet|sleeveless|smanicat[ao]|senza\s*maniche|gilet\b|vest\b|manic(?:a|he)\s*cort[ae]|short[\s-]*sleeve|reggiseno|\bbra\b)\b/.test(fullText)) {
         return false;
       }
-      return /\b(long[\s-]*sleeve|longsleeve|manic(?:a|he)\s*lung(?:a|he)|l\/s\b|\bls\b|half[\s-]*zip|1\s*[\/\s]\s*[24][\s-]*(?:di\s+)?zip|quarter[\s-]*zip|mezza\s*zip|termic[ao]|active\s*warm|warmalite|warm\b|midlayer|mid[\s-]*layer)\b/.test(fullText);
+      if (!/\b(calcio|inter|squadra|replica|stadium|partita)\b/.test(qLow)) {
+        if (/\b(calcio\s*replica|stadium\s*se|pre[\s-]*partita|maglia\s*(?:da\s*)?calcio)\b/.test(fullText)) {
+          return false;
+        }
+      }
+      return /\b(long[\s-]*sleeve|longsleeve|manic(?:a|he)\s*lung(?:a|he)|l\/s\b|\bls\b|half[\s-]*zip|quarter[\s-]*zip|mezza\s*zip|zip\s*(?:a\s*)?1\s*[\/\s]\s*[24]|1\s*[\/\s]\s*[24][\s-]*(?:di\s+)?zip|zip\s*(?:a\s*)?met[aà]\s*lunghezza|termic[aohe]|therma[\s-]*fit|active\s*warm|warmalite|warm\b|midlayer|mid[\s-]*layer|fleece|felp[ae]|pile\b|polar\b|girocollo|crewneck|crew\s*neck|pullover|mock\b|first\s*layer|base\s*layer|wolf\s*grid|wolf\s*tree|wolf\s*lichen|chinati|tuff\s*fleece)\b/.test(fullText);
     }
 
     case "short_sleeve_top": {
@@ -951,7 +995,7 @@ export function isProductCompatible(
     }
 
     case "gps_watch": {
-      if (/\b(ciclocomputer|bike\s*computer|contachilometri|contatore|igpsport|bsc\d+|igs\d+|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|bryton|wahoo\s*elemnt|cinturin[oi]|strap|bracelet|bracciale|quickfit|pellicol[ae]|cover|custodi[ae]|cav[oi]|caricabatteri[ae]|staff[ae]|supporto|support\b|mount|protezion[ei]|idrogel|hydrogel|vetro\s*temp[ea]rato|screen\s*protector|sportenzia|\b(?:18|20|22|24|26)\s*mm\b|gilet|zaino|backpack|borracc|felp[ae]|pile\b|polo\b|t[\s-]*shirt|magli[ae]|giacc(?:a|he)|pantalon[ie]|scarp[ae]|fascia\s*cardio|\bhrm\b|\bh10\b|\bh9\b)\b/.test(fullText)) {
+      if (/\b(ciclocomputer|bike\s*computer|contachilometri|contatore|igpsport|bsc\d+|igs\d+|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|bryton|wahoo\s*elemnt|cinturin[oi]|strap|bracelet|bracciale|quickfit|pellicol[ae]|cover|custodi[ae]|cav[oi]|caricabatteri[ae]|staff[ae]|supporto|support\b|mount|protezion[ei]|idrogel|hydrogel|vetro\s*temp[ea]rato|screen\s*protector|sportenzia|\b(?:18|20|22|24|26)\s*mm\b|gilet|zaino|backpack|borracc|felp[ae]|pile\b|polo\b|t[\s-]*shirt|magli[ae]|giacc(?:a|he)|pantalon[ie]|scarp[ae]|fascia\s*cardio|\bhrm\b|\bh10\b|\bh9\b|\breel\b|fishing|mulinello|pesca)\b/.test(fullText)) {
         return false;
       }
       if (bestPrice > 0 && bestPrice < 65) return false;
@@ -971,8 +1015,8 @@ export function isProductCompatible(
     }
 
     case "hydration": {
-      if (/\b(scarp[ae]|shoe|magli[ae]|t[\s-]*shirt|pantaloncin[oi]|giacc(?:a|he)|calz[ae]|orologi[o]?|cappellin[oi])\b/.test(fullText)) return false;
-      return /\b(gilet|active\s*skin|adv\s*skin|sense\s*pro|zain[oi]|borracc(?:ia|e)|flask|camelbak|idratazione|hydration|quiver)\b/.test(fullText);
+      if (/\b(scarp[ae]|shoe|sneaker|magli[ae]|t[\s-]*shirt|pantaloncin[oi]|giacc(?:a|he)|calz[ae]|orologi[o]?|cappellin[oi])\b/.test(fullText)) return false;
+      return /\b(gilet|vest|active\s*skin|adv\s*skin|sense\s*pro|zain[oi]|backpack|pack|borracc(?:ia|e)|bottle|flask|camelbak|idratazione|hydration|quiver)\b/.test(fullText);
     }
 
     case "padel_racket": {
@@ -1577,6 +1621,21 @@ function scoreAndGateProducts(
       score += 20;
     }
 
+    // Penalize ultra-generic bucket product titles (e.g. "Acg", "Nike Acg", "Nike Acg Trail")
+    // when richer model-named products exist
+    const cleanNameTokens = pname
+      .replace(/[^a-z0-9àèéìòù\s]+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter((t) => t.length >= 2);
+    const nonGenericTokens = cleanNameTokens.filter((t) =>
+      t !== brandLow &&
+      !["acg", "trail", "running", "corsa", "nike", "adidas", "asics", "hoka", "salomon", "garmin"].includes(t)
+    );
+    if (nonGenericTokens.length === 0) {
+      score -= 85;
+    }
+
     // Multi-store & savings tie-breakers (kept modest so relevance ALWAYS dominates!)
     const nOffers = prod.offers.length;
     if (nOffers >= 4) score += 28;
@@ -1637,15 +1696,27 @@ function scoreAndGateProducts(
     return (a.best_price ?? 9999) - (b.best_price ?? 9999);
   });
 
-  // 8. Deduplicate / merge identical canonical models (e.g. Nike Zoom Fly 6 [gear] + [shoes])
+  // 8. Deduplicate / merge identical canonical models (including noisy scraper prefixes like "Sneaker " / "Sollevamento Pesi ")
+  const normalizeMergeKey = (name: string): string =>
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/\s*\((uomo|donna)\)$/i, "")
+      .replace(/\b(sneakers?|scarpe|scarpa|sollevamento\s+pesi|trainer)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const isNoisyName = (name: string): boolean =>
+    /\b(sneakers?|sollevamento\s+pesi)\b/i.test(name);
+
   const deduped: InternalProduct[] = [];
   for (const prod of finalList) {
-    const cnameKey = prod.canonical_name.trim().toLowerCase();
+    const cnameKey = normalizeMergeKey(prod.canonical_name);
     const pGender = (prod.gender ?? "Unisex").trim();
 
     let merged = false;
     for (const ex of deduped) {
-      const exBase = ex.canonical_name.trim().toLowerCase().replace(/\s*\((uomo|donna)\)$/i, "");
+      const exBase = normalizeMergeKey(ex.canonical_name);
       if (exBase !== cnameKey) continue;
       const exGender = (ex.gender ?? "Unisex").trim();
       const sameGender = exGender.toLowerCase() === pGender.toLowerCase() ||
@@ -1653,6 +1724,10 @@ function scoreAndGateProducts(
         pGender.toLowerCase() === "unisex";
 
       if (sameGender) {
+        // Prefer the cleaner canonical name (without noisy "Sneaker " prefix)
+        if (isNoisyName(ex.canonical_name) && !isNoisyName(prod.canonical_name)) {
+          ex.canonical_name = prod.canonical_name;
+        }
         // Merge unique offers into the primary card
         const exKeys = new Set(ex.offers.map((o) => `${o.store_id}|${o.url}`));
         for (const o of prod.offers) {
@@ -1671,6 +1746,14 @@ function scoreAndGateProducts(
           : null;
         if (!isValidImageUrl(ex.image_url) && isValidImageUrl(prod.image_url)) {
           ex.image_url = prod.image_url;
+        }
+        // Merge gallery images
+        if (prod.gallery_images && prod.gallery_images.length > 0) {
+          const g = ex.gallery_images ? [...ex.gallery_images] : [];
+          for (const img of prod.gallery_images) {
+            if (isValidImageUrl(img) && !g.includes(img)) g.push(img);
+          }
+          ex.gallery_images = g.length > 0 ? g.slice(0, 6) : null;
         }
         merged = true;
         break;
@@ -1772,11 +1855,18 @@ export async function searchCatalogOffers(
   };
 
   // 1. Primary Product-Level Hybrid Lexical RPC (single fast roundtrip!)
-  if (searchTerms.length > 0 || brand) {
+  // For pure category+filter queries (e.g. "scarpe running taglia 43 sotto 120 euro") where searchTerms & brand are empty,
+  // browse the mapped DB category directly so Postgres returns all brands matching the size/price/gender filters.
+  const mappedCategory = mapProductTypeToCategory(productType);
+  const browseAllowedCategories = (searchTerms.length === 0 && !brand && mappedCategory)
+    ? (mappedCategory === "running_shoes" ? ["running_shoes", "shoes"] : [mappedCategory])
+    : null;
+
+  if (searchTerms.length > 0 || brand || browseAllowedCategories) {
     const { data: rpcRows } = await supabase.rpc("search_products_catalog", {
       search_terms: searchTerms.length > 0 ? searchTerms : null,
       brand_filter: brand,
-      allowed_categories: null,
+      allowed_categories: browseAllowedCategories,
       blocked_categories: blockedCategories,
       gender_filter: opts.gender ?? null,
       max_price_filter: opts.maxPrice ?? null,
@@ -1916,6 +2006,156 @@ export async function searchCatalogOffers(
 }
 
 // ============================================================================
+// Multi-Query Parallel Fan-Out Search (Shop-Style Sub-Queries)
+// ============================================================================
+
+export interface SubQuerySpec {
+  label: string;
+  terms: string[];
+  role: "primary" | "variant" | "complementary";
+  brand?: string | null;
+  productType?: ProductType | null;
+  entityTokens?: string[];
+  allowSemantic?: boolean;
+  limit?: number;
+}
+
+export interface MultiQuerySearchResult {
+  products: MatchedProductOut[];
+  primaryIds: Set<string>;
+  roleById: Record<string, "primary" | "variant" | "complementary">;
+  executedLabels: string[];
+}
+
+export async function searchCatalogMultiQuery(
+  supabase: SupabaseClient,
+  opts: {
+    rawQuery: string;
+    subQueries: SubQuerySpec[];
+    brand?: string | null;
+    category?: string | null;
+    productType?: ProductType | null;
+    maxPrice?: number | null;
+    minPrice?: number | null;
+    size?: string | null;
+    preferredSize?: string | null;
+    gender?: string | null;
+    store?: string | null;
+    isComparison?: boolean;
+    totalLimit?: number;
+  },
+): Promise<MultiQuerySearchResult> {
+  const specs = opts.subQueries.slice(0, 5);
+  const totalLimit = Math.min(Math.max(opts.totalLimit ?? 36, 1), 60);
+
+  const perQueryResults = await Promise.all(
+    specs.map(async (sq) => {
+      const sqBrand = sq.brand !== undefined ? sq.brand : (opts.brand ?? null);
+      const sqPType = sq.productType !== undefined ? sq.productType : (opts.productType ?? null);
+      const sqEntities = sq.entityTokens ?? [];
+      let items = await searchCatalogOffers(supabase, {
+        rawQuery: sq.role === "primary" ? opts.rawQuery : (sq.terms[0] ?? opts.rawQuery),
+        keywords: sq.terms,
+        brand: sqBrand,
+        category: opts.category ?? null,
+        productType: sqPType,
+        entityTokens: sqEntities,
+        isComparison: opts.isComparison,
+        maxPrice: opts.maxPrice ?? null,
+        minPrice: opts.minPrice ?? null,
+        size: opts.size ?? null,
+        preferredSize: opts.preferredSize ?? null,
+        gender: opts.gender ?? null,
+        store: opts.store ?? null,
+        semanticQuery: sq.allowSemantic ? (sq.terms.slice(0, 2).join(" ") || opts.rawQuery) : null,
+        allowSemantic: sq.allowSemantic ?? false,
+        limit: sq.limit ?? (sq.role === "primary" ? 20 : 12),
+      });
+
+      // Graceful generation fallback: if an exact known-brand version is sold out (e.g. "Asics Nimbus 26"),
+      // strip ONLY numeric version tokens and fetch the active line (e.g. "Asics Gel-Nimbus 27/28") strictly without semantic drift.
+      if (items.length === 0 && sqBrand && sqEntities.length >= 2) {
+        const hasDigit = sqEntities.some((t) => /^\d+$/.test(t));
+        const nonDigit = sqEntities.filter((t) => !/^\d+$/.test(t) && t.length >= 3);
+        if (hasDigit && nonDigit.length > 0) {
+          const relaxedTerms = Array.from(new Set(
+            sq.terms
+              .map((t) => t.replace(/\b\d+\b/g, " ").replace(/\s+/g, " ").trim())
+              .filter((t) => t.length >= 3)
+              .concat([`${sqBrand} ${nonDigit.join(" ")}`]),
+          ));
+          items = await searchCatalogOffers(supabase, {
+            rawQuery: `${sqBrand} ${nonDigit.join(" ")}`,
+            keywords: relaxedTerms,
+            brand: sqBrand,
+            category: opts.category ?? null,
+            productType: sqPType,
+            entityTokens: nonDigit,
+            isComparison: opts.isComparison,
+            maxPrice: opts.maxPrice ?? null,
+            minPrice: opts.minPrice ?? null,
+            size: opts.size ?? null,
+            preferredSize: opts.preferredSize ?? null,
+            gender: opts.gender ?? null,
+            store: opts.store ?? null,
+            semanticQuery: null,
+            allowSemantic: false,
+            limit: sq.limit ?? 12,
+          });
+        }
+      }
+
+      return { spec: sq, items };
+    }),
+  );
+
+  // Merge in strict priority order: primary -> variant -> complementary
+  const roleOrder: Array<"primary" | "variant" | "complementary"> = ["primary", "variant", "complementary"];
+  const merged: MatchedProductOut[] = [];
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+  const primaryIds = new Set<string>();
+  const roleById: Record<string, "primary" | "variant" | "complementary"> = {};
+  const executedLabels: string[] = [];
+
+  for (const r of perQueryResults) {
+    if (r.spec.label && !executedLabels.includes(r.spec.label)) {
+      executedLabels.push(r.spec.label);
+    }
+  }
+
+  for (const role of roleOrder) {
+    for (const { spec, items } of perQueryResults) {
+      if (spec.role !== role) continue;
+      for (const prod of items) {
+        const nameKey = prod.canonical_name
+          .trim()
+          .toLowerCase()
+          .replace(/\b(sneakers?|scarpe|scarpa|sollevamento\s+pesi)\b/g, " ")
+          .replace(/\s+/g, " ")
+          .trim() + "|" + (prod.gender ?? "Unisex").toLowerCase();
+        if (seenIds.has(prod.id) || seenNames.has(nameKey)) continue;
+        seenIds.add(prod.id);
+        seenNames.add(nameKey);
+        if (role === "primary") primaryIds.add(prod.id);
+        roleById[prod.id] = role;
+        merged.push(prod);
+        if (merged.length >= totalLimit) break;
+      }
+      if (merged.length >= totalLimit) break;
+    }
+    if (merged.length >= totalLimit) break;
+  }
+
+  return {
+    products: merged,
+    primaryIds,
+    roleById,
+    executedLabels,
+  };
+}
+
+// ============================================================================
 // Chat Persistence
 // ============================================================================
 
@@ -1939,6 +2179,8 @@ export async function saveChatTurn(
       results?: MatchedProductOut[];
       curated_sections?: unknown[];
       comparative_cards?: unknown[];
+      featured_cards?: unknown[];
+      searched_queries?: string[];
       spotlight?: unknown;
       follow_up_suggestions?: string[];
       is_off_topic?: boolean;
@@ -1992,9 +2234,11 @@ export async function saveChatTurn(
       intent_json: opts.payload.intent ?? null,
       chips_json: opts.payload.chips ?? [],
       results_snapshot_json: {
-        results: results.slice(0, 12),
-        curated_sections: (opts.payload.curated_sections ?? []).slice(0, 4),
+        results: results.slice(0, 18),
+        curated_sections: (opts.payload.curated_sections ?? []).slice(0, 5),
         comparative_cards: (opts.payload.comparative_cards ?? []).slice(0, 5),
+        featured_cards: (opts.payload.featured_cards ?? []).slice(0, 4),
+        searched_queries: (opts.payload.searched_queries ?? []).slice(0, 6),
         spotlight: opts.payload.spotlight ?? null,
       },
       follow_up_suggestions_json: opts.payload.follow_up_suggestions ?? [],

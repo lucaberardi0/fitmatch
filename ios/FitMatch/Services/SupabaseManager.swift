@@ -2681,9 +2681,11 @@ class SupabaseManager: ObservableObject {
         }
 
         let snapshot = ChatTurnResultsSnapshot(
-            results: Array(response.results.prefix(12)),
-            curated_sections: Array((response.curated_sections ?? []).prefix(4)),
+            results: Array(response.results.prefix(18)),
+            curated_sections: Array((response.curated_sections ?? []).prefix(5)),
             comparative_cards: Array((response.comparative_cards ?? []).prefix(5)),
+            featured_cards: Array((response.featured_cards ?? []).prefix(4)),
+            searched_queries: Array((response.searched_queries ?? []).prefix(6)),
             spotlight: response.spotlight
         )
 

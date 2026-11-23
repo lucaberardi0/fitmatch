@@ -27,8 +27,10 @@ struct SearchView: View {
     @State private var lastFollowUpQuery: String? = nil
     @State private var conversationalHeader: String = "Ho cercato prodotti"
     @State private var conversationalSummary: String = ""
+    @State private var searchedQueries: [String] = []
     @State private var curatedSections: [CuratedProductSection] = []
     @State private var comparativeCards: [ComparativeSpecCard] = []
+    @State private var featuredCards: [SpotlightRecommendation] = []
     @State private var spotlight: SpotlightRecommendation? = nil
     @State private var followUpSuggestions: [String] = []
     @State private var activeQuestionPrompt: FollowUpQuestionPrompt? = nil
@@ -626,13 +628,15 @@ struct SearchView: View {
                         query: m.query,
                         isFollowUp: m.is_follow_up ?? (m.turn_index > 0),
                         isConversationalAdvice: m.is_conversational_advice ?? false,
-                        conversationalHeader: m.conversational_header ?? "Ho cercato \(m.query)",
+                        conversationalHeader: m.conversational_header ?? "Ho cercato prodotti",
                         conversationalSummary: m.conversational_summary ?? "",
+                        searchedQueries: snap?.searched_queries ?? [],
                         smartIntent: m.intent_json,
                         activeChips: m.chips_json ?? [],
                         searchResults: snap?.results ?? [],
                         curatedSections: snap?.curated_sections ?? [],
                         comparativeCards: snap?.comparative_cards ?? [],
+                        featuredCards: snap?.featured_cards ?? [],
                         spotlight: snap?.spotlight,
                         followUpSuggestions: m.follow_up_suggestions_json ?? [],
                         userFeedback: m.user_feedback,
@@ -651,8 +655,10 @@ struct SearchView: View {
                         self.smartIntent = last.smartIntent
                         self.activeChips = last.activeChips
                         self.searchResults = last.searchResults
+                        self.searchedQueries = last.searchedQueries
                         self.curatedSections = last.curatedSections
                         self.comparativeCards = last.comparativeCards
+                        self.featuredCards = last.featuredCards
                         self.spotlight = last.spotlight
                         self.followUpSuggestions = last.followUpSuggestions
                         self.conversationalHeader = last.conversationalHeader
@@ -892,47 +898,50 @@ struct SearchView: View {
         .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
-    // MARK: - AI Deep Dive: Pinned Header (Screenshot 1)
+    // MARK: - AI Deep Dive: Minimal Shop-Style Header Chrome (Screenshots 1–4)
     private var aiDeepDiveHeaderBar: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            HStack(spacing: 12) {
-                // Back Button
-                Button(action: {
-                    resetToSearchTyping(keepText: false)
-                }) {
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 42, height: 42)
-                        .overlay(Circle().stroke(Color.black.opacity(0.1), lineWidth: 1))
-                        .overlay(
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.shopDark)
-                        )
-                }
-
-                Spacer()
-
-                // Query Pill Bubble (Screenshot 1: "Maison margiela scarpe nere")
-                Button(action: {
-                    resetToSearchTyping(keepText: true)
-                }) {
-                    Text(rootQuery.isEmpty ? (searchText.isEmpty ? "Cerca prodotto..." : searchText) : rootQuery)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.shopDark)
-                        .padding(.horizontal, ShopLayout.screenPadding)
-                        .padding(.vertical, 10)
-                        .background(Color(red: 243/255, green: 243/255, blue: 245/255))
-                        .cornerRadius(22)
-                }
+        HStack(spacing: 12) {
+            Button(action: {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                resetToSearchTyping(keepText: false)
+            }) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 40, height: 40)
+                    .overlay(Circle().stroke(Color.black.opacity(0.08), lineWidth: 1))
+                    .overlay(
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 14.5, weight: .semibold))
+                            .foregroundColor(.shopDark)
+                    )
+                    .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 8)
+            .buttonStyle(.plain)
 
-            Divider()
+            Spacer()
+
+            // New search / compose button (matches Shop top-right circular button)
+            Button(action: {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                resetToSearchTyping(keepText: false)
+            }) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 40, height: 40)
+                    .overlay(Circle().stroke(Color.black.opacity(0.08), lineWidth: 1))
+                    .overlay(
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.shopDark)
+                    )
+                    .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
+            }
+            .buttonStyle(.plain)
         }
-        .background(Color.white)
+        .padding(.horizontal, ShopLayout.screenPadding)
+        .padding(.top, 6)
+        .padding(.bottom, 6)
+        .background(Color.white.opacity(0.96))
         .zIndex(10)
     }
 
@@ -1054,9 +1063,18 @@ struct SearchView: View {
                             }
                         }
                     }
+                    .onAppear {
+                        if ProcessInfo.processInfo.arguments.contains("-testAiSearchScrolled") {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                                withAnimation {
+                                    proxy.scrollTo("spotlight_section", anchor: .top)
+                                }
+                            }
+                        }
+                    }
                     .onChange(of: curatedSections) { _ in
                         if ProcessInfo.processInfo.arguments.contains("-testAiSearchScrolled") {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                                 withAnimation {
                                     proxy.scrollTo("spotlight_section", anchor: .top)
                                 }
@@ -1076,157 +1094,214 @@ struct SearchView: View {
         .animation(.easeOut(duration: 0.22), value: isLoading)
     }
 
-    // MARK: - Conversational Turn Content View
+    // MARK: - Conversational Turn Content View (Shop-Exact Layout)
     @ViewBuilder
     private func turnContentView(for turn: SearchConversationTurn) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            // User Photo + Query Bubble (saved in DB and associated with this turn)
-            if turn.isFollowUp || turn.userImageURL != nil {
-                VStack(alignment: .trailing, spacing: 8) {
-                    if let imgStr = turn.userImageURL, let imgURL = URL(string: imgStr) {
-                        HStack {
-                            Spacer()
-                            ShopCachedAsyncImage(url: imgURL, maxPixelSize: 320) { phase in
-                                if let image = phase.image {
-                                    image
-                                        .resizable()
-                                        .scaledToFill()
-                                } else {
-                                    ShopSkeletonBlock(cornerRadius: 16)
-                                }
+            // 1. User Photo + Query Pill Bubble (right-aligned, clean light-gray Shop capsule)
+            VStack(alignment: .trailing, spacing: 8) {
+                if let imgStr = turn.userImageURL, let imgURL = URL(string: imgStr) {
+                    HStack {
+                        Spacer()
+                        ShopCachedAsyncImage(url: imgURL, maxPixelSize: 320) { phase in
+                            if let image = phase.image {
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                            } else {
+                                ShopSkeletonBlock(cornerRadius: 16)
                             }
-                            .frame(width: 112, height: 112)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .stroke(Color.shopPurple.opacity(0.22), lineWidth: 1)
-                            )
-                            .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
                         }
-                    }
-
-                    if turn.isFollowUp {
-                        HStack {
-                            Spacer()
-                            Text(turn.query)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
-                                .background(
-                                    LinearGradient(
-                                        colors: [Color.shopPurple, Color(red: 100/255, green: 55/255, blue: 235/255)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .cornerRadius(20)
-                                .shadow(color: Color.shopPurple.opacity(0.18), radius: 6, y: 3)
-                        }
+                        .frame(width: 112, height: 112)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.06), radius: 6, y: 2)
                     }
                 }
-                .padding(.horizontal, ShopLayout.screenPadding)
-                .padding(.top, 8)
-            }
 
-            if turn.isConversationalAdvice {
-                // MARK: - Dedicated ChatGPT-style AI Advice Card
+                if !turn.query.isEmpty {
+                    HStack {
+                        Spacer(minLength: 48)
+                        Button(action: {
+                            if !turn.isFollowUp {
+                                resetToSearchTyping(keepText: true)
+                            }
+                        }) {
+                            Text(turn.query)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(.shopDark)
+                                .multilineTextAlignment(.trailing)
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 11)
+                                .background(Color(red: 243/255, green: 243/255, blue: 245/255))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                // Subtle purple "Cerca invece questo" link (Screenshot 3) to switch to Classic filterable list
+                if !turn.isOffTopic && !turn.isUnsafe && !turn.searchResults.isEmpty && turn.id == conversationTurns.last?.id {
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            self.searchResults = turn.searchResults
+                            self.userForcedClassicMode = true
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                self.isDeepDiveMode = false
+                            }
+                        }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 13, weight: .semibold))
+                                Text("Cerca invece questo")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .foregroundColor(.shopPurple)
+                            .padding(.top, 2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.horizontal, ShopLayout.screenPadding)
+            .padding(.top, turn.isFollowUp ? 6 : 2)
+
+            if turn.isConversationalAdvice && turn.searchResults.isEmpty {
+                // MARK: - Dedicated Q&A AI Advice Card (only for pure questions without products)
                 conversationalAdviceCard(for: turn)
             } else {
-                // 1. Header: "Ho cercato ... >" (or Shield / Alert for Off-topic/Security)
-            if turn.isOffTopic || turn.isUnsafe || turn.conversationalHeader.contains("non pertinente") || turn.conversationalHeader.contains("non consentita") {
-                HStack(spacing: 6) {
-                    Image(systemName: turn.isUnsafe ? "shield.slash.fill" : "exclamationmark.triangle.fill")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(turn.isUnsafe ? Color(red: 220/255, green: 38/255, blue: 38/255) : Color.shopPurple)
-                    Text(turn.conversationalHeader)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.shopDark)
-                }
-                .padding(.horizontal, ShopLayout.screenPadding)
-                .padding(.top, turn.isFollowUp ? 4 : 8)
-            } else {
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        if let idx = conversationTurns.firstIndex(where: { $0.id == turn.id }) {
-                            conversationTurns[idx].showAiExplanation.toggle()
-                        }
-                    }
-                }) {
-                    HStack(spacing: 4) {
+                // 2. Expandable "Ho cercato prodotti ⌄" (Screenshots 1 & 3)
+                if turn.isOffTopic || turn.isUnsafe || turn.conversationalHeader.contains("non pertinente") || turn.conversationalHeader.contains("non consentita") {
+                    HStack(spacing: 6) {
+                        Image(systemName: turn.isUnsafe ? "shield.slash.fill" : "exclamationmark.triangle.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(turn.isUnsafe ? Color(red: 220/255, green: 38/255, blue: 38/255) : Color.shopPurple)
                         Text(turn.conversationalHeader)
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
-                            .rotationEffect(.degrees(turn.showAiExplanation ? 90 : 0))
+                            .foregroundColor(.shopDark)
                     }
+                    .padding(.horizontal, ShopLayout.screenPadding)
+                } else {
+                    let hasExpandableDetails = !turn.searchedQueries.isEmpty || !turn.activeChips.isEmpty
+                    Button(action: {
+                        guard hasExpandableDetails else { return }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+                            if let idx = conversationTurns.firstIndex(where: { $0.id == turn.id }) {
+                                conversationTurns[idx].showAiExplanation.toggle()
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 5) {
+                            Text(turn.conversationalHeader.isEmpty ? "Ho cercato prodotti" : turn.conversationalHeader)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(Color(red: 118/255, green: 118/255, blue: 128/255))
+                            if hasExpandableDetails {
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(Color(red: 135/255, green: 135/255, blue: 145/255))
+                                    .rotationEffect(.degrees(turn.showAiExplanation ? 0 : -90))
+                            }
+                        }
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .padding(.horizontal, ShopLayout.screenPadding)
                 }
-                .buttonStyle(PlainButtonStyle())
-                .padding(.horizontal, ShopLayout.screenPadding)
-                .padding(.top, turn.isFollowUp ? 4 : 8)
-            }
 
-            // Chips (collapsible)
-            if turn.showAiExplanation && !turn.activeChips.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(turn.activeChips) { chip in
-                            ShopSearchChipView(chip: chip)
+                // Expandable Sub-Query Pills (Screenshot 1: stacked soft-gray pills with magnifying glass!)
+                if turn.showAiExplanation && (!turn.searchedQueries.isEmpty || !turn.activeChips.isEmpty) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !turn.searchedQueries.isEmpty {
+                            ForEach(turn.searchedQueries, id: \.self) { subQuery in
+                                Button(action: {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    handleSearchOrComparison(query: subQuery, isFollowUp: false)
+                                }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "magnifyingglass")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(.shopDark)
+                                        Text(subQuery)
+                                            .font(.system(size: 13.5, weight: .medium))
+                                            .foregroundColor(.shopDark)
+                                            .lineLimit(1)
+                                    }
+                                    .padding(.horizontal, 13)
+                                    .padding(.vertical, 8)
+                                    .background(Color(red: 243/255, green: 243/255, blue: 245/255))
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        if !turn.activeChips.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(turn.activeChips) { chip in
+                                        ShopSearchChipView(chip: chip)
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                            }
                         }
                     }
                     .padding(.horizontal, ShopLayout.screenPadding)
-                    .padding(.vertical, 2)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
 
-            // 2. Conversational Narrative Paragraph
-            if !turn.conversationalSummary.isEmpty {
-                if turn.isOffTopic || turn.isUnsafe || turn.conversationalHeader.contains("non pertinente") || turn.conversationalHeader.contains("non consentita") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(LocalizedStringKey(turn.conversationalSummary))
-                            .font(.system(size: 14.5, weight: .regular))
-                            .foregroundColor(.shopDark)
-                            .lineSpacing(4.5)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color(red: 248/255, green: 248/255, blue: 251/255))
-                    .cornerRadius(16)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                    )
-                    .padding(.horizontal, ShopLayout.screenPadding)
-                } else {
-                    Text(LocalizedStringKey(turn.conversationalSummary))
-                        .font(.system(size: 15.5, weight: .regular))
-                        .foregroundColor(.shopDark)
-                        .lineSpacing(4.5)
+                // 3. Conversational Editorial Narrative Paragraph (Screenshots 1 & 3)
+                if !turn.conversationalSummary.isEmpty {
+                    if turn.isOffTopic || turn.isUnsafe || turn.conversationalHeader.contains("non pertinente") || turn.conversationalHeader.contains("non consentita") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(LocalizedStringKey(turn.conversationalSummary))
+                                .font(.system(size: 15, weight: .regular))
+                                .foregroundColor(.shopDark)
+                                .lineSpacing(4.5)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(Color(red: 248/255, green: 248/255, blue: 251/255))
+                        .cornerRadius(16)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                        )
                         .padding(.horizontal, ShopLayout.screenPadding)
+                    } else {
+                        Text(LocalizedStringKey(turn.conversationalSummary))
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundColor(.shopDark)
+                            .lineSpacing(5)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, ShopLayout.screenPadding)
+                    }
                 }
             }
-            }
 
-            // 3. Thematic Curated Carousels (shown both on standard search turns and below Q&A advice cards)
+            // 4. Thematic Curated Carousels (Screenshots 1, 3, 4)
             if !turn.curatedSections.isEmpty {
                 ForEach(turn.curatedSections) { section in
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 5) {
                         Text(section.title)
-                            .font(.system(size: 18.5, weight: .bold))
+                            .font(.system(size: 19.5, weight: .bold))
                             .foregroundColor(.shopDark)
+                            .tracking(-0.25)
                             .padding(.horizontal, ShopLayout.screenPadding)
 
                         Text(section.subtitle)
-                            .font(.system(size: 12.5, weight: .regular))
-                            .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                            .font(.system(size: 13.5, weight: .regular))
+                            .foregroundColor(Color(red: 115/255, green: 115/255, blue: 125/255))
                             .padding(.horizontal, ShopLayout.screenPadding)
-                            .padding(.bottom, 4)
+                            .padding(.bottom, 6)
 
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 14) {
+                            HStack(alignment: .top, spacing: 12) {
                                 ForEach(section.products) { prod in
                                     ShopThemedCarouselCard(product: prod) {
                                         selectedRecentProduct = prod
@@ -1234,26 +1309,27 @@ struct SearchView: View {
                                 }
                             }
                             .padding(.horizontal, ShopLayout.screenPadding)
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 2)
                         }
                     }
-                    .padding(.top, 8)
+                    .padding(.top, 10)
                 }
             } else if !turn.searchResults.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("I Modelli Selezionati")
-                        .font(.system(size: 18.5, weight: .bold))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("I modelli selezionati")
+                        .font(.system(size: 19.5, weight: .bold))
                         .foregroundColor(.shopDark)
+                        .tracking(-0.25)
                         .padding(.horizontal, ShopLayout.screenPadding)
 
-                    Text("Tutti i prodotti trovati per la tua ricerca")
-                        .font(.system(size: 12.5, weight: .regular))
-                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                    Text("Le opzioni più vicine alla tua ricerca")
+                        .font(.system(size: 13.5, weight: .regular))
+                        .foregroundColor(Color(red: 115/255, green: 115/255, blue: 125/255))
                         .padding(.horizontal, ShopLayout.screenPadding)
-                        .padding(.bottom, 4)
+                        .padding(.bottom, 6)
 
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 14) {
+                        HStack(alignment: .top, spacing: 12) {
                             ForEach(turn.searchResults) { prod in
                                 ShopThemedCarouselCard(product: prod) {
                                     selectedRecentProduct = prod
@@ -1261,23 +1337,36 @@ struct SearchView: View {
                             }
                         }
                         .padding(.horizontal, ShopLayout.screenPadding)
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 2)
                     }
                 }
-                .padding(.top, 8)
+                .padding(.top, 10)
             }
 
-            // 4. Comparative Spec Cards
-            if !turn.isConversationalAdvice && !turn.comparativeCards.isEmpty {
+            // 5. Stacked Horizontal Featured Product Cards (Screenshot 2!)
+            let highlightsList = turn.effectiveFeaturedCards
+            if !turn.isConversationalAdvice && !highlightsList.isEmpty {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(highlightsList.prefix(2)) { card in
+                        ShopFeaturedProductCard(spotlight: card) {
+                            selectedRecentProduct = card.product
+                        }
+                    }
+                }
+                .padding(.horizontal, ShopLayout.screenPadding)
+                .padding(.top, 10)
+                .id(turn.id == conversationTurns.first?.id ? "spotlight_section" : "spotlight_section_\(turn.id)")
+            } else if !turn.isConversationalAdvice && !turn.comparativeCards.isEmpty {
+                // Legacy fallback for explicit comparison turns without featured cards
                 VStack(alignment: .leading, spacing: 6) {
                     Text(turn.comparativeCards.first?.section_title ?? "Confronto rapido")
-                        .font(.system(size: 18.5, weight: .bold))
+                        .font(.system(size: 19.5, weight: .bold))
                         .foregroundColor(.shopDark)
                         .padding(.horizontal, ShopLayout.screenPadding)
 
                     Text("Scegli in base all'uso principale")
-                        .font(.system(size: 12.5, weight: .regular))
-                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
+                        .font(.system(size: 13.5, weight: .regular))
+                        .foregroundColor(Color(red: 115/255, green: 115/255, blue: 125/255))
                         .padding(.horizontal, ShopLayout.screenPadding)
                         .padding(.bottom, 4)
 
@@ -1297,19 +1386,7 @@ struct SearchView: View {
                 .id(turn.id == conversationTurns.first?.id ? "comparative_section" : "comparative_section_\(turn.id)")
             }
 
-            // 5. Spotlight / Best Deal Card
-            if !turn.isConversationalAdvice, let spot = turn.spotlight {
-                VStack(alignment: .leading, spacing: 6) {
-                    ShopSpotlightCardView(spotlight: spot) {
-                        selectedRecentProduct = spot.product
-                    }
-                    .padding(.horizontal, ShopLayout.screenPadding)
-                    .padding(.top, 10)
-                }
-                .id(turn.id == conversationTurns.first?.id ? "spotlight_section" : "spotlight_section_\(turn.id)")
-            }
-
-            // 6. Follow-Up Suggestion Pills (Shown for the latest turn when not loading)
+            // 6. Follow-Up Suggestion Pills (Screenshots 2 & 4: hug-content lavender capsules)
             if turn.id == conversationTurns.last?.id && !isFollowUpLoading && !turn.followUpSuggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(turn.followUpSuggestions, id: \.self) { suggestion in
@@ -1319,7 +1396,7 @@ struct SearchView: View {
                     }
                 }
                 .padding(.horizontal, ShopLayout.screenPadding)
-                .padding(.top, 14)
+                .padding(.top, 12)
                 .id("followups_section")
                 .transition(.opacity)
             }
@@ -1487,21 +1564,15 @@ struct SearchView: View {
 
                     if let pending = pendingFollowUpQuery {
                         HStack {
-                            Spacer()
+                            Spacer(minLength: 48)
                             Text(pending)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
-                                .background(
-                                    LinearGradient(
-                                        colors: [Color.shopPurple, Color(red: 100/255, green: 55/255, blue: 235/255)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .cornerRadius(20)
-                                .shadow(color: Color.shopPurple.opacity(0.18), radius: 6, y: 3)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(.shopDark)
+                                .multilineTextAlignment(.trailing)
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 11)
+                                .background(Color(red: 243/255, green: 243/255, blue: 245/255))
+                                .clipShape(Capsule())
                         }
                     }
                 }
@@ -2127,24 +2198,26 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - Sticky Bottom Follow-Up Bar (Screenshots 1, 2, 3, 4)
+    // MARK: - Sticky Bottom Follow-Up Bar (Shop Frosted Glass Capsule + Circle X, Screenshots 1–4)
     private var stickyFollowUpInputBar: some View {
         HStack(spacing: 10) {
-            // Main Pill Capsule
+            // Main Frosted Glass Pill Capsule
             HStack(spacing: 10) {
                 Button(action: {
                     hideAllKeyboards()
                     showVisualSearch = true
                 }) {
                     Image(systemName: "camera")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 17, weight: .medium))
                         .foregroundColor(Color(red: 110/255, green: 110/255, blue: 120/255))
-                        .padding(.leading, 2)
+                        .frame(width: 34, height: 34)
+                        .background(Color.black.opacity(0.04))
+                        .clipShape(Circle())
                 }
                 .buttonStyle(PlainButtonStyle())
 
                 TextField("Fai una domanda di follow-up", text: $followUpInputText)
-                    .font(.system(size: 14.5, weight: .medium))
+                    .font(.system(size: 15.5, weight: .regular))
                     .foregroundColor(.shopDark)
                     .focused($isFollowUpFieldFocused)
                     .submitLabel(.send)
@@ -2154,7 +2227,6 @@ struct SearchView: View {
                     .disabled(isLoading || isFollowUpLoading)
 
                 if !followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // Quick clear button for what the user typed
                     Button(action: {
                         followUpInputText = ""
                     }) {
@@ -2164,69 +2236,56 @@ struct SearchView: View {
                     }
                     .buttonStyle(PlainButtonStyle())
 
-                    // Send Button
                     Button(action: {
                         sendFollowUp()
                     }) {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 26))
+                            .font(.system(size: 28))
                             .foregroundColor((isLoading || isFollowUpLoading) ? Color.shopPurple.opacity(0.4) : .shopPurple)
                     }
                     .buttonStyle(PlainButtonStyle())
                     .disabled(isLoading || isFollowUpLoading)
-                } else {
-                    // When text is empty:
-                    // If focused (keyboard is open): tapping this dismisses the keyboard!
-                    // If NOT focused (normal browsing): tapping this returns to search typing view!
-                    Button(action: {
-                        if isFollowUpFieldFocused || keyboardObserver.isKeyboardVisible {
-                            hideAllKeyboards()
-                        } else {
-                            resetToSearchTyping(keepText: true)
-                        }
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
-                            .frame(width: 28, height: 28)
-                            .background(Color.black.opacity(0.05))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(PlainButtonStyle())
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(Color.white)
-            .cornerRadius(26)
-            .overlay(
-                RoundedRectangle(cornerRadius: 26)
-                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
+            .padding(.leading, 8)
+            .padding(.trailing, 14)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .overlay(Capsule().fill(Color.white.opacity(0.68)))
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
+            .overlay(
+                Capsule()
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.09), radius: 14, x: 0, y: 4)
 
-            // External dismiss button (Matches Image 1 style) when keyboard is open
-            if isFollowUpFieldFocused || (wasSearchKeyboardActive && keyboardObserver.isKeyboardVisible) {
-                Button(action: {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            // Separate Circular X Button (matches Shop Screenshots 1–4)
+            Button(action: {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                if isFollowUpFieldFocused || keyboardObserver.isKeyboardVisible {
                     hideAllKeyboards()
-                }) {
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 48, height: 48)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 24)
-                                .stroke(Color.black.opacity(0.12), lineWidth: 1)
-                        )
-                        .overlay(
-                            Image(systemName: "xmark")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.shopDark)
-                        )
-                        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 3)
+                } else {
+                    resetToSearchTyping(keepText: false)
                 }
-                .transition(.scale.combined(with: .opacity))
+            }) {
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .overlay(Circle().fill(Color.white.opacity(0.75)))
+                    .frame(width: 50, height: 50)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                    )
+                    .overlay(
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15.5, weight: .semibold))
+                            .foregroundColor(.shopDark)
+                    )
+                    .shadow(color: Color.black.opacity(0.09), radius: 14, x: 0, y: 4)
             }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.bottom, floatingBarBottomPadding)
@@ -2252,13 +2311,28 @@ struct SearchView: View {
         tabVisibility.setHidden(shouldHide, for: "search_input")
     }
 
+    private func preferredSizeForCurrentSearch(query: String, context: String? = nil) -> String {
+        let probe = "\(query) \(context ?? "") \(smartIntent?.category ?? "")".lowercased()
+        let isApparel = probe.range(
+            of: #"\b(top|pants|jacket|long\s*sleeve|manica|magli[ae]|t[\s-]*shirt|felp[ae]|fleece|pile|pantalon|shorts|leggings|tights|giacc[ae]|canott[ae])\b"#,
+            options: .regularExpression
+        ) != nil
+        if isApparel {
+            let app = prefs.preferences.preferredApparelSize.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !app.isEmpty { return app }
+        }
+        return prefs.preferences.preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func resetToSearchTyping(keepText: Bool = false) {
         hideAllKeyboards()
         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
             hasSearched = false
             searchResults = []
+            searchedQueries = []
             curatedSections = []
             comparativeCards = []
+            featuredCards = []
             spotlight = nil
             followUpSuggestions = []
             isSmartSearchActive = false
@@ -2302,16 +2376,14 @@ struct SearchView: View {
         followUpInputText = ""
         hideAllKeyboards()
 
-        // Smart User Preference Auto-Fill: "Cercale nella mia taglia"
+        // Smart User Preference Auto-Fill: "Mostrami la mia taglia" / "Cercale nella mia taglia"
         if text.lowercased().contains("nella mia taglia") || text.lowercased().contains("mia taglia") {
-            let prefSize = UserPreferencesManager.shared.preferences.preferredShoeSize
+            let prefSize = preferredSizeForCurrentSearch(query: text, context: rootQuery)
             if !prefSize.isEmpty {
                 selectedSize = prefSize
             }
         }
 
-        // When the user directly types into the follow-up bar, ALWAYS execute the follow-up query.
-        // Never intercept user-typed questions with the prompt/clarification sheet.
         handleSearchOrComparison(query: text, isFollowUp: true)
     }
 
@@ -2327,9 +2399,9 @@ struct SearchView: View {
             return
         }
 
-        // Smart User Preference Auto-Fill: "Cercale nella mia taglia"
+        // Smart User Preference Auto-Fill: "Mostrami la mia taglia"
         if trimmed.lowercased().contains("nella mia taglia") || trimmed.lowercased().contains("mia taglia") {
-            let prefSize = UserPreferencesManager.shared.preferences.preferredShoeSize
+            let prefSize = preferredSizeForCurrentSearch(query: trimmed, context: rootQuery)
             if !prefSize.isEmpty {
                 selectedSize = prefSize
             }
@@ -2342,12 +2414,10 @@ struct SearchView: View {
         let clean = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
 
-        // Simplify parenthesized descriptions, e.g. "Principiante (Prime corse / Camminata)" -> "Principiante"
         let simplified = clean.components(separatedBy: " (").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? clean
 
-        // If user preference applies
         if simplified.lowercased().contains("nella mia taglia") || simplified.lowercased().contains("mia taglia") {
-            let prefSize = UserPreferencesManager.shared.preferences.preferredShoeSize
+            let prefSize = preferredSizeForCurrentSearch(query: simplified, context: rootQuery)
             if !prefSize.isEmpty {
                 selectedSize = prefSize
             }
@@ -2688,7 +2758,7 @@ struct SearchView: View {
 
         let requestedMode = userForcedClassicMode ? "classic" : nil
         let activeSid = currentSessionId
-        let prefSize = prefs.preferences.preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefSize = preferredSizeForCurrentSearch(query: query, context: activeContext)
 
         Task {
             do {
@@ -2722,11 +2792,13 @@ struct SearchView: View {
                     self.smartIntent = smartRes.intent
                     self.activeChips = smartRes.chips ?? []
                     self.searchResults = smartRes.results
+                    self.searchedQueries = smartRes.searched_queries ?? []
                     self.curatedSections = smartRes.curated_sections ?? []
                     self.comparativeCards = smartRes.comparative_cards ?? []
+                    self.featuredCards = smartRes.featured_cards ?? []
                     self.spotlight = smartRes.spotlight
                     self.followUpSuggestions = smartRes.follow_up_suggestions ?? []
-                    self.conversationalHeader = smartRes.conversational_header ?? (isFollowUp ? "Ho cercato \(query)" : "Ho cercato \(self.rootQuery.isEmpty ? query : self.rootQuery)")
+                    self.conversationalHeader = smartRes.conversational_header ?? "Ho cercato prodotti"
                     self.conversationalSummary = smartRes.conversational_summary ?? (smartRes.intent?.explanation ?? "")
 
                     let isOff = smartRes.is_off_topic ?? (smartRes.intent?.is_off_topic ?? false)
@@ -2740,11 +2812,13 @@ struct SearchView: View {
                         isConversationalAdvice: isAdvice,
                         conversationalHeader: self.conversationalHeader,
                         conversationalSummary: self.conversationalSummary,
+                        searchedQueries: smartRes.searched_queries ?? [],
                         smartIntent: smartRes.intent,
                         activeChips: smartRes.chips ?? [],
                         searchResults: smartRes.results,
                         curatedSections: smartRes.curated_sections ?? [],
                         comparativeCards: smartRes.comparative_cards ?? [],
+                        featuredCards: smartRes.featured_cards ?? [],
                         spotlight: smartRes.spotlight,
                         followUpSuggestions: smartRes.follow_up_suggestions ?? [],
                         userFeedback: nil,
@@ -2948,7 +3022,7 @@ struct ShopSearchChipView: View {
     }
 }
 
-// MARK: - Horizontal Themed Carousel Card (Screenshots 1 & 2)
+// MARK: - Horizontal Themed Carousel Card (Shop Screenshots 1, 3 & 4)
 struct ShopThemedCarouselCard: View {
     let product: MatchedProduct
     let onTap: () -> Void
@@ -2959,6 +3033,12 @@ struct ShopThemedCarouselCard: View {
 
     var maxOffer: Offer? {
         product.offers.max(by: { $0.price < $1.price })
+    }
+
+    var storeMeta: ActiveStoreItem? {
+        guard let best = bestOffer else { return nil }
+        return DynamicCatalogRegistry.shared.storeItem(for: best.store_id)
+            ?? DynamicCatalogRegistry.shared.storeItem(for: best.store_name)
     }
 
     var referenceOriginalPrice: Double? {
@@ -2974,7 +3054,7 @@ struct ShopThemedCarouselCard: View {
     var discountBadge: String? {
         if let best = bestOffer {
             if let disc = best.discount_pct, disc >= 5 {
-                return "\(disc)% di sconto"
+                return "\(Int(round(disc)))% di sconto"
             }
             if let orig = best.original_price, orig > best.price + 1 {
                 let pct = Int(round((orig - best.price) / orig * 100))
@@ -2984,46 +3064,47 @@ struct ShopThemedCarouselCard: View {
             }
         }
         if let sav = product.cross_store_savings, sav >= 10 {
-            return "Risparmia \(Int(sav)) €"
+            return "Risparmia \(Int(round(sav))) €"
         }
         return nil
     }
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 5) {
                 ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
-                        .frame(width: 152, height: 152)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color(red: 246/255, green: 246/255, blue: 248/255))
+                        .frame(width: 156, height: 156)
 
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl) {
-                        ShopCachedAsyncImage(url: url, maxPixelSize: 400) { phase in
+                        ShopCachedAsyncImage(url: url, maxPixelSize: 420) { phase in
                             switch phase {
                             case .success(let image):
                                 image.resizable()
                                     .aspectRatio(contentMode: .fit)
-                                    .frame(width: 152, height: 152)
-                                    .cornerRadius(16)
+                                    .frame(width: 156, height: 156)
+                                    .blendMode(.multiply)
+                                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                             case .empty:
-                                ShopSkeletonBlock(cornerRadius: 16, width: 152, height: 152)
+                                ShopSkeletonBlock(cornerRadius: 18, width: 156, height: 156)
                             default:
                                 Image(systemName: "photo")
                                     .foregroundColor(.gray.opacity(0.35))
-                                    .frame(width: 152, height: 152)
+                                    .frame(width: 156, height: 156)
                             }
                         }
                     }
 
                     if let badge = discountBadge {
                         Text(badge)
-                            .font(.system(size: 9.5, weight: .heavy))
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.white)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3.5)
-                            .background(Color(red: 215/255, green: 40/255, blue: 40/255))
-                            .cornerRadius(6)
-                            .padding(8)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(red: 217/255, green: 45/255, blue: 32/255))
+                            .clipShape(Capsule())
+                            .padding(9)
                     }
 
                     VStack {
@@ -3034,39 +3115,68 @@ struct ShopThemedCarouselCard: View {
                                 .padding(8)
                         }
                     }
-                    .frame(width: 152, height: 152)
+                    .frame(width: 156, height: 156)
                 }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.black.opacity(0.04), lineWidth: 1)
+                )
+                .padding(.bottom, 2)
 
                 if let best = bestOffer {
-                    Text(best.store_name)
-                        .font(.system(size: 11.5, weight: .bold))
-                        .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(best.store_name)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(Color(red: 98/255, green: 98/255, blue: 110/255))
+                            .lineLimit(1)
+                        if product.offers.count > 1 {
+                            Text("· +\(product.offers.count - 1)")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.shopPurple)
+                        }
+                    }
                 }
 
                 Text(product.displayTitle)
-                    .font(.system(size: 13.5, weight: .bold))
+                    .font(.system(size: 13.5, weight: .semibold))
                     .foregroundColor(.shopDark)
                     .lineLimit(1)
+
+                if let meta = storeMeta, let rating = meta.rating, rating >= 3.5 {
+                    let fullStars = min(5, max(1, Int(round(rating))))
+                    HStack(spacing: 2) {
+                        ForEach(0..<fullStars, id: \.self) { _ in
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 8.5))
+                                .foregroundColor(.shopDark)
+                        }
+                        if let revLabel = meta.formatted_review_count, !revLabel.isEmpty {
+                            Text("(\(revLabel))")
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundColor(Color(red: 115/255, green: 115/255, blue: 125/255))
+                                .padding(.leading, 2)
+                        }
+                    }
+                }
 
                 HStack(spacing: 5) {
                     if let best = bestOffer {
                         Text(String(format: "€ %.2f", best.price))
-                            .font(.system(size: 13.5, weight: .heavy))
+                            .font(.system(size: 14, weight: .bold))
                             .foregroundColor(.shopDark)
 
                         if let orig = referenceOriginalPrice {
                             Text(String(format: "€ %.2f", orig))
-                                .font(.system(size: 11.5))
+                                .font(.system(size: 12))
                                 .strikethrough()
-                                .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                                .foregroundColor(Color(red: 145/255, green: 145/255, blue: 155/255))
                         }
                     }
                 }
             }
-            .frame(width: 152)
+            .frame(width: 156)
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(ShopCardPressStyle(scale: 0.98))
     }
 }
 
@@ -3251,10 +3361,12 @@ struct ShopComparativeCard: View {
     }
 }
 
-// MARK: - Spotlight Card View (Screenshot 3)
-struct ShopSpotlightCardView: View {
+// MARK: - Stacked Horizontal Featured Product Card (Shop Screenshot 2)
+struct ShopFeaturedProductCard: View {
     let spotlight: SpotlightRecommendation
     let onTap: () -> Void
+
+    @State private var currentImageIndex: Int = 0
 
     var bestOffer: Offer? {
         spotlight.product.offers.min(by: { $0.price < $1.price })
@@ -3262,6 +3374,16 @@ struct ShopSpotlightCardView: View {
 
     var maxOffer: Offer? {
         spotlight.product.offers.max(by: { $0.price < $1.price })
+    }
+
+    var storeMeta: ActiveStoreItem? {
+        guard let best = bestOffer else { return nil }
+        return DynamicCatalogRegistry.shared.storeItem(for: best.store_id)
+            ?? DynamicCatalogRegistry.shared.storeItem(for: best.store_name)
+    }
+
+    var galleryImages: [String] {
+        Array(spotlight.product.allImages.prefix(5))
     }
 
     var referenceOriginalPrice: Double? {
@@ -3274,130 +3396,220 @@ struct ShopSpotlightCardView: View {
         return nil
     }
 
+    var discountBadge: String? {
+        if let badge = spotlight.badge_text, !badge.isEmpty, badge.lowercased().contains("sconto") || badge.lowercased().contains("risparmia") {
+            return badge
+        }
+        if let best = bestOffer {
+            if let disc = best.discount_pct, disc >= 5 {
+                return "\(Int(round(disc)))% di sconto"
+            }
+            if let orig = best.original_price, orig > best.price + 1 {
+                let pct = Int(round((orig - best.price) / orig * 100))
+                if pct >= 5 {
+                    return "\(pct)% di sconto"
+                }
+            }
+        }
+        if let sav = spotlight.product.cross_store_savings, sav >= 10 {
+            return "Risparmia \(Int(round(sav))) €"
+        }
+        return nil
+    }
+
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 12) {
-                // Top Store Header
-                HStack(spacing: 8) {
-                    if let best = bestOffer {
-                        ShopStoreLogo(storeName: best.store_name, showVerified: false, showLabel: false, size: 26)
+            HStack(alignment: .top, spacing: 14) {
+                // Left Image Box with optional swipe dots, red discount capsule, and translucent heart
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color(red: 246/255, green: 246/255, blue: 248/255))
+                        .frame(width: 146, height: 154)
 
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(best.store_name)
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundColor(.shopDark)
-
-                            HStack(spacing: 3) {
-                                Text("4.8")
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                    .foregroundColor(.shopDark)
-                                Image(systemName: "star.fill")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.shopDark)
-                                Text("(316)")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
-                            }
-                        }
-                    }
-                    Spacer()
-                }
-
-                // Main Content
-                HStack(alignment: .top, spacing: 14) {
-                    ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color(red: 245/255, green: 245/255, blue: 247/255))
-                            .frame(width: 128, height: 128)
-
-                        if let imgUrl = spotlight.product.image_url, let url = URL(string: imgUrl) {
-                            ShopCachedAsyncImage(url: url, maxPixelSize: 400) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image.resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(width: 128, height: 128)
-                                        .cornerRadius(14)
-                                case .empty:
-                                    ShopSkeletonBlock(cornerRadius: 14, width: 128, height: 128)
-                                default:
-                                    Image(systemName: "photo")
-                                        .foregroundColor(.gray.opacity(0.35))
-                                        .frame(width: 128, height: 128)
+                    if galleryImages.count > 1 {
+                        TabView(selection: $currentImageIndex) {
+                            ForEach(Array(galleryImages.enumerated()), id: \.offset) { idx, imgStr in
+                                if let url = URL(string: imgStr) {
+                                    ShopCachedAsyncImage(url: url, maxPixelSize: 420) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image.resizable()
+                                                .aspectRatio(contentMode: .fit)
+                                                .blendMode(.multiply)
+                                        case .empty:
+                                            ShopSkeletonBlock(cornerRadius: 18)
+                                        default:
+                                            Image(systemName: "photo")
+                                                .foregroundColor(.gray.opacity(0.35))
+                                        }
+                                    }
+                                    .tag(idx)
                                 }
                             }
                         }
-
-                        if let badge = spotlight.badge_text {
-                            Text(badge)
-                                .font(.system(size: 9.5, weight: .heavy))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Color(red: 215/255, green: 40/255, blue: 40/255))
-                                .cornerRadius(5)
-                                .padding(6)
+                        .tabViewStyle(.page(indexDisplayMode: .never))
+                        .frame(width: 146, height: 154)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    } else if let imgUrl = spotlight.product.image_url, let url = URL(string: imgUrl) {
+                        ShopCachedAsyncImage(url: url, maxPixelSize: 420) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 146, height: 154)
+                                    .blendMode(.multiply)
+                                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            case .empty:
+                                ShopSkeletonBlock(cornerRadius: 18, width: 146, height: 154)
+                            default:
+                                Image(systemName: "photo")
+                                    .foregroundColor(.gray.opacity(0.35))
+                                    .frame(width: 146, height: 154)
+                            }
                         }
+                    }
 
-                        VStack {
-                            Spacer()
+                    if let badge = discountBadge {
+                        Text(badge)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(red: 217/255, green: 45/255, blue: 32/255))
+                            .clipShape(Capsule())
+                            .padding(8)
+                    }
+
+                    // Bottom Overlay: centered pagination dots + bottom-right heart
+                    VStack {
+                        Spacer()
+                        ZStack {
+                            if galleryImages.count > 1 {
+                                HStack(spacing: 4) {
+                                    ForEach(0..<galleryImages.count, id: \.self) { idx in
+                                        Circle()
+                                            .fill(idx == currentImageIndex ? Color.shopDark.opacity(0.75) : Color.black.opacity(0.22))
+                                            .frame(width: idx == currentImageIndex ? 5.5 : 4.5, height: idx == currentImageIndex ? 5.5 : 4.5)
+                                    }
+                                }
+                            }
                             HStack {
                                 Spacer()
                                 ShopTranslucentHeartButton(product: spotlight.product)
-                                    .padding(6)
                             }
                         }
-                        .frame(width: 128, height: 128)
+                        .padding(8)
                     }
+                    .frame(width: 146, height: 154)
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.black.opacity(0.04), lineWidth: 1)
+                )
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(spotlight.product.displayTitle)
-                            .font(.system(size: 14.5, weight: .bold))
-                            .foregroundColor(.shopDark)
-                            .lineLimit(2)
+                // Right Column: Store Avatar + Rating, Product Title, Price, and 3 AI Technical Bullets
+                VStack(alignment: .leading, spacing: 7) {
+                    if let best = bestOffer {
+                        HStack(spacing: 8) {
+                            ShopStoreLogo(
+                                storeName: best.store_name,
+                                showVerified: false,
+                                showLabel: false,
+                                size: 28,
+                                logoURL: storeMeta?.logo_url
+                            )
 
-                        if let best = bestOffer {
-                            HStack(spacing: 6) {
-                                Text(String(format: "€ %.2f", best.price))
-                                    .font(.system(size: 14.5, weight: .heavy))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(best.store_name)
+                                    .font(.system(size: 13.5, weight: .semibold))
                                     .foregroundColor(.shopDark)
+                                    .lineLimit(1)
 
-                                if let orig = referenceOriginalPrice {
-                                    Text(String(format: "€ %.2f", orig))
-                                        .font(.system(size: 12))
-                                        .strikethrough()
-                                        .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                                if let meta = storeMeta, let rating = meta.rating {
+                                    HStack(spacing: 3) {
+                                        Text(String(format: "%.1f", rating))
+                                            .font(.system(size: 11.5, weight: .semibold))
+                                            .foregroundColor(.shopDark)
+                                        Image(systemName: "star.fill")
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.shopDark)
+                                        if let rev = meta.formatted_review_count, !rev.isEmpty {
+                                            Text("(\(rev))")
+                                                .font(.system(size: 11.5))
+                                                .foregroundColor(Color(red: 125/255, green: 125/255, blue: 136/255))
+                                        }
+                                    }
+                                } else if spotlight.product.offers.count > 1 {
+                                    Text("\(spotlight.product.offers.count) negozi a confronto")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.shopPurple)
                                 }
                             }
                         }
+                    }
 
+                    Text(spotlight.product.displayTitle)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.shopDark)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+
+                    if let best = bestOffer {
+                        HStack(spacing: 6) {
+                            Text(String(format: "€ %.2f", best.price))
+                                .font(.system(size: 14.5, weight: .bold))
+                                .foregroundColor(.shopDark)
+
+                            if let orig = referenceOriginalPrice {
+                                Text(String(format: "€ %.2f", orig))
+                                    .font(.system(size: 12.5))
+                                    .strikethrough()
+                                    .foregroundColor(Color(red: 145/255, green: 145/255, blue: 155/255))
+                            }
+                        }
+                    }
+
+                    if !spotlight.highlights.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
-                            ForEach(spotlight.highlights, id: \.self) { hl in
-                                HStack(alignment: .top, spacing: 5) {
+                            ForEach(spotlight.highlights.prefix(3), id: \.self) { hl in
+                                HStack(alignment: .top, spacing: 6) {
                                     Text("•")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(.shopDark)
+                                        .font(.system(size: 12.5, weight: .bold))
+                                        .foregroundColor(Color(red: 95/255, green: 95/255, blue: 108/255))
                                     Text(LocalizedStringKey(hl))
-                                        .font(.system(size: 12, weight: .regular))
-                                        .foregroundColor(Color(red: 80/255, green: 80/255, blue: 90/255))
-                                        .lineLimit(2)
+                                        .font(.system(size: 12.5, weight: .regular))
+                                        .foregroundColor(Color(red: 95/255, green: 95/255, blue: 108/255))
+                                        .lineSpacing(1.5)
+                                        .multilineTextAlignment(.leading)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
                         }
                         .padding(.top, 2)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(14)
+            .padding(12)
             .background(Color.white)
-            .cornerRadius(18)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 3)
+            .shadow(color: Color.black.opacity(0.07), radius: 14, x: 0, y: 4)
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(ShopCardPressStyle(scale: 0.985))
+    }
+}
+
+// MARK: - Spotlight Card View (Legacy Alias)
+struct ShopSpotlightCardView: View {
+    let spotlight: SpotlightRecommendation
+    let onTap: () -> Void
+
+    var body: some View {
+        ShopFeaturedProductCard(spotlight: spotlight, onTap: onTap)
     }
 }
 
@@ -3568,80 +3780,27 @@ struct FollowUpQuestionSheet: View {
     }
 }
 
-// MARK: - Follow-Up Suggestion Purple Pill Button
+// MARK: - Follow-Up Suggestion Lavender Capsule Pill (Shop Screenshots 2 & 4)
 struct ShopFollowUpPillButton: View {
     let title: String
     let onTap: () -> Void
 
-    private var isQuestion: Bool {
-        SearchView.isQuestionSuggestion(title)
-    }
-
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                // Left Icon
-                ZStack {
-                    Circle()
-                        .fill(isQuestion ? Color.shopPurple.opacity(0.12) : Color.white.opacity(0.8))
-                        .frame(width: 28, height: 28)
-
-                    Image(systemName: isQuestion ? "questionmark.bubble.fill" : "sparkle")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Color.shopPurple)
-                }
-
-                // Text
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Color(red: 70/255, green: 40/255, blue: 180/255))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-
-                Spacer(minLength: 8)
-
-                // Right action hint
-                if isQuestion {
-                    HStack(spacing: 4) {
-                        Text("Rispondi")
-                            .font(.system(size: 11.5, weight: .bold))
-                            .foregroundColor(Color.shopPurple)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(Color.shopPurple)
-                    }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4.5)
-                    .background(Color.white.opacity(0.9))
-                    .cornerRadius(12)
-                } else {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(Color.shopPurple.opacity(0.75))
-                        .padding(6)
-                        .background(Color.white.opacity(0.8))
-                        .clipShape(Circle())
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .background(
-                LinearGradient(
-                    colors: [
-                        Color(red: 243/255, green: 239/255, blue: 255/255),
-                        Color(red: 248/255, green: 245/255, blue: 255/255)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .cornerRadius(20)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(Color.shopPurple.opacity(0.16), lineWidth: 1)
-            )
+        Button(action: {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onTap()
+        }) {
+            Text(title)
+                .font(.system(size: 15.5, weight: .semibold))
+                .foregroundColor(Color(red: 78/255, green: 46/255, blue: 207/255))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(Color(red: 239/255, green: 236/255, blue: 254/255))
+                .clipShape(Capsule())
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(ShopCardPressStyle(scale: 0.97))
     }
 }
 

@@ -1075,7 +1075,8 @@ struct CuratedProductSection: Identifiable, Codable, Hashable {
     let products: [MatchedProduct]
 }
 
-struct SpotlightRecommendation: Codable, Hashable {
+struct SpotlightRecommendation: Identifiable, Codable, Hashable {
+    var id: String { product.id }
     let product: MatchedProduct
     let badge_text: String?
     let highlights: [String]
@@ -1117,8 +1118,10 @@ struct SmartSearchResponse: Codable {
     let is_conversational_advice: Bool?
     let conversational_header: String?
     let conversational_summary: String?
+    let searched_queries: [String]?
     let curated_sections: [CuratedProductSection]?
     let comparative_cards: [ComparativeSpecCard]?
+    let featured_cards: [SpotlightRecommendation]?
     let spotlight: SpotlightRecommendation?
     let follow_up_suggestions: [String]?
     let intent: SmartSearchIntent?
@@ -1140,11 +1143,13 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
     var isConversationalAdvice: Bool
     var conversationalHeader: String
     var conversationalSummary: String
+    var searchedQueries: [String]
     var smartIntent: SmartSearchIntent?
     var activeChips: [SmartSearchChip]
     var searchResults: [MatchedProduct]
     var curatedSections: [CuratedProductSection]
     var comparativeCards: [ComparativeSpecCard]
+    var featuredCards: [SpotlightRecommendation]
     var spotlight: SpotlightRecommendation?
     var followUpSuggestions: [String]
     var userFeedback: Int?
@@ -1162,11 +1167,13 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
         isConversationalAdvice: Bool = false,
         conversationalHeader: String,
         conversationalSummary: String,
+        searchedQueries: [String] = [],
         smartIntent: SmartSearchIntent? = nil,
         activeChips: [SmartSearchChip] = [],
         searchResults: [MatchedProduct] = [],
         curatedSections: [CuratedProductSection] = [],
         comparativeCards: [ComparativeSpecCard] = [],
+        featuredCards: [SpotlightRecommendation] = [],
         spotlight: SpotlightRecommendation? = nil,
         followUpSuggestions: [String] = [],
         userFeedback: Int? = nil,
@@ -1183,11 +1190,13 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
         self.isConversationalAdvice = isConversationalAdvice
         self.conversationalHeader = conversationalHeader
         self.conversationalSummary = conversationalSummary
+        self.searchedQueries = searchedQueries
         self.smartIntent = smartIntent
         self.activeChips = activeChips
         self.searchResults = searchResults
         self.curatedSections = curatedSections
         self.comparativeCards = comparativeCards
+        self.featuredCards = featuredCards
         self.spotlight = spotlight
         self.followUpSuggestions = followUpSuggestions
         self.userFeedback = userFeedback
@@ -1197,6 +1206,16 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
         self.isUnsafe = isUnsafe
         self.userImageURL = userImageURL
         self.timestamp = timestamp
+    }
+
+    var effectiveFeaturedCards: [SpotlightRecommendation] {
+        if !featuredCards.isEmpty {
+            return featuredCards
+        }
+        if let spot = spotlight {
+            return [spot]
+        }
+        return []
     }
 
     var productsForFeedback: [MatchedProduct] {
@@ -1213,8 +1232,10 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
                 prods.append(res)
             }
         }
-        if let spot = spotlight, !prods.contains(where: { $0.id == spot.product.id }) {
-            prods.insert(spot.product, at: 0)
+        for fc in effectiveFeaturedCards {
+            if !prods.contains(where: { $0.id == fc.product.id }) {
+                prods.insert(fc.product, at: 0)
+            }
         }
         return Array(prods.prefix(8))
     }
@@ -1501,6 +1522,8 @@ struct ChatTurnResultsSnapshot: Codable, Hashable {
     let results: [MatchedProduct]?
     let curated_sections: [CuratedProductSection]?
     let comparative_cards: [ComparativeSpecCard]?
+    let featured_cards: [SpotlightRecommendation]?
+    let searched_queries: [String]?
     let spotlight: SpotlightRecommendation?
 }
 

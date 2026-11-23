@@ -97,6 +97,7 @@ struct FitMatchApp: App {
 
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-testWriteReview") {
                 WriteReviewSheetView(storeId: "nike", storeName: "Nike", onReviewSubmitted: { _ in })
             } else if ProcessInfo.processInfo.arguments.contains("-testStoreDetail") {
@@ -203,6 +204,9 @@ struct FitMatchApp: App {
                 ShopVisualSearchSheet(onSelectModel: { _, _ in })
             } else if ProcessInfo.processInfo.arguments.contains("-testSearch") {
                 MainTabView(initialTab: 1)
+            } else if let idx = ProcessInfo.processInfo.arguments.firstIndex(of: "-testSearchQuery"),
+                      idx + 1 < ProcessInfo.processInfo.arguments.count {
+                SearchView(initialSearchQuery: ProcessInfo.processInfo.arguments[idx + 1])
             } else if ProcessInfo.processInfo.arguments.contains("-testAiSearchDeepDive") {
                 SearchView(initialSearchQuery: "scarpe running ammortizzate per ginocchia pesanti sotto 150 euro")
             } else if ProcessInfo.processInfo.arguments.contains("-testAiSearchScrolled") {
@@ -406,6 +410,9 @@ struct FitMatchApp: App {
             } else {
                 MainTabView()
             }
+            #else
+            MainTabView()
+            #endif
         }
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .background {
