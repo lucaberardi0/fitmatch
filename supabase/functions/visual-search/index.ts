@@ -197,25 +197,28 @@ Deno.serve(async (req: Request) => {
         }
 
         try {
-          const words = searchQuery.split(/\s+/).filter((w) => w.length > 1).slice(0, 4);
-          if (words.length > 0) {
-            let qBuilder = supabase
-              .from("products")
-              .select("id", { count: "exact", head: true })
-              .neq("category", "non_sport");
-            for (const w of words) {
-              qBuilder = qBuilder.ilike("canonical_name", `%${w}%`);
+          const searchTerms = Array.from(new Set(
+            [searchQuery, recognizedModel].map((s) => s.trim()).filter((s) => s.length >= 2),
+          ));
+          if (searchTerms.length > 0) {
+            const { data: rpcRows } = await supabase.rpc("search_products_catalog_v3", {
+              search_terms: searchTerms,
+              brand_filter: brand,
+              result_limit: 25,
+            });
+            if (Array.isArray(rpcRows)) {
+              catalogMatchesCount = rpcRows.length;
             }
-            const { count } = await qBuilder;
-            catalogMatchesCount = count ?? 0;
           }
           if (catalogMatchesCount === 0 && brand) {
-            const { count } = await supabase
-              .from("products")
-              .select("id", { count: "exact", head: true })
-              .ilike("brand", `%${brand}%`)
-              .neq("category", "non_sport");
-            catalogMatchesCount = count ?? 0;
+            const { data: brandRows } = await supabase.rpc("search_products_catalog_v3", {
+              search_terms: null,
+              brand_filter: brand,
+              result_limit: 25,
+            });
+            if (Array.isArray(brandRows)) {
+              catalogMatchesCount = brandRows.length;
+            }
           }
         } catch {
           // Non-fatal

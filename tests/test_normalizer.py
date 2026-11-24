@@ -266,6 +266,85 @@ def test_subbrand_resolution_and_false_positive_prevention(normalizer):
     assert "[top]" in key_ls
 
 
+def test_apparel_long_sleeve_and_fleece_vs_polar_watch():
+    normalizer = ProductNormalizer()
+    assert normalizer.detect_article_type("Nike Acg Radical Airflow Nxt Maglia Trail Manica Lunga") == "top"
+    assert normalizer.detect_article_type("Nike Acg Wolf Grid") == "top"
+    assert normalizer.detect_article_type("Nike Pile Acg Canwell Glacier") == "top"
+    assert normalizer.detect_article_type("Nike Polar Acg Wolf Tree") == "top"
+    assert normalizer.detect_article_type("Adidas Adizero Long-Sleeve Running Shirt") == "top"
+    # Polar sports watches & HRMs must NEVER be misclassified as fleece tops
+    assert normalizer.detect_article_type("Polar Vantage V3 Orologio GPS") == "gps_watch"
+    assert normalizer.detect_article_type("Polar H10 Fascia Cardio") == "sensor"
+
+
+def test_pack_mount_strap_case_racket_swim_false_positives():
+    normalizer = ProductNormalizer()
+    # Footwear colorway "Pack" names must stay football_boots / shoes, never 'pack'
+    assert normalizer.detect_article_type("Adidas Calcio Predator 24 Elite Turf Tf Solar Energy Pack") == "football_boots"
+    assert normalizer.detect_article_type("Nike Pegasus Plus Fast Pack") == "shoes"
+    # Sports bras ("supporto") and stirrup leggings ("staffa") must not become bike mounts
+    assert normalizer.detect_article_type("Adidas Reggiseno Optimé 3 Stripes Supporto Medio") == "top"
+    assert normalizer.detect_article_type("Nike One Leggings Tutta Lunghezza Vita Alta Staffa") == "pants"
+    # Cover-up jackets/fleeces must not become watch cases
+    assert normalizer.detect_article_type("Adidas Cover Up Giacca Uomini") == "jacket"
+    assert normalizer.detect_article_type("Adidas Cover Up Half Zip Felpa") == "top"
+    # Bikinis & strap sneakers must not become watch straps
+    assert normalizer.detect_article_type("New Balance Sneaker 578 Bungee Lace Top Strap") == "shoes"
+    # Padel shorts/shoes must not become padel rackets
+    assert normalizer.detect_article_type("Asics Shorts Padel Court 7In") == "pants"
+    # Aquasphere Phantom swim wetsuit must be swim, not football_boots
+    assert normalizer.detect_article_type("Aquasphere Tuta Neoprene Aquasphere Phantom V3") == "swim"
+
+
+def test_url_brand_and_category_extraction_prevents_null_brand_and_gear_dump():
+    normalizer = ProductNormalizer()
+    # Cisalfa deterministic URL brand & category recovery
+    assert normalizer.extract_brand(
+        "Quandary m",
+        url="https://www.cisalfasport.it/it-it/patagonia/pantalone-outdoor-quandary-m-S5845313.html",
+    ) == "Patagonia"
+    assert normalizer.detect_article_type(
+        "Quandary m",
+        url="https://www.cisalfasport.it/it-it/patagonia/pantalone-outdoor-quandary-m-S5845313.html",
+    ) == "pants"
+    assert normalizer.extract_brand(
+        "Icon m",
+        url="https://www.cisalfasport.it/it-it/under-armour/felpa-icon-m-S6021258.html",
+    ) == "Under Armour"
+    assert normalizer.detect_article_type(
+        "Icon m",
+        url="https://www.cisalfasport.it/it-it/under-armour/felpa-icon-m-S6021258.html",
+    ) == "top"
+    # Maxisport multi-word brand slug must never truncate to 'Under' / 'La' / 'New'
+    assert normalizer.extract_brand(
+        "Gel-resolution x night energy",
+        url="https://www.maxisport.com/asics-1041a526-gel-resolution-x-night-energy-scarpe-tennis-uomo-052654401-020",
+    ) == "Asics"
+    assert normalizer.extract_brand(
+        "Felpa mezza zip",
+        url="https://www.maxisport.com/under-armour-1379757-felpa-mezza-zip-uomo-053400001-510",
+    ) == "Under Armour"
+    # Tennis-Point & Alltricks URL extraction
+    assert normalizer.extract_brand(
+        "Fast Lightweight Crew Calze",
+        url="https://www.tennis-point.it/products/nike-fast-lightweight-crew-calze-da-corsa-unisex-rosa-nero-a0000010360902",
+    ) == "Nike"
+    assert normalizer.detect_article_type(
+        "Pasta Frutta Carbofruit Fragola 25 Pezzi",
+        url="https://www.alltricks.it/F-11928-nutrition/P-2551893-pasta_di_frutta_carbofruit_fragola_25_pezzi",
+    ) == "nutrition"
+    assert normalizer.detect_article_type(
+        "Abus Airbreaker Pure",
+        url="https://www.alltricks.it/F-10007-casques/P-3028313-abus_airbreaker_pure_road_casco_grigio",
+    ) == "cycling"
+    # Hyphenated / truncated existing_brand aliases normalize cleanly
+    assert normalizer.extract_brand("Canotta Tech", existing_brand="Under-armour") == "Under Armour"
+    assert normalizer.extract_brand("Giacca Alpha", existing_brand="the-north-face") == "The North Face"
+
+
+
+
 
 
 

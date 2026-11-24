@@ -3,7 +3,13 @@ import {
   callOpenRouterJSON,
   corsHeaders,
   createServiceClient,
+  detectSingleProductType,
+  extractBrand,
+  extractExcludedBrands,
   jsonResponse,
+  loadChatHistoryContext,
+  normalizeQueryTypos,
+  ProductType,
   saveChatTurn,
   searchCatalogOffers,
 } from "../_shared/catalog.ts";
@@ -57,15 +63,24 @@ const KNOWLEDGE_BASE: Record<string, { name: string; description: string; models
 };
 
 function parseHeuristicProfile(userQuery: string) {
-  const text = userQuery.toLowerCase();
-  const priceMatch = text.match(/(?:sotto\s*i?|meno\s*di|max|massimo|budget\s*di?)\s*(\d+)\s*(?:€|euro)?/);
-  const max_price = priceMatch ? Number(priceMatch[1]) : null;
-  const sizeMatch = text.match(/(?:taglia|numero|misura|porto\s*(?:il|la)?)\s*([0-9]{2}(?:[.,][0-9])?|[xsml]{1,3})/i);
-  const size = sizeMatch ? sizeMatch[1].replace(",", ".") : null;
+  const norm = normalizeQueryTypos(userQuery);
+  const text = norm.toLowerCase();
+  const nonPriceUnit = /^\s*(?:kg|chili|g\b|gr\b|grammi|km|mm|cm|ore|minuti|%)/i;
+  const priceMatch = text.match(/(?:al\s+di\s+sotto\s*(?:di)?|sotto\s*(?:i|ai|gli)?|meno\s*di|fino\s*a(?:i)?|entro\s*(?:i|ai)?|max|massimo|budget\s*(?:di|massimo|max)?|<=|<)\s*(?:€\s*)?(\d+(?:[.,]\d+)?)\s*(?:€|euro|eur)?/i);
+  let max_price: number | null = null;
+  if (priceMatch && priceMatch.index != null) {
+    const after = text.slice(priceMatch.index + priceMatch[0].length);
+    const val = Number(priceMatch[1].replace(",", "."));
+    if (!nonPriceUnit.test(after) && Number.isFinite(val) && (val >= 15 || /€|euro|eur/i.test(priceMatch[0]))) {
+      max_price = val;
+    }
+  }
+  const sizeMatch = text.match(/\b(?:tagli[ae]|numero|num\.?|misur[ae]|porto\s*(?:il|la)?|size|eu)\s*(\d{2}(?:[.,]\d)?|(?:xxs|xs|s|m|l|xl|xxl))\b/i);
+  const size = sizeMatch ? sizeMatch[1].replace(",", ".").toUpperCase() : null;
 
-  let gender = "Unisex";
-  if (/\b(donna|ragazza|femmin[eia]|wmns?)\b/i.test(text)) gender = "Donna";
-  else if (/\b(uomo|ragazzo|maschil[eia]|mens?)\b/i.test(text)) gender = "Uomo";
+  let gender: string | null = null;
+  if (/\b(donna|donne|ragazza|femmin[eia]|wmns?|women|woman)\b/i.test(text)) gender = "Donna";
+  else if (/\b(uomo|uomini|ragazzo|maschil[eia]|mens?|men|man)\b/i.test(text)) gender = "Uomo";
 
   const weightMatch = text.match(/(\d{2,3})\s*(?:kg|chili)/);
   const weight_kg = weightMatch ? Number(weightMatch[1]) : null;
@@ -88,7 +103,7 @@ function parseHeuristicProfile(userQuery: string) {
   else if (is_speed && !(weight_kg && weight_kg > 82)) category = "speed_race";
   else if (is_cushion || (weight_kg && weight_kg >= 78)) category = "max_cushion";
 
-  return { raw_query: userQuery, max_price, size, gender, weight_kg, surface, is_waterproof, category };
+  return { raw_query: norm, max_price, size, gender, weight_kg, surface, is_waterproof, category };
 }
 
 Deno.serve(async (req: Request) => {
@@ -121,17 +136,28 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ detail: "Configurazione Supabase mancante." }, 500);
     }
 
+    // Load prior session profile & turns so follow-ups in AI Advisor keep context!
+    const historyCtx = await loadChatHistoryContext(supabase, sessionId);
+    const prevProfile = (historyCtx.contextState?.user_profile && typeof historyCtx.contextState.user_profile === "object")
+      ? (historyCtx.contextState.user_profile as Record<string, unknown>)
+      : null;
+    const localH = parseHeuristicProfile(prompt);
+    const reqBrand = extractBrand(prompt, null);
+    const excludedBrands = extractExcludedBrands(prompt);
+    const noCarbon = /\b(?:senza|no|non)\s+(?:la\s+|una\s+)?(?:piastra(?:\s+(?:in|di)\s+carbonio)?|carbonio|carbon)\b/i.test(prompt);
+
     const primaryModel = (Deno.env.get("OPENROUTER_MODEL") ?? "").trim() || "meta-llama/llama-3.3-70b-instruct";
     const systemPrompt =
       "Sei un Coach e Biomeccanico sportivo d'élite per 'FitMatch'. " +
       "L'utente ti spiega le sue caratteristiche fisiche (peso, altezza, appoggio, eventuali patologie come fascite plantare, tendinite, dolori alle ginocchia), " +
-      "i suoi obiettivi sportivi e il budget.\n" +
+      "i suoi obiettivi sportivi, esclusioni (es. 'non Nike', 'senza carbonio') e il budget.\n" +
+      "Se esiste un profilo/contesto precedente della chat, integralo e aggiorna solo i parametri modificati.\n" +
       "Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura:\n" +
       "{\n" +
       '  "category_name": "es. Massimo Ammortizzamento & Protezione Articolare",\n' +
       '  "category_description": "descrizione chiara della categoria tecnica",\n' +
       '  "biomechanical_reasoning": "Spiegazione biomeccanica dettagliata e cordiale in 2-3 frasi, evidenziando il carico articolare e la motivazione delle scelte tecniche.",\n' +
-      '  "recommended_models": ["modello 1 esatto (es. asics gel nimbus 26)", "modello 2 (es. hoka bondi 8)", "modello 3 (es. brooks glycerin 21)"],\n' +
+      '  "recommended_models": ["modello 1 (es. asics gel nimbus)", "modello 2 (es. hoka bondi)", "modello 3 (es. brooks glycerin)"],\n' +
       '  "parsed_profile": {\n' +
       '    "weight_kg": int o null,\n' +
       '    "surface": "asfalto | trail | pista",\n' +
@@ -141,9 +167,13 @@ Deno.serve(async (req: Request) => {
       "  }\n" +
       "}";
 
+    const advisorUserPrompt = prevProfile
+      ? `Profilo precedente: ${JSON.stringify(prevProfile)}\nTurni precedenti: ${historyCtx.recentTurns.slice(-3).map((t) => `"${t.query}"`).join(" -> ")}\nNuova richiesta utente: ${prompt}`
+      : prompt;
+
     const llmParsed = await callOpenRouterJSON({
       systemPrompt,
-      userPrompt: prompt,
+      userPrompt: advisorUserPrompt,
       models: [primaryModel, "meta-llama/llama-3.3-70b-instruct", "openai/gpt-4o-mini"],
       temperature: 0.1,
       maxTokens: 800,
@@ -162,11 +192,11 @@ Deno.serve(async (req: Request) => {
       categoryName = String(llmParsed.category_name ?? "Consulenza Biomeccanica IA");
       categoryDesc = String(llmParsed.category_description ?? "");
       reasoning = String(llmParsed.biomechanical_reasoning ?? "");
-      targetModels = llmParsed.recommended_models.map((m) => String(m ?? "").trim()).filter(Boolean).slice(0, 3);
+      targetModels = llmParsed.recommended_models.map((m) => String(m ?? "").trim()).filter(Boolean).slice(0, 4);
       profile = (llmParsed.parsed_profile as Record<string, unknown>) ?? {};
     } else {
       source = "local_heuristic";
-      const h = parseHeuristicProfile(prompt);
+      const h = localH;
       const catInfo = KNOWLEDGE_BASE[h.category] ?? KNOWLEDGE_BASE.daily_trainer;
       categoryName = catInfo.name;
       categoryDesc = catInfo.description;
@@ -187,18 +217,57 @@ Deno.serve(async (req: Request) => {
       reasoning = reasons.join(" ") || catInfo.description;
     }
 
-    const sizeVal = profile.size ? String(profile.size) : null;
-    const maxPriceVal = profile.max_price != null ? Number(profile.max_price) : null;
-    const genderVal = profile.gender ? String(profile.gender) : "Unisex";
+    // Reconcile constraints deterministically (current prompt > LLM > prior session profile!)
+    const resetPrice = /\b(rimuovi\s+(?:il\s+)?limite\s+di\s+prezzo|senza\s+limit[ei]\s+di\s+prezzo|qualsiasi\s+prezzo)\b/i.test(prompt);
+    const llmPriceRaw = profile.max_price != null ? Number(profile.max_price) : null;
+    const prevPriceRaw = prevProfile?.max_price != null ? Number(prevProfile.max_price) : null;
+    const maxPriceVal = resetPrice
+      ? null
+      : (localH.max_price ??
+        (llmPriceRaw != null && Number.isFinite(llmPriceRaw) && llmPriceRaw > 0 ? llmPriceRaw : null) ??
+        (prevPriceRaw != null && Number.isFinite(prevPriceRaw) && prevPriceRaw > 0 ? prevPriceRaw : null));
+
+    const sizeVal = localH.size ??
+      (profile.size && String(profile.size).trim().toLowerCase() !== "null" ? String(profile.size).trim() : null) ??
+      (prevProfile?.size ? String(prevProfile.size) : null);
+
+    const genderVal = localH.gender ??
+      (profile.gender && ["Uomo", "Donna"].includes(String(profile.gender)) ? String(profile.gender) : null) ??
+      (prevProfile?.gender && ["Uomo", "Donna"].includes(String(prevProfile.gender)) ? String(prevProfile.gender) : null);
+
+    const prevExcluded = Array.isArray(prevProfile?.excluded_brands) ? prevProfile!.excluded_brands.map(String) : [];
+    const effectiveExcludedBrands = Array.from(new Set([...prevExcluded, ...excludedBrands]));
+    const detectedPType: ProductType | null = detectSingleProductType(prompt) ??
+      (prevProfile?.product_type ? (prevProfile.product_type as ProductType) : null) ??
+      (localH.surface === "trail" ? "trail_shoes" : "shoes");
 
     const matched = await searchCatalogOffers(supabase, {
+      rawQuery: prompt,
       keywords: targetModels,
-      maxPrice: Number.isFinite(maxPriceVal) ? maxPriceVal : null,
+      brand: reqBrand,
+      excludedBrands: effectiveExcludedBrands.length > 0 ? effectiveExcludedBrands : null,
+      excludedFeatures: noCarbon ? ["no_carbon"] : null,
+      productType: detectedPType,
+      entityTokens: [],
+      maxPrice: maxPriceVal,
       size: sizeVal,
       gender: genderVal,
       semanticQuery: `${prompt} ${targetModels.join(" ")}`,
-      limit: 12,
+      allowSemantic: effectiveExcludedBrands.length === 0,
+      limit: 16,
     });
+
+    const mergedProfile = {
+      raw_query: prompt,
+      max_price: maxPriceVal,
+      size: sizeVal,
+      gender: genderVal ?? "Unisex",
+      weight_kg: localH.weight_kg ?? profile.weight_kg ?? prevProfile?.weight_kg ?? null,
+      surface: (profile.surface ?? localH.surface ?? prevProfile?.surface ?? "asfalto"),
+      product_type: detectedPType,
+      excluded_brands: effectiveExcludedBrands,
+      category: categoryName,
+    };
 
     const recommendations = matched
       .filter((g) => (g.best_price ?? 0) >= 20)
@@ -234,20 +303,12 @@ Deno.serve(async (req: Request) => {
           is_conversational_advice: true,
           results: matched.slice(0, 5),
         },
-        contextState: { user_profile: profile },
+        contextState: { user_profile: mergedProfile },
       });
     }
 
     return jsonResponse({
-      user_profile: {
-        raw_query: prompt,
-        max_price: maxPriceVal,
-        size: sizeVal,
-        gender: genderVal,
-        weight_kg: profile.weight_kg ?? null,
-        surface: profile.surface ?? "asfalto",
-        category: categoryName,
-      },
+      user_profile: mergedProfile,
       category_name: categoryName,
       category_description: categoryDesc,
       biomechanical_reasoning: reasoning,

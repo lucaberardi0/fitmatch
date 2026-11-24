@@ -93,10 +93,15 @@ export async function callOpenRouterJSON(opts: {
   return null;
 }
 
+const _embeddingCache = new Map<string, number[]>();
+
 export async function getQueryEmbedding(text: string): Promise<number[] | null> {
   const apiKey = (Deno.env.get("OPENROUTER_API_KEY") ?? "").trim();
   const cleaned = text.trim();
   if (!apiKey || !cleaned) return null;
+  const cacheKey = cleaned.toLowerCase();
+  const hit = _embeddingCache.get(cacheKey);
+  if (hit) return hit;
   try {
     const resp = await fetch("https://openrouter.ai/api/v1/embeddings", {
       method: "POST",
@@ -110,7 +115,15 @@ export async function getQueryEmbedding(text: string): Promise<number[] | null> 
     if (!resp.ok) return null;
     const data = await resp.json();
     const emb = data?.data?.[0]?.embedding;
-    return Array.isArray(emb) ? emb : null;
+    if (Array.isArray(emb)) {
+      if (_embeddingCache.size >= 64) {
+        const firstKey = _embeddingCache.keys().next().value;
+        if (firstKey) _embeddingCache.delete(firstKey);
+      }
+      _embeddingCache.set(cacheKey, emb);
+      return emb;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -250,11 +263,56 @@ export function detectSubBrand(text: string): [string, string] | null {
   return null;
 }
 
-export function extractAllBrands(text: string): string[] {
+const NEGATION_LEAD_RE = "(?:\\b(?:non|tranne|esclus[oiae]?|eccetto|senza|no|not|except|excluding|without)(?:\\s+(?:le|il|la|lo|i|gli|di|da|su|marche|brand|negozi|store))*)";
+
+export function extractExcludedBrands(text: string): string[] {
   const norm = normalizeQueryTypos(text).toLowerCase();
+  if (!norm) return [];
+  const excluded: string[] = [];
+  // Match negated spans like "non nike", "tranne nike e adidas", "escluso brooks o asics", "senza nike"
+  const negSpanRe = /\b(?:non|tranne|esclus[oiae]?|eccetto|senza|no|not|except|excluding|without)\s+([^,.?!;]+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = negSpanRe.exec(norm)) !== null) {
+    // Only inspect up to the first 6 words after the negation cue so unrelated later clauses aren't caught
+    const span = m[1].trim().split(/\s+/).slice(0, 6).join(" ");
+    for (const b of KNOWN_BRANDS) {
+      const bLow = b.toLowerCase();
+      if (bLow === "on") {
+        if (/\bon\s+(?:running|cloud\w*)\b/i.test(span) && !excluded.includes("On")) excluded.push("On");
+        continue;
+      }
+      if (new RegExp(`\\b${escapeRegExp(bLow)}\\b`, "i").test(span) && !excluded.includes(b)) {
+        excluded.push(b);
+      }
+    }
+  }
+  return excluded;
+}
+
+function stripNegatedBrandMentions(norm: string, excludedBrands: string[]): string {
+  if (excludedBrands.length === 0) return norm;
+  let out = norm;
+  for (const b of excludedBrands) {
+    const bEsc = escapeRegExp(b.toLowerCase());
+    out = out.replace(new RegExp(`${NEGATION_LEAD_RE}(?:\\s+(?:e|ed|o|od|n[eé]|,))?\\s+${bEsc}\\b`, "gi"), " ");
+    out = out.replace(new RegExp(`\\b${bEsc}\\b`, "gi"), (match, offset) => {
+      const before = out.slice(Math.max(0, offset - 35), offset);
+      if (/\b(?:non|tranne|esclus[oiae]?|eccetto|senza|n[eé])\b/i.test(before)) return " ";
+      return match;
+    });
+  }
+  return out;
+}
+
+export function extractAllBrands(text: string): string[] {
+  const rawNorm = normalizeQueryTypos(text).toLowerCase();
+  const excluded = extractExcludedBrands(rawNorm);
+  const norm = stripNegatedBrandMentions(rawNorm, excluded);
+  const excludedLow = new Set(excluded.map((b) => b.toLowerCase()));
   const found: string[] = [];
   for (const b of KNOWN_BRANDS) {
     const bLow = b.toLowerCase();
+    if (excludedLow.has(bLow)) continue;
     if (bLow === "on") {
       if (/\bon\s+(?:running|cloud\w*)\b/i.test(norm) && !found.includes("On")) found.push("On");
       continue;
@@ -264,14 +322,18 @@ export function extractAllBrands(text: string): string[] {
     }
   }
   const sub = detectSubBrand(norm);
-  if (sub && !found.includes(sub[0])) found.push(sub[0]);
+  if (sub && !excludedLow.has(sub[0].toLowerCase()) && !found.includes(sub[0])) found.push(sub[0]);
   return found;
 }
 
 export function extractBrand(text: string, fallback?: string | null): string | null {
-  const norm = normalizeQueryTypos(text).toLowerCase();
+  const rawNorm = normalizeQueryTypos(text).toLowerCase();
+  const excluded = extractExcludedBrands(rawNorm);
+  const norm = stripNegatedBrandMentions(rawNorm, excluded);
+  const excludedLow = new Set(excluded.map((b) => b.toLowerCase()));
   for (const b of KNOWN_BRANDS) {
     const bLow = b.toLowerCase();
+    if (excludedLow.has(bLow)) continue;
     // Avoid matching short brand "on" inside ordinary words
     if (bLow === "on") {
       if (/\bon\s+(?:running|cloud\w*)\b/i.test(norm)) return "On";
@@ -280,7 +342,7 @@ export function extractBrand(text: string, fallback?: string | null): string | n
     if (new RegExp(`\\b${escapeRegExp(bLow)}\\b`, "i").test(norm)) return b;
   }
   const sub = detectSubBrand(norm);
-  if (sub) return sub[0];
+  if (sub && !excludedLow.has(sub[0].toLowerCase())) return sub[0];
   return fallback ?? null;
 }
 
@@ -342,13 +404,76 @@ const GENERIC_ENTITY_STOPWORDS = new Set([
   "ideale", "ideali", "perfetta", "perfette", "perfetto", "perfetti", "adatta", "adatte", "adatto", "adatti",
   "dolore", "dolori", "articolazione", "articolazioni", "tendinite", "tallonite", "plantare", "pianta", "larga", "largo", "stretta", "stretto", "piatto", "piatti", "appoggio",
   "esigenze", "livello", "cercando", "cerco", "voglio", "servono", "serve", "durata", "durano", "calzano", "vestono",
+  // Filter / reset / store / promo filler words (never product entity tokens!)
+  "rimuovi", "togli", "elimina", "azzera", "reset", "senza", "limite", "limiti", "filtro", "filtri",
+  "tutti", "tutte", "qualsiasi", "spedizione", "gratuita", "gratis", "free", "shipping",
+  "scontato", "scontata", "scontati", "scontate", "saldo", "saldi", "promo", "promozione",
+  "cisalfa", "decathlon", "alltricks", "deporvillage", "misterrunning", "top4running",
+  "maxisport", "sportspecialist", "tradeinn", "nencini", "intersport", "nonsolosport",
+  "runningwarehouse", "sportler", "sportit", "bshopzone", "basketballstore",
+  "store", "negozi", "negozio", "sito", "siti", "under", "below", "over", "above", "oltre",
+  "almeno", "circa", "intorno", "fascia",
   // Colors
-  "nero", "nera", "neri", "nere", "bianco", "bianca", "bianchi", "bianche", "blu", "rosso", "rossa",
-  "rossi", "rosse", "verde", "verdi", "grigio", "grigia", "giallo", "gialla", "arancione", "rosa", "viola",
-  "black", "white", "blue", "red", "green", "grey", "gray", "yellow", "orange", "pink", "purple",
+  "nero", "nera", "neri", "nere", "bianco", "bianca", "bianchi", "bianche", "blu", "azzurro", "azzurra",
+  "rosso", "rossa", "rossi", "rosse", "verde", "verdi", "grigio", "grigia", "grigi", "grigie",
+  "giallo", "gialla", "gialli", "gialle", "arancione", "arancioni", "rosa", "viola", "marrone", "marroni", "beige",
+  "black", "white", "blue", "red", "green", "grey", "gray", "yellow", "orange", "pink", "purple", "brown",
   "lungo", "lunghi", "corto", "corti", "alto", "alta", "alti", "alte", "basso", "bassa",
   "compressione", "compression", "tecnica", "tecnico", "tecnici", "tecniche", "pro",
+  "non", "tranne", "escluso", "esclusa", "esclusi", "escluse", "eccetto", "senza", "ne", "né",
+  "economiche", "economici", "economico", "economica", "convenienti", "conveniente",
+  "costose", "costosi", "costoso", "costosa", "care", "cari", "basso", "bassi", "alto", "alti",
+  "ordina", "ordinate", "ordinati", "crescente", "decrescente", "piastra", "carbonio", "carbon", "cappuccio",
 ]);
+
+export const KNOWN_STORES: Array<{ id: string; label: string; regex: RegExp }> = [
+  { id: "cisalfa", label: "Cisalfa Sport", regex: /\b(?:cisalfa(?:\s+sport)?)\b/i },
+  { id: "decathlon", label: "Decathlon", regex: /\b(?:decathlon)\b/i },
+  { id: "alltricks", label: "Alltricks", regex: /\b(?:alltricks)\b/i },
+  { id: "misterrunning", label: "Mister Running", regex: /\b(?:mister\s*running)\b/i },
+  { id: "deporvillage", label: "Deporvillage", regex: /\b(?:deporvillage)\b/i },
+  { id: "top4running", label: "Top4Running", regex: /\b(?:top\s*4\s*running|top4running)\b/i },
+  { id: "maxisport", label: "Maxi Sport", regex: /\b(?:maxi\s*sport)\b/i },
+  { id: "df_sportspecialist", label: "DF Sport Specialist", regex: /\b(?:df\s*sport(?:\s*specialist)?|sport\s*specialist)\b/i },
+  { id: "tradeinn", label: "Tradeinn", regex: /\b(?:tradeinn|runnerinn|trekkinn|bikeinn)\b/i },
+  { id: "nencini", label: "Nencini Sport", regex: /\b(?:nencini(?:\s+sport)?)\b/i },
+  { id: "intersport", label: "Intersport", regex: /\b(?:intersport(?:\s+italia)?)\b/i },
+  { id: "nonsolosport", label: "NonSoloSport", regex: /\b(?:non\s*solo\s*sport|nonsolosport)\b/i },
+  { id: "runningwarehouse", label: "Running Warehouse", regex: /\b(?:running\s*warehouse)\b/i },
+  { id: "sportler", label: "Sportler", regex: /\b(?:sportler)\b/i },
+  { id: "sportit", label: "SportIT", regex: /\b(?:sportit|sport\s*it)\b/i },
+  { id: "tennis_point", label: "Tennis-Point", regex: /\b(?:tennis[\s-]*point)\b/i },
+  { id: "bshopzone", label: "Bshopzone", regex: /\b(?:bshopzone)\b/i },
+  { id: "basketballstore", label: "Basketball Store", regex: /\b(?:basketball\s*store)\b/i },
+];
+
+export function extractExcludedStores(text: string): Array<{ id: string; label: string }> {
+  const low = (text ?? "").toLowerCase();
+  if (!low.trim()) return [];
+  const excluded: Array<{ id: string; label: string }> = [];
+  const negSpanRe = /\b(?:non|tranne|esclus[oiae]?|eccetto|senza|no|not|except|excluding)\s+([^,.?!;]+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = negSpanRe.exec(low)) !== null) {
+    const span = m[1].trim().split(/\s+/).slice(0, 6).join(" ");
+    for (const st of KNOWN_STORES) {
+      if (st.regex.test(span) && !excluded.some((e) => e.id === st.id)) {
+        excluded.push({ id: st.id, label: st.label });
+      }
+    }
+  }
+  return excluded;
+}
+
+export function extractStoreFilter(text: string): { id: string; label: string } | null {
+  const low = (text ?? "").toLowerCase();
+  if (!low.trim()) return null;
+  const excludedIds = new Set(extractExcludedStores(low).map((s) => s.id));
+  for (const st of KNOWN_STORES) {
+    if (excludedIds.has(st.id)) continue;
+    if (st.regex.test(low)) return { id: st.id, label: st.label };
+  }
+  return null;
+}
 
 /**
  * Extracts specific model / sub-brand / generation tokens from a query (e.g. ["forerunner", "165"] or ["zoom", "fly", "6"]).
@@ -356,16 +481,28 @@ const GENERIC_ENTITY_STOPWORDS = new Set([
  */
 export function extractSpecificEntityTokens(query: string, brand?: string | null): string[] {
   if (!query || !query.trim()) return [];
-  let t = normalizeQueryTypos(query).toLowerCase();
+  let t = normalizeQueryTypos(query)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
   t = t.replace(/\bs[/\-]lab\b/g, " lab ");
-  // Remove price constraints & measurement/unit tokens (e.g. "85kg", "10km", "500ml", "150€")
-  t = t.replace(/\b(?:sotto\s*i?|sopra\s*i?|meno\s*di|pi[uù]\s*di|fino\s*a|budget\s*(?:di)?|max|min|massimo|minimo|entro\s*i?)\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\b/g, " ");
-  t = t.replace(/\b\d+(?:[.,]\d+)?\s*(?:€|euro|eur|km|kg|chili|g|gr|mm|cm|l|lt|ml|%|min|h)\b/g, " ");
-  t = t.replace(/\b\d+(?:[.,]\d+)?(?:km|kg|ml|mm|cm|gr)\b/g, " ");
+  // Remove ALL price, budget, range, discount & measurement/unit constraints (including € before or after number!)
+  t = t.replace(/\b(?:tra|da)\s*(?:€\s*)?\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\s*(?:e|a|-)\s*(?:€\s*)?\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?/gi, " ");
+  t = t.replace(/(?:sotto\s*(?:i|ai|gli|le|di|dei)?|al\s+di\s+sotto\s*(?:di|dei|degli)?|sopra\s*(?:i|ai|gli|le|di|dei)?|oltre\s*(?:i|ai|gli|le)?|meno\s*di|pi[uù]\s*di|non\s+(?:oltre|pi[uù]\s*di)|fino\s*a(?:i|gli|lle)?|entro\s*(?:i|ai|gli)?|budget\s*(?:massimo|max|di|sotto)?|prezzo\s*(?:massimo|max|minimo|min|sotto|sopra)?|al\s+massimo|massimo|max|minimo|min|almeno|under|below|over|above|<=?|>=?)\s*(?:€\s*)?\d+(?:[.,]\d+)?\s*(?:€|euro|eur|%)?/gi, " ");
+  t = t.replace(/€\s*\d+(?:[.,]\d+)?/g, " ");
+  t = t.replace(/\b\d+(?:[.,]\d+)?\s*(?:€|euro|eur|%)/gi, " ");
+  t = t.replace(/\b\d+(?:[.,]\d+)?\s*(?:km|kg|chili|g|gr|mm|cm|l|lt|ml|min|h)\b/gi, " ");
+  t = t.replace(/\b\d+(?:[.,]\d+)?(?:km|kg|ml|mm|cm|gr)\b/gi, " ");
+  // Remove discount percentages like "-30%" or "sconto 20%"
+  t = t.replace(/(?:sconto\s*(?:almeno|minimo|di|del)?\s*)?-?\d+(?:[.,]\d+)?\s*%/gi, " ");
   // Remove size constraints
-  t = t.replace(/\b(?:taglia|taglie|numero|misura|size|eu|us|uk|tg\.?)\s*(?:\d{2}(?:[.,]\d)?|[xsml]{1,3})\b/g, " ");
+  t = t.replace(/\b(?:taglia|taglie|numero|num\.?|n\.?|misura|misure|size|eu|us|uk|tg\.?)\s*(?:\d{2}(?:[.,]\d|\s+[12]\/[23])?|[23]?x?[sml]{1,2})\b/gi, " ");
   t = t.replace(/(?<![\d.,])\b(?:3[5-9]|4[0-9])[.,](?:5|3|7|2|8)\b/g, " ");
   t = t.replace(/\b(?:1\s*\/\s*[24]\s*(?:di\s+)?zip|2\s*in\s*1|2in1|calcio\s*a\s*[57])\b/g, " ");
+  // Remove store names so "su Cisalfa" or "da Mister Running" never become model tokens
+  for (const st of KNOWN_STORES) {
+    t = t.replace(st.regex, " ");
+  }
 
   const brandToks = new Set<string>();
   const subKeys = new Set(Object.keys(SUB_BRAND_TO_PARENT));
@@ -392,12 +529,18 @@ export function extractSpecificEntityTokens(query: string, brand?: string | null
   return out;
 }
 
-export function detectSingleProductType(rawText: string): ProductType | null {
+/**
+ * Detects an EXPLICIT product type ONLY when the text contains a concrete garment, footwear,
+ * device, equipment noun, or unmistakable model name — NEVER from standalone activity words
+ * like "da corsa", "per running", "per trail", "per maratona" (which refine a previous product
+ * type during follow-ups instead of switching categories!).
+ */
+export function detectExplicitProductType(rawText: string): ProductType | null {
   const t = normalizeQueryTypos(rawText).toLowerCase();
   if (!t) return null;
 
   // 1. Explicit apparel & accessories (most specific first!)
-  if (/\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|intimo\s*termico|1\/2\s*zip|1\/4\s*zip|half[\s-]*zip|quarter[\s-]*zip|mezza\s*zip)\b/.test(t)) {
+  if (/\b(long[\s-]*sleeve|longsleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|intimo\s*termico|1\/2\s*zip|1\/4\s*zip|half[\s-]*zip|quarter[\s-]*zip|mezza\s*zip|base[\s-]*layer|strato\s*base)\b/.test(t)) {
     return "long_sleeve_top";
   }
   if (/\b(canott[ae]|canottier[ae]|singlet|tank\s*top|sleeveless|smanicat[aoe])\b/.test(t)) {
@@ -406,10 +549,10 @@ export function detectSingleProductType(rawText: string): ProductType | null {
   if (/\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae]+|t[\s-]*shirt|magliett[ae]|magli[ae](?!\s*(?:cinturin|orolog)))\b/.test(t)) {
     return "short_sleeve_top";
   }
-  if (/\b(felp[ae]|hoodie|sweatshirt)\b/.test(t)) {
-    return "top";
+  if (/\b(felp[ae]|hoodie|sweatshirt|pile\b|fleece\b|maglion[ei]|pullover)\b/.test(t)) {
+    return "long_sleeve_top";
   }
-  if (/\b(giacc(?:a|he)|jacket|rain\s*jacket|antivento|windbreaker|windproof|k[\s-]*way|gilet\s*antivento|guscio|shell\s*jacket|anorak|antipioggia)\b/.test(t)) {
+  if (/\b(giacc(?:a|he)|jacket|rain\s*jacket|antivento|windbreaker|windproof|k[\s-]*way|gilet\s*antivento|guscio|shell\s*jacket|anorak|antipioggia|piumin[oi])\b/.test(t)) {
     return "jacket";
   }
   // Leggings / Tights / Calzamaglia MUST be distinguished from Shorts & Long Pants!
@@ -443,7 +586,7 @@ export function detectSingleProductType(rawText: string): ProductType | null {
   if (/\bgps\b/.test(t) && !/\b(bici|ciclismo|mtb|gravel|manubrio|ciclocomputer|edge)\b/.test(t)) {
     return "gps_watch";
   }
-  if (/\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|swim(?:ming)?\s*goggles|goggles|swimsuit|nuot[ao]|nuotare|piscina|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno)|pinn[ae]\s*(?:da\s*)?nuoto)\b/.test(t)) {
+  if (/\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|swim(?:ming)?\s*goggles|goggles|swimsuit|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno)|pinn[ae]\s*(?:da\s*)?nuoto)\b/.test(t)) {
     return "swim";
   }
   if (/\b(occhial[ie]|sunglasses|eyewear|oakley|sutro|radar\s*ev|jawbreaker|rudy\s*project|bliz)\b/.test(t)) {
@@ -458,7 +601,7 @@ export function detectSingleProductType(rawText: string): ProductType | null {
   if (/\b(scarpon[ei]\s*(?:da\s*)?sci|mascher[ae]\s*(?:da\s*)?sci|casc[oh]\s*(?:da\s*)?sci|tavol[ae]\s*snowboard|snowboard|scialpinismo|sci\s*alpino|atomic\s*(?:hawx|redster|bent)|nordica\s*(?:speedmachine|promachine)|rossignol\s*(?:hero|alltrack))\b/.test(t)) {
     return "winter_sports";
   }
-  if (/\b(racchett[ae]|padel\s*(?:racket|racquet)|pala\s*padel|bullpadel|nox\s*at10|padel)\b/.test(t) && !/\b(scarp[ae]|shoes?)\b/.test(t)) {
+  if (/\b(racchett[ae]|padel\s*(?:racket|racquet)|pala\s*padel|bullpadel|nox\s*at10)\b/.test(t) && !/\b(scarp[ae]|shoes?)\b/.test(t)) {
     return "padel_racket";
   }
   if (/\b(rull[oi]|smart\s*trainer|wahoo\s*kickr|tacx\s*(?:flux|neo))\b/.test(t)) {
@@ -468,33 +611,60 @@ export function detectSingleProductType(rawText: string): ProductType | null {
     return "nutrition";
   }
 
-  // 3. Sport-specific footwear
-  if (/\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|football\s*boots?|soccer\s*cleats?|scarpin[oi]|calcetto|futsal|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b/.test(t) ||
-      (/\bcalcio\s*a\s*[57]\b/.test(t) && !/\b(magli[ae]|kit|pantaloncin[oi]|pallon[ei]|guant[oi])\b/.test(t))) {
+  // 3. Sport-specific footwear (explicit footwear nouns or iconic shoe lines)
+  if (/\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|football\s*boots?|soccer\s*cleats?|scarpin[oi]|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b/.test(t)) {
     return "football_boots";
   }
-  if (/\b(basket|basketball|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b/.test(t) &&
+  if (/\b(scarp[ae]\s*(?:da\s*)?basket|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b/.test(t) &&
       !/\b(magli[ae]|jersey|canott[ae]|pantaloncin[oi]|shorts?|calz[ae]|pallon[ei]|canestro)\b/.test(t)) {
     return "basketball_shoes";
   }
-  if (/\b(tennis|terra\s*battuta|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b/.test(t) &&
+  if (/\b(scarp[ae]\s*(?:da\s*)?tennis|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b/.test(t) &&
       !/\b(racchett[ae]|racket|racquet|pallin[ae]|abbigliamento|pantaloncin[oi]|shorts?|magli[ae])\b/.test(t)) {
     return "tennis_shoes";
   }
-  if (/\b(pallavolo|volley|volleyball|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b/.test(t) &&
+  if (/\b(scarp[ae]\s*(?:da\s*)?(?:pallavolo|volley)|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b/.test(t) &&
       !/\b(ginocchier[ae]|pallon[ei]|magli[ae]|pantaloncin[oi]|manicotti)\b/.test(t)) {
     return "volleyball_shoes";
   }
 
-  // 4. Trail vs Road Shoes
-  if (/\b(trail|sterrato|montagna|sentier[oi]|speedgoat|cascadia|trabuco|speedcross|ultra\s*raptor|peregrine|bushido|hierro|mafate|tecton)\b/.test(t) &&
+  // 4. Explicit Trail or Road Shoe nouns / iconic shoe models
+  if (/\b(scarp[ae]\s*(?:da\s*)?trail|trail\s*shoes?|speedgoat|cascadia|trabuco|speedcross|ultra\s*raptor|peregrine|bushido|hierro|mafate|tecton|zegama|wildhorse|terrex\s*agravic)\b/.test(t) &&
       !/\b(zain[oi]|gilet|vest|backpack|pack|flask|bottle|giacc[ae]|jacket|pantalon|pants|shorts?|tights?|magli|shirt|tee|orologi|watch|poles|bastoncini|gel|belt|marsupio|hat|cap|gloves|socks)\b/.test(t)) {
     return "trail_shoes";
   }
-  if (/\b(scarp[ae]|sneakers?|calzatur[ae]|zoom\s*fly|pegasus|vomero|alphafly|vaporfly|streakfly|invincible|structure|nimbus|kayano|cumulus|novablast|superblast|metaspeed|clifton|bondi|mach|cielo|rincon|glycerin|ghost|hyperion|adrenaline|endorphin|triumph|ride|tempus|deviate|velocity|magmax|adizero\s*(?:adios|boston|takumi|sl|evo|prime|dropset)|dropset|metcon|nano|ultraboost|supernova|cloudmonster|cloudsurfer|cloudboom|cloudrunner|cloudstratus|wave\s*rider|wave\s*rebellion|wave\s*sky|fresh\s*foam|fuelcell|1080|rebel|hyrox|infinite\s*(?:elite|pro))\b/.test(t)) {
+  if (/\b(scarp[ae]|shoes?|sneakers?|calzatur[ae]|zoom\s*fly|pegasus|vomero|alphafly|vaporfly|streakfly|invincible|structure|nimbus|kayano|cumulus|novablast|superblast|metaspeed|clifton|bondi|mach|cielo|rincon|glycerin|ghost|hyperion|adrenaline|endorphin|triumph|ride|tempus|deviate|velocity|magmax|adizero\s*(?:adios|boston|takumi|sl|evo|prime|dropset)|dropset|metcon|nano|ultraboost|supernova|cloudmonster|cloudsurfer|cloudboom|cloudrunner|cloudstratus|wave\s*rider|wave\s*rebellion|wave\s*sky|fresh\s*foam|fuelcell|1080|rebel|infinite\s*(?:elite|pro))\b/.test(t)) {
     return "shoes";
   }
-  if (/\b(running|corsa|correre|maratona|mezza\s*maratona|ammortizzat[ae]|pronazione|supinazione)\b/.test(t) &&
+  return null;
+}
+
+export function detectSingleProductType(rawText: string): ProductType | null {
+  const explicit = detectExplicitProductType(rawText);
+  if (explicit) return explicit;
+  const t = normalizeQueryTypos(rawText).toLowerCase();
+  if (!t) return null;
+
+  // Activity-only fallback defaults (used ONLY for fresh queries with no prior product type!)
+  if (/\b(nuot[ao]|nuotare|piscina)\b/.test(t)) return "swim";
+  if (/\bpadel\b/.test(t) && !/\b(scarp[ae]|shoes?)\b/.test(t)) return "padel_racket";
+  if (/\b(calcetto|futsal|calcio\s*a\s*[57])\b/.test(t) && !/\b(magli[ae]|kit|pantaloncin[oi]|pallon[ei]|guant[oi])\b/.test(t)) {
+    return "football_boots";
+  }
+  if (/\b(basket|basketball|pallacanestro)\b/.test(t) && !/\b(magli[ae]|jersey|canott[ae]|pantaloncin[oi]|shorts?|calz[ae]|pallon[ei])\b/.test(t)) {
+    return "basketball_shoes";
+  }
+  if (/\b(tennis|terra\s*battuta)\b/.test(t) && !/\b(racchett[ae]|racket|racquet|pallin[ae]|abbigliamento|pantaloncin[oi]|shorts?|magli[ae])\b/.test(t)) {
+    return "tennis_shoes";
+  }
+  if (/\b(pallavolo|volley|volleyball)\b/.test(t) && !/\b(ginocchier[ae]|pallon[ei]|magli[ae]|pantaloncin[oi]|manicotti)\b/.test(t)) {
+    return "volleyball_shoes";
+  }
+  if (/\b(trail|sterrato|montagna|sentier[oi])\b/.test(t) &&
+      !/\b(zain[oi]|gilet|vest|backpack|pack|flask|bottle|giacc[ae]|jacket|pantalon|pants|shorts?|tights?|magli|shirt|tee|orologi|watch|poles|bastoncini|gel|belt|marsupio|hat|cap|gloves|socks)\b/.test(t)) {
+    return "trail_shoes";
+  }
+  if (/\b(running|corsa|correre|maratona|mezza\s*maratona|ammortizzat[ae]|pronazione|supinazione|hyrox)\b/.test(t) &&
       !/\b(abbigliamento|completo|kit|accessori|orologi[o]?|smartwatch|watch|ciclocomputer|vest|backpack|pack|jacket|shirt|shorts|tights|gel|belt|marsupio|flask|bottle|poles)\b/.test(t)) {
     return "shoes";
   }
@@ -590,6 +760,7 @@ export function getBlockedCategoriesForProductType(pt: ProductType | null): stri
         "gps_watch", "eyewear", "hydration", "nutrition", "cycling",
         "top", "jacket", "pants", "socks", "underwear", "swim", "football_boots",
         "bag", "case", "gloves", "apparel", "strap", "mount", "sensor", "racket", "padel",
+        "gear", "pack", "winter_sports", "trainer", "non_sport",
       ];
     case "leggings_tights":
     case "shorts":
@@ -598,6 +769,7 @@ export function getBlockedCategoriesForProductType(pt: ProductType | null): stri
         "running_shoes", "trail_running", "shoes", "football_boots", "gps_watch",
         "eyewear", "hydration", "nutrition", "top", "jacket", "socks",
         "strap", "mount", "case", "sensor", "racket", "padel", "swim", "winter_sports",
+        "gear", "pack", "cycling", "trainer", "non_sport",
       ];
     case "long_sleeve_top":
     case "short_sleeve_top":
@@ -607,58 +779,103 @@ export function getBlockedCategoriesForProductType(pt: ProductType | null): stri
         "running_shoes", "trail_running", "shoes", "football_boots", "gps_watch",
         "eyewear", "hydration", "nutrition", "padel", "cycling", "pants", "jacket",
         "socks", "underwear", "swim", "bag", "gloves", "strap", "mount", "case",
-        "racket", "sensor", "winter_sports",
+        "racket", "sensor", "winter_sports", "gear", "pack", "trainer", "non_sport",
       ];
     case "jacket":
       return [
         "running_shoes", "trail_running", "shoes", "football_boots", "gps_watch",
         "eyewear", "hydration", "nutrition", "pants", "socks", "strap", "mount", "case", "sensor", "racket",
+        "gear", "pack", "swim", "padel", "trainer", "non_sport",
       ];
     case "socks":
       return [
         "running_shoes", "trail_running", "shoes", "top", "jacket", "pants",
         "gps_watch", "eyewear", "padel", "cycling", "hydration", "nutrition", "strap", "mount", "case",
+        "gear", "racket", "swim", "trainer", "non_sport",
+      ];
+    case "headwear":
+      return [
+        "running_shoes", "trail_running", "shoes", "football_boots", "top", "jacket", "pants", "socks",
+        "gps_watch", "eyewear", "padel", "cycling", "hydration", "nutrition", "strap", "mount", "case",
+        "racket", "sensor", "swim", "trainer", "non_sport",
       ];
     case "gps_watch":
       return [
         "running_shoes", "trail_running", "shoes", "top", "jacket", "pants", "socks", "apparel",
         "eyewear", "nutrition", "padel", "case", "strap", "mount", "cycling",
         "bag", "hydration", "gloves", "underwear", "swim", "racket", "sensor",
+        "gear", "pack", "football_boots", "winter_sports", "trainer", "non_sport",
       ];
     case "heart_rate_monitor":
       return [
         "running_shoes", "trail_running", "shoes", "football_boots", "top", "jacket",
         "pants", "socks", "apparel", "eyewear", "nutrition", "padel", "hydration", "swim", "racket", "case", "mount",
+        "gear", "pack", "winter_sports", "non_sport",
       ];
     case "bike_computer":
       return [
         "running_shoes", "trail_running", "shoes", "top", "jacket", "pants", "socks", "apparel",
         "eyewear", "nutrition", "padel", "case", "strap", "mount", "gps_watch", "sensor",
+        "gear", "pack", "swim", "football_boots", "winter_sports", "non_sport",
       ];
     case "eyewear":
       return [
         "running_shoes", "trail_running", "shoes", "top", "jacket", "pants", "socks",
         "gps_watch", "padel", "nutrition", "hydration", "strap", "mount", "sensor",
+        "gear", "pack", "football_boots", "trainer", "non_sport",
       ];
     case "hydration":
       return [
         "running_shoes", "trail_running", "shoes", "top", "jacket", "pants", "socks",
         "gps_watch", "eyewear", "padel", "nutrition", "strap", "mount", "sensor",
+        "football_boots", "racket", "swim", "trainer", "non_sport",
       ];
     case "padel_racket":
       return [
         "running_shoes", "trail_running", "shoes", "top", "jacket", "pants", "socks",
         "eyewear", "gps_watch", "nutrition", "hydration", "strap", "mount", "sensor",
+        "gear", "pack", "football_boots", "cycling", "swim", "winter_sports", "trainer", "non_sport",
+      ];
+    case "tennis_racket":
+      return [
+        "running_shoes", "trail_running", "shoes", "top", "jacket", "pants", "socks",
+        "eyewear", "gps_watch", "nutrition", "hydration", "strap", "mount", "sensor",
+        "gear", "pack", "football_boots", "cycling", "swim", "winter_sports", "trainer", "non_sport",
       ];
     case "football_boots":
       return [
         "top", "jacket", "pants", "socks", "gps_watch", "eyewear", "hydration",
         "nutrition", "padel", "cycling", "swim", "case", "strap", "mount", "sensor",
+        "gear", "racket", "winter_sports", "trainer", "non_sport",
+      ];
+    case "basketball_shoes":
+    case "tennis_shoes":
+    case "volleyball_shoes":
+      return [
+        "top", "jacket", "pants", "socks", "apparel", "gps_watch", "eyewear", "hydration",
+        "nutrition", "padel", "cycling", "swim", "football_boots", "case", "strap", "mount", "sensor",
+        "gear", "pack", "racket", "winter_sports", "trainer", "non_sport",
       ];
     case "swim":
       return [
         "running_shoes", "trail_running", "shoes", "top", "jacket", "pants", "socks",
         "gps_watch", "padel", "cycling", "nutrition", "hydration", "racket",
+        "gear", "football_boots", "winter_sports", "trainer", "non_sport",
+      ];
+    case "winter_sports":
+      return [
+        "running_shoes", "trail_running", "shoes", "football_boots", "swim", "padel", "racket",
+        "cycling", "nutrition", "sensor", "gps_watch", "non_sport",
+      ];
+    case "nutrition":
+      return [
+        "running_shoes", "trail_running", "shoes", "football_boots", "top", "jacket", "pants", "socks",
+        "apparel", "gps_watch", "eyewear", "padel", "racket", "cycling", "swim", "winter_sports", "strap", "mount", "case", "non_sport",
+      ];
+    case "smart_trainer":
+      return [
+        "running_shoes", "trail_running", "shoes", "football_boots", "top", "jacket", "pants", "socks",
+        "apparel", "eyewear", "padel", "racket", "swim", "nutrition", "hydration", "winter_sports", "non_sport",
       ];
     default:
       return null;
@@ -712,6 +929,48 @@ function buildSizeCandidates(required: string, isFemale: boolean): Set<string> {
     if (us === norm) cands.add(eu);
   }
   return cands;
+}
+
+/**
+ * Generates raw jsonb string variants (dot/comma/fraction/EU/US/case) for fast GIN-indexed
+ * `o.available_sizes ?| size_candidates` matching inside Postgres!
+ */
+export function buildSizeVariantsForSql(required: string | null | undefined, gender?: string | null): string[] | null {
+  if (!required || !required.trim()) return null;
+  const gLow = (gender ?? "").toLowerCase();
+  const cands = new Set<string>();
+  // When gender is unspecified/unisex, accept both Men & Women US mappings; JS sizeMatches refines per-product!
+  if (gLow.includes("donna")) {
+    for (const s of buildSizeCandidates(required, true)) cands.add(s);
+  } else if (gLow.includes("uomo")) {
+    for (const s of buildSizeCandidates(required, false)) cands.add(s);
+  } else {
+    for (const s of buildSizeCandidates(required, false)) cands.add(s);
+    for (const s of buildSizeCandidates(required, true)) cands.add(s);
+  }
+
+  const expanded = new Set<string>();
+  for (const s of cands) {
+    expanded.add(s);
+    expanded.add(s.toLowerCase());
+    expanded.add(`EU ${s}`);
+    expanded.add(`${s} EU`);
+    if (s.endsWith(".5")) {
+      const base = s.slice(0, -2);
+      expanded.add(`${base},5`);
+      expanded.add(`${base} 1/2`);
+      expanded.add(`${base}.1/2`);
+      expanded.add(`${base} 2/3`);
+      expanded.add(`${base} 1/3`);
+      expanded.add(`${base}.2/3`);
+      expanded.add(`${base}.1/3`);
+      expanded.add(`EU ${base},5`);
+    } else if (/^\d+$/.test(s)) {
+      expanded.add(`${s}.0`);
+      expanded.add(`${s},0`);
+    }
+  }
+  return Array.from(expanded);
 }
 
 function sizeMatches(
@@ -771,6 +1030,7 @@ interface InternalProduct extends MatchedProductOut {
   available_sizes: string[];
   lexical_score: number;
   semantic_similarity: number;
+  rrf_score: number;
   relevance_score: number;
   matched_entity_count: number;
   matched_digit_exact: boolean;
@@ -892,26 +1152,45 @@ export function isProductCompatible(
   if (!productType) return true;
 
   const blocked = getBlockedCategoriesForProductType(productType);
-  if (blocked && cat && blocked.includes(cat)) return false;
+  // Category-resilience: for apparel tops/pants/jackets, if canonical_name or offer title/URL
+  // unambiguously signals the target garment (e.g. "Maglia Manica Lunga" misclassified as trail_running),
+  // let the switch below perform authoritative text-level gating instead of blind DB-category rejection.
+  const hasExplicitLongSleeveSignal = /\b(long[\s-]*sleeve|longsleeve|manic(?:a|he)\s*lung(?:a|he)|radical\s*airflow\s*nxt|l\/s\b|\bls\b)\b/.test(fullText);
+  if (blocked && cat && blocked.includes(cat)) {
+    const allowCategoryOverride = productType === "long_sleeve_top" &&
+      hasExplicitLongSleeveSignal &&
+      ["trail_running", "running_shoes", "shoes", "outdoor", "gear"].includes(cat);
+    if (!allowCategoryOverride) return false;
+  }
 
   switch (productType) {
     case "shoes":
     case "trail_shoes": {
       if (isApparelOnlySizes(prod.available_sizes ?? [])) return false;
-      // Block apparel/tech/accessories/mats/insoles/bike tires/headsets including French & Italian store abbreviations
-      if (/\b(t[\s-]*rex|smartwatch|orologi[o]?|garmin|amazfit|polar|suunto|coros|igpsport|bsc\d+|ciclocomputer|bike\s*computer|tappetino|yogamat|yoga\s*mat|solett[ae]|insole|plantar[ei]|lacci\b|stringhe\b|deodorant|impermeabilizzant|asciugascarpe|telo\s*microfibra|asciugaman[oi]|towel|borracc(?:ia|e)|soft\s*flask|zain[oi]|backpack|calz[ae]|calzin[oi]|socks?|socquette|light\s*crew|t[\s-]*shirt|magli[ae]|magliett[ae]|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet|snglt|tank\b|crop\b|cropped|tee\b|jsy\b|jersey\b|top\s*ss\b|crew\s*top\b|trk\s*jkt\b|pant\s*kp\b|dry\s*park\d*|park\s*20\b|woven\b|felp[ae]|hoodie|hooded|polare|fleece|giacc(?:a|he)|jacket|jkt\b|piumin[oi]|tuta\b|pantaloncin[oi]|shorts?|leggings?|tights?|calzamagli[ae]|fuseaux|pantalon[ie]|pants\b|coscial[ei]|gonn[ae]|skirt|2in1|2\s*in\s*1|cappellin[oi]|cappell[oi]|\bcap\b|berrett[oi]|beanie|visier[ae]|scaldacollo|scaldamuscoli|balaclava|neck\s*gaiter|gaiter\b|bandana|manicott[oi]|marsupi[oi]|run\s*belt|borson[ei]|bors[ae]|sacca\b|tote\b|duffel|guant[oi]|gloves|occhial[ie]|gel\s*energetico|barrett[ae]|rull[oi]|casc(?:o|hi)|helmet|racchett[ae]|pala\s*padel|reggisen[oi]|\bbra\b|slip\b|boxer\b|crankbrothers|cuffi[ae]|scarpin[oi]|calcio|calcetto|futsal|mercurial|predator|copertone|pneumatic|24x1|rig\s*24)\b/.test(fullText)) {
+      // Block apparel/tech/accessories/mats/insoles/bike racks & tires/headsets/non-shoe gear/slides/kids suffixes
+      if (/\b(t[\s-]*rex|smartwatch|orologi[o]?|garmin|amazfit|polar|suunto|coros|igpsport|bsc\d+|ciclocomputer|bike\s*computer|portabici|biciclett[ae]|antifurto|tappetino|yogamat|yoga\s*mat|solett[ae]|insole|plantar[ei]|lacci\b|stringhe\b|deodorant|impermeabilizzant|asciugascarpe|telo\s*microfibra|asciugaman[oi]|towel|borracc(?:ia|e)|soft\s*flask|zain[oi]|backpack|calz[ae]|calzin[oi]|socks?|socquette|light\s*crew|mid\s*cut|t[\s-]*shirt|magli[ae]|magliett[ae]|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet|snglt|tank\b|crop\b|cropped|tee\b|jsy\b|jersey\b|top\s*ss\b|crew\s*top\b|trk\s*jkt\b|pant\s*kp\b|dry\s*park\d*|park\s*20\b|woven\b|felp[ae]|hoodie|hooded|polare|fleece|giacc(?:a|he)|jacket|jkt\b|piumin[oi]|tuta\b|completo\b|pantaloncin[oi]|shorts?|leggings?|tights?|calzamagli[ae]|fuseaux|pantalon[ie]|pants\b|coscial[ei]|gonn[ae]|skirt|2in1|2\s*in\s*1|cappellin[oi]|cappell[oi]|\bcap\b|berrett[oi]|beanie|besanie|visier[ae]|headband|scaldacollo|scaldamuscoli|balaclava|neck\s*gaiter|gaiter\b|bandana|manicott[oi]|marsupi[oi]|run\s*belt|borson[ei]|bors[ae]|sacca\b|tote\b|duffel|guant[oi]|gloves|occhial[ie]|adattatore\s*ottico|gel\s*energetico|barrett[ae]|isonam|rull[oi]|casc(?:o|hi)|helmet|racchett[ae]|pala\s*padel|reggisen[oi]|\bbra\b|slip\b|boxer\b|bikini|maillot|crankbrothers|cuffi[ae]|scarpin[oi]|calcio|calcetto|futsal|mercurial|predator|copertone|pneumatic|24x1|rig\s*24|pallon[ei]|playground\s*8p|panno\s*pulizia|cintura\s*porta|\bps\b|\btd\b|\bgs\b|infant|toddler)\b/.test(fullText)) {
         return false;
       }
-      if (!/\b(ciabatt[ae]|slide|recovery|recupero|sandal[oi]|infradito)\b/.test(qLow)) {
-        if (/\b(ciabatt[ae]|adilette|infradito|klapki|sandal[oi])\b/.test(fullText)) return false;
+      if (!/\b(ciabatt[ae]|slide|slides|recovery|recupero|sandal[oi]|infradito)\b/.test(qLow)) {
+        if (/\b(ciabatt[ae]|adilette|slides?|infradito|klapki|sandal[oi])\b/.test(fullText)) return false;
       }
       if (!/\b(shox|air\s*force|force\s*1|dunk|cortez|blazer|lifestyle|casual|street|air\s*max\s*(?:90|95|97|plus|tn))\b/.test(qLow)) {
         if (/\b(shox|air\s*force|force\s*1|dunk\b|cortez|blazer\s*mid|blazer\s*low|air\s*max\s*(?:90|95|97|plus|tn)|street\s*jam|kappa\s*(?:kombat|kontroll))\b/.test(fullText)) return false;
       }
-      if (!/\b(pista|chiodat|spike|atletica|campestre|cross\s*country|\bxcs\b|dragonfly|maxfly|avanti|ambition|rugby|pallamano|handball)\b/.test(qLow)) {
-        if (/\b(chiodat[ae]|track\s*(?:and\s*)?field|\bxcs\b|adizero\s*(?:avanti|ambition|finesse)|prime\s*sp|distancestar|sprintstar|throwstar|jumpstar|dragonfly|maxfly|zoom\s*rival|metaspeed\s*(?:md|sp|ld)|rugby|pallamano|handball)\b/.test(fullText)) {
+      if (!/\b(pista|chiodat|spike|atletica|campestre|cross\s*country|\bxcs\b|dragonfly|maxfly|avanti|ambition|rugby|pallamano|handball|golf|boxe|boxing|wrestling|baseball|cricket|sollevamento\s*pesi|weightlifting)\b/.test(qLow)) {
+        if (/\b(chiodat[ae]|track\s*(?:and\s*)?field|\bxcs\b|adizero\s*(?:avanti|ambition|finesse|zg)|prime\s*sp|distancestar|sprintstar|throwstar|jumpstar|dragonfly|maxfly|zoom\s*rival|metaspeed\s*(?:md|sp|ld)|rugby|pallamano|handball|golf\b|boxing\b|wrestling\b|baseball\b|cricket\b|weightlifting\b|sollevamento\s*pesi)\b/.test(fullText)) {
           return false;
         }
+      }
+      // Require positive footwear category OR positive shoe/model signal OR EU shoe sizes (prevents random gear/food/racks leaking via semantic search!)
+      const isShoeCategory = ["running_shoes", "shoes", "trail_running", "outdoor", "fitness"].includes(cat);
+      if (!isShoeCategory) {
+        const hasPositiveShoeCue = /\b(scarp[ae]|shoes?|sneakers?|running|trail|pegasus|vomero|vaporfly|alphafly|invincible|structure|nimbus|kayano|cumulus|novablast|superblast|metaspeed|clifton|bondi|speedgoat|mach|rincon|mafate|ghost|glycerin|cascadia|hyperion|adrenaline|endorphin|triumph|ride|peregrine|adizero|dropset|ultraboost|supernova|terrex|cloudmonster|cloudsurfer|cloudboom|cloudrunner|wave\s*(?:rider|sky|rebellion|inspire)|fresh\s*foam|fuelcell|1080|deviate\s*nitro|velocity\s*nitro|speedcross|ultra\s*raptor|bushido|lone\s*peak)\b/.test(fullText);
+        const hasEuShoeSizes = (prod.available_sizes ?? []).some((s) => {
+          const n = Number(normalizeSize(s));
+          return Number.isFinite(n) && n >= 35 && n <= 49;
+        });
+        if (!hasPositiveShoeCue && !hasEuShoeSizes) return false;
       }
       if (bestPrice > 0 && bestPrice < 22) return false;
       return true;
@@ -941,7 +1220,7 @@ export function isProductCompatible(
 
     case "long_sleeve_top": {
       if (CASUAL_NON_SPORT_BRANDS.has(brand)) return false;
-      if (/\b(scarp[ae]|shoe|sneaker|cappellin[oi]|cappell[oi]|\bcap\b|berrett[oi]|scaldacollo|scaldamuscoli|balaclava|calz[ae]|calzin[oi]|socks?|pantaloncin[oi]|shorts?|leggings?|tights?|calzamagli[ae]|pantalon[ie]|zain[oi]|bors[ae]|sacca\b|tote\b|orologi[o]?|occhial[ie]|piumin[oi]|giacc(?:a|he)|jacket|jkt\b|canott[ae]|singlet|sleeveless|smanicat[ao]|senza\s*maniche|gilet\b|vest\b|manic(?:a|he)\s*cort[ae]|short[\s-]*sleeve|reggiseno|\bbra\b)\b/.test(fullText)) {
+      if (/\b(scarp[ae]|shoe|sneaker|cappellin[oi]|cappell[oi]|\bcap\b|berr+ett[oi]|scaldacollo|scaldamuscoli|balaclava|neckwear|neckwarmer|calz[ae]|calzin[oi]|socks?|pantaloncin[oi]|shorts?|leggings?|tights?|calzamagli[ae]|pantalon[ie]|zain[oi]|bors[ae]|sacca\b|tote\b|orologi[o]?|occhial[ie]|piumin[oi]|giacc(?:a|he)|jacket|jkt\b|canott[ae]|singlet|sleeveless|smanicat[ao]|senza\s*maniche|gilet\b|vest\b|manic(?:a|he)\s*cort[ae]|short[\s-]*sleeve|reggiseno|\bbra\b|cooling\s*sleeve)\b/.test(fullText)) {
         return false;
       }
       if (!/\b(calcio|inter|squadra|replica|stadium|partita)\b/.test(qLow)) {
@@ -949,7 +1228,9 @@ export function isProductCompatible(
           return false;
         }
       }
-      return /\b(long[\s-]*sleeve|longsleeve|manic(?:a|he)\s*lung(?:a|he)|l\/s\b|\bls\b|half[\s-]*zip|quarter[\s-]*zip|mezza\s*zip|zip\s*(?:a\s*)?1\s*[\/\s]\s*[24]|1\s*[\/\s]\s*[24][\s-]*(?:di\s+)?zip|zip\s*(?:a\s*)?met[aà]\s*lunghezza|termic[aohe]|therma[\s-]*fit|active\s*warm|warmalite|warm\b|midlayer|mid[\s-]*layer|fleece|felp[ae]|pile\b|polar\b|girocollo|crewneck|crew\s*neck|pullover|mock\b|first\s*layer|base\s*layer|wolf\s*grid|wolf\s*tree|wolf\s*lichen|chinati|tuff\s*fleece)\b/.test(fullText);
+      // Note: "polar" matches fleece ONLY when brand is not Polar (watch brand)
+      const isPolarFleece = /\bpolar\b/.test(fullText) && brand !== "polar" && !/\b(vantage|pacer|grit|ignite|h10|h9|verity|watch|orologi)\b/.test(fullText);
+      return isPolarFleece || /\b(long[\s-]*sleeve|longsleeve|manic(?:a|he)\s*lung(?:a|he)|l\/s\b|\bls\b|half[\s-]*zip|quarter[\s-]*zip|mezza\s*zip|zip\s*(?:a\s*)?1\s*[\/\s]\s*[24]|1\s*[\/\s]\s*[24][\s-]*(?:di\s+)?zip|zip\s*(?:a\s*)?met[aà]\s*lunghezza|termic[aohe]|therma[\s-]*fit|active\s*warm|warmalite|warm\b|midlayer|mid[\s-]*layer|fleece|felp[ae]|pile\b|girocollo|crewneck|crew\s*neck|pullover|mock\b|first\s*layer|base\s*layer|strato\s*base|wolf\s*grid|wolf\s*tree|wolf\s*lichen|chinati|tuff\s*fleece|radical\s*airflow\s*nxt)\b/.test(fullText);
     }
 
     case "short_sleeve_top": {
@@ -1078,10 +1359,10 @@ const CATEGORY_SYNONYMS: Partial<Record<ProductType, string[]>> = {
   leggings_tights: ["leggings", "tights", "calzamaglia", "fuseaux", "tight"],
   shorts: ["shorts", "pantaloncini", "ciclisti"],
   pants: ["pantaloni", "pants", "tights", "leggings"],
-  long_sleeve_top: ["long sleeve", "manica lunga", "half zip", "maglia termica"],
-  short_sleeve_top: ["t-shirt", "maglia", "short sleeve", "manica corta"],
+  long_sleeve_top: ["manica lunga", "maniche lunghe", "long sleeve", "ls", "1/4 zip", "half zip", "maglia termica"],
+  short_sleeve_top: ["t-shirt", "maglietta", "maglia", "manica corta", "maniche corte", "short sleeve"],
   singlet_top: ["canotta", "singlet", "tank"],
-  top: ["maglia", "t-shirt", "long sleeve"],
+  top: ["maglia", "t-shirt", "manica lunga", "long sleeve"],
   jacket: ["giacca", "jacket", "antivento"],
   socks: ["calze", "socks", "calzini"],
   headwear: ["cappellino", "cap", "berretto", "visiera"],
@@ -1104,7 +1385,7 @@ const APPAREL_SYNONYM_TYPES = new Set<ProductType>([
   "singlet_top", "top", "jacket", "socks", "headwear",
 ]);
 
-const CLEAN_FILLER_RE = /\b(da\s+corsa|per\s+correre|per\s+la\s+corsa|da\s+running|per\s+running|miglior[ie]?|offerte?|prezzo|sotto\s+i?\s*\d+\s*(?:€|euro)?|meno\s+di\s*\d+\s*(?:€|euro)?|taglia\s*\S+|uomo|donna|unisex)\b/gi;
+const CLEAN_FILLER_RE = /\b(da\s+corsa|per\s+correre|per\s+la\s+corsa|da\s+running|per\s+running|miglior[ie]?|offerte?|prezzo(?:\s+(?:massimo|max|minimo|min))?|sotto\s*(?:i|ai|gli|le|di)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|sopra\s*(?:i|ai|gli|le|di)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|meno\s*di\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|pi[uù]\s*di\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|fino\s*a(?:i|gli)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|entro\s*(?:i|ai|gli)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|non\s+(?:oltre|pi[uù]\s*di)\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|tra\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\s*e\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|taglia\s*\S+|tg\.?\s*\S+|misura\s*\S+|numero\s*\S+|spedizione\s+(?:gratuita|gratis)|in\s+(?:sconto|offerta|saldo)|scontat[aeio]|saldi|uomo|donna|unisex|rimuovi\s+limite\s+di\s+prezzo|senza\s+limiti\s+di\s+budget)\b/gi;
 
 export function buildCatalogSearchTerms(opts: {
   rawQuery?: string | null;
@@ -1124,9 +1405,13 @@ export function buildCatalogSearchTerms(opts: {
 
   const add = (term: string) => {
     let clean = normalizeQueryTypos(term)
-      .replace(CLEAN_FILLER_RE, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+      .replace(/>>+/g, " ")
+      .replace(/€\s*\d+(?:[.,]\d+)?|\b\d+(?:[.,]\d+)?\s*€|\b(?:<=?|>=?)\s*\d+(?:[.,]\d+)?/g, " ")
+      .replace(CLEAN_FILLER_RE, " ");
+    for (const st of KNOWN_STORES) {
+      clean = clean.replace(new RegExp(`\\b(?:su|da|in|negli|nel)?\\s*${st.regex.source}`, "gi"), " ");
+    }
+    clean = clean.replace(/\s+/g, " ").trim();
     // For shoe queries, strip generic "scarpe"/"scarpa"/"shoes" so canonical names like "Hoka Clifton 9" match
     if (pt === "shoes" || pt === "trail_shoes") {
       clean = clean.replace(/\b(scarp[ae]|shoes?|running|corsa)\b/gi, " ").replace(/\s+/g, " ").trim();
@@ -1142,16 +1427,19 @@ export function buildCatalogSearchTerms(opts: {
     }
   };
 
-  // 1. Exact entity / model query (non-comparison): anchor with exact model phrase first!
-  if (entityTokens.length > 0 && !isComparison) {
-    const entityPhrase = entityTokens.join(" ");
-    if (brand) add(`${brand} ${entityPhrase}`);
-    add(entityPhrase);
+  // 1. When BOTH an entity/sub-brand (e.g. "acg") AND an apparel productType (e.g. "long_sleeve_top") exist,
+  // put SPECIFIC entity + apparel-synonym terms FIRST so hats/caps/bags matching bare "Nike acg" NEVER crowd them out!
+  const entityPhrase = entityTokens.join(" ");
+  if (entityTokens.length > 0 && !isComparison && pt && APPAREL_SYNONYM_TYPES.has(pt) && CATEGORY_SYNONYMS[pt]) {
+    for (const syn of CATEGORY_SYNONYMS[pt]!.slice(0, 6)) {
+      add(brand ? `${brand} ${entityPhrase} ${syn}` : `${entityPhrase} ${syn}`);
+    }
   }
 
   // 2. Clean LLM/caller keywords
   for (const kw of opts.keywords ?? []) {
     const cleaned = normalizeQueryTypos(kw)
+      .replace(/>>+/g, " ")
       .replace(CLEAN_FILLER_RE, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -1165,8 +1453,14 @@ export function buildCatalogSearchTerms(opts: {
     add(cleaned);
   }
 
-  // 3. For category + brand (or pure category) queries without specific model tokens, expand bilingual synonyms!
-  // Always expand apparel synonyms (leggings/tights/calzamaglia/fuseaux); expand other categories when < 2 terms.
+  // 3. Exact entity / model query anchor (placed BEFORE generic synonyms for non-apparel,
+  //    or AFTER specific entity+apparel terms so bare sub-brand never drowns out garment matches!)
+  if (entityTokens.length > 0 && !isComparison) {
+    if (brand) add(`${brand} ${entityPhrase}`);
+    add(entityPhrase);
+  }
+
+  // 4. For category + brand (or pure category) queries without specific model tokens, expand bilingual synonyms!
   if (entityTokens.length === 0 && pt && CATEGORY_SYNONYMS[pt] && (APPAREL_SYNONYM_TYPES.has(pt) || out.length < 2)) {
     for (const syn of CATEGORY_SYNONYMS[pt]!) {
       if (brand) {
@@ -1177,12 +1471,12 @@ export function buildCatalogSearchTerms(opts: {
     }
   }
 
-  // 4. Fallback to cleaned raw query only if we have no brand+category query (brand+shoes works directly via brand_filter!)
+  // 5. Fallback to cleaned raw query only if we have no brand+category query (brand+shoes works directly via brand_filter!)
   if (out.length === 0 && opts.rawQuery && !(brand && (pt === "shoes" || pt === "trail_shoes"))) {
     add(opts.rawQuery);
   }
 
-  return out.slice(0, 8);
+  return out.slice(0, 10);
 }
 
 // ============================================================================
@@ -1246,11 +1540,16 @@ function buildInternalProductFromOffers(
     size?: string | null;
     gender?: string | null;
     store?: string | null;
+    excludedStores?: string[] | null;
+    freeShipping?: boolean;
+    onSale?: boolean;
+    minDiscount?: number | null;
   },
   lexicalScore: number,
   semanticSim: number,
 ): InternalProduct | null {
   const storeFilter = opts.store?.trim().toLowerCase() || null;
+  const excludedStoresLow = new Set((opts.excludedStores ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean));
   const reqFemale = (opts.gender ?? "").toLowerCase().includes("donna") ||
     (prodMeta.gender ?? "").toLowerCase().includes("donna");
 
@@ -1273,16 +1572,28 @@ function buildInternalProductFromOffers(
     if (storeFilter && r.store_id.toLowerCase() !== storeFilter && !r.store_name.toLowerCase().includes(storeFilter)) {
       continue;
     }
+    if (excludedStoresLow.size > 0 && excludedStoresLow.has(r.store_id.toLowerCase())) {
+      continue;
+    }
     if (!sizeMatches(r.available_sizes, opts.size, reqFemale)) continue;
+    const ship = Number(r.shipping_cost ?? 0);
+    if (opts.freeShipping && ship > 0) continue;
+    const orig = r.original_price != null ? Number(r.original_price) : null;
+    const computedDisc = r.discount_pct != null
+      ? Number(r.discount_pct)
+      : (orig && orig > price ? Math.round(((orig - price) / orig) * 1000) / 10 : 0);
+    if (opts.minDiscount != null && opts.minDiscount > 0) {
+      if (computedDisc < opts.minDiscount) continue;
+    } else if (opts.onSale) {
+      if (!(computedDisc >= 5 || (orig != null && orig > price + 1))) continue;
+    }
 
     const dedupKey = `${r.store_id.toLowerCase()}|${r.product_url}`;
     if (seenOfferKeys.has(dedupKey)) continue;
     seenOfferKeys.add(dedupKey);
 
-    const ship = Number(r.shipping_cost ?? 0);
     const total = Math.round((price + ship) * 100) / 100;
     const isFree = ship === 0;
-    const orig = r.original_price != null ? Number(r.original_price) : null;
     const offerImg = isValidImageUrl(r.image_url)
       ? r.image_url!
       : (isValidImageUrl(prodMeta.image_url) ? prodMeta.image_url! : null);
@@ -1369,6 +1680,7 @@ function buildInternalProductFromOffers(
     available_sizes: Array.from(allSizes),
     lexical_score: lexicalScore,
     semantic_similarity: semanticSim,
+    rrf_score: 0,
     relevance_score: 0,
     matched_entity_count: 0,
     matched_digit_exact: false,
@@ -1451,21 +1763,30 @@ function stripInternalFields(p: InternalProduct): MatchedProductOut {
   };
 }
 
+export type SortByMode = "price_asc" | "price_desc" | "discount_desc";
+
+const CARBON_PLATE_SHOE_RE = /\b(vaporfly|alphafly|adios\s*pro|prime\s*x\d*|takumi\s*sen|metaspeed|magic\s*speed|endorphin\s*(?:pro|elite)|supercomp\s*elite|sc\s*elite|cielo\s*x\d*|rocket\s*x\d*|carbon\s*x\d*|skyward\s*x\d*|tecton\s*x\d*|deviate\s*nitro\s*elite|fast[\s-]*r|cloudboom|wave\s*rebellion\s*pro|hyperion\s*elite|carbon|piastra)\b/i;
+
 function scoreAndGateProducts(
   candidates: InternalProduct[],
   opts: {
     rawQuery: string;
     searchTerms: string[];
     brand: string | null;
+    excludedBrands?: string[] | null;
+    excludedFeatures?: string[] | null;
     productType: ProductType | null;
     entityTokens: string[];
     isComparison?: boolean;
     gender: string | null;
     preferredSize?: string | null;
+    sortBy?: SortByMode | null;
   },
 ): InternalProduct[] {
   const qLow = normalizeQueryTypos(opts.rawQuery).toLowerCase();
   const brandLow = opts.brand?.trim().toLowerCase() ?? null;
+  const excludedBrandsLow = (opts.excludedBrands ?? []).map((b) => b.trim().toLowerCase()).filter(Boolean);
+  const excludedFeats = new Set((opts.excludedFeatures ?? []).map((f) => f.trim().toLowerCase()));
   const entityTokens = opts.entityTokens;
   const isComparison = Boolean(opts.isComparison);
 
@@ -1474,7 +1795,7 @@ function scoreAndGateProducts(
     entityTokens.filter((t) => /^\d+$/.test(t)),
   );
   const wantsTrail = /\b(trail|sterrato|montagna|sentier[oi]|fango|bosco)\b/.test(qLow);
-  const wantsWaterproof = /\b(gtx|gore[\s-]*tex|impermeabil[ei]|pioggia|waterproof|shield)\b/.test(qLow);
+  const wantsWaterproof = !excludedFeats.has("no_waterproof") && /\b(gtx|gore[\s-]*tex|impermeabil[ei]|pioggia|waterproof|shield)\b/.test(qLow);
   const wantsHalfZip = /\b(half[\s-]*zip|mezza[\s-]*zip|1\/2[\s-]*zip|quarter[\s-]*zip)\b/.test(qLow);
   const wantsThermal = /\b(termic[aohe]+|invern[aoei]+|warm|merino|freddo|cold\s*gear|coldgear)\b/.test(qLow);
   const wantsPockets = /\b(tasc[ah]e?|telefono|smartphone|2[\s-]*in[\s-]*1|pockets?|speedpocket)\b/.test(qLow);
@@ -1495,12 +1816,23 @@ function scoreAndGateProducts(
     const offTitles = prod.offers.slice(0, 4).map((o) => o.title.toLowerCase()).join(" ");
     const combined = `${pname} ${pbrand} ${offTitles}`;
 
-    // 2. Strict brand gate when user requested a brand
+    // 2. Strict brand & excluded-brand gates
     if (brandLow) {
       const variants = [brandLow, brandLow.replace(/-/g, " "), brandLow.replace(/\s+/g, "-")];
       const matchesBrand = variants.some((v) => pbrand.includes(v) || pname.includes(v));
       if (!matchesBrand) continue;
     }
+    if (excludedBrandsLow.length > 0) {
+      const isExcludedBrand = excludedBrandsLow.some((eb) => {
+        const re = new RegExp(`\\b${escapeRegExp(eb)}\\b`, "i");
+        return re.test(pbrand) || re.test(pname);
+      });
+      if (isExcludedBrand) continue;
+    }
+    // 2b. Excluded features gate (e.g. "senza piastra in carbonio", "non impermeabili", "senza cappuccio")
+    if (excludedFeats.has("no_carbon") && CARBON_PLATE_SHOE_RE.test(combined)) continue;
+    if (excludedFeats.has("no_waterproof") && /\b(gtx|gore[\s-]*tex|waterproof|impermeabil)\b/i.test(combined)) continue;
+    if (excludedFeats.has("no_hood") && /\b(hoodie|hooded|cappuccio)\b/i.test(combined)) continue;
 
     // 3. Entity token matching
     let matchedEntities = 0;
@@ -1544,18 +1876,40 @@ function scoreAndGateProducts(
       }
     }
 
-    // Search term phrase & token overlap
+    // Search term phrase & token overlap (avoid Term-0 dominating multi-brand advisory queries!)
     for (let i = 0; i < opts.searchTerms.length; i++) {
       const term = opts.searchTerms[i].toLowerCase().trim();
       if (!term) continue;
-      const mult = i === 0 ? 1.4 : (i < 3 ? 1.15 : 1.0);
-      if (pname === term) score += 200 * mult;
-      else if (pname.includes(term)) score += 120 * mult;
-      else if (combined.includes(term)) score += 70 * mult;
+      const mult = entityTokens.length > 0
+        ? (i === 0 ? 1.15 : (i < 4 ? 1.08 : 1.0))
+        : 1.0;
+      if (pname === term) score += 160 * mult;
+      else if (pname.includes(term)) score += 95 * mult;
+      else if (combined.includes(term)) score += 55 * mult;
     }
 
     // Product-type & feature boosts
-    if (opts.productType === "leggings_tights") {
+    if (opts.productType === "long_sleeve_top") {
+      const wantsHeavyFleece = /\b(felp[ae]|hoodie|pile|fleece|polar|maglion[ei]|calda|calde|caldo|termic[aohe]|invern)\b/.test(qLow);
+      const isTrueLongSleeve = /\b(long[\s-]*sleeve|longsleeve|manic(?:a|he)\s*lung(?:a|he)|l\/s\b|\bls\b|base[\s-]*layer|strato\s*base|first\s*layer|radical\s*airflow\s*nxt)\b/.test(combined);
+      const isZipTop = /\b(half[\s-]*zip|quarter[\s-]*zip|mezza\s*zip|1\s*[\/\s]\s*[24][\s-]*(?:di\s+)?zip|zip\s*(?:a\s*)?1\s*[\/\s]\s*[24]|zip\s*(?:a\s*)?met[aà]\s*lunghezza|top\s*zip)\b/.test(combined);
+      const isFleeceOrHoodie = /\b(felp[ae]|hoodie|tuff\s*fleece|pile\b|polar\b|fleece|wolf\s*lichen|girocollo|crewneck)\b/.test(combined);
+      if (!wantsHeavyFleece) {
+        // User asked for "long sleeve" / "manica lunga": prioritize true long-sleeve tops FIRST,
+        // then technical zip/base layers, then fleece/hoodies as secondary warm alternatives!
+        if (isTrueLongSleeve && !isFleeceOrHoodie) score += 145;
+        else if (isTrueLongSleeve) score += 110;
+        else if (isZipTop && !isFleeceOrHoodie) score += 80;
+        else if (isZipTop) score += 55;
+        else if (isFleeceOrHoodie) score -= 20;
+      } else {
+        if (isFleeceOrHoodie) score += 80;
+        if (isZipTop) score += 45;
+      }
+      if (/\b(running|corsa)\b/.test(qLow) && /\b(run|running|corsa|trail|dri[\s-]*fit|adv|aeroready|airflow|miler|pacer|strider)\b/.test(combined)) {
+        score += 45;
+      }
+    } else if (opts.productType === "leggings_tights") {
       if (/\b(leggings?|tights?|calzamagli[ae]|fuseaux)\b/.test(pname)) score += 90;
       if (/\b(corsa|run|running|velociti|launch|fly\s*fast|qualifier|speedpocket|coldgear|heatgear)\b/.test(combined)) score += 40;
     } else if (opts.productType === "shorts") {
@@ -1580,6 +1934,11 @@ function scoreAndGateProducts(
       }
       if (wantsCushion && /\b(nimbus|bondi|invincible|glycerin|1080|triumph|cloudmonster|superblast|magmax)\b/.test(pname)) {
         score += 80;
+      }
+      if (/\b(maraton[ae]|marathon|gara|racing|veloci|competitiv[ae]|tempo\s*run|record|pb)\b/.test(qLow)) {
+        if (/\b(vaporfly|alphafly|adios\s*pro|metaspeed|endorphin\s*(?:pro|elite|speed)|deviate\s*nitro|fast[\s-]*r|cielo\s*x|rocket\s*x|sc\s*elite|supercomp\s*elite|cloudboom|hyperion\s*(?:elite|max)|wave\s*rebellion|superblast|zoom\s*fly|magic\s*speed|takumi\s*sen|boston\s*1[23])\b/.test(pname)) {
+          score += 95;
+        }
       }
     }
 
@@ -1606,9 +1965,12 @@ function scoreAndGateProducts(
       else if (pgLow === "unisex") score -= 15;
     }
 
-    // Semantic similarity bonus (moderate so it never overrides exact model match!)
-    if (prod.semantic_similarity > 0.40) {
-      score += prod.semantic_similarity * 50;
+    // Hybrid Reciprocal Rank Fusion (RRF) + semantic similarity bonus (moderate so it never overrides exact SKU match!)
+    if (prod.rrf_score > 0) {
+      score += prod.rrf_score;
+    }
+    if (prod.semantic_similarity > 0.38) {
+      score += prod.semantic_similarity * 58;
     }
 
     // Preferred size soft boost
@@ -1679,22 +2041,41 @@ function scoreAndGateProducts(
     }
   }
 
-  // 6. Relative relevance score cutoff (drop weak noise tail)
+  // 6. Relative relevance score cutoff (drop weak noise tail while NEVER dropping items that matched all required entity tokens!)
   const topScore = Math.max(...finalList.map((p) => p.relevance_score));
   if (topScore >= 120) {
-    const minKeep = Math.max(20, topScore * (entityTokens.length > 0 ? 0.35 : 0.20));
-    const trimmed = finalList.filter((p) => p.relevance_score >= minKeep);
+    const minKeep = Math.max(20, topScore * (entityTokens.length > 0 ? 0.25 : 0.18));
+    const trimmed = finalList.filter((p) =>
+      p.relevance_score >= minKeep ||
+      (entityTokens.length > 0 && p.matched_entity_count === entityTokens.length && p.relevance_score > 0)
+    );
     if (trimmed.length > 0) finalList = trimmed;
   }
 
-  // 7. Sort by relevance FIRST, then multi-store offers, then best price
-  finalList.sort((a, b) => {
-    if (Math.abs(b.relevance_score - a.relevance_score) > 1.0) {
-      return b.relevance_score - a.relevance_score;
+  // 7. Sort by explicit sortBy when requested, else by relevance -> offer count -> best price
+  const maxDiscountOf = (p: InternalProduct): number => {
+    let bestD = 0;
+    for (const o of p.offers) {
+      const d = o.discount_pct ?? (o.original_price && o.original_price > o.price ? ((o.original_price - o.price) / o.original_price) * 100 : 0);
+      if (d > bestD) bestD = d;
     }
-    if (b.offers.length !== a.offers.length) return b.offers.length - a.offers.length;
-    return (a.best_price ?? 9999) - (b.best_price ?? 9999);
-  });
+    return bestD;
+  };
+  if (opts.sortBy === "price_asc") {
+    finalList.sort((a, b) => (a.best_price ?? 99999) - (b.best_price ?? 99999) || b.relevance_score - a.relevance_score);
+  } else if (opts.sortBy === "price_desc") {
+    finalList.sort((a, b) => (b.best_price ?? 0) - (a.best_price ?? 0) || b.relevance_score - a.relevance_score);
+  } else if (opts.sortBy === "discount_desc") {
+    finalList.sort((a, b) => maxDiscountOf(b) - maxDiscountOf(a) || (a.best_price ?? 99999) - (b.best_price ?? 99999));
+  } else {
+    finalList.sort((a, b) => {
+      if (Math.abs(b.relevance_score - a.relevance_score) > 1.0) {
+        return b.relevance_score - a.relevance_score;
+      }
+      if (b.offers.length !== a.offers.length) return b.offers.length - a.offers.length;
+      return (a.best_price ?? 9999) - (b.best_price ?? 9999);
+    });
+  }
 
   // 8. Deduplicate / merge identical canonical models (including noisy scraper prefixes like "Sneaker " / "Sollevamento Pesi ")
   const normalizeMergeKey = (name: string): string =>
@@ -1784,6 +2165,7 @@ export interface SearchCatalogOptions {
   rawQuery?: string | null;
   keywords?: string[];
   brand?: string | null;
+  excludedBrands?: string[] | null;
   category?: string | null;
   productType?: ProductType | null;
   entityTokens?: string[];
@@ -1794,37 +2176,75 @@ export interface SearchCatalogOptions {
   preferredSize?: string | null;
   gender?: string | null;
   store?: string | null;
+  excludedStores?: string[] | null;
+  excludedFeatures?: string[] | null;
+  freeShipping?: boolean;
+  onSale?: boolean;
+  minDiscount?: number | null;
+  colorTokens?: string[] | null;
+  requireColor?: boolean;
+  sortBy?: SortByMode | null;
+  browseOnly?: boolean;
+  excludeIds?: string[] | null;
   semanticQuery?: string | null;
   allowSemantic?: boolean;
   limit?: number;
+}
+
+interface SemanticRpcRow extends Omit<RpcProductRow, "lexical_score"> {
+  similarity: number;
 }
 
 export async function searchCatalogOffers(
   supabase: SupabaseClient,
   opts: SearchCatalogOptions,
 ): Promise<MatchedProductOut[]> {
-  const limit = Math.min(Math.max(opts.limit ?? 35, 1), 60);
+  const limit = Math.min(Math.max(opts.limit ?? 35, 1), 80);
   const rawQuery = normalizeQueryTypos(opts.rawQuery ?? (opts.keywords ?? []).join(" "));
-  const brand = opts.brand?.trim() || extractBrand(rawQuery, null);
+  const brand = opts.brand !== undefined ? (opts.brand?.trim() || null) : extractBrand(rawQuery, null);
+  const excludedBrands = opts.excludedBrands && opts.excludedBrands.length > 0 ? opts.excludedBrands : null;
+  const excludedStores = opts.excludedStores && opts.excludedStores.length > 0
+    ? opts.excludedStores.map((s) => s.trim().toLowerCase()).filter(Boolean)
+    : null;
+  const excludeIds = opts.excludeIds && opts.excludeIds.length > 0
+    ? Array.from(new Set(opts.excludeIds.map((id) => id.trim()).filter(Boolean))).slice(0, 300)
+    : null;
+  const excludeIdSet = excludeIds ? new Set(excludeIds) : null;
   const productType = opts.productType ?? detectSingleProductType(rawQuery);
-  const entityTokens = opts.entityTokens ?? extractSpecificEntityTokens(rawQuery, brand);
+  const entityTokens = opts.browseOnly ? [] : (opts.entityTokens ?? extractSpecificEntityTokens(rawQuery, brand));
   const isComparison = Boolean(opts.isComparison);
 
-  const searchTerms = buildCatalogSearchTerms({
-    rawQuery,
-    keywords: opts.keywords,
-    brand,
-    productType,
-    entityTokens,
-    isComparison,
-  });
+  const searchTerms = opts.browseOnly
+    ? []
+    : buildCatalogSearchTerms({
+        rawQuery,
+        keywords: opts.keywords,
+        brand,
+        productType,
+        entityTokens,
+        isComparison,
+      });
 
   const blockedCategories = getBlockedCategoriesForProductType(productType);
+  const sizeVariantsSql = buildSizeVariantsForSql(opts.size, opts.gender);
   const candidateMap = new Map<string, InternalProduct>();
+
+  const offerBuildOpts = {
+    maxPrice: opts.maxPrice,
+    minPrice: opts.minPrice,
+    size: opts.size,
+    gender: opts.gender,
+    store: opts.store,
+    excludedStores,
+    freeShipping: opts.freeShipping,
+    onSale: opts.onSale,
+    minDiscount: opts.minDiscount,
+  };
 
   const ingestRpcRows = (rows: RpcProductRow[] | null | undefined) => {
     if (!Array.isArray(rows)) return;
     for (const row of rows) {
+      if (excludeIdSet?.has(row.id)) continue;
       const built = buildInternalProductFromOffers(
         {
           id: row.id,
@@ -1836,170 +2256,227 @@ export async function searchCatalogOffers(
           gallery_images: row.gallery_images,
         },
         row.offers ?? [],
-        {
-          maxPrice: opts.maxPrice,
-          minPrice: opts.minPrice,
-          size: opts.size,
-          gender: opts.gender,
-          store: opts.store,
-        },
+        offerBuildOpts,
         Number(row.lexical_score ?? 0),
         0,
       );
       if (!built) continue;
       const existing = candidateMap.get(built.id);
-      if (!existing || built.lexical_score > existing.lexical_score) {
+      if (!existing) {
         candidateMap.set(built.id, built);
+      } else {
+        existing.lexical_score = Math.max(existing.lexical_score, built.lexical_score);
       }
     }
   };
 
-  // 1. Primary Product-Level Hybrid Lexical RPC (single fast roundtrip!)
-  // For pure category+filter queries (e.g. "scarpe running taglia 43 sotto 120 euro") where searchTerms & brand are empty,
-  // browse the mapped DB category directly so Postgres returns all brands matching the size/price/gender filters.
-  const mappedCategory = mapProductTypeToCategory(productType);
-  const browseAllowedCategories = (searchTerms.length === 0 && !brand && mappedCategory)
-    ? (mappedCategory === "running_shoes" ? ["running_shoes", "shoes"] : [mappedCategory])
-    : null;
+  const ingestSemanticRows = (rows: SemanticRpcRow[] | null | undefined) => {
+    if (!Array.isArray(rows)) return;
+    for (const row of rows) {
+      if (excludeIdSet?.has(row.id)) continue;
+      const sim = Number(row.similarity ?? 0);
+      const existing = candidateMap.get(row.id);
+      if (existing) {
+        existing.semantic_similarity = Math.max(existing.semantic_similarity, sim);
+        continue;
+      }
+      const built = buildInternalProductFromOffers(
+        {
+          id: row.id,
+          canonical_name: row.canonical_name,
+          brand: row.brand,
+          category: row.category,
+          gender: row.gender,
+          image_url: row.image_url,
+          gallery_images: row.gallery_images,
+        },
+        row.offers ?? [],
+        offerBuildOpts,
+        0,
+        sim,
+      );
+      if (built) candidateMap.set(built.id, built);
+    }
+  };
 
-  if (searchTerms.length > 0 || brand || browseAllowedCategories) {
-    const { data: rpcRows } = await supabase.rpc("search_products_catalog", {
-      search_terms: searchTerms.length > 0 ? searchTerms : null,
+  // 1. Primary Product-Level Hybrid Lexical RPC v4 + Parallel Filtered pgvector v2 (RRF)
+  const mappedCategory = mapProductTypeToCategory(productType);
+  const categoryAllowedForProductType = mappedCategory
+    ? (mappedCategory === "running_shoes"
+      ? (opts.sortBy === "price_asc" ? ["running_shoes"] : ["running_shoes", "shoes"])
+      : mappedCategory === "trail_running"
+        ? (opts.sortBy === "price_asc" ? ["trail_running", "running_shoes"] : ["trail_running", "running_shoes", "shoes"])
+        : mappedCategory === "top"
+          ? ["top", "apparel"]
+          : mappedCategory === "pants"
+            ? ["pants", "apparel"]
+            : mappedCategory === "jacket"
+              ? ["jacket", "apparel"]
+              : [mappedCategory])
+    : null;
+  const browseAllowedCategories = searchTerms.length === 0 ? categoryAllowedForProductType : null;
+
+  // When browsing cheapest-first (price_asc), apply realistic category floor prices in SQL so
+  // €5 laces / €15 slides / €20 kids shoes don't exhaust the SQL LIMIT before reaching real adult products!
+  let effectiveSqlMinPrice = opts.minPrice ?? null;
+  if (opts.sortBy === "price_asc") {
+    const shoeTypes: ProductType[] = ["shoes", "trail_shoes", "basketball_shoes", "tennis_shoes", "volleyball_shoes", "football_boots"];
+    if (productType && shoeTypes.includes(productType)) {
+      effectiveSqlMinPrice = Math.max(effectiveSqlMinPrice ?? 0, 35);
+    } else if (productType === "gps_watch") {
+      effectiveSqlMinPrice = Math.max(effectiveSqlMinPrice ?? 0, 65);
+    } else if (productType === "padel_racket" || productType === "tennis_racket") {
+      effectiveSqlMinPrice = Math.max(effectiveSqlMinPrice ?? 0, 38);
+    }
+  }
+
+  const rpcBaseParams = {
+    blocked_categories: blockedCategories,
+    gender_filter: opts.gender ?? null,
+    max_price_filter: opts.maxPrice ?? null,
+    min_price_filter: effectiveSqlMinPrice,
+    store_filter: opts.store ?? null,
+    size_candidates: sizeVariantsSql,
+    free_shipping_only: Boolean(opts.freeShipping),
+    on_sale_only: Boolean(opts.onSale),
+    min_discount_filter: opts.minDiscount ?? null,
+    color_tokens: opts.colorTokens && opts.colorTokens.length > 0 ? opts.colorTokens : null,
+    require_color: Boolean(opts.requireColor && opts.colorTokens && opts.colorTokens.length > 0),
+    excluded_brands: excludedBrands,
+    excluded_stores: excludedStores,
+    sort_mode: opts.sortBy ?? null,
+    exclude_product_ids: excludeIds,
+  };
+
+  // Run filtered pgvector semantic search IN PARALLEL with lexical RPC for conceptual / non-SKU queries
+  // (e.g. "scarpe maratona", "giacca traspirante", "scarpe ammortizzate ginocchia", "maglia termica inverno")
+  const hasDigitEntity = entityTokens.some((t) => /^\d+$/.test(t));
+  const semanticQueryStr = opts.semanticQuery?.trim() ? normalizeQueryTypos(opts.semanticQuery) : "";
+  const isParallelHybrid = opts.allowSemantic !== false &&
+    semanticQueryStr.length >= 3 &&
+    !isComparison &&
+    !opts.sortBy &&
+    !opts.requireColor &&
+    entityTokens.length === 0;
+
+  const runFilteredSemantic = async (queryText: string, threshold: number, count: number): Promise<SemanticRpcRow[]> => {
+    const emb = await getQueryEmbedding(queryText);
+    if (!emb) return [];
+    const { data: semRows } = await supabase.rpc("match_products_semantic_v2", {
+      query_embedding: emb,
+      match_threshold: threshold,
+      match_count: count,
       brand_filter: brand,
-      allowed_categories: browseAllowedCategories,
+      excluded_brands: excludedBrands,
+      allowed_categories: categoryAllowedForProductType,
       blocked_categories: blockedCategories,
       gender_filter: opts.gender ?? null,
       max_price_filter: opts.maxPrice ?? null,
-      min_price_filter: opts.minPrice ?? null,
+      min_price_filter: effectiveSqlMinPrice,
       store_filter: opts.store ?? null,
-      result_limit: 80,
+      excluded_stores: excludedStores,
+      size_candidates: sizeVariantsSql,
+      free_shipping_only: Boolean(opts.freeShipping),
+      on_sale_only: Boolean(opts.onSale),
+      min_discount_filter: opts.minDiscount ?? null,
+      exclude_product_ids: excludeIds,
+    });
+    return Array.isArray(semRows) ? (semRows as SemanticRpcRow[]) : [];
+  };
+
+  const lexicalPromise = (searchTerms.length > 0 || brand || browseAllowedCategories)
+    ? supabase.rpc("search_products_catalog_v4", {
+        ...rpcBaseParams,
+        search_terms: searchTerms.length > 0 ? searchTerms : null,
+        brand_filter: brand,
+        allowed_categories: browseAllowedCategories,
+        result_limit: opts.sortBy === "price_asc" ? 180 : 130,
+      }).then((r) => (r.data as RpcProductRow[] | null) ?? null)
+    : Promise.resolve<RpcProductRow[] | null>(null);
+
+  const parallelSemanticPromise = isParallelHybrid
+    ? runFilteredSemantic(semanticQueryStr, 0.36, 45)
+    : Promise.resolve<SemanticRpcRow[]>([]);
+
+  const [primaryLexRows, parallelSemRows] = await Promise.all([lexicalPromise, parallelSemanticPromise]);
+  ingestRpcRows(primaryLexRows);
+  ingestSemanticRows(parallelSemRows);
+
+  // Fallback for price_asc on running_shoes if narrow filters (e.g. store + size) returned < 10 in running_shoes alone
+  if (opts.sortBy === "price_asc" && searchTerms.length === 0 && mappedCategory === "running_shoes" && candidateMap.size < 10) {
+    const { data: rpcRows } = await supabase.rpc("search_products_catalog_v4", {
+      ...rpcBaseParams,
+      search_terms: null,
+      brand_filter: brand,
+      allowed_categories: ["running_shoes", "shoes"],
+      result_limit: 160,
     });
     ingestRpcRows(rpcRows as RpcProductRow[] | null);
   }
 
   // 2. If brand + exact entity tokens returned 0 (e.g. brand spelled differently in DB), retry without brand_filter
   if (candidateMap.size === 0 && entityTokens.length > 0 && brand) {
-    const { data: rpcRows } = await supabase.rpc("search_products_catalog", {
+    const { data: rpcRows } = await supabase.rpc("search_products_catalog_v4", {
+      ...rpcBaseParams,
       search_terms: searchTerms,
       brand_filter: null,
       allowed_categories: null,
-      blocked_categories: blockedCategories,
-      gender_filter: opts.gender ?? null,
-      max_price_filter: opts.maxPrice ?? null,
-      min_price_filter: opts.minPrice ?? null,
-      store_filter: opts.store ?? null,
-      result_limit: 60,
+      result_limit: 80,
     });
     ingestRpcRows(rpcRows as RpcProductRow[] | null);
   }
 
-  // 3. Conditional Semantic pgvector Search:
-  // ONLY run semantic search when lexical results are sparse (< 6) OR query is descriptive/advisory
-  // (no exact entity tokens matched). NEVER run semantic search to pollute exact SKU matches!
-  const lexicalValues = Array.from(candidateMap.values());
-  const hasStrongEntityLexical = entityTokens.length > 0 && lexicalValues.some((p) => {
-    const probe = `${p.canonical_name} ${p.brand ?? ""}`.toLowerCase();
-    return entityTokens.every((et) => new RegExp(`\\b${escapeRegExp(et)}\\b`, "i").test(probe));
-  });
+  // 3. Fallback Semantic pgvector Search when parallel hybrid didn't run (e.g. non-digit entity query with < 6 lexical hits)
+  if (!isParallelHybrid && opts.allowSemantic !== false && semanticQueryStr.length >= 3 && !opts.sortBy && !hasDigitEntity) {
+    const lexicalValues = Array.from(candidateMap.values());
+    const hasStrongEntityLexical = entityTokens.length > 0 && lexicalValues.some((p) => {
+      const probe = `${p.canonical_name} ${p.brand ?? ""}`.toLowerCase();
+      return entityTokens.every((et) => new RegExp(`\\b${escapeRegExp(et)}\\b`, "i").test(probe));
+    });
+    if (!hasStrongEntityLexical && candidateMap.size < 6) {
+      const fallbackSemRows = await runFilteredSemantic(semanticQueryStr, entityTokens.length > 0 ? 0.48 : 0.38, 35);
+      ingestSemanticRows(fallbackSemRows);
+    }
+  }
 
-  const isDescriptive = entityTokens.length === 0 && rawQuery.split(/\s+/).length >= 4;
-  const shouldRunSemantic = opts.allowSemantic !== false &&
-    Boolean(opts.semanticQuery && opts.semanticQuery.trim().length >= 3) &&
-    !hasStrongEntityLexical &&
-    (candidateMap.size < 6 || isDescriptive);
+  // 3b. Reciprocal Rank Fusion (RRF) across lexical & semantic candidate lists (k = 40)
+  // Items surfaced by BOTH FTS/trigram and pgvector embeddings receive a decisive combined rank boost!
+  const allCandidates = Array.from(candidateMap.values());
+  const lexRanked = allCandidates
+    .filter((p) => p.lexical_score > 0)
+    .sort((a, b) => b.lexical_score - a.lexical_score);
+  const semRanked = allCandidates
+    .filter((p) => p.semantic_similarity > 0)
+    .sort((a, b) => b.semantic_similarity - a.semantic_similarity);
 
-  if (shouldRunSemantic && opts.semanticQuery) {
-    const emb = await getQueryEmbedding(normalizeQueryTypos(opts.semanticQuery));
-    if (emb) {
-      const threshold = entityTokens.length > 0 ? 0.50 : 0.42;
-      const { data: semMatches } = await supabase.rpc("match_products_semantic", {
-        query_embedding: emb,
-        match_threshold: threshold,
-        match_count: 30,
-      });
-      if (Array.isArray(semMatches) && semMatches.length > 0) {
-        const simById = new Map<string, number>();
-        for (const m of semMatches as Array<{ id: string; similarity?: number }>) {
-          if (m.id) simById.set(m.id, Number(m.similarity ?? 0));
-        }
-        const missingIds = Array.from(simById.keys()).filter((id) => !candidateMap.has(id));
-        // Update similarity on already-fetched lexical hits
-        for (const [id, sim] of simById.entries()) {
-          const ex = candidateMap.get(id);
-          if (ex) ex.semantic_similarity = Math.max(ex.semantic_similarity, sim);
-        }
-        if (missingIds.length > 0) {
-          let q = supabase
-            .from("store_offers")
-            .select(OFFER_SELECT)
-            .in("product_id", missingIds.slice(0, 25))
-            .limit(180);
-          if (opts.maxPrice != null) q = q.lte("current_price", opts.maxPrice);
-          if (opts.minPrice != null) q = q.gte("current_price", opts.minPrice);
-          const { data: offerRows } = await q;
-          if (Array.isArray(offerRows) && offerRows.length > 0) {
-            const grouped = new Map<string, { meta: NonNullable<RawOfferRow["products"]> & { id: string; canonical_name: string }; offers: RawOfferRow[] }>();
-            for (const r of offerRows as RawOfferRow[]) {
-              const pid = r.product_id;
-              if (!pid || r.products?.category === "non_sport") continue;
-              let entry = grouped.get(pid);
-              if (!entry) {
-                entry = {
-                  meta: {
-                    id: pid,
-                    canonical_name: r.products?.canonical_name || r.raw_title,
-                    brand: r.products?.brand ?? null,
-                    category: r.products?.category ?? null,
-                    gender: r.products?.gender ?? null,
-                    image_url: r.products?.image_url ?? null,
-                    gallery_images: r.products?.gallery_images ?? null,
-                  },
-                  offers: [],
-                };
-                grouped.set(pid, entry);
-              }
-              entry.offers.push(r);
-            }
-            for (const [pid, { meta, offers }] of grouped.entries()) {
-              const built = buildInternalProductFromOffers(
-                {
-                  id: meta.id,
-                  canonical_name: meta.canonical_name,
-                  brand: meta.brand ?? null,
-                  category: meta.category ?? null,
-                  gender: meta.gender ?? null,
-                  image_url: meta.image_url ?? null,
-                  gallery_images: meta.gallery_images ?? null,
-                },
-                offers,
-                {
-                  maxPrice: opts.maxPrice,
-                  minPrice: opts.minPrice,
-                  size: opts.size,
-                  gender: opts.gender,
-                  store: opts.store,
-                },
-                0,
-                simById.get(pid) ?? 0,
-              );
-              if (built) candidateMap.set(pid, built);
-            }
-          }
-        }
-      }
+  if (semRanked.length > 0) {
+    const lexRankById = new Map<string, number>();
+    lexRanked.forEach((p, idx) => lexRankById.set(p.id, idx + 1));
+    const semRankById = new Map<string, number>();
+    semRanked.forEach((p, idx) => semRankById.set(p.id, idx + 1));
+
+    for (const p of allCandidates) {
+      const lr = lexRankById.get(p.id) ?? 0;
+      const sr = semRankById.get(p.id) ?? 0;
+      const lexPart = lr > 0 ? 1 / (40 + lr) : 0;
+      const semPart = sr > 0 ? 0.88 / (40 + sr) : 0;
+      p.rrf_score = (lexPart + semPart) * 2400;
     }
   }
 
   // 4. Score, hard-gate, deduplicate, and rank!
-  const ranked = scoreAndGateProducts(Array.from(candidateMap.values()), {
+  const ranked = scoreAndGateProducts(allCandidates, {
     rawQuery,
     searchTerms,
     brand,
+    excludedBrands,
+    excludedFeatures: opts.excludedFeatures ?? null,
     productType,
     entityTokens,
     isComparison,
     gender: opts.gender ?? null,
     preferredSize: opts.preferredSize ?? null,
+    sortBy: opts.sortBy ?? null,
   });
 
   return ranked.slice(0, limit).map(stripInternalFields);
@@ -2016,6 +2493,7 @@ export interface SubQuerySpec {
   brand?: string | null;
   productType?: ProductType | null;
   entityTokens?: string[];
+  browseOnly?: boolean;
   allowSemantic?: boolean;
   limit?: number;
 }
@@ -2025,6 +2503,20 @@ export interface MultiQuerySearchResult {
   primaryIds: Set<string>;
   roleById: Record<string, "primary" | "variant" | "complementary">;
   executedLabels: string[];
+  hasMore: boolean;
+}
+
+export function modelFamilyKey(p: MatchedProductOut): string {
+  const clean = p.canonical_name
+    .toLowerCase()
+    .replace(/\s*\((uomo|donna|unisex)\)$/i, "")
+    .replace(/\b(scarpe?|sneakers?|su\s+strada|impermeabil[ei]|gore\s*tex|gtx|trail|running|corsa|uomo|donna|se|pro|plus|premium|adv|ess|nn|wp|tr|max|amp|wide|large|narrow|lite|gel|fresh|foam|wave|air|zoom|gts)\b/g, " ")
+    .replace(/\b\d+\b/g, " ")
+    .replace(/[^a-zàèéìòù\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const toks = clean.split(" ").filter((t) => t.length >= 2);
+  return toks.slice(0, 2).join(" ") || p.canonical_name.toLowerCase();
 }
 
 export async function searchCatalogMultiQuery(
@@ -2033,6 +2525,7 @@ export async function searchCatalogMultiQuery(
     rawQuery: string;
     subQueries: SubQuerySpec[];
     brand?: string | null;
+    excludedBrands?: string[] | null;
     category?: string | null;
     productType?: ProductType | null;
     maxPrice?: number | null;
@@ -2041,22 +2534,43 @@ export async function searchCatalogMultiQuery(
     preferredSize?: string | null;
     gender?: string | null;
     store?: string | null;
+    excludedStores?: string[] | null;
+    excludedFeatures?: string[] | null;
+    freeShipping?: boolean;
+    onSale?: boolean;
+    minDiscount?: number | null;
+    colorTokens?: string[] | null;
+    requireColor?: boolean;
+    sortBy?: SortByMode | null;
+    excludeIds?: string[] | null;
     isComparison?: boolean;
+    diversifyModels?: boolean;
+    relaxDiversity?: boolean;
     totalLimit?: number;
   },
 ): Promise<MultiQuerySearchResult> {
-  const specs = opts.subQueries.slice(0, 5);
-  const totalLimit = Math.min(Math.max(opts.totalLimit ?? 36, 1), 60);
+  const specs = opts.subQueries.slice(0, 6);
+  const totalLimit = Math.min(Math.max(opts.totalLimit ?? 42, 1), 65);
+  const excludeIds = opts.excludeIds && opts.excludeIds.length > 0 ? opts.excludeIds : null;
+  const excludeIdSet = excludeIds ? new Set(excludeIds) : null;
 
+  // Ensure at most ONE sub-query fires the pgvector embedding call per multi-query fan-out,
+  // and ONLY on a sub-query matching the user's brand scope (never restricting a brandless query's vector search to 1 LLM-picked brand!)
+  let semanticAssigned = false;
   const perQueryResults = await Promise.all(
     specs.map(async (sq) => {
       const sqBrand = sq.brand !== undefined ? sq.brand : (opts.brand ?? null);
       const sqPType = sq.productType !== undefined ? sq.productType : (opts.productType ?? null);
       const sqEntities = sq.entityTokens ?? [];
+      const brandMatchesUserScope = (sqBrand ?? "").toLowerCase() === (opts.brand ?? "").toLowerCase();
+      const shouldUseSemantic = Boolean(sq.allowSemantic) && brandMatchesUserScope && !semanticAssigned;
+      if (shouldUseSemantic) semanticAssigned = true;
+
       let items = await searchCatalogOffers(supabase, {
         rawQuery: sq.role === "primary" ? opts.rawQuery : (sq.terms[0] ?? opts.rawQuery),
         keywords: sq.terms,
         brand: sqBrand,
+        excludedBrands: opts.excludedBrands ?? null,
         category: opts.category ?? null,
         productType: sqPType,
         entityTokens: sqEntities,
@@ -2067,9 +2581,19 @@ export async function searchCatalogMultiQuery(
         preferredSize: opts.preferredSize ?? null,
         gender: opts.gender ?? null,
         store: opts.store ?? null,
-        semanticQuery: sq.allowSemantic ? (sq.terms.slice(0, 2).join(" ") || opts.rawQuery) : null,
-        allowSemantic: sq.allowSemantic ?? false,
-        limit: sq.limit ?? (sq.role === "primary" ? 20 : 12),
+        excludedStores: opts.excludedStores ?? null,
+        excludedFeatures: opts.excludedFeatures ?? null,
+        freeShipping: opts.freeShipping,
+        onSale: opts.onSale,
+        minDiscount: opts.minDiscount ?? null,
+        colorTokens: opts.colorTokens ?? null,
+        requireColor: opts.requireColor,
+        sortBy: opts.sortBy ?? null,
+        browseOnly: sq.browseOnly ?? false,
+        excludeIds,
+        semanticQuery: shouldUseSemantic ? (opts.rawQuery || sq.terms.slice(0, 2).join(" ")) : null,
+        allowSemantic: shouldUseSemantic,
+        limit: sq.limit ?? (sq.role === "primary" ? 28 : 18),
       });
 
       // Graceful generation fallback: if an exact known-brand version is sold out (e.g. "Asics Nimbus 26"),
@@ -2088,6 +2612,7 @@ export async function searchCatalogMultiQuery(
             rawQuery: `${sqBrand} ${nonDigit.join(" ")}`,
             keywords: relaxedTerms,
             brand: sqBrand,
+            excludedBrands: opts.excludedBrands ?? null,
             category: opts.category ?? null,
             productType: sqPType,
             entityTokens: nonDigit,
@@ -2098,9 +2623,18 @@ export async function searchCatalogMultiQuery(
             preferredSize: opts.preferredSize ?? null,
             gender: opts.gender ?? null,
             store: opts.store ?? null,
+            excludedStores: opts.excludedStores ?? null,
+            excludedFeatures: opts.excludedFeatures ?? null,
+            freeShipping: opts.freeShipping,
+            onSale: opts.onSale,
+            minDiscount: opts.minDiscount ?? null,
+            colorTokens: opts.colorTokens ?? null,
+            requireColor: opts.requireColor,
+            sortBy: opts.sortBy ?? null,
+            excludeIds,
             semanticQuery: null,
             allowSemantic: false,
-            limit: sq.limit ?? 12,
+            limit: sq.limit ?? 14,
           });
         }
       }
@@ -2110,10 +2644,15 @@ export async function searchCatalogMultiQuery(
   );
 
   // Merge in strict priority order: primary -> variant -> complementary
+  // For broad/category queries (diversifyModels=true), round-robin across sub-queries & cap single model-family/brand flooding
+  // so 6 Brooks Ghost variants never crowd out Asics, Hoka, Saucony, New Balance, Adidas!
   const roleOrder: Array<"primary" | "variant" | "complementary"> = ["primary", "variant", "complementary"];
   const merged: MatchedProductOut[] = [];
-  const seenIds = new Set<string>();
+  const overflow: Array<{ prod: MatchedProductOut; role: "primary" | "variant" | "complementary" }> = [];
+  const seenIds = new Set<string>(excludeIdSet ?? []);
   const seenNames = new Set<string>();
+  const familyCounts = new Map<string, number>();
+  const brandCounts = new Map<string, number>();
   const primaryIds = new Set<string>();
   const roleById: Record<string, "primary" | "variant" | "complementary"> = {};
   const executedLabels: string[] = [];
@@ -2124,27 +2663,84 @@ export async function searchCatalogMultiQuery(
     }
   }
 
+  const maxPerFamily = opts.diversifyModels ? (opts.relaxDiversity ? 4 : 2) : 999;
+  const maxPerBrand = (opts.diversifyModels && !opts.brand && !opts.sortBy) ? (opts.relaxDiversity ? 8 : 4) : 999;
+
+  const tryPush = (prod: MatchedProductOut, role: "primary" | "variant" | "complementary") => {
+    const nameKey = prod.canonical_name
+      .trim()
+      .toLowerCase()
+      .replace(/\b(sneakers?|scarpe|scarpa|sollevamento\s+pesi)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim() + "|" + (prod.gender ?? "Unisex").toLowerCase();
+    if (seenIds.has(prod.id) || seenNames.has(nameKey)) return;
+    seenIds.add(prod.id);
+    seenNames.add(nameKey);
+
+    const fam = modelFamilyKey(prod);
+    const bKey = (prod.brand ?? "unknown").toLowerCase();
+    const curFam = familyCounts.get(fam) ?? 0;
+    const curBrand = brandCounts.get(bKey) ?? 0;
+    if (curFam >= maxPerFamily || curBrand >= maxPerBrand) {
+      overflow.push({ prod, role });
+      return;
+    }
+    familyCounts.set(fam, curFam + 1);
+    brandCounts.set(bKey, curBrand + 1);
+    if (role === "primary") primaryIds.add(prod.id);
+    roleById[prod.id] = role;
+    merged.push(prod);
+  };
+
   for (const role of roleOrder) {
-    for (const { spec, items } of perQueryResults) {
-      if (spec.role !== role) continue;
-      for (const prod of items) {
-        const nameKey = prod.canonical_name
-          .trim()
-          .toLowerCase()
-          .replace(/\b(sneakers?|scarpe|scarpa|sollevamento\s+pesi)\b/g, " ")
-          .replace(/\s+/g, " ")
-          .trim() + "|" + (prod.gender ?? "Unisex").toLowerCase();
-        if (seenIds.has(prod.id) || seenNames.has(nameKey)) continue;
-        seenIds.add(prod.id);
-        seenNames.add(nameKey);
-        if (role === "primary") primaryIds.add(prod.id);
-        roleById[prod.id] = role;
-        merged.push(prod);
+    const roleGroups = perQueryResults.filter((r) => r.spec.role === role);
+    if (opts.diversifyModels && roleGroups.length > 1) {
+      const maxLen = Math.max(...roleGroups.map((g) => g.items.length), 0);
+      for (let i = 0; i < maxLen && merged.length < totalLimit; i++) {
+        for (const g of roleGroups) {
+          if (i < g.items.length && merged.length < totalLimit) {
+            tryPush(g.items[i], role);
+          }
+        }
+      }
+    } else {
+      for (const { items } of roleGroups) {
+        for (const prod of items) {
+          if (merged.length >= totalLimit) break;
+          tryPush(prod, role);
+        }
         if (merged.length >= totalLimit) break;
       }
-      if (merged.length >= totalLimit) break;
     }
     if (merged.length >= totalLimit) break;
+  }
+
+  let unusedOverflow = 0;
+  for (const { prod, role } of overflow) {
+    if (merged.length >= totalLimit) {
+      unusedOverflow++;
+      continue;
+    }
+    if (role === "primary") primaryIds.add(prod.id);
+    roleById[prod.id] = role;
+    merged.push(prod);
+  }
+
+  // Determine whether more catalog items are likely available for pagination ("Carica altri")
+  const anySubQueryHitLimit = perQueryResults.some((r) => r.items.length >= ((r.spec.limit ?? 20) - 2));
+  const hasMore = unusedOverflow > 0 || merged.length >= totalLimit || anySubQueryHitLimit;
+
+  // Apply explicit global sorting across merged sub-queries when requested (e.g. "le più economiche", "sconti più alti")
+  if (opts.sortBy === "price_asc") {
+    merged.sort((a, b) => (a.best_price ?? 99999) - (b.best_price ?? 99999));
+  } else if (opts.sortBy === "price_desc") {
+    merged.sort((a, b) => (b.best_price ?? 0) - (a.best_price ?? 0));
+  } else if (opts.sortBy === "discount_desc") {
+    const maxDisc = (p: MatchedProductOut) => Math.max(
+      0,
+      ...p.offers.map((o) => o.discount_pct ?? (o.original_price && o.original_price > o.price ? ((o.original_price - o.price) / o.original_price) * 100 : 0)),
+    );
+    merged.sort((a, b) => maxDisc(b) - maxDisc(a) || (a.best_price ?? 99999) - (b.best_price ?? 99999));
   }
 
   return {
@@ -2152,12 +2748,90 @@ export async function searchCatalogMultiQuery(
     primaryIds,
     roleById,
     executedLabels,
+    hasMore,
   };
 }
 
 // ============================================================================
-// Chat Persistence
+// Chat History Loader & Persistence
 // ============================================================================
+
+export interface LoadedChatTurn {
+  turn_index: number;
+  query: string;
+  is_follow_up: boolean;
+  summary: string | null;
+  intent: Record<string, unknown> | null;
+  shown_products: Array<{ name: string; price: number | null; brand: string | null; gender: string | null }>;
+}
+
+export interface LoadedChatHistory {
+  contextState: Record<string, unknown> | null;
+  recentTurns: LoadedChatTurn[];
+  lastShownProducts: Array<{ name: string; price: number | null; brand: string | null; gender: string | null }>;
+}
+
+export async function loadChatHistoryContext(
+  supabase: SupabaseClient,
+  sessionId: string | null | undefined,
+): Promise<LoadedChatHistory> {
+  if (!sessionId || !UUID_RE.test(sessionId.trim())) {
+    return { contextState: null, recentTurns: [], lastShownProducts: [] };
+  }
+  const sid = sessionId.trim().toLowerCase();
+  try {
+    const [sessRes, msgsRes] = await Promise.all([
+      supabase
+        .from("chat_sessions")
+        .select("context_state")
+        .eq("id", sid)
+        .maybeSingle(),
+      supabase
+        .from("chat_messages")
+        .select("turn_index,query,is_follow_up,conversational_summary,intent_json,results_snapshot_json")
+        .eq("session_id", sid)
+        .order("turn_index", { ascending: false })
+        .limit(5),
+    ]);
+
+    const contextState = (sessRes.data?.context_state && typeof sessRes.data.context_state === "object")
+      ? (sessRes.data.context_state as Record<string, unknown>)
+      : null;
+
+    const rawMsgs = Array.isArray(msgsRes.data) ? [...msgsRes.data].reverse() : [];
+    const recentTurns: LoadedChatTurn[] = [];
+    let lastShownProducts: Array<{ name: string; price: number | null; brand: string | null; gender: string | null }> = [];
+
+    for (const m of rawMsgs) {
+      const snap = m.results_snapshot_json as { results?: Array<Record<string, unknown>> } | null;
+      const prods = Array.isArray(snap?.results)
+        ? snap!.results.slice(0, 10).map((r) => ({
+            name: String(r.canonical_name ?? "").trim(),
+            price: r.best_price != null ? Number(r.best_price) : null,
+            brand: r.brand ? String(r.brand) : null,
+            gender: r.gender ? String(r.gender) : null,
+          })).filter((p) => p.name.length > 0)
+        : [];
+      if (prods.length > 0) {
+        lastShownProducts = prods;
+      }
+      recentTurns.push({
+        turn_index: Number(m.turn_index ?? 0),
+        query: String(m.query ?? "").trim(),
+        is_follow_up: Boolean(m.is_follow_up),
+        summary: typeof m.conversational_summary === "string" ? m.conversational_summary.slice(0, 260) : null,
+        intent: (m.intent_json && typeof m.intent_json === "object")
+          ? (m.intent_json as Record<string, unknown>)
+          : null,
+        shown_products: prods.slice(0, 6),
+      });
+    }
+
+    return { contextState, recentTurns, lastShownProducts };
+  } catch {
+    return { contextState: null, recentTurns: [], lastShownProducts: [] };
+  }
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -2234,7 +2908,7 @@ export async function saveChatTurn(
       intent_json: opts.payload.intent ?? null,
       chips_json: opts.payload.chips ?? [],
       results_snapshot_json: {
-        results: results.slice(0, 18),
+        results: results.slice(0, 35),
         curated_sections: (opts.payload.curated_sections ?? []).slice(0, 5),
         comparative_cards: (opts.payload.comparative_cards ?? []).slice(0, 5),
         featured_cards: (opts.payload.featured_cards ?? []).slice(0, 4),

@@ -1127,12 +1127,70 @@ struct SmartSearchResponse: Codable {
     let intent: SmartSearchIntent?
     let chips: [SmartSearchChip]?
     let total_found: Int
+    let has_more: Bool?
+    let context_state: ChatSessionContextState?
     let results: [MatchedProduct]
     let is_off_topic: Bool?
     let is_unsafe: Bool?
     let session_id: String?
     let turn_id: String?
     let user_image_url: String?
+
+    init(
+        search_mode: String?,
+        is_deep_dive: Bool?,
+        is_conversational_advice: Bool?,
+        conversational_header: String?,
+        conversational_summary: String?,
+        searched_queries: [String]?,
+        curated_sections: [CuratedProductSection]?,
+        comparative_cards: [ComparativeSpecCard]?,
+        featured_cards: [SpotlightRecommendation]?,
+        spotlight: SpotlightRecommendation?,
+        follow_up_suggestions: [String]?,
+        intent: SmartSearchIntent?,
+        chips: [SmartSearchChip]?,
+        total_found: Int,
+        has_more: Bool? = nil,
+        context_state: ChatSessionContextState? = nil,
+        results: [MatchedProduct],
+        is_off_topic: Bool?,
+        is_unsafe: Bool?,
+        session_id: String?,
+        turn_id: String?,
+        user_image_url: String?
+    ) {
+        self.search_mode = search_mode
+        self.is_deep_dive = is_deep_dive
+        self.is_conversational_advice = is_conversational_advice
+        self.conversational_header = conversational_header
+        self.conversational_summary = conversational_summary
+        self.searched_queries = searched_queries
+        self.curated_sections = curated_sections
+        self.comparative_cards = comparative_cards
+        self.featured_cards = featured_cards
+        self.spotlight = spotlight
+        self.follow_up_suggestions = follow_up_suggestions
+        self.intent = intent
+        self.chips = chips
+        self.total_found = total_found
+        self.has_more = has_more
+        self.context_state = context_state
+        self.results = results
+        self.is_off_topic = is_off_topic
+        self.is_unsafe = is_unsafe
+        self.session_id = session_id
+        self.turn_id = turn_id
+        self.user_image_url = user_image_url
+    }
+}
+
+struct SmartSearchLoadMoreResponse: Codable {
+    let results: [MatchedProduct]
+    let total_found: Int?
+    let has_more: Bool?
+    let load_more: Bool?
+    let session_id: String?
 }
 
 // MARK: - Conversational Search Turn Model
@@ -1474,13 +1532,27 @@ struct CategoryFilterMatcher {
 // MARK: - Persistent AI Chat Sessions & Messages
 
 struct ChatSessionContextState: Codable, Hashable {
+    let subject_query: String?
     let last_query: String?
+    let last_keywords: [String]?
+    let entity_tokens: [String]?
+    let product_type: String?
     let brand: String?
+    let excluded_brands: [String]?
+    let sub_brand: String?
     let category: String?
     let gender: String?
     let max_price: Double?
     let min_price: Double?
     let size: String?
+    let color: String?
+    let store: String?
+    let excluded_stores: [String]?
+    let excluded_features: [String]?
+    let sort_by: String?
+    let free_shipping: Bool?
+    let on_sale: Bool?
+    let min_discount: Double?
     let features: [String]?
 }
 

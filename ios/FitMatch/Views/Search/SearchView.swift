@@ -57,6 +57,19 @@ struct SearchView: View {
     @State private var selectedSize: String? = nil
     @State private var selectedStore: String? = nil
     @State private var sortMode: SortMode = .bestTotalPrice
+    @State private var showClassicFiltersSheet: Bool = false
+    @State private var classicFreeShippingOnly: Bool = false
+    @State private var classicOnSaleOnly: Bool = false
+
+    // Classic Mode Pagination ("Carica altri")
+    @State private var hasMoreClassicResults: Bool = false
+    @State private var isLoadingMoreClassic: Bool = false
+    @State private var activeContextState: ChatSessionContextState? = nil
+    @State private var loadMoreErrorMessage: String? = nil
+
+    // Live Catalog Autocomplete
+    @State private var liveAutocompleteSuggestions: [String] = []
+    @State private var autocompleteTask: Task<Void, Never>? = nil
 
     // Smart Search AI State
     @State private var smartIntent: SmartSearchIntent? = nil
@@ -79,7 +92,34 @@ struct SearchView: View {
         var id: String { rawValue }
     }
 
-    private let availableSizes = ["Tutte", "40", "41", "42", "42.5", "43", "44", "44.5", "45", "46"]
+    private let shoeSizesList = ["Tutte", "36", "37", "37.5", "38", "38.5", "39", "40", "40.5", "41", "42", "42.5", "43", "44", "44.5", "45", "46", "47"]
+    private let apparelSizesList = ["Tutte", "XS", "S", "M", "L", "XL", "XXL"]
+
+    private var isCurrentSearchApparel: Bool {
+        let probe = "\(rootQuery) \(searchText) \(smartIntent?.category ?? "")".lowercased()
+        return probe.range(
+            of: #"\b(top|pants|jacket|apparel|long\s*sleeve|short\s*sleeve|manica|magli[ae]|t[\s-]*shirt|felp[ae]|fleece|pile|pantalon|shorts|leggings|tights|giacc[ae]|canott[ae]|reggisen)\b"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private var contextualAvailableSizes: [String] {
+        isCurrentSearchApparel ? apparelSizesList : shoeSizesList
+    }
+
+    private var activeClassicFilterCount: Int {
+        var count = 0
+        if overrideMaxPrice != nil { count += 1 }
+        if selectedStore != nil { count += 1 }
+        if classicFreeShippingOnly { count += 1 }
+        if classicOnSaleOnly { count += 1 }
+        return count
+    }
+
+    private var availableStoresInResults: [String] {
+        let names = Set(searchResults.flatMap { $0.offers.map(\.store_name) })
+        return names.sorted()
+    }
 
     init(initialSearchQuery: String? = nil) {
         let q = initialSearchQuery ?? ""
@@ -109,6 +149,26 @@ struct SearchView: View {
         if let st = selectedStore, st != "Tutti" {
             list = list.filter { prod in
                 prod.offers.contains { $0.store_name.lowercased().contains(st.lowercased()) }
+            }
+        }
+
+        if let maxP = overrideMaxPrice, maxP > 0 {
+            list = list.filter { prod in
+                (prod.best_price ?? Double.infinity) <= maxP + 0.01
+            }
+        }
+
+        if classicFreeShippingOnly {
+            list = list.filter { prod in
+                prod.offers.contains { ($0.shipping_cost ?? 99) <= 0.01 }
+            }
+        }
+
+        if classicOnSaleOnly {
+            list = list.filter { prod in
+                prod.offers.contains { o in
+                    (o.discount_pct ?? 0) >= 5 || ((o.original_price ?? 0) > o.price + 1)
+                }
             }
         }
 
@@ -221,6 +281,48 @@ struct SearchView: View {
                 )
                 .presentationDetents(hasOptions ? [.medium, .large] : [.height(250), .medium])
                 .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showClassicFiltersSheet) {
+                ShopClassicFiltersSheet(
+                    maxPrice: $overrideMaxPrice,
+                    selectedStore: $selectedStore,
+                    freeShippingOnly: $classicFreeShippingOnly,
+                    onSaleOnly: $classicOnSaleOnly,
+                    sortMode: $sortMode,
+                    availableStores: availableStoresInResults,
+                    onApplyServerRefresh: {
+                        applyClassicFilterRefinement(followUpPrompt: nil)
+                    },
+                    onResetAll: {
+                        overrideMaxPrice = nil
+                        selectedStore = nil
+                        selectedSize = nil
+                        selectedFilterCountry = nil
+                        classicFreeShippingOnly = false
+                        classicOnSaleOnly = false
+                        sortMode = .bestTotalPrice
+                        applyClassicFilterRefinement(followUpPrompt: "Rimuovi tutti i filtri")
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .onChange(of: searchText) { _, newValue in
+                autocompleteTask?.cancel()
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard trimmed.count >= 2, !hasSearched else {
+                    liveAutocompleteSuggestions = []
+                    return
+                }
+                autocompleteTask = Task {
+                    try? await Task.sleep(nanoseconds: 180_000_000)
+                    guard !Task.isCancelled else { return }
+                    let live = await SupabaseManager.shared.fetchCatalogSuggestions(prefix: trimmed, limit: 4)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        self.liveAutocompleteSuggestions = live
+                    }
+                }
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
@@ -650,8 +752,18 @@ struct SearchView: View {
                 }
                 await MainActor.run {
                     if let last = restoredTurns.last {
+                        self.selectedSize = nil
+                        self.overrideMaxPrice = nil
+                        self.selectedStore = nil
+                        self.selectedFilterCountry = nil
+                        self.classicFreeShippingOnly = false
+                        self.classicOnSaleOnly = false
+                        self.hasMoreClassicResults = last.searchResults.count >= 28
+                        self.isLoadingMoreClassic = false
+                        self.activeContextState = nil
+                        self.loadMoreErrorMessage = nil
                         self.conversationTurns = restoredTurns
-                        self.lastContextQuery = last.query
+                        self.lastContextQuery = restoredTurns.map(\.query).filter { !$0.isEmpty }.joined(separator: " >> ")
                         self.smartIntent = last.smartIntent
                         self.activeChips = last.activeChips
                         self.searchResults = last.searchResults
@@ -741,48 +853,67 @@ struct SearchView: View {
         guard !q.isEmpty else { return [] }
 
         let allPool: [String] = [
+            "Scarpe running sotto i 150 euro",
+            "Scarpe running più economiche",
+            "Nike long sleeve ACG",
+            "Long sleeve da corsa",
+            "Maglia termica running invernale",
+            "Pantaloncini running con tasche",
             "Scarpe Hyrox e allenamento ibrido",
             "Puma Deviate Nitro 3 Hyrox",
             "Adidas Adizero Dropset Pro",
-            "Long sleeve da corsa",
-            "Maglia termica running invernale",
             "Scarpe da gara per la maratona",
             "Scarpe running massimo ammortizzamento",
-            "Scarpe running con piastra in carbonio",
+            "Scarpe running senza piastra in carbonio",
             "Scarpe da trail running impermeabili GTX",
             "Nike Pegasus 41",
+            "Nike Pegasus Plus",
             "Nike Vomero 18",
-            "Nike Vaporfly 3",
+            "Nike Vaporfly 4",
             "Nike Alphafly 3",
-            "Asics Gel-Nimbus 26",
-            "Asics Novablast 4",
+            "Asics Gel-Nimbus 27",
+            "Asics Novablast 5",
             "Asics Superblast 2",
-            "Hoka Clifton 9",
-            "Hoka Bondi 8",
+            "Hoka Clifton 10",
+            "Hoka Bondi 9",
             "Hoka Speedgoat 6",
             "Saucony Endorphin Speed 4",
             "Saucony Triumph 22",
             "Saucony Ride 18",
-            "Brooks Ghost 16",
-            "Brooks Glycerin 21",
+            "Brooks Ghost 17",
+            "Brooks Glycerin 22",
             "Adidas Adizero Adios Pro 4",
-            "Adidas Adizero Boston 12",
-            "New Balance Fresh Foam 1080 v14",
+            "Adidas Adizero Boston 13",
+            "Adidas Adizero EVO SL",
+            "New Balance Fresh Foam 1080 v15",
             "On Cloudmonster 2",
-            "Salomon Speedcross 6",
+            "Salomon Speedcross 6 GTX",
             "Gilet idratazione Salomon Active Skin",
             "Garmin Forerunner 165",
             "Garmin Forerunner 265",
             "Garmin Fenix 8",
+            "Fascia cardio Garmin HRM",
             "Oakley Sutro Prizm",
             "Rullo smart Wahoo Kickr"
         ]
 
         let queryTokens = q.split(separator: " ").map { String($0) }
-        return allPool.filter { candidate in
+        let localMatches = allPool.filter { candidate in
             let candLow = candidate.lowercased()
             return candLow.contains(q) || queryTokens.allSatisfy { candLow.contains($0) }
         }
+
+        // Merge live catalog matches FIRST (real products in DB) + curated local intent suggestions
+        var merged: [String] = []
+        var seen = Set<String>()
+        for item in liveAutocompleteSuggestions + localMatches {
+            let key = item.lowercased()
+            if !seen.contains(key) {
+                seen.insert(key)
+                merged.append(item)
+            }
+        }
+        return merged
     }
 
     // MARK: - Floating Bottom Search Bar
@@ -1187,7 +1318,7 @@ struct SearchView: View {
                     }
                     .padding(.horizontal, ShopLayout.screenPadding)
                 } else {
-                    let hasExpandableDetails = !turn.searchedQueries.isEmpty || !turn.activeChips.isEmpty
+                    let hasExpandableDetails = !turn.searchedQueries.isEmpty
                     Button(action: {
                         guard hasExpandableDetails else { return }
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -1213,42 +1344,48 @@ struct SearchView: View {
                     .padding(.horizontal, ShopLayout.screenPadding)
                 }
 
-                // Expandable Sub-Query Pills (Screenshot 1: stacked soft-gray pills with magnifying glass!)
-                if turn.showAiExplanation && (!turn.searchedQueries.isEmpty || !turn.activeChips.isEmpty) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if !turn.searchedQueries.isEmpty {
-                            ForEach(turn.searchedQueries, id: \.self) { subQuery in
-                                Button(action: {
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                    handleSearchOrComparison(query: subQuery, isFollowUp: false)
-                                }) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "magnifyingglass")
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundColor(.shopDark)
-                                        Text(subQuery)
-                                            .font(.system(size: 13.5, weight: .medium))
-                                            .foregroundColor(.shopDark)
-                                            .lineLimit(1)
-                                    }
-                                    .padding(.horizontal, 13)
-                                    .padding(.vertical, 8)
-                                    .background(Color(red: 243/255, green: 243/255, blue: 245/255))
-                                    .clipShape(Capsule())
-                                }
-                                .buttonStyle(.plain)
+                // Active filter pills (always visible; interactive ✕ on latest turn to remove any single filter!)
+                if !turn.activeChips.isEmpty {
+                    let isLatestTurn = (turn.id == conversationTurns.last?.id)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(turn.activeChips) { chip in
+                                ShopSearchChipView(
+                                    chip: chip,
+                                    onRemove: isLatestTurn ? {
+                                        removeFilterChip(chip)
+                                    } : nil
+                                )
                             }
                         }
+                        .padding(.horizontal, ShopLayout.screenPadding)
+                        .padding(.vertical, 2)
+                    }
+                }
 
-                        if !turn.activeChips.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
+                // Expandable Sub-Query Pills (Screenshot 1: stacked soft-gray pills with magnifying glass!)
+                if turn.showAiExplanation && !turn.searchedQueries.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(turn.searchedQueries, id: \.self) { subQuery in
+                            Button(action: {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                handleSearchOrComparison(query: subQuery, isFollowUp: false)
+                            }) {
                                 HStack(spacing: 8) {
-                                    ForEach(turn.activeChips) { chip in
-                                        ShopSearchChipView(chip: chip)
-                                    }
+                                    Image(systemName: "magnifyingglass")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.shopDark)
+                                    Text(subQuery)
+                                        .font(.system(size: 13.5, weight: .medium))
+                                        .foregroundColor(.shopDark)
+                                        .lineLimit(1)
                                 }
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 8)
+                                .background(Color(red: 243/255, green: 243/255, blue: 245/255))
+                                .clipShape(Capsule())
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, ShopLayout.screenPadding)
@@ -1710,7 +1847,7 @@ struct SearchView: View {
             .padding(.horizontal, ShopLayout.screenPadding)
             .padding(.top, 8)
 
-            if showAiExplanation && !activeChips.isEmpty {
+            if !activeChips.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(activeChips) { chip in
@@ -1720,7 +1857,6 @@ struct SearchView: View {
                     .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.vertical, 2)
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             if !conversationalSummary.isEmpty {
@@ -1963,17 +2099,29 @@ struct SearchView: View {
             // Horizontal Filter Strip (Screenshot 4)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    // Sliders Filter Icon Button
+                    // Sliders Filter Icon Button -> Opens real Classic Filters Sheet
                     Button(action: {
-                        withAnimation { showAiExplanation.toggle() }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        showClassicFiltersSheet = true
                     }) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.shopDark)
-                            .frame(width: 40, height: 36)
-                            .background(Color.white)
-                            .cornerRadius(18)
-                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.black.opacity(0.12), lineWidth: 1))
+                        HStack(spacing: 4) {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(activeClassicFilterCount > 0 ? .shopPurple : .shopDark)
+                            if activeClassicFilterCount > 0 {
+                                Text("\(activeClassicFilterCount)")
+                                    .font(.system(size: 11.5, weight: .bold))
+                                    .foregroundColor(.shopPurple)
+                            }
+                        }
+                        .padding(.horizontal, activeClassicFilterCount > 0 ? 11 : 0)
+                        .frame(minWidth: 40, minHeight: 36, maxHeight: 36)
+                        .background(activeClassicFilterCount > 0 ? Color.shopPurpleLight : Color.white)
+                        .cornerRadius(18)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(activeClassicFilterCount > 0 ? Color.shopPurple : Color.black.opacity(0.12), lineWidth: 1)
+                        )
                     }
 
                     // "Vende da 🇪🇺" Filter Pill
@@ -2012,7 +2160,7 @@ struct SearchView: View {
                             )
                     }
 
-                    // "Prezzo ▾" Dropdown Menu
+                    // "Ordina ▾" Dropdown Menu (shows active sort mode clearly)
                     Menu {
                         ForEach(SortMode.allCases) { mode in
                             Button(action: {
@@ -2027,8 +2175,9 @@ struct SearchView: View {
                             }
                         }
                     } label: {
+                        let isCustomSort = sortMode != .bestTotalPrice
                         HStack(spacing: 5) {
-                            Text("Prezzo")
+                            Text(isCustomSort ? sortMode.rawValue : "Ordina")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.shopDark)
                             Image(systemName: "chevron.down")
@@ -2037,23 +2186,28 @@ struct SearchView: View {
                         }
                         .padding(.horizontal, 14)
                         .frame(height: 36)
-                        .background(Color.white)
+                        .background(isCustomSort ? Color.shopPurpleLight : Color.white)
                         .cornerRadius(18)
-                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.black.opacity(0.12), lineWidth: 1))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(isCustomSort ? Color.shopPurple : Color.black.opacity(0.12), lineWidth: 1)
+                        )
                     }
 
-                    // "Taglia ▾" Dropdown Menu
+                    // "Taglia ▾" Contextual Dropdown Menu (EU 36–47 for shoes, XS–XXL for apparel; preserves chat context!)
                     Menu {
-                        let prefSize = prefs.preferences.preferredShoeSize
+                        let prefSize = isCurrentSearchApparel
+                            ? prefs.preferences.preferredApparelSize.trimmingCharacters(in: .whitespacesAndNewlines)
+                            : prefs.preferences.preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !prefSize.isEmpty {
                             Button(action: {
                                 withAnimation {
                                     selectedSize = prefSize
-                                    executeSearch()
+                                    applyClassicFilterRefinement(followUpPrompt: "Taglia \(prefSize)")
                                 }
                             }) {
                                 HStack {
-                                    Text("La tua taglia: EU \(prefSize)")
+                                    Text(isCurrentSearchApparel ? "La tua taglia: \(prefSize)" : "La tua taglia: EU \(prefSize)")
                                     if selectedSize == prefSize {
                                         Image(systemName: "checkmark")
                                     }
@@ -2062,11 +2216,11 @@ struct SearchView: View {
                             Divider()
                         }
 
-                        ForEach(availableSizes, id: \.self) { sz in
+                        ForEach(contextualAvailableSizes, id: \.self) { sz in
                             Button(action: {
                                 withAnimation {
                                     selectedSize = (sz == "Tutte") ? nil : sz
-                                    executeSearch()
+                                    applyClassicFilterRefinement(followUpPrompt: sz == "Tutte" ? "Tutte le taglie" : "Taglia \(sz)")
                                 }
                             }) {
                                 HStack {
@@ -2146,18 +2300,69 @@ struct SearchView: View {
             } else if !filteredAndSortedResults.isEmpty {
                 ScrollViewReader { scrollProxy in
                     ScrollView {
-                        VStack(spacing: 0) {
+                        VStack(alignment: .leading, spacing: 0) {
                             Color.clear.frame(height: 0).id("search_classic_top")
 
-                            LazyVStack(spacing: 14) {
-                                ForEach(filteredAndSortedResults) { item in
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(Array(filteredAndSortedResults.enumerated()), id: \.element.id) { idx, item in
                                     ShopOfficialProductCard(product: item)
+                                        .padding(.vertical, 8)
+
+                                    if idx < filteredAndSortedResults.count - 1 {
+                                        Divider()
+                                            .opacity(0.45)
+                                    }
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 16)
-                            .padding(.top, 12)
+                            .padding(.top, 8)
+
+                            // Classic Mode Footer & "Carica altri" Pagination
+                            VStack(spacing: 10) {
+                                Text("Mostrati \(filteredAndSortedResults.count) prodotti")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.shopTextMuted)
+
+                                if let lmErr = loadMoreErrorMessage {
+                                    Text(lmErr)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.red.opacity(0.85))
+                                        .multilineTextAlignment(.center)
+                                }
+
+                                if hasMoreClassicResults {
+                                    Button(action: {
+                                        loadMoreClassicResults()
+                                    }) {
+                                        HStack(spacing: 8) {
+                                            if isLoadingMoreClassic {
+                                                ProgressView()
+                                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                                    .scaleEffect(0.85)
+                                                Text("Caricamento...")
+                                            } else {
+                                                Image(systemName: "plus.circle.fill")
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                Text("Carica altri prodotti")
+                                            }
+                                        }
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 22)
+                                        .frame(height: 44)
+                                        .background(Color.shopDark)
+                                        .clipShape(Capsule())
+                                    }
+                                    .disabled(isLoadingMoreClassic)
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 16)
                             .padding(.bottom, 130)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .scrollDismissesKeyboard(.interactively)
                     .simultaneousGesture(
@@ -2342,6 +2547,14 @@ struct SearchView: View {
             selectedSize = nil
             selectedStore = nil
             overrideMaxPrice = nil
+            classicFreeShippingOnly = false
+            classicOnSaleOnly = false
+            hasMoreClassicResults = false
+            isLoadingMoreClassic = false
+            activeContextState = nil
+            loadMoreErrorMessage = nil
+            liveAutocompleteSuggestions = []
+            autocompleteTask?.cancel()
             userFeedback = nil
             userForcedClassicMode = false
             lastFollowUpQuery = nil
@@ -2369,21 +2582,30 @@ struct SearchView: View {
         }
     }
 
+    private func clearLocalOverridesIfReset(in text: String) {
+        let low = text.lowercased()
+        let resetAll = low.contains("rimuovi tutti i filtri") || low.contains("azzera filtri") || low.contains("azzera tutti i filtri") || low.contains("senza filtri")
+        if resetAll || low.contains("tutte le taglie") || low.contains("qualsiasi taglia") || low.contains("rimuovi taglia") || low.contains("togli taglia") {
+            selectedSize = nil
+        }
+        if resetAll || low.contains("rimuovi limite di prezzo") || low.contains("senza limite di prezzo") || low.contains("senza limiti di prezzo") || low.contains("tutti i prezzi") || low.contains("qualsiasi prezzo") || low.contains("senza budget") {
+            overrideMaxPrice = nil
+        }
+        if resetAll || low.contains("tutti gli store") || low.contains("tutti i negozi") || low.contains("ovunque") {
+            selectedStore = nil
+        }
+    }
+
     private func sendFollowUp() {
         guard !isLoading && !isFollowUpLoading else { return }
         let text = followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         followUpInputText = ""
         hideAllKeyboards()
+        clearLocalOverridesIfReset(in: text)
 
-        // Smart User Preference Auto-Fill: "Mostrami la mia taglia" / "Cercale nella mia taglia"
-        if text.lowercased().contains("nella mia taglia") || text.lowercased().contains("mia taglia") {
-            let prefSize = preferredSizeForCurrentSearch(query: text, context: rootQuery)
-            if !prefSize.isEmpty {
-                selectedSize = prefSize
-            }
-        }
-
+        // Note: preferredSize is always sent to the Edge Function, which resolves "mia taglia" cleanly in session context_state
+        // without permanently pinning selectedSize across later turns!
         handleSearchOrComparison(query: text, isFollowUp: true)
     }
 
@@ -2399,14 +2621,7 @@ struct SearchView: View {
             return
         }
 
-        // Smart User Preference Auto-Fill: "Mostrami la mia taglia"
-        if trimmed.lowercased().contains("nella mia taglia") || trimmed.lowercased().contains("mia taglia") {
-            let prefSize = preferredSizeForCurrentSearch(query: trimmed, context: rootQuery)
-            if !prefSize.isEmpty {
-                selectedSize = prefSize
-            }
-        }
-
+        clearLocalOverridesIfReset(in: trimmed)
         handleSearchOrComparison(query: trimmed, isFollowUp: true)
     }
 
@@ -2415,14 +2630,7 @@ struct SearchView: View {
         guard !clean.isEmpty else { return }
 
         let simplified = clean.components(separatedBy: " (").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? clean
-
-        if simplified.lowercased().contains("nella mia taglia") || simplified.lowercased().contains("mia taglia") {
-            let prefSize = preferredSizeForCurrentSearch(query: simplified, context: rootQuery)
-            if !prefSize.isEmpty {
-                selectedSize = prefSize
-            }
-        }
-
+        clearLocalOverridesIfReset(in: simplified)
         handleSearchOrComparison(query: simplified, isFollowUp: true)
     }
 
@@ -2532,9 +2740,137 @@ struct SearchView: View {
         if !isFollowUp {
             rootQuery = trimmed
             searchText = trimmed
+            selectedSize = nil
+            overrideMaxPrice = nil
+            selectedStore = nil
+            selectedFilterCountry = nil
+            classicFreeShippingOnly = false
+            classicOnSaleOnly = false
             userForcedClassicMode = false
+            hasMoreClassicResults = false
+            isLoadingMoreClassic = false
+            activeContextState = nil
+            loadMoreErrorMessage = nil
         }
         executeSearch(isFollowUp: isFollowUp, rawFollowUpText: isFollowUp ? trimmed : nil, userImageURL: userImageURL)
+    }
+
+    private func loadMoreClassicResults() {
+        guard !isLoadingMoreClassic, hasMoreClassicResults else { return }
+        let baseQuery = rootQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            : rootQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !baseQuery.isEmpty else { return }
+
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        isLoadingMoreClassic = true
+        loadMoreErrorMessage = nil
+
+        let currentIds = searchResults.compactMap { $0.id_val ?? $0.id }
+        let existingKeys = Set(searchResults.map { $0.id_val ?? $0.id })
+        let sid = currentSessionId
+        let ctx = activeContextState
+        let mp = overrideMaxPrice
+        let sz = selectedSize
+        let st = selectedStore
+        let prefSz = isCurrentSearchApparel
+            ? prefs.preferences.preferredApparelSize
+            : prefs.preferences.preferredShoeSize
+
+        Task {
+            do {
+                let pageRes = try await APIService.shared.loadMoreSmartSearch(
+                    query: baseQuery,
+                    excludeIds: currentIds,
+                    sessionId: sid,
+                    contextState: ctx,
+                    maxPrice: mp,
+                    size: sz,
+                    store: st,
+                    preferredSize: prefSz.isEmpty ? nil : prefSz,
+                    limit: 30
+                )
+                await MainActor.run {
+                    let uniqueNew = pageRes.results.filter { item in
+                        let k = item.id_val ?? item.id
+                        return !existingKeys.contains(k)
+                    }
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        self.searchResults.append(contentsOf: uniqueNew)
+                    }
+                    self.hasMoreClassicResults = !uniqueNew.isEmpty && (pageRes.has_more ?? false)
+                    self.isLoadingMoreClassic = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.isLoadingMoreClassic = false
+                    self.loadMoreErrorMessage = "Impossibile caricare altri prodotti. Riprova."
+                }
+            }
+        }
+    }
+
+    private func removeFilterChip(_ chip: SmartSearchChip) {
+        guard !isLoading && !isFollowUpLoading else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        let resetQuery: String
+        switch chip.param_key {
+        case "max_price", "min_price":
+            overrideMaxPrice = nil
+            resetQuery = "Rimuovi limite di prezzo"
+        case "size":
+            selectedSize = nil
+            resetQuery = "Tutte le taglie"
+        case "gender":
+            resetQuery = "Tutti i generi"
+        case "color":
+            resetQuery = "Tutti i colori"
+        case "store":
+            selectedStore = nil
+            resetQuery = "Tutti i negozi"
+        case "brand":
+            resetQuery = "Tutti i brand"
+        case "free_shipping":
+            classicFreeShippingOnly = false
+            resetQuery = "Rimuovi filtro spedizione"
+        case "on_sale", "min_discount":
+            classicOnSaleOnly = false
+            resetQuery = "Rimuovi filtro sconti"
+        case "excluded_brand", "excluded_store", "excluded_feature":
+            resetQuery = "Rimuovi esclusioni"
+        case "sort_by":
+            resetQuery = "Ordine consigliato"
+        default:
+            resetQuery = "Rimuovi tutti i filtri"
+        }
+        handleSearchOrComparison(query: resetQuery, isFollowUp: true)
+    }
+
+    private func applyClassicFilterRefinement(followUpPrompt: String?) {
+        userForcedClassicMode = true
+        if !conversationTurns.isEmpty {
+            let prompt: String
+            if let explicit = followUpPrompt, !explicit.isEmpty {
+                prompt = explicit
+            } else if let maxP = overrideMaxPrice {
+                prompt = "Sotto \(Int(maxP)) euro"
+            } else if let st = selectedStore {
+                prompt = "Su \(st)"
+            } else if classicFreeShippingOnly {
+                prompt = "Con spedizione gratuita"
+            } else if classicOnSaleOnly {
+                prompt = "In sconto"
+            } else {
+                prompt = rootQuery.isEmpty ? searchText : rootQuery
+            }
+            executeSearch(
+                isFollowUp: true,
+                rawFollowUpText: prompt,
+                keepClassicMode: true
+            )
+        } else {
+            executeSearch(isFollowUp: false, keepClassicMode: true)
+        }
     }
 
     private func executeVisualSearch(image: UIImage, description: String?, isFollowUp: Bool) {
@@ -2661,11 +2997,15 @@ struct SearchView: View {
                         self.rootQuery = finalQuery
                         self.searchText = finalQuery
                     }
+                    // When uploading a fresh photo inside an existing chat WITHOUT a refining caption,
+                    // isolate prior text context so an unrelated brand/filter never leaks onto the photographed item!
+                    let shouldIgnorePrior = isFollowUp && (cleanDesc == nil)
                     self.executeSearch(
                         isFollowUp: isFollowUp,
                         rawFollowUpText: isFollowUp ? finalQuery : nil,
                         userImageURL: res.uploaded_image_url,
-                        initialThinkingSteps: preservedSteps
+                        initialThinkingSteps: preservedSteps,
+                        ignorePriorContext: shouldIgnorePrior
                     )
                 }
             } catch {
@@ -2693,7 +3033,9 @@ struct SearchView: View {
         isFollowUp: Bool = false,
         rawFollowUpText: String? = nil,
         userImageURL: String? = nil,
-        initialThinkingSteps: [SearchThinkingStep] = []
+        initialThinkingSteps: [SearchThinkingStep] = [],
+        keepClassicMode: Bool = false,
+        ignorePriorContext: Bool = false
     ) {
         let activeQuery = isFollowUp ? (rawFollowUpText ?? searchText) : searchText
         let query = activeQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2724,12 +3066,13 @@ struct SearchView: View {
                 lastFollowUpQuery = query
                 pendingFollowUpQuery = query
                 pendingVisualImageURL = activeImageURL
-                isFollowUpLoading = true
-                // Do NOT wipe out existing turns with full-screen skeleton
-                isLoading = false
+                isFollowUpLoading = !keepClassicMode
+                isLoading = keepClassicMode
                 followUpErrorMessage = nil
-                userForcedClassicMode = false
-                isDeepDiveMode = true
+                if !keepClassicMode {
+                    userForcedClassicMode = false
+                    isDeepDiveMode = true
+                }
             }
         }
 
@@ -2741,7 +3084,7 @@ struct SearchView: View {
         }
 
         let activeContext: String?
-        if isFollowUp {
+        if isFollowUp && !ignorePriorContext {
             let turnQueries = conversationTurns.map { $0.query }.filter { !$0.isEmpty }
             if !turnQueries.isEmpty {
                 activeContext = turnQueries.joined(separator: " >> ")
@@ -2756,8 +3099,8 @@ struct SearchView: View {
             activeContext = nil
         }
 
-        let requestedMode = userForcedClassicMode ? "classic" : nil
-        let activeSid = currentSessionId
+        let requestedMode = (userForcedClassicMode || keepClassicMode) ? "classic" : nil
+        let activeSid = ignorePriorContext ? nil : currentSessionId
         let prefSize = preferredSizeForCurrentSearch(query: query, context: activeContext)
 
         Task {
@@ -2792,6 +3135,10 @@ struct SearchView: View {
                     self.smartIntent = smartRes.intent
                     self.activeChips = smartRes.chips ?? []
                     self.searchResults = smartRes.results
+                    self.activeContextState = smartRes.context_state
+                    self.hasMoreClassicResults = smartRes.has_more ?? (smartRes.results.count >= 30)
+                    self.isLoadingMoreClassic = false
+                    self.loadMoreErrorMessage = nil
                     self.searchedQueries = smartRes.searched_queries ?? []
                     self.curatedSections = smartRes.curated_sections ?? []
                     self.comparativeCards = smartRes.comparative_cards ?? []
@@ -2851,7 +3198,7 @@ struct SearchView: View {
                         self.isFollowUpLoading = false
                     }
 
-                    if ProcessInfo.processInfo.arguments.contains("-testClassicMode") {
+                    if ProcessInfo.processInfo.arguments.contains("-testClassicMode") || self.userForcedClassicMode {
                         self.isDeepDiveMode = false
                     } else {
                         self.isDeepDiveMode = true
@@ -2864,32 +3211,56 @@ struct SearchView: View {
                 }
             } catch {
                 if !isFollowUp {
-                    // 1. Direct Supabase Cloud instant fallback for high availability
-                    let directProds = await SupabaseManager.shared.fetchSmartProductsDirect(
+                    // 1. Direct Supabase Cloud instant fallback with full in-query filter parsing (price, size, category)
+                    if let directFallback = await api.buildDirectSmartSearchFallback(
+                        query: query,
                         category: nil,
-                        keywords: [query],
                         maxPrice: overrideMaxPrice,
                         size: selectedSize,
                         store: selectedStore,
-                        limit: 30
-                    )
-                    if !directProds.isEmpty {
+                        contextQuery: nil,
+                        sessionId: activeSid
+                    ), !directFallback.results.isEmpty {
                         await MainActor.run {
                             self.errorMessage = nil
                             self.pendingVisualImagePreview = nil
                             self.pendingVisualDescription = nil
-                            self.searchResults = directProds
-                            self.curatedSections = [
+                            self.smartIntent = directFallback.intent
+                            self.activeChips = directFallback.chips ?? []
+                            self.searchResults = directFallback.results
+                            self.curatedSections = directFallback.curated_sections ?? [
                                 CuratedProductSection(
                                     id: "sec_cloud",
                                     title: "Migliori Risultati Trovati",
                                     subtitle: "Offerte verificate nel catalogo FitMatch Cloud",
-                                    products: directProds
+                                    products: directFallback.results
                                 )
                             ]
-                            self.conversationalHeader = "Ho cercato \(query)"
-                            self.conversationalSummary = "Ecco i modelli trovati per la tua ricerca:"
-                            self.isDeepDiveMode = true
+                            self.conversationalHeader = directFallback.conversational_header ?? "Ho cercato \(query)"
+                            self.conversationalSummary = directFallback.conversational_summary ?? "Ecco i modelli trovati per la tua ricerca:"
+                            self.followUpSuggestions = directFallback.follow_up_suggestions ?? []
+                            let fallbackTurn = SearchConversationTurn(
+                                id: UUID().uuidString,
+                                query: query,
+                                isFollowUp: false,
+                                conversationalHeader: self.conversationalHeader,
+                                conversationalSummary: self.conversationalSummary,
+                                smartIntent: directFallback.intent,
+                                activeChips: directFallback.chips ?? [],
+                                searchResults: directFallback.results,
+                                curatedSections: self.curatedSections,
+                                comparativeCards: directFallback.comparative_cards ?? [],
+                                featuredCards: directFallback.featured_cards ?? [],
+                                spotlight: directFallback.spotlight,
+                                followUpSuggestions: self.followUpSuggestions,
+                                userFeedback: nil,
+                                showAiExplanation: false,
+                                error: nil,
+                                timestamp: Date()
+                            )
+                            self.conversationTurns = [fallbackTurn]
+                            self.lastContextQuery = query
+                            self.isDeepDiveMode = !self.userForcedClassicMode
                             self.isSmartSearchActive = true
                             self.isLoading = false
                             self.recentManager.recordSearch(query)
@@ -3006,19 +3377,217 @@ struct SearchView: View {
 // MARK: - Active Filter Chip View
 struct ShopSearchChipView: View {
     let chip: SmartSearchChip
+    var onRemove: (() -> Void)? = nil
 
     var body: some View {
-        Text(chip.label)
-            .font(.system(size: 12.5, weight: .semibold))
-            .foregroundColor(.shopDark)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color(red: 243/255, green: 243/255, blue: 245/255))
-            .cornerRadius(14)
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
-            )
+        HStack(spacing: 5) {
+            Text(chip.label)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundColor(.shopDark)
+            if let onRemove = onRemove {
+                Button(action: onRemove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundColor(Color(red: 110/255, green: 110/255, blue: 122/255))
+                        .frame(width: 16, height: 16)
+                        .background(Color.black.opacity(0.06))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, onRemove != nil ? 7 : 10)
+        .padding(.vertical, 6)
+        .background(Color(red: 243/255, green: 243/255, blue: 245/255))
+        .cornerRadius(14)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Classic Search Filters Sheet
+struct ShopClassicFiltersSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var maxPrice: Double?
+    @Binding var selectedStore: String?
+    @Binding var freeShippingOnly: Bool
+    @Binding var onSaleOnly: Bool
+    @Binding var sortMode: SearchView.SortMode
+    let availableStores: [String]
+    let onApplyServerRefresh: () -> Void
+    let onResetAll: () -> Void
+
+    @State private var draftMaxPrice: Double? = nil
+    @State private var draftStore: String? = nil
+    @State private var draftFreeShipping: Bool = false
+    @State private var draftOnSale: Bool = false
+    @State private var draftSort: SearchView.SortMode = .bestTotalPrice
+
+    private let pricePresets: [Double] = [50, 100, 150, 200, 300]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    // 1. Budget Massimo
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Budget massimo")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.shopDark)
+                            Spacer()
+                            Text(draftMaxPrice == nil ? "Qualsiasi" : "Fino a €\(Int(draftMaxPrice!))")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .foregroundColor(.shopPurple)
+                        }
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                Button(action: { draftMaxPrice = nil }) {
+                                    Text("Qualsiasi")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(draftMaxPrice == nil ? .white : .shopDark)
+                                        .padding(.horizontal, 13)
+                                        .padding(.vertical, 8)
+                                        .background(draftMaxPrice == nil ? Color.shopDark : Color(red: 243/255, green: 243/255, blue: 245/255))
+                                        .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+
+                                ForEach(pricePresets, id: \.self) { p in
+                                    let sel = draftMaxPrice == p
+                                    Button(action: { draftMaxPrice = sel ? nil : p }) {
+                                        Text("≤ €\(Int(p))")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(sel ? .white : .shopDark)
+                                            .padding(.horizontal, 13)
+                                            .padding(.vertical, 8)
+                                            .background(sel ? Color.shopPurple : Color(red: 243/255, green: 243/255, blue: 245/255))
+                                            .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Spedizione & Sconti
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Offerte e spedizione")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.shopDark)
+
+                        Toggle("Solo spedizione gratuita", isOn: $draftFreeShipping)
+                            .tint(.shopPurple)
+                            .font(.system(size: 14.5, weight: .medium))
+
+                        Toggle("Solo articoli in sconto", isOn: $draftOnSale)
+                            .tint(.shopPurple)
+                            .font(.system(size: 14.5, weight: .medium))
+                    }
+
+                    // 3. Negozio
+                    if !availableStores.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Negozio")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.shopDark)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    Button(action: { draftStore = nil }) {
+                                        Text("Tutti")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(draftStore == nil ? .white : .shopDark)
+                                            .padding(.horizontal, 13)
+                                            .padding(.vertical, 8)
+                                            .background(draftStore == nil ? Color.shopDark : Color(red: 243/255, green: 243/255, blue: 245/255))
+                                            .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    ForEach(availableStores, id: \.self) { st in
+                                        let sel = draftStore?.lowercased() == st.lowercased()
+                                        Button(action: { draftStore = sel ? nil : st }) {
+                                            Text(st)
+                                                .font(.system(size: 13, weight: .semibold))
+                                                .foregroundColor(sel ? .white : .shopDark)
+                                                .padding(.horizontal, 13)
+                                                .padding(.vertical, 8)
+                                                .background(sel ? Color.shopPurple : Color(red: 243/255, green: 243/255, blue: 245/255))
+                                                .clipShape(Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Ordinamento
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Ordina per")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.shopDark)
+
+                        ForEach(SearchView.SortMode.allCases) { m in
+                            Button(action: { draftSort = m }) {
+                                HStack {
+                                    Text(m.rawValue)
+                                        .font(.system(size: 14.5, weight: draftSort == m ? .semibold : .regular))
+                                        .foregroundColor(.shopDark)
+                                    Spacer()
+                                    if draftSort == m {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.shopPurple)
+                                    }
+                                }
+                                .padding(.vertical, 6)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("Filtri ricerca")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Azzera") {
+                        onResetAll()
+                        dismiss()
+                    }
+                    .foregroundColor(.shopPurple)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Applica") {
+                        let needsServerRefresh = (draftMaxPrice != maxPrice) || (draftStore != selectedStore)
+                        maxPrice = draftMaxPrice
+                        selectedStore = draftStore
+                        freeShippingOnly = draftFreeShipping
+                        onSaleOnly = draftOnSale
+                        sortMode = draftSort
+                        dismiss()
+                        if needsServerRefresh {
+                            onApplyServerRefresh()
+                        }
+                    }
+                    .fontWeight(.bold)
+                    .foregroundColor(.shopDark)
+                }
+            }
+            .onAppear {
+                draftMaxPrice = maxPrice
+                draftStore = selectedStore
+                draftFreeShipping = freeShippingOnly
+                draftOnSale = onSaleOnly
+                draftSort = sortMode
+            }
+        }
     }
 }
 
@@ -3822,13 +4391,17 @@ struct ShopOfficialProductCard: View {
         return max.price - best.price
     }
 
+    private var hasFreeShipping: Bool {
+        guard let ship = bestOffer?.shipping_cost else { return false }
+        return ship <= 0.01
+    }
+
     var body: some View {
         NavigationLink(destination: ProductDetailView(product: product, openedFromSearch: true)) {
             HStack(alignment: .top, spacing: 14) {
                 ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 18)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .fill(Color(red: 243/255, green: 243/255, blue: 245/255))
-                        .frame(width: 124, height: 124)
 
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl) {
                         ShopCachedAsyncImage(url: url, maxPixelSize: 350) { phase in
@@ -3836,8 +4409,8 @@ struct ShopOfficialProductCard: View {
                             case .success(let image):
                                 image.resizable()
                                     .aspectRatio(contentMode: .fit)
+                                    .padding(6)
                                     .frame(width: 124, height: 124)
-                                    .cornerRadius(18)
                             case .empty:
                                 ShopSkeletonBlock(cornerRadius: 18, width: 124, height: 124)
                             default:
@@ -3847,16 +4420,20 @@ struct ShopOfficialProductCard: View {
                             }
                         }
                         .frame(width: 124, height: 124)
+                    } else {
+                        Image(systemName: "photo")
+                            .foregroundColor(.gray.opacity(0.35))
+                            .frame(width: 124, height: 124)
                     }
 
                     if savingsAmount > 1.0 {
-                        Text("Risparmia \(String(format: "%.0f", savingsAmount)) €")
+                        Text("-\(String(format: "%.0f", savingsAmount)) €")
                             .font(.system(size: 10, weight: .heavy))
                             .foregroundColor(.white)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3.5)
                             .background(Color(red: 0/255, green: 170/255, blue: 100/255))
-                            .cornerRadius(6)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                             .padding(8)
                     }
 
@@ -3870,37 +4447,45 @@ struct ShopOfficialProductCard: View {
                     }
                     .frame(width: 124, height: 124)
                 }
+                .frame(width: 124, height: 124)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(product.displayTitle)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 14.5, weight: .bold))
                         .foregroundColor(.shopDark)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                    HStack(spacing: 2) {
-                        ForEach(0..<5) { _ in
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 9))
-                                .foregroundColor(.shopDark)
+                    HStack(spacing: 4) {
+                        HStack(spacing: 2) {
+                            ForEach(0..<5, id: \.self) { _ in
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.shopDark)
+                            }
                         }
-                        Text("(\(product.offers.count))")
+                        Text("(\(product.offers.count) \(product.offers.count == 1 ? "offerta" : "offerte"))")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                            .lineLimit(1)
                     }
                     .padding(.top, 1)
 
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if let best = bestOffer {
                             Text(String(format: "%.2f €", best.price).replacingOccurrences(of: ".", with: ","))
-                                .font(.system(size: 15, weight: .heavy))
+                                .font(.system(size: 16, weight: .heavy))
                                 .foregroundColor(.shopDark)
+                                .lineLimit(1)
 
-                            if let max = maxOffer, max.price > best.price {
+                            if let max = maxOffer, max.price > best.price + 0.5 {
                                 Text(String(format: "%.2f €", max.price).replacingOccurrences(of: ".", with: ","))
                                     .font(.system(size: 12))
                                     .strikethrough()
                                     .foregroundColor(Color(red: 140/255, green: 140/255, blue: 150/255))
+                                    .lineLimit(1)
                             }
                         }
                     }
@@ -3913,14 +4498,29 @@ struct ShopOfficialProductCard: View {
                         $0.replacingOccurrences(of: ",", with: ".") == targetSize.replacingOccurrences(of: ",", with: ".")
                     })
 
-                    if hasPref {
-                        HStack(spacing: 3) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 8))
-                                .foregroundColor(.shopPurple)
-                            Text("Tg. \(targetSize) disp.")
-                                .font(.system(size: 9.5, weight: .bold))
-                                .foregroundColor(.shopPurple)
+                    if hasPref || hasFreeShipping {
+                        HStack(spacing: 6) {
+                            if hasPref {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.shopPurple)
+                                    Text("Tg. \(targetSize)")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.shopPurple)
+                                }
+                                .lineLimit(1)
+                            }
+                            if hasFreeShipping {
+                                Text("Sped. gratis")
+                                    .font(.system(size: 9.5, weight: .bold))
+                                    .foregroundColor(Color(red: 0/255, green: 140/255, blue: 82/255))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color(red: 0/255, green: 170/255, blue: 100/255).opacity(0.12))
+                                    .clipShape(Capsule())
+                                    .lineLimit(1)
+                            }
                         }
                     }
 
@@ -3929,25 +4529,18 @@ struct ShopOfficialProductCard: View {
                             ShopStoreLogo(storeName: best.store_name, showVerified: false, showLabel: false, size: 18)
 
                             Text(best.store_name)
-                                .font(.system(size: 11.5, weight: .bold))
+                                .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.shopDark)
                                 .lineLimit(1)
-
-                            if savingsAmount > 1.0 {
-                                Text("Risparmia \(String(format: "%.0f", savingsAmount)) €")
-                                    .font(.system(size: 9.5, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(Color(red: 0/255, green: 170/255, blue: 100/255))
-                                    .cornerRadius(5)
-                            }
+                                .truncationMode(.tail)
                         }
+                        .padding(.top, 1)
                     }
                 }
-                .frame(height: 124)
+                .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
             }
-            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
     }

@@ -421,6 +421,51 @@ class APIService: ObservableObject {
         }
     }
 
+    /// Fast-path pagination for Classic Mode ("Carica altri prodotti"):
+    /// Fetches the next slice of matching products excluding already-loaded IDs without re-running LLM planning.
+    func loadMoreSmartSearch(
+        query: String,
+        excludeIds: [String],
+        sessionId: String? = nil,
+        contextState: ChatSessionContextState? = nil,
+        maxPrice: Double? = nil,
+        size: String? = nil,
+        store: String? = nil,
+        preferredSize: String? = nil,
+        limit: Int = 30
+    ) async throws -> SmartSearchLoadMoreResponse {
+        guard let url = URL(string: "\(SupabaseManager.shared.projectURL)/functions/v1/smart-search") else {
+            throw URLError(.badURL)
+        }
+        var payload: [String: Any] = [
+            "q": query,
+            "mode": "classic",
+            "load_more": true,
+            "exclude_ids": Array(excludeIds.prefix(300)),
+            "limit": limit
+        ]
+        if let sid = sessionId, !sid.isEmpty { payload["session_id"] = sid }
+        if let mp = maxPrice { payload["max_price"] = mp }
+        if let sz = size, !sz.isEmpty { payload["size"] = sz }
+        if let st = store, !st.isEmpty { payload["store"] = st }
+        if let ps = preferredSize, !ps.isEmpty { payload["preferred_size"] = ps }
+        if let ctx = contextState,
+           let ctxData = try? JSONEncoder().encode(ctx),
+           let ctxObj = try? JSONSerialization.jsonObject(with: ctxData) as? [String: Any] {
+            payload["context_state"] = ctxObj
+        }
+
+        var req = makeEdgeRequest(url: url, method: "POST", timeout: 20.0)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(SmartSearchLoadMoreResponse.self, from: data)
+    }
+
     /// Streams real-time backend thinking steps via SSE from `/api/search/smart/stream`,
     /// falling back seamlessly to `smartSearch(...)` if streaming is unavailable.
     func smartSearchStream(
@@ -597,15 +642,18 @@ class APIService: ObservableObject {
         contextQuery: String? = nil,
         sessionId: String? = nil
     ) async -> SmartSearchResponse? {
-        // Extract price constraint if embedded in query (e.g. "Alternative sotto i 300 euro" -> maxPrice = 300)
+        // Extract price constraint if embedded in query (handles "sotto i 150€", "sotto ai 150 euro", "sotto €150", "< 150", "entro 150", "budget 150")
         var effectiveMaxPrice = maxPrice
         let qLower = query.lowercased()
         if effectiveMaxPrice == nil {
-            if let regex = try? NSRegularExpression(pattern: #"(?:sotto|meno\s*di|max|fino\s*a)\s*i?\s*(\d+(?:[.,]\d+)?)"#, options: .caseInsensitive),
+            let pricePattern = #"(?:al\s+di\s+sotto\s*(?:di|dei|degli)?|sotto\s*(?:i|ai|gli|le|di|dei)?|a\s+meno\s+di|meno\s*di|non\s+(?:oltre|pi[uù]\s*di)|fino\s*a(?:i|gli|lle)?|entro\s*(?:i|ai|gli)?|(?:prezzo|budget)\s*(?:massimo|max)?\s*(?:di)?|al\s+massimo|massimo|max|under|below|<=|<)\s*(?:€\s*)?(\d+(?:[.,]\d+)?)(?!\s*(?:kg|g\b|gr\b|grammi|km|mm|cm|ore|minuti|%))"#
+            if let regex = try? NSRegularExpression(pattern: pricePattern, options: .caseInsensitive),
                let match = regex.firstMatch(in: qLower, options: [], range: NSRange(location: 0, length: qLower.utf16.count)),
                let range = Range(match.range(at: 1), in: qLower) {
                 let numStr = String(qLower[range]).replacingOccurrences(of: ",", with: ".")
-                effectiveMaxPrice = Double(numStr)
+                if let parsed = Double(numStr), parsed >= 15 || qLower.contains("€") || qLower.contains("euro") {
+                    effectiveMaxPrice = parsed
+                }
             }
         }
 
@@ -1248,10 +1296,67 @@ class APIService: ObservableObject {
 
         let serverSource = response.intent?.source ?? ""
         let isPrecisionServerV2 = serverSource.hasPrefix("supabase_edge_v2") || serverSource.hasPrefix("supabase_edge_v3")
-        // For v3 Shop-grade server responses, the server already ran strict product-type, brand, price, size & gender gating
-        // and built disjoint thematic sections + grounded featured cards — preserve them cleanly!
+        // For v3 Shop-grade server responses, the server already ran strict product-type, brand, price, size, color, store & gender gating
+        // and built disjoint thematic sections + grounded featured cards — preserve them cleanly, with a defensive price ceiling check.
         if serverSource.hasPrefix("supabase_edge_v3") {
-            return response
+            let ceiling = maxPrice ?? response.intent?.max_price
+            guard let maxP = ceiling, maxP > 0 else {
+                return response
+            }
+            let floorP = response.intent?.min_price
+            let filterProduct: (MatchedProduct) -> MatchedProduct? = { prod in
+                let okOffers = prod.offers.filter { o in
+                    o.price <= maxP + 0.01 && (floorP == nil || o.price >= floorP! - 0.01)
+                }
+                guard !okOffers.isEmpty else { return nil }
+                let minPriceVal = okOffers.map(\.price).min() ?? prod.best_price
+                let maxPriceVal = okOffers.map(\.price).max() ?? prod.highest_price
+                return MatchedProduct(
+                    id_val: prod.id,
+                    canonical_name: prod.canonical_name,
+                    brand: prod.brand,
+                    image_url: prod.image_url,
+                    gallery_images: prod.gallery_images,
+                    gender: prod.gender,
+                    offers: okOffers,
+                    best_price: minPriceVal,
+                    highest_price: maxPriceVal,
+                    cross_store_savings: prod.cross_store_savings
+                )
+            }
+            let filteredResults = response.results.compactMap(filterProduct)
+            if filteredResults.count == response.results.count {
+                return response
+            }
+            let filteredSections = response.curated_sections?.compactMap { sec -> CuratedProductSection? in
+                let prods = sec.products.compactMap(filterProduct)
+                guard !prods.isEmpty else { return nil }
+                return CuratedProductSection(id: sec.id, title: sec.title, subtitle: sec.subtitle, products: prods)
+            }
+            return SmartSearchResponse(
+                search_mode: response.search_mode,
+                is_deep_dive: response.is_deep_dive,
+                is_conversational_advice: response.is_conversational_advice,
+                conversational_header: response.conversational_header,
+                conversational_summary: response.conversational_summary,
+                searched_queries: response.searched_queries,
+                curated_sections: filteredSections,
+                comparative_cards: response.comparative_cards,
+                featured_cards: response.featured_cards,
+                spotlight: response.spotlight,
+                follow_up_suggestions: response.follow_up_suggestions,
+                intent: response.intent,
+                chips: response.chips,
+                total_found: filteredResults.count,
+                has_more: response.has_more,
+                context_state: response.context_state,
+                results: filteredResults,
+                is_off_topic: response.is_off_topic,
+                is_unsafe: response.is_unsafe,
+                session_id: response.session_id,
+                turn_id: response.turn_id,
+                user_image_url: response.user_image_url
+            )
         }
         // Never pollute clean exact-model results (e.g. 1-4 exact model variants) with generic category fallbacks!
         // Only run direct fallback enrichment if the server returned 0 valid products (and wasn't an intentional empty v2 response)

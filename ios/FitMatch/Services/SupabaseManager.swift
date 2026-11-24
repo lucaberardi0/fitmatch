@@ -2647,15 +2647,30 @@ class SupabaseManager: ObservableObject {
         let effImage = userImageURL ?? response.user_image_url
         let previewUrl = response.spotlight?.product.image_url ?? response.results.first?.image_url ?? effImage ?? existing?.preview_image_url
 
+        let prevCtx = existing?.context_state
         let ctx = ChatSessionContextState(
+            subject_query: prevCtx?.subject_query ?? (isFollowUp ? existing?.title : query),
             last_query: query,
-            brand: response.intent?.brand ?? existing?.context_state?.brand,
-            category: response.intent?.category ?? existing?.context_state?.category,
-            gender: response.intent?.gender ?? existing?.context_state?.gender,
-            max_price: response.intent?.max_price ?? existing?.context_state?.max_price,
-            min_price: response.intent?.min_price ?? existing?.context_state?.min_price,
-            size: response.intent?.size ?? existing?.context_state?.size,
-            features: response.intent?.features ?? existing?.context_state?.features
+            last_keywords: response.intent?.target_keywords ?? prevCtx?.last_keywords,
+            entity_tokens: prevCtx?.entity_tokens,
+            product_type: prevCtx?.product_type,
+            brand: response.intent?.brand ?? prevCtx?.brand,
+            excluded_brands: prevCtx?.excluded_brands,
+            sub_brand: prevCtx?.sub_brand,
+            category: response.intent?.category ?? prevCtx?.category,
+            gender: response.intent?.gender ?? prevCtx?.gender,
+            max_price: response.intent?.max_price ?? prevCtx?.max_price,
+            min_price: response.intent?.min_price ?? prevCtx?.min_price,
+            size: response.intent?.size ?? prevCtx?.size,
+            color: prevCtx?.color,
+            store: prevCtx?.store,
+            excluded_stores: prevCtx?.excluded_stores,
+            excluded_features: prevCtx?.excluded_features,
+            sort_by: prevCtx?.sort_by,
+            free_shipping: prevCtx?.free_shipping,
+            on_sale: prevCtx?.on_sale,
+            min_discount: prevCtx?.min_discount,
+            features: response.intent?.features ?? prevCtx?.features
         )
 
         let sessionPayload = SessionUpsertPayload(
@@ -2681,7 +2696,7 @@ class SupabaseManager: ObservableObject {
         }
 
         let snapshot = ChatTurnResultsSnapshot(
-            results: Array(response.results.prefix(18)),
+            results: Array(response.results.prefix(35)),
             curated_sections: Array((response.curated_sections ?? []).prefix(5)),
             comparative_cards: Array((response.comparative_cards ?? []).prefix(5)),
             featured_cards: Array((response.featured_cards ?? []).prefix(4)),
@@ -3305,5 +3320,49 @@ class SupabaseManager: ObservableObject {
             return false
         }
         return (200...299).contains(http.statusCode)
+    }
+
+    // MARK: - Live Catalog Autocomplete Suggestions
+
+    func fetchCatalogSuggestions(prefix: String, limit: Int = 5) async -> [String] {
+        let clean = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.count >= 2 else { return [] }
+        let safePattern = clean.replacingOccurrences(of: "*", with: "").replacingOccurrences(of: "%", with: "")
+        guard !safePattern.isEmpty,
+              let encoded = "*\(safePattern)*".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(restURL)/products?select=canonical_name&canonical_name=ilike.\(encoded)&category=neq.non_sport&limit=\(max(limit * 3, 12))") else {
+            return []
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 4.0
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+
+        struct NameRow: Decodable { let canonical_name: String }
+        guard let (data, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse,
+              (200...299).contains(http.statusCode),
+              let rows = try? JSONDecoder().decode([NameRow].self, from: data) else {
+            return []
+        }
+        var seen = Set<String>()
+        var out: [String] = []
+        let lowPrefix = clean.lowercased()
+        let sorted = rows.map(\.canonical_name).sorted { a, b in
+            let aStarts = a.lowercased().hasPrefix(lowPrefix)
+            let bStarts = b.lowercased().hasPrefix(lowPrefix)
+            if aStarts != bStarts { return aStarts }
+            return a.count < b.count
+        }
+        for name in sorted {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = trimmed.lowercased()
+            if trimmed.count >= 3, !seen.contains(key) {
+                seen.insert(key)
+                out.append(trimmed)
+                if out.count >= limit { break }
+            }
+        }
+        return out
     }
 }

@@ -3,7 +3,11 @@ import {
   callOpenRouterJSON,
   corsHeaders,
   createServiceClient,
+  detectSingleProductType,
+  extractBrand,
+  extractSpecificEntityTokens,
   jsonResponse,
+  normalizeQueryTypos,
   searchCatalogOffers,
 } from "../_shared/catalog.ts";
 
@@ -215,9 +219,36 @@ Deno.serve(async (req: Request) => {
 
     const primaryModel = (Deno.env.get("OPENROUTER_MODEL") ?? "").trim() || "meta-llama/llama-3.3-70b-instruct";
 
+    const normA = normalizeQueryTypos(modelA);
+    const normB = normalizeQueryTypos(modelB);
+    const brandA = extractBrand(normA, null);
+    const brandB = extractBrand(normB, null);
+    const pTypeA = detectSingleProductType(normA);
+    const pTypeB = detectSingleProductType(normB);
+    const entsA = extractSpecificEntityTokens(normA, brandA);
+    const entsB = extractSpecificEntityTokens(normB, brandB);
+
     const [prodARes, prodBRes, llmParsed] = await Promise.all([
-      searchCatalogOffers(supabase, { keywords: [modelA], semanticQuery: modelA, limit: 5 }),
-      searchCatalogOffers(supabase, { keywords: [modelB], semanticQuery: modelB, limit: 5 }),
+      searchCatalogOffers(supabase, {
+        rawQuery: normA,
+        keywords: [normA],
+        brand: brandA,
+        productType: pTypeA,
+        entityTokens: entsA,
+        semanticQuery: normA,
+        allowSemantic: entsA.length === 0,
+        limit: 6,
+      }),
+      searchCatalogOffers(supabase, {
+        rawQuery: normB,
+        keywords: [normB],
+        brand: brandB,
+        productType: pTypeB,
+        entityTokens: entsB,
+        semanticQuery: normB,
+        allowSemantic: entsB.length === 0,
+        limit: 6,
+      }),
       callOpenRouterJSON({
         systemPrompt,
         userPrompt: `Confronta dettagliatamente il modello A ('${modelA}') con il modello B ('${modelB}').`,

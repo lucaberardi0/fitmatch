@@ -750,33 +750,34 @@ struct ShopSearchHomeSkeletonView: View {
 }
 
 struct ShopSearchGridSkeletonView: View {
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
-
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 14) {
-                // Filter pills placeholder
-                HStack(spacing: 8) {
-                    ShopSkeletonCapsule(width: 80, height: 32)
-                    ShopSkeletonCapsule(width: 90, height: 32)
-                    ShopSkeletonCapsule(width: 75, height: 32)
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(0..<6, id: \.self) { _ in
+                    HStack(alignment: .top, spacing: 14) {
+                        ShopSkeletonBlock(cornerRadius: 18, width: 124, height: 124)
 
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(0..<6, id: \.self) { _ in
-                        ShopProductCardSkeleton()
+                        VStack(alignment: .leading, spacing: 8) {
+                            ShopSkeletonTextLine(width: 190, height: 15, cornerRadius: 5)
+                            ShopSkeletonTextLine(width: 135, height: 13, cornerRadius: 5)
+                            ShopSkeletonTextLine(width: 85, height: 12, cornerRadius: 4)
+                            ShopSkeletonTextLine(width: 110, height: 16, cornerRadius: 5)
+                            Spacer(minLength: 4)
+                            HStack(spacing: 8) {
+                                ShopSkeletonCircle(size: 18)
+                                ShopSkeletonTextLine(width: 95, height: 12, cornerRadius: 4)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
                 }
-                .padding(.horizontal, 16)
 
                 Spacer(minLength: 120)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
         }
     }
 }

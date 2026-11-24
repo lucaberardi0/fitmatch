@@ -613,15 +613,18 @@ class SupabaseClient:
 
             oid = f"{off.store_id}:{off.product_id or off.url}"
             seen_store_urls.add(url_key)
-            orig_p = float(off.original_price) if off.original_price and float(off.original_price) > float(off.price) else None
+            price_val = float(off.price)
+            orig_p = float(off.original_price) if off.original_price and float(off.original_price) > price_val else None
             disc_p = float(off.discount_pct) if orig_p and off.discount_pct else None
+            ship_rule = STORE_SHIPPING_RULES.get((off.store_id or "").lower())
+            ship_cost = calculate_shipping_cost(price_val, ship_rule) if ship_rule else 0.0
             offer_map[oid] = {
                 "id": oid,
                 "product_id": ck,
                 "store_id": off.store_id,
                 "store_name": off.store_name,
                 "raw_title": off.title,
-                "current_price": float(off.price),
+                "current_price": price_val,
                 "original_price": orig_p,
                 "discount_pct": disc_p,
                 "product_url": off.url,
@@ -629,6 +632,9 @@ class SupabaseClient:
                 "gallery_images": off_gallery,
                 "in_stock": off.in_stock,
                 "available_sizes": off.available_sizes or [],
+                "shipping_cost": ship_cost,
+                "free_shipping_threshold": ship_rule.get("free_threshold") if ship_rule else None,
+                "courier": ship_rule.get("courier") if ship_rule else None,
                 "last_checked_at": now_iso
             }
 

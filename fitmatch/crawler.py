@@ -114,10 +114,10 @@ class CategoryCrawler:
         batch.clear()
         return count
 
-    def _detect_category(self, title: str) -> str:
-        """Categorize product by title keywords using ProductNormalizer as single source of truth."""
+    def _detect_category(self, title: str, url: Optional[str] = None) -> str:
+        """Categorize product by title keywords + structured store URL using ProductNormalizer as single source of truth."""
         tl = (title or "").lower()
-        art_type = ProductNormalizer.detect_article_type(title)
+        art_type = ProductNormalizer.detect_article_type(title, url=url)
         if art_type == "non_sport":
             return "non_sport"
         if art_type in (
@@ -251,12 +251,7 @@ class CategoryCrawler:
                         img_el = tile.select_one("img")
                         img_url = (img_el.get("src") or img_el.get("data-src")) if img_el else None
 
-                        brand = None
-                        if "/it-it/" in raw_href:
-                            parts = raw_href.split("/")
-                            if len(parts) >= 3 and parts[2] not in ("sport", "donna", "uomo", "search"):
-                                brand = parts[2].capitalize()
-                        brand = self.normalizer.extract_brand(title, brand)
+                        brand = self.normalizer.extract_brand(title, url=product_url)
 
                         pid_el = tile.select_one("[data-itemid]")
                         pid = pid_el["data-itemid"] if pid_el and pid_el.get("data-itemid") else None
@@ -280,7 +275,7 @@ class CategoryCrawler:
                         canonical_base, _ = self.normalizer.clean_title(offer.title)
                         gender = self.normalizer.extract_gender(offer.title, offer.url)
                         canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
-                        category = self._detect_category(offer.title)
+                        category = self._detect_category(offer.title, url=offer.url)
 
                         batch.append({
                             "cluster_key": cluster_key,
@@ -373,13 +368,7 @@ class CategoryCrawler:
                         img_el = item.select_one("img.product-image-photo, img")
                         img_url = (img_el.get("src") or img_el.get("data-src")) if img_el else None
 
-                        brand = None
-                        if "/" in product_url:
-                            slug = product_url.rstrip("/").split("/")[-1]
-                            slug_parts = slug.split("-")
-                            if slug_parts:
-                                brand = slug_parts[0].capitalize()
-                        brand = self.normalizer.extract_brand(title, brand)
+                        brand = self.normalizer.extract_brand(title, url=product_url)
 
                         pid_el = item.select_one("[data-product-id]")
                         pid = pid_el["data-product-id"] if pid_el and pid_el.get("data-product-id") else None
@@ -403,7 +392,7 @@ class CategoryCrawler:
                         canonical_base, _ = self.normalizer.clean_title(offer.title)
                         gender = self.normalizer.extract_gender(offer.title, offer.url)
                         canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
-                        category = self._detect_category(offer.title)
+                        category = self._detect_category(offer.title, url=offer.url)
 
                         batch.append({
                             "cluster_key": cluster_key,
@@ -480,13 +469,13 @@ class CategoryCrawler:
                             continue
 
                         orig_price = self.misterrunning.parse_price(p.get("list_price"))
-                        brand = self.normalizer.extract_brand(name, p.get("brand"))
+                        brand = self.normalizer.extract_brand(name, p.get("brand"), url=url)
                         image = p.get("image")
                         pid = str(p.get("id")) if p.get("id") else None
 
                         raw_sizes = p.get("sizes", [])
                         gender = self.normalizer.extract_gender(name, url)
-                        category = self._detect_category(name)
+                        category = self._detect_category(name, url=url)
                         sizes = normalize_sizes(raw_sizes, gender=gender, category=category)
 
                         offer = Offer(
@@ -507,7 +496,7 @@ class CategoryCrawler:
                         canonical_base, _ = self.normalizer.clean_title(offer.title)
                         gender = self.normalizer.extract_gender(offer.title, offer.url)
                         canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
-                        category = self._detect_category(offer.title)
+                        category = self._detect_category(offer.title, url=offer.url)
 
                         batch.append({
                             "cluster_key": cluster_key,
@@ -638,7 +627,7 @@ class CategoryCrawler:
                         canonical_base, _ = self.normalizer.clean_title(offer.title)
                         gender = self.normalizer.extract_gender(offer.title, offer.url)
                         canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
-                        category = self._detect_category(offer.title)
+                        category = self._detect_category(offer.title, url=offer.url)
 
                         batch.append({
                             "cluster_key": cluster_key,
@@ -1382,7 +1371,7 @@ class CategoryCrawler:
                         canonical_base, _ = self.normalizer.clean_title(offer.title)
                         gender = self.normalizer.extract_gender(offer.title, offer.url)
                         canonical = f"{brand} {canonical_base.title()}" if brand and brand.lower() not in canonical_base.lower() else canonical_base.title()
-                        category = self._detect_category(offer.title)
+                        category = self._detect_category(offer.title, url=offer.url)
 
                         batch.append({
                             "cluster_key": cluster_key,
@@ -1615,9 +1604,9 @@ class CategoryCrawler:
             try:
                 offers = self.tradeinn.search(q, limit=min(max_items - total_indexed, 40))
                 for offer in offers:
-                    brand = self.normalizer.extract_brand(offer.title, offer.brand)
+                    brand = self.normalizer.extract_brand(offer.title, offer.brand, url=offer.url)
                     cleaned_title, _ = self.normalizer.clean_title(offer.title, brand)
-                    category = self._detect_category(offer.title)
+                    category = self._detect_category(offer.title, url=offer.url)
                     gender = self.normalizer.extract_gender(offer.title, offer.url)
                     cluster_key = self.normalizer.extract_cluster_key(offer)
                     canonical = f"{brand} {cleaned_title}".strip() if brand else cleaned_title
@@ -1663,9 +1652,9 @@ class CategoryCrawler:
             try:
                 offers = self.df_sport.search(q, limit=min(max_items - total_indexed, 40))
                 for offer in offers:
-                    brand = self.normalizer.extract_brand(offer.title, offer.brand)
+                    brand = self.normalizer.extract_brand(offer.title, offer.brand, url=offer.url)
                     cleaned_title, _ = self.normalizer.clean_title(offer.title, brand)
-                    category = self._detect_category(offer.title)
+                    category = self._detect_category(offer.title, url=offer.url)
                     gender = self.normalizer.extract_gender(offer.title, offer.url)
                     cluster_key = self.normalizer.extract_cluster_key(offer)
                     canonical = f"{brand} {cleaned_title}".strip() if brand else cleaned_title
@@ -1714,9 +1703,9 @@ class CategoryCrawler:
                     if offer.url in seen_urls:
                         continue
                     seen_urls.add(offer.url)
-                    brand = self.normalizer.extract_brand(offer.title, offer.brand)
+                    brand = self.normalizer.extract_brand(offer.title, offer.brand, url=offer.url)
                     cleaned_title, _ = self.normalizer.clean_title(offer.title, brand)
-                    category = self._detect_category(offer.title)
+                    category = self._detect_category(offer.title, url=offer.url)
                     gender = self.normalizer.extract_gender(offer.title, offer.url)
                     cluster_key = self.normalizer.extract_cluster_key(offer)
                     canonical = f"{brand} {cleaned_title}".strip() if brand else cleaned_title
@@ -1766,9 +1755,9 @@ class CategoryCrawler:
                 if not offer.url or offer.url in seen_urls:
                     continue
                 seen_urls.add(offer.url)
-                brand = self.normalizer.extract_brand(offer.title, offer.brand)
+                brand = self.normalizer.extract_brand(offer.title, offer.brand, url=offer.url)
                 cleaned_title, _ = self.normalizer.clean_title(offer.title, brand)
-                category = self._detect_category(offer.title)
+                category = self._detect_category(offer.title, url=offer.url)
                 if category == "non_sport":
                     continue
                 gender = self.normalizer.extract_gender(offer.title, offer.url)

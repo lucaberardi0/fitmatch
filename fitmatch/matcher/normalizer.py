@@ -63,6 +63,7 @@ STORE_NAMES_LOWER = {
 
 BRAND_ALIASES = {
     "on running": "On",
+    "on-running": "On",
     "air jordan": "Jordan",
     "völkl": "Völkl",
     "volkl": "Völkl",
@@ -71,7 +72,46 @@ BRAND_ALIASES = {
     "theragun": "Therabody",
     "north face": "The North Face",
     "the-north-face": "The North Face",
+    "the north face": "The North Face",
+    "under": "Under Armour",
     "under-armour": "Under Armour",
+    "under armour": "Under Armour",
+    "new-balance": "New Balance",
+    "new balance": "New Balance",
+    "la-sportiva": "La Sportiva",
+    "la sportiva": "La Sportiva",
+    "black-diamond": "Black Diamond",
+    "black diamond": "Black Diamond",
+    "tommy-hilfiger": "Tommy Hilfiger",
+    "tommy hilfiger": "Tommy Hilfiger",
+    "calvin-klein": "Calvin Klein",
+    "calvin-klein-jeans": "Calvin Klein",
+    "calvin-klein-underwear": "Calvin Klein",
+    "calvin klein": "Calvin Klein",
+    "helly-hansen": "Helly Hansen",
+    "helly hansen": "Helly Hansen",
+    "topo-athletic": "Topo Athletic",
+    "topo athletic": "Topo Athletic",
+    "ralph-lauren": "Ralph Lauren",
+    "polo-ralph-lauren": "Ralph Lauren",
+    "ralph lauren": "Ralph Lauren",
+    "jack-%26-jones": "Jack & Jones",
+    "jack-jones": "Jack & Jones",
+    "jack-and-jones": "Jack & Jones",
+    "le-coq-sportif": "Le Coq Sportif",
+    "new-era": "New Era",
+    "k-way": "K-Way",
+    "x-socks": "X-Socks",
+    "muc-off": "Muc-Off",
+    "rock-experience": "Rock Experience",
+    "north-sails": "North Sails",
+    "pro-touch": "Pro Touch",
+    "red-bull": "Red Bull",
+    "best-company": "Best Company",
+    "think-pink": "Think Pink",
+    "levi-s": "Levi's",
+    "o-neill": "O'Neill",
+    "arc-teryx": "Arc'teryx",
     "arcteryx": "Arc'teryx",
     "kiprun": "Kiprun",
     "kalenji": "Kalenji",
@@ -85,12 +125,22 @@ BRAND_ALIASES = {
     "alé": "Alé",
     "igpsport": "iGPSPORT",
     "inov8": "Inov-8",
-    "namedsport": "Named Sport",
+    "inov-8": "Inov-8",
+    "namedsport": "NamedSport",
+    "named-sport": "NamedSport",
+    "named sport": "NamedSport",
+    "226ers": "226ERS",
     "naak": "Näak",
     "näak": "Näak",
     "cep": "CEP",
     "zone3": "Zone3",
     "mount to coast": "Mount To Coast",
+    "100percent": "100%",
+    "40weft": "40Weft",
+    "40 weft": "40Weft",
+    "4f": "4F",
+    "3m": "3M",
+    "wd-40": "WD-40",
 }
 
 NON_SPORT_JUNK_PATTERNS = [
@@ -234,7 +284,7 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\bcostum[ei]\s*(?:da\s*)?bagno\b", r"\bcostum[ei]\s*(?:da\s*)?nuoto\b", r"\bboxer\s*(?:da\s*)?bagno\b",
         r"\bslip\s*(?:da\s*)?bagno\b", r"\bfastskin\b", r"\bopenwater\b",
         r"\bcobra\s+ultra\b", r"\bpinn[ae]\s*(?:da\s*)?nuoto\b", r"\btavolett[ae]\s*(?:da\s*)?nuoto\b",
-        r"\bboccaglio\b", r"\bmuta\s*(?:nuoto|triathlon|acque|vitalis)\b", r"\barena\b.*\b(?:nuoto|swim|swipe|mirror|python|tracks|air|costume)\b",
+        r"\bboccaglio\b", r"\bmuta\b", r"\bneoprene\b", r"\baquasphere\b", r"\barena\b.*\b(?:nuoto|swim|swipe|mirror|python|tracks|air|costume)\b",
         r"\bspeedo\b.*\b(?:nuoto|swim|biofuse|futura|fastskin|vengeance|aquapulse|costume|bagno)\b",
         r"\btyr\b.*\b(?:nuoto|swim|ops)\b", r"\bnike\s+swim\b"
     ]),
@@ -298,13 +348,15 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
     ("top", [
         r"\bmagli[ae]\b", r"\bmagliett[ae]\b", r"\bt-?shirts?\b", r"\bshirts?\b", r"\bcanott[ae]\b",
         r"\bsinglets?\b", r"\bsnglt\b", r"\btank\b", r"\bcrop\b", r"\bcropped\b", r"\btee\b",
-        r"\btops?\b(?!\s+(?:sala|flex|ten|gun))", r"\bfelp[ae]\b", r"\bhoodie\b", r"\blong\s*sleeve\b",
-        r"\bpile\b", r"\bmaglion[ei]\b", r"\bpullover\b", r"\bsweater\b",
-        r"\bshort\s*sleeve\b", r"\bsleeveless\b", r"\bmanic(?:a|he)\s+lung(?:a|he)\b",
+        r"\btops?\b(?!\s+(?:sala|flex|ten|gun|strap|load|speed))", r"\bfelp[ae]\b", r"\bhoodie\b", r"\bsweatshirt\b",
+        r"\blong[\s-]*sleeve\b", r"\blongsleeve\b", r"\bpile\b", r"\bmaglion[ei]\b", r"\bpullover\b",
+        r"\bsweater\b", r"\bshort[\s-]*sleeve\b", r"\bsleeveless\b", r"\bmanic(?:a|he)\s+lung(?:a|he)\b",
         r"\bmanic(?:a|he)\s+cort(?:a|e)\b", r"\bjersey\b", r"\bpolo\b", r"\breggisen[oi]\b", r"\bbra\b",
         r"\b(?:home|away|3rd|third)\s+(?:replica|stadium|match)\b", r"\bsenza\s+maniche\b", r"\bbody\s+\d+\s*cm\b",
-        r"\b1\s*[/\s]\s*[24]\s*zip\b", r"\bhalf\s*zip\b", r"\bquarter\s*zip\b", r"\bpolare\b", r"\bfleece\b",
-        r"\btech\s+fleece\b", r"\bdri[\s-]*fit\s+park\b"
+        r"\b1\s*[/\s]\s*[24]\s*zip\b", r"\bhalf[\s-]*zip\b", r"\bquarter[\s-]*zip\b", r"\bmezza\s+zip\b",
+        r"\bbase[\s-]*layer\b", r"\bpolare?\b(?!.*\b(?:h9|h10|verity|oh1|vantage|pacer|grit|ignite|unite|loop|watch|orologi|cardio|m\d{3})\b)",
+        r"\bpolartec\b", r"\bfleece\b", r"\btech\s+fleece\b", r"\bdri[\s-]*fit\s+park\b",
+        r"\bwolf\s+(?:grid|tree)\b", r"\bcanwell\s+glacier\b", r"\bradical\s+airflow\b"
     ]),
     ("gear", [
         r"\btheragun\b", r"\bpistola\s+(?:per\s+)?massaggi\b", r"\bstimolatore\s+muscolare\b",
@@ -459,8 +511,145 @@ class ProductNormalizer:
         return any(pat.search(tl) for pat in _COMPILED_NON_SPORT_JUNK)
 
     @classmethod
-    def extract_brand(cls, title: str, existing_brand: Optional[str] = None) -> Optional[str]:
-        """Detect standard canonical brand name from title or existing hint, avoiding false-positive collisions."""
+    def _normalize_brand_slug(cls, raw_slug: str) -> Optional[str]:
+        """Convert a URL or raw brand slug (e.g. 'under-armour', 'the-north-face') into a clean canonical brand name."""
+        s = (raw_slug or "").strip().lower()
+        if not s or len(s) < 2:
+            return None
+        s_decoded = s.replace("%26", "&")
+        if s_decoded in STORE_NAMES_LOWER or s_decoded in {
+            "uomo", "donna", "bambino", "bambina", "unisex", "sport", "outlet", "promo",
+            "brand", "brands", "prodotti", "abbigliamento", "scarpe", "accessori",
+            "attrezzature", "tutto", "novita", "saldi", "search",
+        }:
+            return None
+        if s_decoded in BRAND_ALIASES:
+            return BRAND_ALIASES[s_decoded]
+        spaced = s_decoded.replace("-", " ").replace("_", " ").strip()
+        if spaced in BRAND_ALIASES:
+            return BRAND_ALIASES[spaced]
+        if spaced in _PRIMARY_BRANDS:
+            return BRAND_ALIASES.get(spaced, spaced.title())
+        return spaced.title()
+
+    @classmethod
+    def extract_brand_from_url(cls, url: Optional[str]) -> Optional[str]:
+        """Deterministically extract canonical brand from known Italian/EU partner store URL patterns."""
+        if not url:
+            return None
+        u = url.strip().lower()
+        # 1. Cisalfa deterministic brand path segment: /it-it/<brand-slug>/<product>.html
+        m_cis = re.search(r"cisalfasport\.it/it-it/([a-z0-9][a-z0-9\-_%&]*)/", u)
+        if m_cis:
+            return cls._normalize_brand_slug(m_cis.group(1))
+
+        # 2. Prefix-slug stores: match longest known multi-word/single-word brand slug prefix
+        slug_match = (
+            re.search(r"maxisport\.com/([a-z0-9\-]+)", u)
+            or re.search(r"tennis-point\.it/products/([a-z0-9\-]+)", u)
+            or re.search(r"tradeinn\.com/[^/]+/it/([a-z0-9\-]+)", u)
+            or re.search(r"misterrunning\.com/it/([a-z0-9\-]+)", u)
+            or re.search(r"top4running\.it/p/([a-z0-9\-]+)", u)
+            or re.search(r"nencinisport\.it/it/([a-z0-9\-]+)", u)
+        )
+        if not slug_match:
+            return None
+        full_slug = slug_match.group(1)
+        # Build candidate slugs sorted longest-first (so 'under-armour' beats 'under', 'new-balance' beats 'new')
+        candidate_slugs = set(BRAND_ALIASES.keys())
+        for b in _PRIMARY_BRANDS:
+            candidate_slugs.add(b.replace(" ", "-"))
+        for cand in sorted(candidate_slugs, key=len, reverse=True):
+            c_slug = re.sub(r"[^a-z0-9]+", "-", cand.lower()).strip("-")
+            if len(c_slug) < 2 or c_slug in ("under", "new", "la", "black", "on"):
+                continue
+            if full_slug == c_slug or full_slug.startswith(c_slug + "-"):
+                return cls._normalize_brand_slug(cand)
+        return None
+
+    @classmethod
+    def detect_category_from_url(cls, url: Optional[str]) -> Optional[str]:
+        """Deterministically recover product category from structured partner store URLs (Alltricks, Cisalfa)."""
+        if not url:
+            return None
+        u = url.strip().lower()
+        # 1. Alltricks French category segment: /F-<id>-<cat_slug>/
+        m_all = re.search(r"alltricks\.it/f-\d+-([^/]+)/", u)
+        if m_all:
+            cat_slug = m_all.group(1)
+            if cat_slug in {
+                "casques", "velos-route-_-cyclocross-_-triathlon", "velos-complets-vtt",
+                "pneus-route", "pneus-vtt", "pieces-transmission", "velo-ville_voyage_vtc",
+                "cassettes", "plateaux-_-bashs", "pieces-roues", "grips-_-poignees",
+                "boitiers-de-pedaliers", "selles", "chambres-a-air", "pedaliers",
+                "derailleurs-arriere", "derailleurs-avant", "freins-a-disque",
+                "plaquettes-de-frein", "chaines", "potences", "cintres", "tiges-de-selle",
+                "fourches", "pedales-automatiques", "pedales-plates", "roues-vtt",
+                "roues-route", "eclairage", "compteurs-gps",
+            }:
+                return "cycling"
+            if cat_slug == "nutrition":
+                return "nutrition"
+            if cat_slug in {"textile-bas", "cuissards-_-collants", "pantalons-_-shorts"}:
+                return "pants"
+            if cat_slug in {"textile-hauts", "maillots", "tee-shirts-_-polos"}:
+                return "top"
+            if cat_slug in {"vestes-_-coupe-vent", "vestes"}:
+                return "jacket"
+            if cat_slug in {"combinaisons-_-maillots-de-bain", "natation"}:
+                return "swim"
+            if cat_slug in {"masques-_-lunettes", "lunettes"}:
+                return "eyewear"
+            if cat_slug in {"bidons", "hydratation"}:
+                return "hydration"
+            if cat_slug in {"bagagerie", "sacs-a-dos"}:
+                return "pack"
+            if cat_slug == "chaussettes":
+                return "socks"
+            if cat_slug in {"batons-de-randonnee", "randonnee", "camping-_-bivouac"}:
+                return "outdoor"
+            if cat_slug in {"chaussures-running", "chaussures-trail", "chaussures-vtt", "chaussures-route", "chaussures-randonnee", "chaussures"}:
+                return "shoes"
+
+        # 2. Cisalfa structured item-slug prefix: /it-it/<brand>/<item-prefix>-...
+        m_cis = re.search(r"cisalfasport\.it/it-it/[^/]+/([^/]+)\.html", u)
+        if m_cis:
+            item_slug = m_cis.group(1)
+            if re.match(r"^scarpe-calcio-", item_slug):
+                return "football_boots"
+            if re.match(r"^(scarpe-|sneakers-|scarponcini-|stivaletti-)", item_slug):
+                return "shoes"
+            if re.match(r"^(t-shirt|maglia|felpa|canotta|bra-|top-|polo-|cardigan-|camicia-|body-|dolcevita-|maglione-)", item_slug):
+                return "top"
+            if re.match(r"^(giacca|piumino|parka|gilet|smanicato|giubbotto|bomber|k-way|guscio|softshell|pile-)", item_slug):
+                return "jacket"
+            if re.match(r"^(pantalone|pantaloni|pantaloncini|short-|shorts-|fuseaux|leggings|tights|bermuda|jeans|pinocchietto|gonna-)", item_slug):
+                return "pants"
+            if re.match(r"^(zaino|borsone|borsa-|marsupio|sacca-|trolley-|tracolla-)", item_slug):
+                return "pack"
+            if re.match(r"^(calze-|calzini-)", item_slug):
+                return "socks"
+            if re.match(r"^(costume|bikini|occhialini-piscina|cuffia-piscina)", item_slug):
+                return "swim"
+            if re.match(r"^(occhiali-|maschera-)", item_slug):
+                return "eyewear"
+            if re.match(r"^(racchetta-|telaio-tennis)", item_slug):
+                return "racket"
+            if re.match(r"^(casco-sci|scarponi-sci|sci-|snowboard-|attacchi-sci|bastoncini-sci)", item_slug):
+                return "winter_sports"
+            if re.match(r"^(casco-bici|casco-mtb|casco-ciclismo|bicicletta-|bici-)", item_slug):
+                return "cycling"
+            if re.match(r"^(orologio-multifunzione|smartwatch|sportwatch|gps-)", item_slug):
+                return "gps_watch"
+            if re.match(r"^(barretta-|gel-energetico|integratore-|proteine-)", item_slug):
+                return "nutrition"
+            if re.match(r"^(borraccia-|flask-|thermos-)", item_slug):
+                return "hydration"
+        return None
+
+    @classmethod
+    def extract_brand(cls, title: str, existing_brand: Optional[str] = None, url: Optional[str] = None) -> Optional[str]:
+        """Detect standard canonical brand name from title, existing hint, or structured store URL."""
         lower_title = (title or "").lower()
         is_junk = cls.is_non_sport_junk(lower_title)
 
@@ -552,13 +741,22 @@ class ProductNormalizer:
 
         if existing_brand and existing_brand.strip().lower() not in STORE_NAMES_LOWER and existing_brand.strip().lower() != "elite":
             eb_low = existing_brand.strip().lower()
+            eb_spaced = eb_low.replace("-", " ").replace("_", " ").strip()
             if eb_low in BRAND_ALIASES:
                 return BRAND_ALIASES[eb_low]
-            return existing_brand.strip().capitalize()
+            if eb_spaced in BRAND_ALIASES:
+                return BRAND_ALIASES[eb_spaced]
+            url_brand = cls.extract_brand_from_url(url)
+            if url_brand:
+                return url_brand
+            return eb_spaced.title()
+        url_brand = cls.extract_brand_from_url(url)
+        if url_brand:
+            return url_brand
         return None
 
     @classmethod
-    def detect_article_type(cls, title: str) -> str:
+    def detect_article_type(cls, title: str, url: Optional[str] = None) -> str:
         """Categorize item into article type (e.g. case, strap, pack, jacket, pants, top, swim, football_boots, shoes, gps_watch, gear, non_sport)."""
         tl = (title or "").lower()
         if cls.is_non_sport_junk(tl):
@@ -574,7 +772,22 @@ class ProductNormalizer:
                 tl_main = parts[0]
 
         for atype, patterns in _COMPILED_ARTICLE_PATTERNS:
-            if atype == "football_boots":
+            if atype == "case":
+                if re.search(r"\b(giacc[ae]|felp[ae]|hoodie|pantalon|shorts?|leggings?|tights?|magli[ae]|t-?shirts?|scarp[ae]|shoes?)\b", tl_main) and not re.search(r"\b(custodi[ae]|pellicol[ae]|vetro\s*temp|salvaschermo|protezion[ei]\s+(?:lo\s+)?schermo|cavo)\b", tl_main):
+                    continue
+            elif atype == "mount":
+                if re.search(r"\b(reggisen[oi]|bra\b|leggings?|tights?|pantalon|shorts?|magli[ae]|t-?shirts?|scarp[ae]|shoes?)\b", tl_main) and not re.search(r"\b(portaborracc|manubrio|bici|bike|garmin|bryton|wahoo|smartphone)\b", tl_main):
+                    continue
+            elif atype == "strap":
+                if re.search(r"\b(bikini|costum[ei]|sneakers?|scarp[ae]|shoes?|sandal[oi]|ciabatt[ae]|reggisen[oi]|bra\b)\b", tl_main) and not re.search(r"\b(cinturin[oi]|watch|orologi|garmin|coros|polar|suunto|quickfit|\d{2}\s*mm)\b", tl_main):
+                    continue
+            elif atype == "pack":
+                if re.search(r"\b(scarp[ae]|shoes?|sneakers?|calcio|calcetto|predator|copa\s+(?:pure|sense|gloro)|mercurial|tiempo|phantom|f50|furon|future\s*[78]|ultra\s*5|pegasus|vaporfly|alphafly|nimbus|clifton|bondi|adizero|fg|ag|tf|mg|sg)\b", tl_main):
+                    continue
+            elif atype == "racket":
+                if re.search(r"\b(scarp[ae]|shoes?|sneakers?|shorts?|pantaloncin[oi]|pantalon[ie]|magli[ae]|t-?shirts?|giacc[ae]|calz[ae]|gtx|gore[\s-]*tex)\b", tl_main) and not re.search(r"\b(racchett[ae]|pala\s*padel)\b", tl_main):
+                    continue
+            elif atype == "football_boots":
                 if _NON_FOOTBALL_CUE_RE.search(tl_main) and not _FOOTBALL_EXPLICIT_RE.search(tl_main):
                     continue
                 for pattern in patterns:
@@ -615,6 +828,10 @@ class ProductNormalizer:
                 if model_sub in _SUB_BRAND_MODEL_KEYS or (model_sub in _AMBIGUOUS_SHOE_MODEL_KEYS and is_apparel_item):
                     continue
                 return "shoes"
+        # Check structured store URLs (e.g. Cisalfa / Alltricks) before falling back to generic 'gear'
+        url_cat = cls.detect_category_from_url(url)
+        if url_cat:
+            return url_cat
         # Do NOT blindly dump unknown items (neckwear, bike parts, accessories) into 'shoes'
         if _FALLBACK_SHOE_HINT_RE.search(tl):
             return "shoes"
@@ -720,9 +937,9 @@ class ProductNormalizer:
         if offer.barcode and len(offer.barcode.strip()) >= 8:
             return f"barcode:{offer.barcode.strip()}"
 
-        brand = cls.extract_brand(offer.title, offer.brand) or "Generic"
+        brand = cls.extract_brand(offer.title, offer.brand, url=offer.url) or "Generic"
         gender = cls.extract_gender(offer.title, offer.url)
-        art_type = cls.detect_article_type(offer.title)
+        art_type = cls.detect_article_type(offer.title, url=offer.url)
         url_lower = (offer.url or "").lower()
         if art_type != "case" and any(k in url_lower for k in ("copertura", "custodia", "silicone-case", "pellicola")):
             art_type = "case"
