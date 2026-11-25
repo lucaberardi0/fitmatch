@@ -1643,23 +1643,34 @@ struct ProductDetailView: View {
                                 }
                             }
 
-                            // Size Availability Info
+                            // Size Availability Info (transparent handling of verified vs unverified feed sizes)
+                            let hasUnverifiedSizes = (offer.available_sizes ?? []).isEmpty
                             if let sz = selectedSize {
+                                let sizeDisplay = sz.first?.isNumber == true ? "EU \(sz)" : sz
                                 if hasSize {
                                     HStack(spacing: 4) {
                                         Image(systemName: "checkmark.circle.fill")
                                             .font(.system(size: 10.5))
                                             .foregroundColor(.shopGreen)
-                                        Text("Disponibile in taglia EU \(sz)")
+                                        Text("Disponibile in taglia \(sizeDisplay)")
                                             .font(.system(size: 11.5, weight: .semibold))
                                             .foregroundColor(.shopGreen)
+                                    }
+                                } else if hasUnverifiedSizes {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "info.circle")
+                                            .font(.system(size: 10.5))
+                                            .foregroundColor(Color(red: 180/255, green: 110/255, blue: 20/255))
+                                        Text("Taglia \(sizeDisplay) da verificare sul sito")
+                                            .font(.system(size: 11.5, weight: .medium))
+                                            .foregroundColor(Color(red: 160/255, green: 98/255, blue: 18/255))
                                     }
                                 } else {
                                     HStack(spacing: 4) {
                                         Image(systemName: "exclamationmark.circle")
                                             .font(.system(size: 10.5))
                                             .foregroundColor(Color.secondary)
-                                        Text("Taglia EU \(sz) non disponibile su questo store")
+                                        Text("Taglia \(sizeDisplay) non disponibile su questo store")
                                             .font(.system(size: 11.5, weight: .medium))
                                             .foregroundColor(Color.secondary)
                                     }
@@ -1674,18 +1685,33 @@ struct ProductDetailView: View {
                                         .foregroundColor(.shopDark.opacity(0.85))
                                         .lineLimit(1)
                                 }
+                            } else {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "info.circle")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.shopTextMuted)
+                                    Text("Taglie da verificare sul sito")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.shopTextMuted)
+                                }
                             }
                         }
 
                         // Direct Action CTA Button to Open Store Link
+                        let ctaUnverifiedSizes = (offer.available_sizes ?? []).isEmpty
                         Link(destination: outboundUrl) {
                             HStack(spacing: 8) {
                                 Image(systemName: "cart.fill")
                                     .font(.system(size: 13, weight: .semibold))
 
                                 if let sz = selectedSize, !hasSize {
-                                    Text("Offerta \(offer.store_name) (tg. \(sz) esaurita)")
-                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    if ctaUnverifiedSizes {
+                                        Text("Verifica tg. \(sz) su \(offer.store_name)")
+                                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    } else {
+                                        Text("Offerta \(offer.store_name) (tg. \(sz) esaurita)")
+                                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    }
                                 } else {
                                     Text("Vedi offerta su \(offer.store_name)")
                                         .font(.system(size: 13.5, weight: .bold, design: .rounded))

@@ -26,18 +26,28 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
     print(f" Mode: {'EXECUTE (Writing to Supabase)' if execute else 'DRY RUN (Read-only analysis)'}")
     print("=" * 60)
 
-    # 1. Fetch current catalog statistics
-    stats_before = sb.get_stats()
-    print("\n[Current Supabase Stats]")
-    print(f"  Total products:        {stats_before.get('total_products')}")
-    print(f"  Total offers:          {stats_before.get('total_offers')}")
-    print(f"  Multi-store products:  {stats_before.get('multi_store_products')}")
+    # 1. Fetch existing master products so we can diff in-place (preserving embeddings & avoiding redundant writes)
+    print("\n[1/4] Fetching existing products and store offers from Supabase...")
+    t0 = time.time()
+    existing_products: Dict[str, Dict[str, Any]] = {}
+    page_size = 1000
+    offset = 0
+    while offset < limit:
+        ep = f"products?select=id,canonical_name,brand,category,gender,image_url&order=id.asc&limit={page_size}&offset={offset}"
+        resp = sb._request(ep)
+        batch = resp.get("data") or []
+        if not batch:
+            break
+        for p in batch:
+            existing_products[p["id"]] = p
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    print(f"  Fetched {len(existing_products)} existing master products in {time.time() - t0:.2f}s.")
 
     # 2. Page through all store offers
-    print("\n[1/4] Fetching all store offers from Supabase...")
-    t0 = time.time()
+    t1 = time.time()
     all_offers: List[Dict[str, Any]] = []
-    page_size = 1000
     offset = 0
 
     while offset < limit:
@@ -52,7 +62,7 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
             break
         offset += page_size
 
-    print(f"\n  Fetched {len(all_offers)} total offers in {time.time() - t0:.2f}s.")
+    print(f"\n  Fetched {len(all_offers)} total offers in {time.time() - t1:.2f}s.")
 
     # 3. Cluster offers using ProductNormalizer
     print("\n[2/4] Running ProductNormalizer entity resolution across all offers...")
@@ -89,9 +99,11 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
             eff_key = base_key if part_idx == 0 else f"{base_key} [alt-{part_idx}]"
             for row, off in part_pairs:
                 title = row.get("raw_title") or ""
-                brand = ProductNormalizer.extract_brand(title)
-                display_name = ProductNormalizer.build_canonical_display_name(title, brand=brand)
-                art_type = ProductNormalizer.detect_article_type(title)
+                prev_ex = existing_products.get(row.get("product_id") or "")
+                prev_brand = prev_ex.get("brand") if prev_ex else None
+                brand = ProductNormalizer.extract_brand(title, existing_brand=prev_brand, url=off.url) or prev_brand
+                display_name = ProductNormalizer.build_canonical_display_name(title, brand=brand, url=off.url)
+                art_type = ProductNormalizer.detect_article_type(title, url=off.url)
                 if art_type != "case" and any(k in (off.url or "").lower() for k in ("copertura", "custodia", "silicone-case", "pellicola")):
                     art_type = "case"
                 gender = ProductNormalizer.extract_gender(title, off.url)
@@ -107,10 +119,22 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
                         "offers": []
                     }
                 else:
-                    if len(display_name) > len(clusters[eff_key]["canonical_name"]) and len(display_name) <= 55:
-                        clusters[eff_key]["canonical_name"] = display_name
-                    if brand and not clusters[eff_key]["brand"]:
+                    existing_name = clusters[eff_key]["canonical_name"]
+                    existing_brand = clusters[eff_key]["brand"]
+                    if brand and not existing_brand:
                         clusters[eff_key]["brand"] = brand
+                        existing_brand = brand
+                    # Upgrade generic 'gear' category when another offer in the cluster resolves specifically
+                    if clusters[eff_key]["category"] in (None, "", "gear", "other") and art_type not in (None, "", "gear", "other"):
+                        clusters[eff_key]["category"] = art_type
+                    # Prefer a clean display name that includes the resolved brand and isn't overly verbose
+                    cand_has_brand = bool(existing_brand and existing_brand.lower() in display_name.lower())
+                    curr_has_brand = bool(existing_brand and existing_brand.lower() in existing_name.lower())
+                    if (
+                        (cand_has_brand and not curr_has_brand and len(display_name) <= 60)
+                        or (cand_has_brand == curr_has_brand and len(display_name) > len(existing_name) and len(display_name) <= 55)
+                    ):
+                        clusters[eff_key]["canonical_name"] = display_name
 
                 if off.image_url and not clusters[eff_key]["image_url"]:
                     clusters[eff_key]["image_url"] = off.image_url
@@ -123,10 +147,63 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
     multi_store_clusters = [c for c in clusters.values() if len(set(x[1].store_name for x in c["offers"])) > 1]
     single_store_clusters = [c for c in clusters.values() if len(set(x[1].store_name for x in c["offers"])) == 1]
 
-    print("\n[3/4] Re-Clustering Results:")
-    print(f"  Distinct master products:    {len(clusters)}")
-    print(f"  Multi-store products:        {len(multi_store_clusters)} (was {stats_before.get('multi_store_products')})")
+    # Compute diff against existing master products (in-place safe: preserves embeddings!)
+    existing_multi_counts: Dict[str, set] = {}
+    for row in all_offers:
+        pid = row.get("product_id")
+        if pid:
+            existing_multi_counts.setdefault(pid, set()).add(row.get("store_name") or "")
+    old_multi_store_count = sum(1 for stores in existing_multi_counts.values() if len(stores) > 1)
+
+    changed_prod_rows: List[Dict[str, Any]] = []
+    new_cluster_count = 0
+    updated_meta_count = 0
+    relinked_offer_count = 0
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    for ck, c in clusters.items():
+        ex = existing_products.get(ck)
+        eff_gender = c["gender"] or "Unisex"
+        if ex is None:
+            new_cluster_count += 1
+            changed_prod_rows.append({
+                "id": ck,
+                "canonical_name": c["canonical_name"],
+                "brand": c["brand"],
+                "category": c["category"],
+                "gender": eff_gender,
+                "image_url": c["image_url"],
+                "updated_at": now_iso,
+            })
+        else:
+            eff_brand = c["brand"] or ex.get("brand")
+            needs_update = (
+                (ex.get("canonical_name") or "") != (c["canonical_name"] or "")
+                or (ex.get("brand") or "") != (eff_brand or "")
+                or (ex.get("category") or "") != (c["category"] or "")
+                or (ex.get("gender") or "Unisex") != eff_gender
+                or (c["image_url"] and not ex.get("image_url"))
+            )
+            if needs_update:
+                updated_meta_count += 1
+                changed_prod_rows.append({
+                    "id": ck,
+                    "canonical_name": c["canonical_name"],
+                    "brand": eff_brand,
+                    "category": c["category"],
+                    "gender": eff_gender,
+                    "image_url": c["image_url"] or ex.get("image_url"),
+                    "updated_at": now_iso,
+                })
+        relinked_offer_count += sum(1 for row, _ in c["offers"] if row.get("product_id") != ck)
+
+    print("\n[3/4] Re-Clustering Results (Safe In-Place Diff):")
+    print(f"  Distinct master products:    {len(clusters)} (existing rows: {len(existing_products)})")
+    print(f"  Multi-store products:        {len(multi_store_clusters)} (was {old_multi_store_count})")
     print(f"  Single-store products:       {len(single_store_clusters)}")
+    print(f"  Delta -> new clusters:       {new_cluster_count}")
+    print(f"  Delta -> metadata updates:   {updated_meta_count} (existing embeddings preserved!)")
+    print(f"  Delta -> offers to re-link:  {relinked_offer_count}")
 
     # Show Top 10 Multi-Store Deals
     multi_store_with_savings = []
@@ -150,37 +227,26 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
         print("To apply these changes directly to Supabase, run with: python3 scripts/recluster_database.py --execute")
         return
 
-    # 5. EXECUTE MODE: Apply to Supabase
-    print("\n[4/4] Applying changes to Supabase Cloud PostgreSQL...")
-    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # 5. EXECUTE MODE: Apply ONLY the diff in-place to Supabase (preserves existing embeddings!)
+    print("\n[4/4] Applying safe in-place delta to Supabase Cloud PostgreSQL...")
 
-    # 5a. Upsert all master products
-    print(f"  Upserting {len(clusters)} master products...")
-    prod_rows = []
-    for c in clusters.values():
-        prod_rows.append({
-            "id": c["cluster_key"],
-            "canonical_name": c["canonical_name"],
-            "brand": c["brand"],
-            "category": c["category"],
-            "gender": c["gender"] or "Unisex",
-            "image_url": c["image_url"],
-            "updated_at": now_iso
-        })
+    # 5a. Upsert ONLY new or metadata-changed master products (never touches embedding column!)
+    print(f"  Upserting {len(changed_prod_rows)} changed/new master products (skipping {len(clusters) - len(changed_prod_rows)} unchanged)...")
+    prod_chunks = [changed_prod_rows[i:i + 40] for i in range(0, len(changed_prod_rows), 40)]
 
-    # Batch upsert in chunks of 100 (with fallback to 25 on statement timeout)
-    chunk_size = 100
-    for i in range(0, len(prod_rows), chunk_size):
-        chunk = prod_rows[i:i + chunk_size]
-        res = sb.upsert_products(chunk)
-        if not res:
-            for k in range(0, len(chunk), 25):
-                sb.upsert_products(chunk[k:k + 25])
-        print(f"    Upserted {min(i + chunk_size, len(prod_rows))}/{len(prod_rows)} products...", end="\r", flush=True)
-    print("\n    ✓ Master products upserted successfully.")
+    def _upsert_chunk(chunk):
+        sb.upsert_products(chunk)
+        return len(chunk)
+
+    upserted_count = 0
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        for cnt in executor.map(_upsert_chunk, prod_chunks):
+            upserted_count += cnt
+            print(f"    Upserted {upserted_count}/{len(changed_prod_rows)} products...", end="\r", flush=True)
+    print("\n    ✓ Master products delta upserted successfully (existing embeddings preserved).")
 
     # 5b. Update store_offers.product_id to cluster_key
-    print("  Re-linking store offers to new master product IDs...")
+    print("  Re-linking store offers to unified master product IDs...")
     patch_tasks = []
     for cluster_key, c_data in clusters.items():
         offer_ids = [row["id"] for row, off in c_data["offers"] if row.get("product_id") != cluster_key]
@@ -199,20 +265,14 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
         return len(ids)
 
     updated_offers = 0
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=6) as executor:
         for count in executor.map(_execute_patch, patch_tasks):
             updated_offers += count
-            print(f"    Re-linked {updated_offers} offers...", end="\r", flush=True)
+            print(f"    Re-linked {updated_offers}/{relinked_offer_count} offers...", end="\r", flush=True)
 
     print(f"\n    ✓ Successfully re-linked {updated_offers} store offers to unified cluster IDs.")
-
-    # 5c. Clear stats cache
-    sb._stats_cache = None
-    stats_after = sb.get_stats()
-    print("\n[Updated Supabase Stats]")
-    print(f"  Total products:        {stats_after.get('total_products')}")
-    print(f"  Total offers:          {stats_after.get('total_offers')}")
-    print(f"  Multi-store products:  {stats_after.get('multi_store_products')} (up from {stats_before.get('multi_store_products')})")
+    print(f"  Multi-store products:  {len(multi_store_clusters)} (up from {old_multi_store_count})")
+    print("  Done! Run `python3 scripts/generate_embeddings.py` next to backfill embeddings for new/unembedded active products.")
     print("\nRe-clustering completed successfully!")
 
 

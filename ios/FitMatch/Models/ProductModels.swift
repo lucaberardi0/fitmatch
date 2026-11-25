@@ -1651,6 +1651,15 @@ struct SearchThinkingStep: Identifiable, Equatable, Hashable {
     var elapsedMs: Int?
 }
 
+struct SmartSearchPartialPayload: Decodable {
+    let results: [MatchedProduct]
+    let chips: [SmartSearchChip]?
+    let searched_queries: [String]?
+    let conversational_header: String?
+    let total_found: Int?
+    let has_more: Bool?
+}
+
 struct SmartSearchStreamEvent: Decodable {
     let type: String
     let id: String?
@@ -1660,6 +1669,32 @@ struct SmartSearchStreamEvent: Decodable {
     let elapsed_ms: Int?
     let message: String?
     let data: SmartSearchResponse?
+    let partial: SmartSearchPartialPayload?
+
+    private enum CodingKeys: String, CodingKey {
+        case type, id, status, title, detail, elapsed_ms, message, data
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.type = try container.decode(String.self, forKey: .type)
+        self.id = try container.decodeIfPresent(String.self, forKey: .id)
+        self.status = try container.decodeIfPresent(String.self, forKey: .status)
+        self.title = try container.decodeIfPresent(String.self, forKey: .title)
+        self.detail = try container.decodeIfPresent(String.self, forKey: .detail)
+        self.elapsed_ms = try container.decodeIfPresent(Int.self, forKey: .elapsed_ms)
+        self.message = try container.decodeIfPresent(String.self, forKey: .message)
+        if self.type == "products" {
+            self.partial = try container.decodeIfPresent(SmartSearchPartialPayload.self, forKey: .data)
+            self.data = nil
+        } else if self.type == "result" {
+            self.data = try container.decodeIfPresent(SmartSearchResponse.self, forKey: .data)
+            self.partial = nil
+        } else {
+            self.data = nil
+            self.partial = nil
+        }
+    }
 }
 
 

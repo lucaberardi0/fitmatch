@@ -343,6 +343,46 @@ def test_url_brand_and_category_extraction_prevents_null_brand_and_gear_dump():
     assert normalizer.extract_brand("Giacca Alpha", existing_brand="the-north-face") == "The North Face"
 
 
+def test_phase2_clustering_cleanup_and_enriched_embeddings(normalizer):
+    from scripts.generate_embeddings import build_embedding_text
+
+    # 1. Repeated brand / noisy descriptors collapse into clean unified clusters
+    o1 = Offer(store_id="nike", store_name="Nike", title="Nike Zoom Fly 6 (Uomo)", price=169.99, url="http://1")
+    o2 = Offer(store_id="misterrunning", store_name="Mister Running", title="Zoom Fly 6 Competizione Uomini", price=139.9, url="http://2")
+    o3 = Offer(store_id="alltricks", store_name="Alltricks", title="Nike Zoom Fly 6 Gara su strada uomo", price=149.9, url="http://3")
+    groups = normalizer.group_offers([o1, o2, o3])
+    assert len(groups) == 1
+    assert len(groups[0].offers) == 3
+
+    # 2. Air Zoom / Zoom Pegasus unify cleanly with Nike Pegasus
+    p1 = Offer(store_id="store1", store_name="Store 1", title="Nike Air Zoom Pegasus 41 Uomo", price=129.0, url="http://4")
+    p2 = Offer(store_id="store2", store_name="Store 2", title="Nike Pegasus 41 Uomo", price=109.0, url="http://5")
+    assert len(normalizer.group_offers([p1, p2])) == 1
+
+    # 3. Under Armour 'UA' abbreviation & 'Visiera' unify cleanly
+    ua1 = Offer(store_id="store1", store_name="Store 1", title="Under Armour Cappellino Visiera Blitzing", price=22.0, url="http://6")
+    ua2 = Offer(store_id="store2", store_name="Store 2", title="Under Armour Cappellino UA Blitzing", price=19.0, url="http://7")
+    assert len(normalizer.group_offers([ua1, ua2])) == 1
+
+    # 4. Non-consecutive duplicate words are removed from canonical display names
+    clean_cap = normalizer.build_canonical_display_name("Asics Cappellino Asics 5 Pannelli Cappellino")
+    assert clean_cap.lower().count("asics") == 1
+    assert clean_cap.lower().count("cappellino") == 1
+
+    # 5. Kipsta Decathlon brand is recognized
+    assert normalizer.extract_brand("Kipsta Scarpe Calcio Viralto III FG") == "Kipsta"
+
+    # 6. Enriched embedding text incorporates offer raw_title descriptors + expanded domain hints
+    emb_text = build_embedding_text(
+        {"brand": "Nike", "canonical_name": "Nike Pegasus 41 Gtx", "category": "running_shoes", "gender": "Uomo"},
+        offer_titles=["Nike Pegasus 41 Gore-Tex Impermeabile Nero Uomo", "Nike Pegasus 41 Gtx"],
+    )
+    assert "varianti:" in emb_text
+    assert "impermeabile" in emb_text.lower()
+    assert "daily trainer" in emb_text.lower()
+
+
+
 
 
 

@@ -481,7 +481,8 @@ class APIService: ObservableObject {
         userId: String? = nil,
         preferredSize: String? = nil,
         userImageURL: String? = nil,
-        onStep: @escaping @MainActor (SearchThinkingStep) -> Void
+        onStep: @escaping @MainActor (SearchThinkingStep) -> Void,
+        onPartialResults: (@MainActor (SmartSearchPartialPayload) -> Void)? = nil
     ) async throws -> SmartSearchResponse {
         let resolvedUserId = await resolveUserId(userId)
         let cacheKey = smartSearchCacheKey(
@@ -586,6 +587,8 @@ class APIService: ObservableObject {
                         elapsedMs: event.elapsed_ms
                     )
                     await onStep(step)
+                } else if event.type == "products", let partial = event.partial {
+                    await onPartialResults?(partial)
                 } else if event.type == "result", let decoded = event.data {
                     let enriched = await validateAndEnrichSmartSearchResponse(
                         decoded,

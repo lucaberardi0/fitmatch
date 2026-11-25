@@ -15,10 +15,11 @@ struct SearchView: View {
     @State private var showVisualSearch: Bool = false
 
     @State private var searchResults: [MatchedProduct] = []
-    @State private var topSavingsItems: [MatchedProduct] = []
     @State private var isLoading: Bool = false
     @State private var errorMessage: String? = nil
     @State private var hasSearched: Bool = false
+    @State private var activeSearchTask: Task<Void, Never>? = nil
+    @State private var activeVisualSearchTask: Task<Void, Never>? = nil
 
     // Shopify Shop Intelligent Search Mode (AI Deep Dive vs Classic)
     @State private var isDeepDiveMode: Bool = true
@@ -51,12 +52,14 @@ struct SearchView: View {
     @State private var followUpErrorMessage: String? = nil
     @State private var thinkingSteps: [SearchThinkingStep] = []
     @State private var thinkingStartedAt: Date = Date()
+    @State private var partialStreamResults: [MatchedProduct] = []
+    @State private var partialStreamChips: [SmartSearchChip] = []
 
     // Filters (Classic Search Mode)
     @State private var selectedFilterCountry: String? = nil // nil, "EU", "IT"
     @State private var selectedSize: String? = nil
     @State private var selectedStore: String? = nil
-    @State private var sortMode: SortMode = .bestTotalPrice
+    @State private var sortMode: SortMode = .relevance
     @State private var showClassicFiltersSheet: Bool = false
     @State private var classicFreeShippingOnly: Bool = false
     @State private var classicOnSaleOnly: Bool = false
@@ -84,6 +87,7 @@ struct SearchView: View {
     @State private var selectedRecentProduct: MatchedProduct? = nil
 
     enum SortMode: String, CaseIterable, Identifiable {
+        case relevance = "Rilevanza"
         case bestTotalPrice = "Miglior Prezzo"
         case maxSavings = "Massimo Risparmio"
         case lowestPrice = "Prezzo Minimo"
@@ -173,6 +177,8 @@ struct SearchView: View {
         }
 
         switch sortMode {
+        case .relevance:
+            break // Preserve the hybrid search engine's relevance ranking
         case .bestTotalPrice:
             list.sort { (p1, p2) in
                 let cost1 = p1.offers.map { $0.calculatedTotalPrice }.min() ?? Double.infinity
@@ -258,7 +264,15 @@ struct SearchView: View {
                     query: config.query,
                     products: config.products,
                     initialFeedbackType: config.feedbackType,
-                    onSubmitted: {
+                    sessionId: config.sessionId,
+                    turnId: config.turnId,
+                    onSubmitted: { finalType in
+                        let fbVal = finalType == "positive" ? 1 : -1
+                        if let tid = config.turnId,
+                           let idx = conversationTurns.firstIndex(where: { $0.id == tid }) {
+                            conversationTurns[idx].userFeedback = fbVal
+                        }
+                        userFeedback = fbVal
                         withAnimation {
                             feedbackSubmittedToast = true
                         }
@@ -300,7 +314,7 @@ struct SearchView: View {
                         selectedFilterCountry = nil
                         classicFreeShippingOnly = false
                         classicOnSaleOnly = false
-                        sortMode = .bestTotalPrice
+                        sortMode = .relevance
                         applyClassicFilterRefinement(followUpPrompt: "Rimuovi tutti i filtri")
                     }
                 )
@@ -377,7 +391,6 @@ struct SearchView: View {
                 hideAllKeyboards()
             }
             .task {
-                loadInitialTopSavings()
                 async let syncRecent: Void = recentManager.syncFromDatabase()
                 async let loadChats: Void = loadSavedChatSessions()
                 _ = await (syncRecent, loadChats)
@@ -931,7 +944,7 @@ struct SearchView: View {
                 }
                 .padding(.leading, 4)
 
-                TextField("Cerca o chiedi qualsiasi c...", text: $searchText)
+                TextField("Cerca o chiedi qualsiasi cosa...", text: $searchText)
                     .font(.system(size: 15.5))
                     .foregroundColor(.shopDark)
                     .focused($isSearchFieldFocused)
@@ -1121,11 +1134,37 @@ struct SearchView: View {
                             .padding(.top, 10)
                         }
 
-                        ShopSearchDeepDiveSkeletonView(
-                            query: rootQuery.isEmpty ? searchText : rootQuery,
-                            thinkingSteps: thinkingSteps,
-                            thinkingStartedAt: thinkingStartedAt
-                        )
+                        if !partialStreamResults.isEmpty {
+                            VStack(alignment: .leading, spacing: 14) {
+                                ShopAgentThinkingCardView(
+                                    query: rootQuery.isEmpty ? searchText : rootQuery,
+                                    isFollowUp: false,
+                                    steps: thinkingSteps,
+                                    startedAt: thinkingStartedAt
+                                )
+                                .padding(.horizontal, ShopLayout.screenPadding)
+                                .padding(.top, 10)
+
+                                partialStreamPreviewSection
+
+                                VStack(alignment: .leading, spacing: 7) {
+                                    ShopSkeletonTextLine(height: 12, cornerRadius: 5)
+                                        .frame(maxWidth: .infinity)
+                                    ShopSkeletonTextLine(width: 220, height: 12, cornerRadius: 5)
+                                }
+                                .padding(.horizontal, ShopLayout.screenPadding)
+                                .opacity(0.55)
+
+                                Spacer(minLength: ShopLayout.bottomFilterDockClearance)
+                            }
+                            .transition(.opacity)
+                        } else {
+                            ShopSearchDeepDiveSkeletonView(
+                                query: rootQuery.isEmpty ? searchText : rootQuery,
+                                thinkingSteps: thinkingSteps,
+                                thinkingStartedAt: thinkingStartedAt
+                            )
+                        }
                     }
                 }
                 .transition(.opacity)
@@ -1726,14 +1765,66 @@ struct SearchView: View {
             )
             .padding(.horizontal, ShopLayout.screenPadding)
 
-            // Quiet Narrative Placeholder Lines
-            VStack(alignment: .leading, spacing: 7) {
-                ShopSkeletonTextLine(height: 12, cornerRadius: 5)
-                    .frame(maxWidth: .infinity)
-                ShopSkeletonTextLine(width: 210, height: 12, cornerRadius: 5)
+            if !partialStreamResults.isEmpty {
+                partialStreamPreviewSection
+                    .transition(.opacity)
+            } else {
+                // Quiet Narrative Placeholder Lines
+                VStack(alignment: .leading, spacing: 7) {
+                    ShopSkeletonTextLine(height: 12, cornerRadius: 5)
+                        .frame(maxWidth: .infinity)
+                    ShopSkeletonTextLine(width: 210, height: 12, cornerRadius: 5)
+                }
+                .padding(.horizontal, ShopLayout.screenPadding)
+                .opacity(0.60)
             }
-            .padding(.horizontal, ShopLayout.screenPadding)
-            .opacity(0.60)
+        }
+    }
+
+    // MARK: - Progressive SSE Product Preview (renders real verified cards while Stage-2 AI curates)
+    private var partialStreamPreviewSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !partialStreamChips.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        ForEach(partialStreamChips) { chip in
+                            ShopSearchChipView(chip: chip)
+                        }
+                    }
+                    .padding(.horizontal, ShopLayout.screenPadding)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
+                    Text("\(partialStreamResults.count) \(partialStreamResults.count == 1 ? "modello trovato" : "modelli trovati")")
+                        .font(.system(size: 18.5, weight: .bold))
+                        .foregroundColor(.shopDark)
+                        .tracking(-0.2)
+                    ProgressView()
+                        .scaleEffect(0.72)
+                        .tint(.shopPurple)
+                }
+                .padding(.horizontal, ShopLayout.screenPadding)
+
+                Text("Anteprima verificata — organizzo sezioni e confronto AI…")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(Color(red: 115/255, green: 115/255, blue: 125/255))
+                    .padding(.horizontal, ShopLayout.screenPadding)
+                    .padding(.bottom, 4)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(partialStreamResults.prefix(12)) { prod in
+                            ShopThemedCarouselCard(product: prod) {
+                                selectedRecentProduct = prod
+                            }
+                        }
+                    }
+                    .padding(.horizontal, ShopLayout.screenPadding)
+                    .padding(.vertical, 2)
+                }
+            }
         }
     }
 
@@ -1780,11 +1871,19 @@ struct SearchView: View {
                         withAnimation { conversationTurns[idx].userFeedback = 1 }
                     }
                     userFeedback = 1
-                    feedbackConfig = SearchFeedbackSheetConfig(
-                        query: turn.query.isEmpty ? (searchText.isEmpty ? "Ricerca" : searchText) : turn.query,
-                        feedbackType: "positive",
-                        products: turn.productsForFeedback
-                    )
+                    let qStr = turn.query.isEmpty ? (searchText.isEmpty ? "Ricerca" : searchText) : turn.query
+                    let sid = currentSessionId
+                    let tid = turn.id
+                    Task {
+                        if let sid, !sid.isEmpty {
+                            await api.submitChatTurnFeedback(sessionId: sid, turnId: tid, feedback: 1)
+                        }
+                        await api.submitSearchFeedback(query: qStr, feedbackType: "positive")
+                    }
+                    withAnimation { feedbackSubmittedToast = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                        withAnimation { feedbackSubmittedToast = false }
+                    }
                 }) {
                     Image(systemName: turn.userFeedback == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")
                         .font(.system(size: 14, weight: .medium))
@@ -1805,10 +1904,18 @@ struct SearchView: View {
                         withAnimation { conversationTurns[idx].userFeedback = -1 }
                     }
                     userFeedback = -1
+                    if let sid = currentSessionId, !sid.isEmpty {
+                        let tid = turn.id
+                        Task {
+                            await api.submitChatTurnFeedback(sessionId: sid, turnId: tid, feedback: -1)
+                        }
+                    }
                     feedbackConfig = SearchFeedbackSheetConfig(
                         query: turn.query.isEmpty ? (searchText.isEmpty ? "Ricerca" : searchText) : turn.query,
                         feedbackType: "negative",
-                        products: turn.productsForFeedback
+                        products: turn.productsForFeedback,
+                        sessionId: currentSessionId,
+                        turnId: turn.id
                     )
                 }) {
                     Image(systemName: turn.userFeedback == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
@@ -2004,25 +2111,50 @@ struct SearchView: View {
     }
 
     private var aiEmptyView: some View {
-        VStack {
+        let hasActiveFilters = overrideMaxPrice != nil || selectedSize != nil || selectedStore != nil || classicFreeShippingOnly || classicOnSaleOnly || !activeChips.isEmpty
+        let displayQuery = rootQuery.isEmpty ? searchText : rootQuery
+        let emptySuggestions: [String] = hasActiveFilters
+            ? ["Rimuovi limite di prezzo", "Tutte le taglie", "Tutti i negozi"]
+            : ["Scarpe maratona", "Garmin Forerunner", "Racchetta padel"]
+        return VStack {
             Spacer()
             FitMatchEmptyStateView(
-                icon: "sparkles",
+                icon: hasActiveFilters ? "line.3.horizontal.decrease.circle" : "sparkles",
                 illustrationName: "empty_search",
                 accentColor: .shopPurple,
-                badgeText: "MOTORE SPORTIVO IA",
-                title: "Nessuna corrispondenza per questa ricerca",
-                subtitle: "L'assistente FitMatch non ha trovato attrezzatura per «\(searchText)» tra i negozi partner. Prova uno dei suggerimenti qui sotto.",
-                suggestions: ["Scarpe maratona", "Garmin Forerunner", "Racchetta padel"],
+                badgeText: hasActiveFilters ? "FILTRI TROPPO RESTRITTIVI" : "MOTORE SPORTIVO IA",
+                title: hasActiveFilters ? "Nessuna offerta con questi filtri" : "Nessuna corrispondenza per questa ricerca",
+                subtitle: hasActiveFilters
+                    ? "Non ho trovato offerte attive per «\(displayQuery)» con i filtri selezionati. Prova a rimuovere un filtro o amplia la ricerca."
+                    : "L'assistente FitMatch non ha trovato attrezzatura per «\(displayQuery)» tra i negozi partner. Prova uno dei suggerimenti qui sotto.",
+                suggestions: emptySuggestions,
                 onSuggestionTap: { term in
-                    searchText = term
-                    executeSearch()
+                    if hasActiveFilters {
+                        if term == "Rimuovi limite di prezzo" { overrideMaxPrice = nil }
+                        else if term == "Tutte le taglie" { selectedSize = nil }
+                        else if term == "Tutti i negozi" { selectedStore = nil }
+                        executeSearch(isFollowUp: !conversationTurns.isEmpty, rawFollowUpText: term)
+                    } else {
+                        searchText = term
+                        executeSearch()
+                    }
                 },
-                primaryTitle: "Ricarica ricerca IA",
-                primaryIcon: "arrow.clockwise",
-                primaryColor: .shopDark,
+                primaryTitle: hasActiveFilters ? "Rimuovi tutti i filtri" : "Ricarica ricerca IA",
+                primaryIcon: hasActiveFilters ? "arrow.uturn.backward" : "arrow.clockwise",
+                primaryColor: hasActiveFilters ? .shopPurple : .shopDark,
                 onPrimaryTap: {
-                    executeSearch()
+                    if hasActiveFilters {
+                        overrideMaxPrice = nil
+                        selectedSize = nil
+                        selectedStore = nil
+                        classicFreeShippingOnly = false
+                        classicOnSaleOnly = false
+                        activeChips = []
+                        searchText = displayQuery
+                        executeSearch(isFollowUp: false, ignorePriorContext: true)
+                    } else {
+                        executeSearch()
+                    }
                 }
             )
             .padding(.horizontal, 16)
@@ -2175,7 +2307,7 @@ struct SearchView: View {
                             }
                         }
                     } label: {
-                        let isCustomSort = sortMode != .bestTotalPrice
+                        let isCustomSort = sortMode != .relevance
                         HStack(spacing: 5) {
                             Text(isCustomSort ? sortMode.rawValue : "Ordina")
                                 .font(.system(size: 13, weight: .semibold))
@@ -2530,9 +2662,14 @@ struct SearchView: View {
     }
 
     private func resetToSearchTyping(keepText: Bool = false) {
+        activeSearchTask?.cancel()
+        activeSearchTask = nil
+        activeVisualSearchTask?.cancel()
+        activeVisualSearchTask = nil
         hideAllKeyboards()
         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
             hasSearched = false
+            isLoading = false
             searchResults = []
             searchedQueries = []
             curatedSections = []
@@ -2547,6 +2684,7 @@ struct SearchView: View {
             selectedSize = nil
             selectedStore = nil
             overrideMaxPrice = nil
+            sortMode = .relevance
             classicFreeShippingOnly = false
             classicOnSaleOnly = false
             hasMoreClassicResults = false
@@ -2566,6 +2704,8 @@ struct SearchView: View {
             pendingVisualImagePreview = nil
             pendingVisualDescription = nil
             followUpErrorMessage = nil
+            partialStreamResults = []
+            partialStreamChips = []
             if !keepText {
                 searchText = ""
                 rootQuery = ""
@@ -2744,6 +2884,7 @@ struct SearchView: View {
             overrideMaxPrice = nil
             selectedStore = nil
             selectedFilterCountry = nil
+            sortMode = .relevance
             classicFreeShippingOnly = false
             classicOnSaleOnly = false
             userForcedClassicMode = false
@@ -2935,15 +3076,20 @@ struct SearchView: View {
         thinkingSteps = [initialStep]
         thinkingStartedAt = Date()
 
-        Task {
+        activeSearchTask?.cancel()
+        activeSearchTask = nil
+        activeVisualSearchTask?.cancel()
+        activeVisualSearchTask = Task {
             do {
                 let res = try await api.analyzeVisualSearchImage(
                     imageData: jpegData,
                     mimeType: "image/jpeg",
                     description: cleanDesc
                 )
+                guard !Task.isCancelled else { return }
 
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     withAnimation(.easeOut(duration: 0.2)) {
                         if let idx = self.thinkingSteps.firstIndex(where: { $0.id == "visual_analyze" }) {
                             self.thinkingSteps[idx].status = .done
@@ -2956,6 +3102,7 @@ struct SearchView: View {
 
                 if !res.is_sport_product {
                     await MainActor.run {
+                        guard !Task.isCancelled else { return }
                         let turnQuery = cleanDesc ?? "Foto caricata"
                         let nonSportTurn = SearchConversationTurn(
                             id: UUID().uuidString,
@@ -2993,6 +3140,7 @@ struct SearchView: View {
                 let preservedSteps = await MainActor.run { self.thinkingSteps }
 
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     if !isFollowUp {
                         self.rootQuery = finalQuery
                         self.searchText = finalQuery
@@ -3009,7 +3157,9 @@ struct SearchView: View {
                     )
                 }
             } catch {
+                if Task.isCancelled || error is CancellationError { return }
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     withAnimation(.easeOut(duration: 0.22)) {
                         self.pendingVisualImagePreview = nil
                         self.pendingVisualDescription = nil
@@ -3078,6 +3228,8 @@ struct SearchView: View {
 
         hasSearched = true
         errorMessage = nil
+        partialStreamResults = []
+        partialStreamChips = []
         thinkingSteps = initialThinkingSteps
         if initialThinkingSteps.isEmpty {
             thinkingStartedAt = Date()
@@ -3103,7 +3255,8 @@ struct SearchView: View {
         let activeSid = ignorePriorContext ? nil : currentSessionId
         let prefSize = preferredSizeForCurrentSearch(query: query, context: activeContext)
 
-        Task {
+        activeSearchTask?.cancel()
+        activeSearchTask = Task {
             do {
                 let smartRes = try await api.smartSearchStream(
                     query: query,
@@ -3117,6 +3270,7 @@ struct SearchView: View {
                     preferredSize: prefSize.isEmpty ? nil : prefSize,
                     userImageURL: activeImageURL,
                     onStep: { step in
+                        guard !Task.isCancelled else { return }
                         withAnimation(.easeOut(duration: 0.2)) {
                             if let idx = self.thinkingSteps.firstIndex(where: { $0.id == step.id }) {
                                 self.thinkingSteps[idx] = step
@@ -3124,9 +3278,24 @@ struct SearchView: View {
                                 self.thinkingSteps.append(step)
                             }
                         }
+                    },
+                    onPartialResults: { partial in
+                        guard !Task.isCancelled else { return }
+                        withAnimation(.easeOut(duration: 0.24)) {
+                            self.partialStreamResults = partial.results
+                            self.partialStreamChips = partial.chips ?? []
+                            if self.userForcedClassicMode || keepClassicMode {
+                                self.searchResults = partial.results
+                                self.activeChips = partial.chips ?? []
+                            }
+                        }
                     }
                 )
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
+                    self.partialStreamResults = []
+                    self.partialStreamChips = []
                     if let returnedSid = smartRes.session_id, !returnedSid.isEmpty {
                         self.currentSessionId = returnedSid
                     }
@@ -3210,6 +3379,11 @@ struct SearchView: View {
                     }
                 }
             } catch {
+                if Task.isCancelled || error is CancellationError { return }
+                await MainActor.run {
+                    self.partialStreamResults = []
+                    self.partialStreamChips = []
+                }
                 if !isFollowUp {
                     // 1. Direct Supabase Cloud instant fallback with full in-query filter parsing (price, size, category)
                     if let directFallback = await api.buildDirectSmartSearchFallback(
@@ -3221,7 +3395,9 @@ struct SearchView: View {
                         contextQuery: nil,
                         sessionId: activeSid
                     ), !directFallback.results.isEmpty {
+                        guard !Task.isCancelled else { return }
                         await MainActor.run {
+                            guard !Task.isCancelled else { return }
                             self.errorMessage = nil
                             self.pendingVisualImagePreview = nil
                             self.pendingVisualDescription = nil
@@ -3266,7 +3442,9 @@ struct SearchView: View {
                             self.recentManager.recordSearch(query)
                         }
                     } else if let local = try? await api.searchCatalog(query: query, limit: 30), !local.isEmpty {
+                        guard !Task.isCancelled else { return }
                         await MainActor.run {
+                            guard !Task.isCancelled else { return }
                             self.errorMessage = nil
                             self.pendingVisualImagePreview = nil
                             self.pendingVisualDescription = nil
@@ -3279,7 +3457,9 @@ struct SearchView: View {
                             self.recentManager.recordSearch(query)
                         }
                     } else if let live = try? await api.search(query: query, size: selectedSize), !live.isEmpty {
+                        guard !Task.isCancelled else { return }
                         await MainActor.run {
+                            guard !Task.isCancelled else { return }
                             self.errorMessage = nil
                             self.pendingVisualImagePreview = nil
                             self.pendingVisualDescription = nil
@@ -3292,7 +3472,9 @@ struct SearchView: View {
                             self.recentManager.recordSearch(query)
                         }
                     } else {
+                        guard !Task.isCancelled else { return }
                         await MainActor.run {
+                            guard !Task.isCancelled else { return }
                             self.pendingVisualImagePreview = nil
                             self.pendingVisualDescription = nil
                             self.errorMessage = "Impossibile recuperare i risultati in questo momento. Il server potrebbe essere occupato, tocca Riprova per aggiornare."
@@ -3300,6 +3482,7 @@ struct SearchView: View {
                         }
                     }
                 } else {
+                    guard !Task.isCancelled else { return }
                     // Follow-up failed or timed out: attempt direct Supabase fallback before failing!
                     if let directFallback = await api.buildDirectSmartSearchFallback(
                         query: query,
@@ -3310,7 +3493,9 @@ struct SearchView: View {
                         contextQuery: activeContext,
                         sessionId: activeSid
                     ) {
+                        guard !Task.isCancelled else { return }
                         await MainActor.run {
+                            guard !Task.isCancelled else { return }
                             withAnimation(.easeOut(duration: 0.24)) {
                                 self.isFollowUpLoading = false
                                 self.pendingFollowUpQuery = nil
@@ -3344,8 +3529,10 @@ struct SearchView: View {
                             }
                         }
                     } else {
+                        guard !Task.isCancelled else { return }
                         // Follow-up failed: preserve all existing turns and show retry notification
                         await MainActor.run {
+                            guard !Task.isCancelled else { return }
                             withAnimation(.easeOut(duration: 0.22)) {
                                 self.isFollowUpLoading = false
                                 self.pendingFollowUpQuery = nil
@@ -3356,18 +3543,6 @@ struct SearchView: View {
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-
-    private func loadInitialTopSavings() {
-        Task {
-            if let prods = try? await api.searchCatalog(query: "", limit: 30) {
-                let sorted = prods.filter { ($0.cross_store_savings ?? 0) > 1.0 }
-                    .sorted { ($0.cross_store_savings ?? 0) > ($1.cross_store_savings ?? 0) }
-                await MainActor.run {
-                    self.topSavingsItems = sorted
                 }
             }
         }
@@ -3424,7 +3599,7 @@ struct ShopClassicFiltersSheet: View {
     @State private var draftStore: String? = nil
     @State private var draftFreeShipping: Bool = false
     @State private var draftOnSale: Bool = false
-    @State private var draftSort: SearchView.SortMode = .bestTotalPrice
+    @State private var draftSort: SearchView.SortMode = .relevance
 
     private let pricePresets: [Double] = [50, 100, 150, 200, 300]
 
@@ -4384,6 +4559,12 @@ struct ShopOfficialProductCard: View {
     var bestOffer: Offer? { sortedOffers.first }
     var maxOffer: Offer? { sortedOffers.last }
 
+    private var storeMeta: ActiveStoreItem? {
+        guard let best = bestOffer else { return nil }
+        return DynamicCatalogRegistry.shared.storeItem(for: best.store_id)
+            ?? DynamicCatalogRegistry.shared.storeItem(for: best.store_name)
+    }
+
     var savingsAmount: Double {
         guard let best = bestOffer, let max = maxOffer, max.price > best.price else {
             return product.cross_store_savings ?? 0.0
@@ -4458,18 +4639,29 @@ struct ShopOfficialProductCard: View {
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    HStack(spacing: 4) {
-                        HStack(spacing: 2) {
-                            ForEach(0..<5, id: \.self) { _ in
+                    HStack(spacing: 5) {
+                        if let meta = storeMeta, let rating = meta.rating, rating >= 3.5 {
+                            HStack(spacing: 2.5) {
                                 Image(systemName: "star.fill")
-                                    .font(.system(size: 9))
+                                    .font(.system(size: 9.5))
+                                    .foregroundColor(.shopDark)
+                                Text(String(format: "%.1f", rating))
+                                    .font(.system(size: 11, weight: .semibold))
                                     .foregroundColor(.shopDark)
                             }
+                            Text("·")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Color(red: 165/255, green: 165/255, blue: 175/255))
                         }
-                        Text("(\(product.offers.count) \(product.offers.count == 1 ? "offerta" : "offerte"))")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
-                            .lineLimit(1)
+
+                        Text(
+                            product.offers.count > 1
+                            ? "\(product.offers.count) negozi a confronto"
+                            : "1 offerta verificata"
+                        )
+                        .font(.system(size: 11, weight: product.offers.count > 1 ? .semibold : .medium))
+                        .foregroundColor(product.offers.count > 1 ? .shopPurple : Color(red: 120/255, green: 120/255, blue: 130/255))
+                        .lineLimit(1)
                     }
                     .padding(.top, 1)
 
@@ -5437,13 +5629,17 @@ struct SearchFeedbackSheetConfig: Identifiable {
     let query: String
     let feedbackType: String // "positive" or "negative"
     let products: [MatchedProduct]
+    let sessionId: String?
+    let turnId: String?
 }
 
 struct ShopSearchFeedbackSheet: View {
     let query: String
     let products: [MatchedProduct]
     let initialFeedbackType: String
-    let onSubmitted: () -> Void
+    let sessionId: String?
+    let turnId: String?
+    let onSubmitted: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var currentFeedbackType: String
@@ -5451,10 +5647,19 @@ struct ShopSearchFeedbackSheet: View {
     @State private var productRatings: [String: String] = [:] // productId -> "up" | "down"
     @State private var isSubmitting: Bool = false
 
-    init(query: String, products: [MatchedProduct], initialFeedbackType: String, onSubmitted: @escaping () -> Void) {
+    init(
+        query: String,
+        products: [MatchedProduct],
+        initialFeedbackType: String,
+        sessionId: String? = nil,
+        turnId: String? = nil,
+        onSubmitted: @escaping (String) -> Void
+    ) {
         self.query = query
         self.products = products
         self.initialFeedbackType = initialFeedbackType
+        self.sessionId = sessionId
+        self.turnId = turnId
         self.onSubmitted = onSubmitted
         self._currentFeedbackType = State(initialValue: initialFeedbackType)
     }
@@ -5632,17 +5837,28 @@ struct ShopSearchFeedbackSheet: View {
             ]
         }
 
+        let submittedType = currentFeedbackType
+        let sid = sessionId
+        let tid = turnId
+
         Task {
+            if let sid, !sid.isEmpty, let tid, !tid.isEmpty {
+                await APIService.shared.submitChatTurnFeedback(
+                    sessionId: sid,
+                    turnId: tid,
+                    feedback: submittedType == "positive" ? 1 : -1
+                )
+            }
             await APIService.shared.submitSearchFeedback(
                 query: query,
-                feedbackType: currentFeedbackType,
+                feedbackType: submittedType,
                 comment: commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : commentText,
                 productEvaluations: evaluations.isEmpty ? nil : evaluations
             )
             await MainActor.run {
                 isSubmitting = false
                 dismiss()
-                onSubmitted()
+                onSubmitted(submittedType)
             }
         }
     }

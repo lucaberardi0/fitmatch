@@ -13,6 +13,7 @@ import argparse
 import logging
 import ssl
 import certifi
+import urllib.parse
 import urllib.request
 from typing import List, Dict, Any, Optional, Callable
 from dotenv import load_dotenv
@@ -38,17 +39,56 @@ DOMAIN_HINTS = {
     "forerunner": "orologio smartwatch gps cardio corsa running maratona triathlon",
     "fenix": "smartwatch sport outdoor multisport gps trekking running",
     "epix": "smartwatch amoled gps multisport trekking corsa",
+    "vantage": "orologio smartwatch gps cardio multisport polar corsa",
+    "pace": "orologio smartwatch gps corsa leggero coros maratona",
+    "h10": "fascia cardio sensore frequenza cardiaca bluetooth ant+ corsa",
+    "hrm": "fascia cardio sensore frequenza cardiaca garmin corsa ciclismo",
     "edge": "ciclocomputer ciclocomputer gps bici ciclismo navigatore",
-    "pegasus": "scarpe corsa running asfalto ammortizzate allenamento quotidiano",
+    "pegasus": "scarpe corsa running asfalto ammortizzate allenamento quotidiano daily trainer",
+    "vomero": "scarpe corsa running massima ammortizzazione comfort lunghe distanze",
+    "zoom fly": "scarpe running allenamento veloce tempo run piastra carbonio maratona",
     "vaporfly": "scarpe running gara mezza maratona maratona piastra carbonio",
     "alphafly": "scarpe running gara maratona piastra carbonio record",
-    "adizero": "scarpe corsa running gara velocita maratona",
-    "novablast": "scarpe running asfalto massimo rimbalzo ammortizzazione",
+    "adizero": "scarpe corsa running gara velocita maratona leggere",
+    "boston": "scarpe running tempo run allenamento veloce maratona",
+    "evo sl": "scarpe running leggere reattive allenamento veloce asfalto",
+    "ultraboost": "scarpe running comfort ammortizzazione asfalto uso quotidiano",
+    "novablast": "scarpe running asfalto massimo rimbalzo ammortizzazione reattive",
+    "superblast": "scarpe running super trainer lunghe distanze maratona ammortizzazione reattiva",
     "kayano": "scarpe running stabili supporto pronazione ammortizzazione",
-    "nimbus": "scarpe running massimo comfort ammortizzazione neutra",
-    "ghost": "scarpe running asfalto neutra ammortizzata allenamento",
+    "nimbus": "scarpe running massimo comfort ammortizzazione neutra lunghi",
+    "cumulus": "scarpe running asfalto neutre ammortizzate allenamento quotidiano",
+    "trabuco": "scarpe trail running montagna grip asics sterrato",
+    "clifton": "scarpe running leggere ammortizzazione comfort asfalto daily trainer",
+    "bondi": "scarpe running massima ammortizzazione recupero lunghi comfort",
+    "mach": "scarpe running tempo run leggere reattive asfalto",
+    "ghost": "scarpe running asfalto neutra ammortizzata allenamento quotidiano",
+    "glycerin": "scarpe running massima ammortizzazione morbida comfort lunghi",
+    "adrenaline": "scarpe running stabili supporto antipronazione guida",
+    "triumph": "scarpe running massima ammortizzazione comfort lunghe distanze",
+    "ride": "scarpe running neutre ammortizzate allenamento quotidiano",
+    "endorphin": "scarpe running velocita gara reattive maratona tempo run",
+    "cloudmonster": "scarpe running massima ammortizzazione ritorno energia asfalto",
+    "cloudsurfer": "scarpe running morbide transizione fluida allenamento asfalto",
+    "1080": "scarpe running massima ammortizzazione fresh foam comfort lunghi",
+    "rebel": "scarpe running leggere reattive fuelcell tempo run allenamento veloce",
+    "deviate nitro": "scarpe running piastra carbonio allenamento veloce maratona",
+    "velocity nitro": "scarpe running neutre daily trainer ammortizzate grip pumagrip",
     "speedgoat": "scarpe trail running montagna sterrato aderenza vibram",
-    "cascadia": "scarpe trail running fango sentieri montagna",
+    "speedcross": "scarpe trail running fango terreni morbidi grip tacchetti",
+    "cascadia": "scarpe trail running fango sentieri montagna protezione",
+    "terrex": "trail running outdoor trekking montagna impermeabile",
+    "acg": "outdoor trail running trekking abbigliamento tecnico all conditions gear",
+    "bonatti": "giacca impermeabile trail running antipioggia traspirante leggera",
+    "active skin": "gilet zaino idratazione trail running soft flask corsa montagna",
+    "adv skin": "gilet zaino idratazione trail running ultra marathon soft flask",
+    "sutro": "occhiali ciclismo corsa sport sole lente prizm",
+    "radar ev": "occhiali sportivi ciclismo running lente ventilata",
+    "vertex": "racchetta padel potenza diamante attacco bullpadel",
+    "hack": "racchetta padel potenza diamante competizione bullpadel",
+    "at10": "racchetta padel controllo potenza bilanciata nox tapia",
+    "gel resolution": "scarpe tennis stabilita campo terra battuta cemento",
+    "court ff": "scarpe tennis velocita stabilita cemento terra battuta",
     "mercurial": "scarpini scarpe calcio velocita fg ag calcetto",
     "predator": "scarpini scarpe calcio controllo fg ag erba sintetica",
     "tiempo": "scarpini scarpe calcio pelle comfort fg ag",
@@ -62,45 +102,92 @@ DOMAIN_HINTS = {
     "biofuse": "occhialini nuoto piscina comfort principianti",
     "fastskin": "nuoto piscina costume occhialini gara",
     "occhialini": "nuoto piscina allenamento principianti acqua",
+    "gtx": "impermeabile gore-tex pioggia acqua protezione meteo inverno",
+    "gore-tex": "impermeabile gore-tex pioggia acqua protezione meteo inverno",
+    "therma-fit": "termico caldo inverno isolamento freddo abbigliamento tecnico",
+    "dri-fit": "traspirante leggero asciugatura rapida sudore corsa allenamento",
+    "manica lunga": "maglia manica lunga long sleeve strato tecnico corsa mezza stagione",
+    "long sleeve": "maglia manica lunga long sleeve strato tecnico corsa mezza stagione",
+    "half zip": "maglia mezza zip strato intermedio ventilazione corsa inverno",
+    "windbreaker": "giacca antivento leggera traspirante corsa ciclismo",
+    "antivento": "giacca antivento leggera traspirante corsa ciclismo",
+    "2in1": "pantaloncini shorts 2 in 1 cosciale interno corsa running",
 }
 
 CATEGORY_HINTS = {
     "football_boots": "scarpini scarpe da calcio calcetto erba naturale sintetica ag fg tf",
     "swim": "nuoto piscina occhialini costume cuffia allenamento acquatico",
     "running_shoes": "scarpe da corsa running asfalto allenamento ammortizzazione",
+    "shoes": "scarpe sportive corsa running allenamento calzature",
     "trail_running": "scarpe trail running montagna sentieri sterrato grip",
     "padel": "padel racchetta pala scarpe padel",
+    "racket": "racchetta padel tennis pala campo",
+    "tennis": "tennis racchetta scarpe tennis campo terra battuta cemento",
     "cycling": "ciclismo bici strada mtb allenamento",
     "gps_watch": "orologio smartwatch gps sport cardio corsa",
+    "sensor": "fascia cardio sensore frequenza cardiaca cadenza potenza sport",
+    "jacket": "giacca antivento impermeabile smanicato gilet outdoor corsa",
+    "top": "maglia t-shirt canotta felpa pile manica lunga corsa allenamento",
+    "pants": "pantaloni pantaloncini shorts leggings tights corsa palestra",
+    "hydration": "zaino gilet trail borraccia soft flask idratazione",
+    "eyewear": "occhiali sportivi sole ciclismo running lenti",
+    "winter_sports": "sci snowboard scarponi montagna neve inverno",
 }
 
 
-def build_embedding_text(product: Dict[str, Any]) -> str:
+def build_embedding_text(product: Dict[str, Any], offer_titles: Optional[List[str]] = None) -> str:
     """Build high-semantic-density textual representation for vector embedding."""
     brand = (product.get("brand") or "").strip()
     name = (product.get("canonical_name") or "").strip()
     category = (product.get("category") or "").strip()
     gender = (product.get("gender") or "").strip()
 
-    name_lower = name.lower()
+    raw_titles: List[str] = []
+    if offer_titles:
+        raw_titles.extend(offer_titles)
+    elif isinstance(product.get("offer_titles"), list):
+        raw_titles.extend(str(t) for t in product["offer_titles"] if t)
+    elif isinstance(product.get("store_offers"), list):
+        raw_titles.extend(str(o.get("raw_title") or "") for o in product["store_offers"] if isinstance(o, dict))
+
+    # Deduplicate distinct store titles to capture colorways, fabrics & use-case descriptors
+    distinct_titles: List[str] = []
+    seen_norm = {name.lower()}
+    for rt in raw_titles:
+        clean_rt = " ".join(rt.strip().split())
+        if not clean_rt or len(clean_rt) < 4:
+            continue
+        key = clean_rt.lower()
+        if key in seen_norm:
+            continue
+        seen_norm.add(key)
+        distinct_titles.append(clean_rt[:90])
+        if len(distinct_titles) >= 3:
+            break
+
+    probe_lower = f"{name} {' '.join(distinct_titles)}".lower()
     hints = []
+    seen_hints = set()
     for term, hint in DOMAIN_HINTS.items():
-        if term in name_lower:
+        if term in probe_lower and hint not in seen_hints:
             hints.append(hint)
+            seen_hints.add(hint)
 
     tokens = []
     if brand:
         tokens.append(brand)
     if name:
         tokens.append(name)
+    if distinct_titles:
+        tokens.append("varianti: " + " | ".join(distinct_titles))
     if category:
         tokens.append(f"categoria: {category}")
-        if category in CATEGORY_HINTS:
+        if category in CATEGORY_HINTS and CATEGORY_HINTS[category] not in seen_hints:
             hints.append(CATEGORY_HINTS[category])
     if gender and gender.lower() != "unisex":
         tokens.append(f"genere: {gender}")
     if hints:
-        tokens.append("caratteristiche: " + " ".join(hints))
+        tokens.append("caratteristiche: " + " ".join(hints[:6]))
 
     return " ".join(tokens)
 
@@ -247,7 +334,28 @@ class EmbeddingGenerator:
                 logger.info("No more products requiring embeddings.")
                 break
 
-            texts = [build_embedding_text(p) for p in batch]
+            # Enrich embedding text with distinct raw_title descriptors from store_offers (colors, fabrics, usage)
+            offer_titles_by_pid: Dict[str, List[str]] = {}
+            try:
+                pids = [str(p["id"]) for p in batch if p.get("id")]
+                if pids:
+                    id_list_str = ",".join('"' + pid.replace('\\', '\\\\').replace('"', '\\"') + '"' for pid in pids)
+                    q_in = urllib.parse.quote(f"({id_list_str})")
+                    off_resp = self.sb._request(
+                        f"store_offers?select=product_id,raw_title&product_id=in.{q_in}&limit={max(len(pids) * 4, 80)}",
+                        method="GET",
+                        timeout=20,
+                    )
+                    if off_resp.get("status") == 200 and isinstance(off_resp.get("data"), list):
+                        for o in off_resp["data"]:
+                            pid = str(o.get("product_id") or "")
+                            rt = (o.get("raw_title") or "").strip()
+                            if pid and rt:
+                                offer_titles_by_pid.setdefault(pid, []).append(rt)
+            except Exception:
+                pass
+
+            texts = [build_embedding_text(p, offer_titles=offer_titles_by_pid.get(str(p.get("id")))) for p in batch]
             logger.info(f"Generating embeddings for batch of {len(texts)} products...")
 
             try:

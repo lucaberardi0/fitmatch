@@ -8,6 +8,7 @@ import {
   detectProductType,
   detectSingleProductType,
   detectSubBrand,
+  evaluateDeterministicFastPath,
   extractAllBrands,
   extractBrand,
   extractExcludedBrands,
@@ -31,7 +32,7 @@ import {
   SubQuerySpec,
 } from "../_shared/catalog.ts";
 
-const SMART_SEARCH_CACHE_VERSION = "v6_hybrid_1";
+const SMART_SEARCH_CACHE_VERSION = "v8_fast_stream_1";
 const CACHE_TTL_RESULTS_MS = 15 * 60 * 1000; // 15 min for grounded product searches
 const CACHE_TTL_EMPTY_MS = 5 * 60 * 1000;    // 5 min for valid LLM empty / Q&A responses
 
@@ -605,6 +606,7 @@ function buildChips(intent: {
   max_price: number | null;
   min_price: number | null;
   size: string | null;
+  sizeUnverified?: boolean;
   color: string | null;
   store: string | null;
   excluded_stores: Array<{ id: string; label: string }>;
@@ -622,7 +624,14 @@ function buildChips(intent: {
   if (intent.gender && intent.gender !== "Unisex") {
     chips.push({ id: "chip_gender", label: intent.gender, param_key: "gender", value: intent.gender });
   }
-  if (intent.size) chips.push({ id: "chip_size", label: `Taglia ${intent.size}`, param_key: "size", value: intent.size });
+  if (intent.size) {
+    chips.push({
+      id: "chip_size",
+      label: intent.sizeUnverified ? `Taglia ${intent.size} (da verificare)` : `Taglia ${intent.size}`,
+      param_key: "size",
+      value: intent.size,
+    });
+  }
   if (intent.color) chips.push({ id: "chip_color", label: intent.color, param_key: "color", value: intent.color });
   if (intent.min_price != null && intent.max_price != null) {
     chips.push({
@@ -986,7 +995,10 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ detail: "Query troppo corta." }, 400);
   }
 
-  const execute = async (emitStep?: (step: Record<string, unknown>) => void) => {
+  const execute = async (
+    emitStep?: (step: Record<string, unknown>) => void,
+    emitPartial?: (payload: Record<string, unknown>) => void,
+  ) => {
     const startedAt = Date.now();
     const supabase = createServiceClient();
     if (!supabase) {
@@ -1037,17 +1049,19 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
-    // SERVER-SIDE RESPONSE CACHE (standalone fresh queries only, 15m TTL)
+    // SERVER-SIDE RESPONSE CACHE + SESSION CONTEXT (parallel zero-overhead lookup!)
+    // Eligible on ANY standalone first turn (even when iOS pre-generates a fresh session_id UUID!)
     // =========================================================================
-    const isCacheEligible = !contextQuery?.trim() &&
-      !sessionId?.trim() &&
+    const mayCheckCache = !contextQuery?.trim() &&
       !userImageUrl?.trim() &&
       !loadMore &&
       excludeIds.length === 0 &&
       !noCache;
     let cacheKey: string | null = null;
 
-    if (isCacheEligible) {
+    const historyPromise = loadChatHistoryContext(supabase, sessionId);
+    const cachePromise = (async () => {
+      if (!mayCheckCache) return null;
       try {
         cacheKey = await buildSearchCacheKey({
           q,
@@ -1066,69 +1080,84 @@ Deno.serve(async (req: Request) => {
           .eq("cache_key", cacheKey)
           .gt("expires_at", nowIso)
           .maybeSingle();
+        return cachedRow ?? null;
+      } catch {
+        return null;
+      }
+    })();
 
-        if (cachedRow?.payload && typeof cachedRow.payload === "object") {
-          const cached = cachedRow.payload as Record<string, unknown>;
-          const cachedResults = Array.isArray(cached.results) ? (cached.results as MatchedProductOut[]) : [];
-          const cachedSections = Array.isArray(cached.curated_sections) ? cached.curated_sections : [];
-          const cachedSq = Array.isArray(cached.searched_queries) ? (cached.searched_queries as string[]) : [];
+    const [historyCtx, cachedRow] = await Promise.all([historyPromise, cachePromise]);
+    const prevContext = historyCtx.contextState ?? clientContextState;
+    const hasPriorSessionHistory = Boolean(
+      (prevContext && Object.keys(prevContext).length > 0) ||
+      historyCtx.recentTurns.length > 0,
+    );
+    const isCacheEligible = mayCheckCache && !hasPriorSessionHistory;
 
-          emitStep?.({
-            id: "intent",
-            status: "done",
-            title: "Piano di ricerca pronto",
-            detail: cachedSq.slice(0, 3).join(" · ") || q,
-            elapsed_ms: Date.now() - startedAt,
+    if (isCacheEligible && cachedRow?.payload && typeof cachedRow.payload === "object") {
+      try {
+        const cached = cachedRow.payload as Record<string, unknown>;
+        const cachedResults = Array.isArray(cached.results) ? (cached.results as MatchedProductOut[]) : [];
+        const cachedSections = Array.isArray(cached.curated_sections) ? cached.curated_sections : [];
+        const cachedSq = Array.isArray(cached.searched_queries) ? (cached.searched_queries as string[]) : [];
+
+        emitStep?.({
+          id: "intent",
+          status: "done",
+          title: "Piano di ricerca pronto",
+          detail: cachedSq.slice(0, 3).join(" · ") || q,
+          elapsed_ms: Date.now() - startedAt,
+        });
+        emitStep?.({
+          id: "catalog",
+          status: "done",
+          title: `${cachedResults.length} ${cachedResults.length === 1 ? "modello trovato" : "modelli trovati"}`,
+          detail: "Catalogo verificato tra i negozi partner",
+          elapsed_ms: Date.now() - startedAt,
+        });
+        emitStep?.({
+          id: "curate",
+          status: "done",
+          title: `${cachedSections.length} ${cachedSections.length === 1 ? "sezione creata" : "sezioni create"}`,
+          detail: "Selezione pronta",
+          elapsed_ms: Date.now() - startedAt,
+        });
+
+        // Persist user's personal chat turn & context_state on their exact sessionId so follow-ups work seamlessly
+        let cachedSavedIds: { session_id: string; turn_id: string } | null = null;
+        if (sessionId || deviceId || userId) {
+          cachedSavedIds = await saveChatTurn(supabase, {
+            sessionId: sessionId ?? null,
+            deviceId,
+            userId,
+            chatType: "smart_search",
+            query: q,
+            isFollowUp: false,
+            payload: {
+              conversational_header: typeof cached.conversational_header === "string" ? cached.conversational_header : null,
+              conversational_summary: typeof cached.conversational_summary === "string" ? cached.conversational_summary : null,
+              is_conversational_advice: Boolean(cached.is_conversational_advice),
+              intent: cached.intent,
+              chips: Array.isArray(cached.chips) ? cached.chips : [],
+              results: cachedResults,
+              curated_sections: cachedSections,
+              comparative_cards: Array.isArray(cached.comparative_cards) ? cached.comparative_cards : [],
+              featured_cards: Array.isArray(cached.featured_cards) ? cached.featured_cards : [],
+              searched_queries: cachedSq,
+              spotlight: cached.spotlight ?? null,
+              follow_up_suggestions: Array.isArray(cached.follow_up_suggestions) ? (cached.follow_up_suggestions as string[]) : [],
+              is_off_topic: false,
+              is_unsafe: false,
+            },
+            contextState: (cachedRow.context_state && typeof cachedRow.context_state === "object")
+              ? (cachedRow.context_state as Record<string, unknown>)
+              : {},
+            userImageUrl: null,
           });
-          emitStep?.({
-            id: "catalog",
-            status: "done",
-            title: `${cachedResults.length} ${cachedResults.length === 1 ? "modello trovato" : "modelli trovati"}`,
-            detail: "Catalogo verificato tra i negozi partner",
-            elapsed_ms: Date.now() - startedAt,
-          });
-          emitStep?.({
-            id: "curate",
-            status: "done",
-            title: `${cachedSections.length} ${cachedSections.length === 1 ? "sezione creata" : "sezioni create"}`,
-            detail: "Selezione pronta",
-            elapsed_ms: Date.now() - startedAt,
-          });
+        }
 
-          // Still persist user's personal chat turn & context_state so follow-ups work seamlessly
-          let cachedSavedIds: { session_id: string; turn_id: string } | null = null;
-          if (deviceId || userId) {
-            cachedSavedIds = await saveChatTurn(supabase, {
-              sessionId: null,
-              deviceId,
-              userId,
-              chatType: "smart_search",
-              query: q,
-              isFollowUp: false,
-              payload: {
-                conversational_header: typeof cached.conversational_header === "string" ? cached.conversational_header : null,
-                conversational_summary: typeof cached.conversational_summary === "string" ? cached.conversational_summary : null,
-                is_conversational_advice: Boolean(cached.is_conversational_advice),
-                intent: cached.intent,
-                chips: Array.isArray(cached.chips) ? cached.chips : [],
-                results: cachedResults,
-                curated_sections: cachedSections,
-                comparative_cards: Array.isArray(cached.comparative_cards) ? cached.comparative_cards : [],
-                featured_cards: Array.isArray(cached.featured_cards) ? cached.featured_cards : [],
-                searched_queries: cachedSq,
-                spotlight: cached.spotlight ?? null,
-                follow_up_suggestions: Array.isArray(cached.follow_up_suggestions) ? (cached.follow_up_suggestions as string[]) : [],
-                is_off_topic: false,
-                is_unsafe: false,
-              },
-              contextState: (cachedRow.context_state && typeof cachedRow.context_state === "object")
-                ? (cachedRow.context_state as Record<string, unknown>)
-                : {},
-              userImageUrl: null,
-            });
-          }
-
-          // Non-blocking hit counter increment via EdgeRuntime.waitUntil when available
+        // Non-blocking hit counter increment via EdgeRuntime.waitUntil when available
+        if (cacheKey) {
           const hitUpdate = Promise.resolve(
             supabase
               .from("smart_search_cache")
@@ -1137,17 +1166,17 @@ Deno.serve(async (req: Request) => {
           ).catch(() => {});
           (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } })
             .EdgeRuntime?.waitUntil?.(hitUpdate);
-
-          return {
-            ...cached,
-            session_id: cachedSavedIds?.session_id ?? null,
-            turn_id: cachedSavedIds?.turn_id ?? null,
-            user_image_url: null,
-            cache_hit: true,
-          };
         }
+
+        return {
+          ...cached,
+          session_id: cachedSavedIds?.session_id ?? sessionId ?? null,
+          turn_id: cachedSavedIds?.turn_id ?? null,
+          user_image_url: null,
+          cache_hit: true,
+        };
       } catch {
-        // Degrade silently to live search if cache read ever fails
+        // Degrade silently to live search if cached payload parsing ever fails
       }
     }
 
@@ -1158,10 +1187,6 @@ Deno.serve(async (req: Request) => {
       detail: contextQuery ? "Collego il contesto della conversazione" : "Pianifico le ricerche nel catalogo",
       elapsed_ms: Date.now() - startedAt,
     });
-
-    // Load full prior session history (context_state + last 5 turns + lastShownProducts)
-    const historyCtx = await loadChatHistoryContext(supabase, sessionId);
-    const prevContext = historyCtx.contextState ?? clientContextState;
 
     const local = parseLocalConstraints(q);
     const normalizedQ = local.normalizedQuery;
@@ -1346,7 +1371,33 @@ Deno.serve(async (req: Request) => {
     }
     plannerUserPromptParts.push(effectiveQueryForLLM);
 
-    const llmPlan = loadMore
+    const allQueryBrands = extractAllBrands(normalizedQ);
+    const hasExplicitFilterMutation = Boolean(
+      local.max_price != null || local.min_price != null || local.size || local.asksMySize ||
+      local.gender || local.color || local.store || local.free_shipping || local.on_sale ||
+      local.excluded_brands.length > 0 || local.excluded_stores.length > 0 || local.excluded_features.length > 0 ||
+      local.sort_by != null || local.resetPrice || local.resetSize || local.resetGender || local.resetColor ||
+      local.resetStore || local.resetBrand || local.resetFreeShipping || local.resetOnSale ||
+      local.resetExclusions || local.resetSort || local.resetAllFilters,
+    );
+
+    const fastPath = evaluateDeterministicFastPath({
+      normalizedQuery: normalizedQ,
+      mode,
+      isFollowUp,
+      categorySwitched,
+      pureQuestion,
+      broadeningFollowUp,
+      currentBrand,
+      allQueryBrandsCount: allQueryBrands.length,
+      currentEntities,
+      currentExplicitPType,
+      detProductType,
+      hasExplicitFilterMutation,
+      hasPriorSubject: Boolean(prior.subjectQuery || prior.brand || prior.productType || prior.entityTokens.length > 0),
+    });
+
+    const llmPlan = (loadMore || fastPath.skipStage1)
       ? null
       : await callOpenRouterJSON({
           systemPrompt: plannerSystemPrompt,
@@ -1522,7 +1573,6 @@ Deno.serve(async (req: Request) => {
       for (const f of llmPlan.features) addFeature(String(f ?? ""));
     }
 
-    const allQueryBrands = extractAllBrands(normalizedQ);
     const queryType = String(llmPlan?.query_type ?? "").toLowerCase();
     const isComparison = queryType === "comparison" ||
       allQueryBrands.length >= 2 ||
@@ -1565,14 +1615,6 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const hasExplicitFilterMutation = Boolean(
-      local.max_price != null || local.min_price != null || local.size || local.asksMySize ||
-      local.gender || local.color || local.store || local.free_shipping || local.on_sale ||
-      local.excluded_brands.length > 0 || local.excluded_stores.length > 0 || local.excluded_features.length > 0 ||
-      local.sort_by != null || local.resetPrice || local.resetSize || local.resetGender || local.resetColor ||
-      local.resetStore || local.resetBrand || local.resetFreeShipping || local.resetOnSale ||
-      local.resetExclusions || local.resetSort || local.resetAllFilters,
-    );
     const isPureQA = pureQuestion || (
       queryType === "pure_question" && isFollowUp && currentEntities.length === 0 && !hasExplicitFilterMutation
     );
@@ -1750,7 +1792,7 @@ Deno.serve(async (req: Request) => {
       const needsConceptualHybridBrowse = effectiveEntityTokens.length === 0 &&
         !isComparison &&
         (brand || productType) &&
-        (hasStructuredFilter || hasExplicitFilterMutation || plannedSubQueries.length === 0 || loadMore || (!brand && productType != null));
+        (hasStructuredFilter || hasExplicitFilterMutation || plannedSubQueries.length === 0 || loadMore || (!brand && productType != null && plannedSubQueries.length < 2));
       if (needsConceptualHybridBrowse) {
         const browseParts = [
           brand,
@@ -2034,15 +2076,17 @@ Deno.serve(async (req: Request) => {
     // STRICT FINAL FILTER ENFORCEMENT GUARD (zero-leak guarantee!)
     // Ensures EVERY returned offer & product satisfies all active structured constraints.
     // =========================================================================
-    if (finalResults.length > 0 && (
+    const needsStrictGuard = Boolean(
       effectiveMaxPriceNum != null || effectiveMinPriceNum != null || effectiveStore != null ||
       excludedBrandsLow.size > 0 || excludedStoreIds.length > 0 ||
-      freeShipping || onSale || (minDiscount != null && minDiscount > 0)
-    )) {
+      freeShipping || onSale || (minDiscount != null && minDiscount > 0),
+    );
+    const applyStrictOfferFilters = (products: MatchedProductOut[]): MatchedProductOut[] => {
+      if (!needsStrictGuard || products.length === 0) return products;
       const storeLow = effectiveStore?.toLowerCase() ?? null;
       const exStoreSet = new Set(excludedStoreIds.map((s) => s.toLowerCase()));
       const guarded: MatchedProductOut[] = [];
-      for (const p of finalResults) {
+      for (const p of products) {
         if (excludedBrandsLow.size > 0) {
           const pb = (p.brand ?? "").toLowerCase();
           const pn = p.canonical_name.toLowerCase();
@@ -2086,7 +2130,71 @@ Deno.serve(async (req: Request) => {
           cross_store_savings: storesSet.size > 1 && maxP > bestP ? Math.round((maxP - bestP) * 100) / 100 : null,
         });
       }
-      finalResults = guarded;
+      return guarded;
+    };
+
+    finalResults = applyStrictOfferFilters(finalResults);
+
+    // Graceful unverified-size fallback:
+    // ~26% of live store feeds omit `available_sizes`. If strict size matching yields 0 verified results,
+    // surface ONLY offers whose size stock wasn't reported (NEVER offers confirmed out of that size)
+    // and clearly flag them as "Taglia da verificare sul sito".
+    let usedUnverifiedSizeFallback = false;
+    let sizeFallbackNote: string | null = null;
+    if (size && finalResults.length === 0 && !loadMore && !isPureQA) {
+      const noSizeRes = await searchCatalogMultiQuery(supabase, {
+        rawQuery: effectiveRawForSearch,
+        subQueries: plannedSubQueries,
+        brand,
+        excludedBrands: excludedBrands.length > 0 ? excludedBrands : null,
+        category,
+        productType,
+        maxPrice: effectiveMaxPriceNum,
+        minPrice: effectiveMinPriceNum,
+        size: null,
+        preferredSize: null,
+        gender,
+        store: effectiveStore,
+        excludedStores: excludedStoreIds.length > 0 ? excludedStoreIds : null,
+        excludedFeatures: excludedFeatures.length > 0 ? excludedFeatures : null,
+        freeShipping,
+        onSale,
+        minDiscount,
+        colorTokens: colorConstraint?.sqlTokens ?? null,
+        requireColor: Boolean(colorConstraint),
+        sortBy,
+        excludeIds: excludeIds.length > 0 ? excludeIds : null,
+        isComparison,
+        diversifyModels: !isExactModel && !isComparison,
+        relaxDiversity: false,
+        totalLimit: Math.min(totalLimitRequested, 24),
+      });
+
+      const unverifiedCandidates: MatchedProductOut[] = [];
+      for (const p of noSizeRes.products) {
+        const unverifiedOffers = p.offers.filter((o) => !o.available_sizes || o.available_sizes.length === 0);
+        if (unverifiedOffers.length === 0) continue;
+        unverifiedOffers.sort((a, b) => a.price - b.price);
+        const bestP = unverifiedOffers[0].price;
+        const maxP = unverifiedOffers[unverifiedOffers.length - 1].price;
+        const storesSet = new Set(unverifiedOffers.map((o) => o.store_id));
+        unverifiedCandidates.push({
+          ...p,
+          offers: unverifiedOffers,
+          best_price: bestP,
+          highest_price: maxP,
+          cross_store_savings: storesSet.size > 1 && maxP > bestP ? Math.round((maxP - bestP) * 100) / 100 : null,
+        });
+      }
+
+      const guardedUnverified = applyStrictOfferFilters(unverifiedCandidates);
+      if (guardedUnverified.length > 0) {
+        finalResults = guardedUnverified;
+        usedUnverifiedSizeFallback = true;
+        for (const p of guardedUnverified) roleById[p.id] = noSizeRes.roleById[p.id] ?? "primary";
+        sizeFallbackNote =
+          `Nessun negozio conferma online la taglia **${size}** in stock, ma questi store hanno il modello con **taglia da verificare sul sito**.`;
+      }
     }
 
     // Fast-path return for Classic Mode pagination ("Carica altri"):
@@ -2114,11 +2222,56 @@ Deno.serve(async (req: Request) => {
       id: "catalog",
       status: "done",
       title: `${finalResults.length} ${finalResults.length === 1 ? "modello trovato" : "modelli trovati"}`,
-      detail: finalResults.length > 0
+      detail: usedUnverifiedSizeFallback
+        ? `Taglia ${size} da verificare direttamente sugli store`
+        : finalResults.length > 0
         ? "Catalogo verificato tra i negozi partner"
         : "Nessuna offerta attiva per questi filtri",
       elapsed_ms: Date.now() - startedAt,
     });
+
+    const searchedQueries = multiRes.executedLabels.length > 0
+      ? multiRes.executedLabels
+      : plannedLabels;
+
+    const chips = buildChips({
+      brand,
+      excluded_brands: excludedBrands,
+      category,
+      gender,
+      max_price: maxPrice,
+      min_price: minPrice,
+      size,
+      sizeUnverified: usedUnverifiedSizeFallback,
+      color: colorConstraint?.label ?? null,
+      store: resolvedStore?.label ?? null,
+      excluded_stores: excludedStores,
+      excluded_features: excludedFeatures,
+      sort_by: sortBy,
+      free_shipping: freeShipping,
+      on_sale: onSale,
+      min_discount: minDiscount,
+    });
+
+    const skipStage2Merchandiser = fastPath.skipStage2 || usedUnverifiedSizeFallback;
+    const hasMorePreliminary = finalResults.length > 0 &&
+      !isPureQA &&
+      !isExactModel &&
+      !isComparison &&
+      (multiRes.hasMore || finalResults.length >= Math.min(totalLimitRequested, 30));
+
+    // Progressive SSE streaming: push real verified product cards + active filter chips IMMEDIATELY
+    // right after DB retrieval (~0.7-1.5s), while Stage-2 AI merchandising runs in parallel!
+    if (emitPartial && finalResults.length > 0 && !isPureQA && !skipStage2Merchandiser) {
+      emitPartial({
+        results: finalResults,
+        chips,
+        searched_queries: searchedQueries,
+        conversational_header: "Ho cercato prodotti",
+        total_found: finalResults.length,
+        has_more: hasMorePreliminary,
+      });
+    }
 
     // =========================================================================
     // STAGE 2: GROUNDED AI MERCHANDISER & EDITORIAL SYNTHESIS (Shop Style!)
@@ -2186,6 +2339,52 @@ Deno.serve(async (req: Request) => {
         maxPrice != null || minPrice != null ? "Rimuovi limite di prezzo" : "Mostrami le migliori offerte",
         size ? "Mostra tutte le taglie" : "Rimuovi tutti i filtri",
       ];
+    } else if (skipStage2Merchandiser) {
+      const fallback = buildSmartFallbackMerchandising({
+        query: effectiveSubjectQuery,
+        results: finalResults,
+        roleById,
+        productType,
+        brand,
+        maxPrice,
+        gender,
+        size,
+        preferredSize: effectivePreferredSize,
+        isExactModel,
+      });
+
+      if (usedUnverifiedSizeFallback && sizeFallbackNote) {
+        summary = colorFilteredNote ? `${sizeFallbackNote}\n\n${colorFilteredNote}` : sizeFallbackNote;
+        curatedSections = [{
+          id: "sec_size_unverified",
+          title: "Taglia da verificare sul sito",
+          subtitle: `Taglia ${size} non dichiarata nel feed — controlla disponibilità sullo store`,
+          products: finalResults.slice(0, 14),
+        }];
+        featuredCards = fallback.featuredCards;
+        comparativeCards = fallback.comparativeCards;
+        followUps = [
+          "Mostra tutte le taglie",
+          maxPrice != null ? "Rimuovi limite di prezzo" : "Mostrami modelli simili",
+          "Mostrami le migliori offerte",
+        ];
+      } else {
+        summary = colorFilteredNote ? `${fallback.summary}\n\n${colorFilteredNote}` : fallback.summary;
+        curatedSections = fallback.sections;
+        featuredCards = fallback.featuredCards;
+        comparativeCards = fallback.comparativeCards;
+        followUps = fallback.followUps;
+      }
+
+      emitStep?.({
+        id: "curate",
+        status: "done",
+        title: `${curatedSections.length} ${curatedSections.length === 1 ? "sezione creata" : "sezioni create"}`,
+        detail: usedUnverifiedSizeFallback
+          ? "Offerte con taglia da verificare sul sito"
+          : "Risultati pronti",
+        elapsed_ms: Date.now() - startedAt,
+      });
     } else {
       emitStep?.({
         id: "curate",
@@ -2538,9 +2737,6 @@ Deno.serve(async (req: Request) => {
 
     const spotlight = featuredCards[0] ?? null;
     const isDeepDive = mode !== "classic";
-    const searchedQueries = multiRes.executedLabels.length > 0
-      ? multiRes.executedLabels
-      : plannedLabels;
 
     const intentObj = {
       raw_query: q,
@@ -2555,29 +2751,15 @@ Deno.serve(async (req: Request) => {
       size,
       features: activeFeatures,
       explanation: summary,
-      source: llmPlan ? "supabase_edge_v3_shop" : "supabase_edge_v3_heuristic",
+      source: llmPlan
+        ? "supabase_edge_v3_shop"
+        : fastPath.skipStage1
+        ? "supabase_edge_v3_fast"
+        : "supabase_edge_v3_heuristic",
       is_off_topic: false,
       is_unsafe: false,
       is_conversational_advice: isPureQA,
     };
-
-    const chips = buildChips({
-      brand,
-      excluded_brands: excludedBrands,
-      category,
-      gender,
-      max_price: maxPrice,
-      min_price: minPrice,
-      size,
-      color: colorConstraint?.label ?? null,
-      store: resolvedStore?.label ?? null,
-      excluded_stores: excludedStores,
-      excluded_features: excludedFeatures,
-      sort_by: sortBy,
-      free_shipping: freeShipping,
-      on_sale: onSale,
-      min_discount: minDiscount,
-    });
 
     const contextStateObj: Record<string, unknown> = {
       subject_query: effectiveSubjectQuery,
@@ -2662,8 +2844,8 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Store in server-side cache when eligible and backed by a successful LLM plan
-    if (isCacheEligible && cacheKey && llmPlan) {
+    // Store in server-side cache when eligible and backed by LLM plan OR verified fast-path results
+    if (isCacheEligible && cacheKey && (llmPlan || (fastPath.skipStage1 && finalResults.length > 0))) {
       try {
         const ttlMs = finalResults.length > 0 ? CACHE_TTL_RESULTS_MS : CACHE_TTL_EMPTY_MS;
         const now = Date.now();
@@ -2718,7 +2900,10 @@ Deno.serve(async (req: Request) => {
       };
       const started = Date.now();
       try {
-        const result = await execute((step) => send({ type: "step", ...step }));
+        const result = await execute(
+          (step) => send({ type: "step", ...step }),
+          (partial) => send({ type: "products", elapsed_ms: Date.now() - started, data: partial }),
+        );
         send({ type: "result", elapsed_ms: Date.now() - started, data: result });
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : "Errore interno" });

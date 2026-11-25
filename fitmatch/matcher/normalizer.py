@@ -8,7 +8,8 @@ KNOWN_BRANDS = [
     "nike", "adidas", "asics", "brooks", "hoka", "on running", "on", "saucony",
     "puma", "new balance", "mizuno", "under armour", "salomon", "altra", "la sportiva",
     "scarpa", "dynafit", "inov-8", "inov8", "topo athletic", "joma", "newton", "craft", "diadora",
-    "nnormal", "reebok", "veja", "scott", "merrell", "361", "karhu", "ronhill", "mount to coast",
+    "nnormal", "norda", "reebok", "veja", "scott", "merrell", "361", "karhu", "ronhill", "mount to coast", "aku",
+    "new era", "barts", "bauerfeind", "mitchell & ness",
 
     # Technical Running & Outdoor Apparel Brands
     "odlo", "saysky", "maloja", "alé", "x-bionic", "xbionic", "uyn", "2xu",
@@ -48,7 +49,7 @@ KNOWN_BRANDS = [
     "named sport", "namedsport", "powerbar", "ethic sport", "226ers", "leone 1947", "näak", "naak",
 
     # Decathlon Brands
-    "decathlon", "kiprun", "evadict", "kalenji", "quechua", "forclaz", "btwin",
+    "decathlon", "kiprun", "kipsta", "evadict", "kalenji", "quechua", "forclaz", "btwin",
     "van rysel", "rockrider", "triban", "domyos", "artengo"
 ]
 
@@ -162,11 +163,12 @@ NON_SPORT_JUNK_PATTERNS = [
 
 ICONIC_MODEL_BRANDS = {
     # Adidas
-    "supernova": "Adidas", "adizero": "Adidas", "adios": "Adidas", "boston": "Adidas",
+    "supernova": "Adidas", "adizero": "Adidas", "adistar": "Adidas", "adios": "Adidas", "boston": "Adidas",
     "takumi": "Adidas", "terrex": "Adidas", "ultraboost": "Adidas", "sl20": "Adidas", "dropset": "Adidas",
     "hyperboost": "Adidas", "evo sl": "Adidas", "adi365": "Adidas", "clima365": "Adidas", "own the run": "Adidas",
     # Nike
-    "pegasus": "Nike", "vomero": "Nike", "alphafly": "Nike", "vaporfly": "Nike",
+    "pegasus": "Nike", "vomero": "Nike", "zoom fly": "Nike", "rival fly": "Nike", "winflo": "Nike",
+    "alphafly": "Nike", "vaporfly": "Nike",
     "invincible": "Nike", "streakfly": "Nike", "infinity": "Nike", "wildhorse": "Nike",
     "zegama": "Nike", "metcon": "Nike", "acg": "Nike", "nikecourt": "Nike", "nikelab": "Nike",
     "nikeskims": "Nike", "dri-fit": "Nike", "therma-fit": "Nike", "aeroswift": "Nike",
@@ -374,7 +376,7 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\bscarp[ae]\b", r"\bshoes?\b", r"\bsneakers?\b", r"\bcalzatur[ae]\b", r"\bfootwear\b",
         r"\bstival[ie]\b", r"\bstivalett[oi]\b", r"\bciabatt[ae]\b", r"\bchiodat[ae]\b",
         r"\bscarpon[ie]\b", r"\bscarpett[ae]\b", r"\bslide\b", r"\binfradito\b", r"\bklapki\b",
-        r"\b(?:adistar|superstar|stan\s+smith|gazelle|samba|spezial|rs[\s-]*x|shox|air\s+max|air\s+force|vomero|pegasus|ultraboost|supernova|adizero|boston|duramo|galaxy|hyperboost|hyperwarp|velociti|kype|morelia|chuck\s+taylor|all\s+star|slip[\s-]*ins|suola|gel[\s-]?(?:nimbus|kayano|cumulus|pulse|excite|contend|venture|sonoma|trabuco|resolution)|gt[\s-]?(?:1000|2000)|novablast|superblast|court\s*ff|solution\s+speed|barricade|madrix|wave\s+(?:rider|sky|inspire|horizon|rebellion|daichi)|clifton|bondi|rincon|arahi|speedgoat|mach\s*\d|ghost\s*\d+|glycerin|adrenaline|cascadia|endorphin|kinvara|peregrine|triumph|cloudmonster|cloudsurfer|cloudrunner|cloudboom|cloudstratus|cloudflow|rebel\s*v\d|1080|880|860|deviate\s+nitro|velocity\s+nitro|magnify\s+nitro|foreverrun|lone\s+peak|torin|olympus|bushido|ultra\s+raptor|speedcross|sense\s+ride|alphafly|vaporfly|metaspeed|zoom\s+victory|nike\s+victory)\b"
+        r"\b(?:adistar|superstar|stan\s+smith|gazelle|samba|spezial|rs[\s-]*x|shox|air\s+max|air\s+force|vomero|pegasus|zoom\s+fly|rival\s+fly|winflo|ultraboost|supernova|adizero|boston|duramo|galaxy|hyperboost|hyperwarp|velociti|kype|morelia|chuck\s+taylor|all\s+star|slip[\s-]*ins|suola|gel[\s-]?(?:nimbus|kayano|cumulus|pulse|excite|contend|venture|sonoma|trabuco|resolution)|gt[\s-]?(?:1000|2000)|novablast|superblast|court\s*ff|solution\s+speed|barricade|madrix|wave\s+(?:rider|sky|inspire|horizon|rebellion|daichi)|clifton|bondi|rincon|arahi|speedgoat|mach\s*\d|ghost\s*\d+|glycerin|adrenaline|cascadia|endorphin|kinvara|peregrine|triumph|cloudmonster|cloudsurfer|cloudrunner|cloudboom|cloudstratus|cloudflow|rebel\s*v\d|1080|880|860|deviate\s+nitro|velocity\s+nitro|magnify\s+nitro|foreverrun|lone\s+peak|torin|olympus|bushido|ultra\s+raptor|speedcross|sense\s+ride|alphafly|vaporfly|metaspeed|zoom\s+victory|nike\s+victory)\b"
     ])
 ]
 
@@ -386,9 +388,10 @@ TECH_FABRICS = [
 
 STOPWORDS = {
     "scarpe", "scarpa", "shoes", "shoe", "sneakers", "calzature", "footwear", "running", "corsa", "asfalto",
-    "uomo", "donna", "unisex", "bambino", "bambina", "junior", "ragazzo", "ragazza",
+    "uomo", "uomini", "donna", "donne", "unisex", "adulto", "bambino", "bambina", "junior", "ragazzo", "ragazza",
     "m", "w", "men", "women", "mens", "womens", "wmns", "zm",
     "smartwatch", "orologio", "gps", "multisport", "multifunzione", "sportivo", "sportiva", "sportive", "sportivi",
+    "competizione", "visiera",
     "cardiofrequenzimetro", "ciclocomputer", "neutre", "neutri", "ammortizzate", "ammortizzata",
     "pistola", "massaggi", "stimolatore", "muscolare",
     "custodia", "silicone", "housse", "cover", "pack", "bundle", "kit", "cinturino", "strap",
@@ -443,6 +446,9 @@ _SKU_CODE_RE = re.compile(r"\b[A-Za-z0-9]{4,10}[-_][A-Za-z0-9]{2,6}\b")
 _ALNUM_WORD_RE = re.compile(r"\b[a-zA-Z0-9]+\b")
 _GORETEX_RE = re.compile(r"\bgore[\s-]*tex\b|\bgoretex\b")
 _SUPERCOMP_RE = re.compile(r"\bsuper\s+comp\b")
+_GARA_STRADA_RE = re.compile(r"\bgara\s+su\s+strada\b")
+_TWO_IN_ONE_RE = re.compile(r"\b2\s*(?:in\s*)?1\b")
+_OPT_ZOOM_MODEL_RE = re.compile(r"\b(?:air\s+)?(?:zoom|zm)\s+(pegasus|vomero|structure|winflo)\b")
 _PARENS_RE = re.compile(r"[()]")
 _PUNCT_RE = re.compile(r"[^\w\s]")
 _LONG_DIGITS_RE = re.compile(r"^\d{6,}$")
@@ -538,6 +544,23 @@ class ProductNormalizer:
         if not url:
             return None
         u = url.strip().lower()
+        # 0. Official mono-brand store domains
+        for dom, bname in (
+            ("adidas.it/", "Adidas"),
+            ("adidas.com/", "Adidas"),
+            ("nike.com/", "Nike"),
+            ("asics.com/", "Asics"),
+            ("brooksrunning.com/", "Brooks"),
+            ("hoka.com/", "Hoka"),
+            ("salomon.com/", "Salomon"),
+            ("newbalance.it/", "New Balance"),
+            ("newbalance.com/", "New Balance"),
+            ("on.com/", "On"),
+            ("on-running.com/", "On"),
+            ("puma.com/", "Puma"),
+        ):
+            if dom in u:
+                return bname
         # 1. Cisalfa deterministic brand path segment: /it-it/<brand-slug>/<product>.html
         m_cis = re.search(r"cisalfasport\.it/it-it/([a-z0-9][a-z0-9\-_%&]*)/", u)
         if m_cis:
@@ -886,11 +909,16 @@ class ProductNormalizer:
             text = re.sub(rf"\b{re.escape(b_low)}\b", " ", text)
             if b_low == "x-bionic":
                 text = text.replace("xbionic", " ")
+            elif b_low == "under armour":
+                text = re.sub(r"\bua\b", " ", text)
             for p in b_low.split():
                 if len(p) > 2:
                     text = re.sub(rf"\b{re.escape(p)}\b", " ", text)
 
-        # Standardize known compounds
+        # Standardize known compounds & strip noisy descriptors
+        text = _GARA_STRADA_RE.sub(" ", text)
+        text = _TWO_IN_ONE_RE.sub("2in1", text)
+        text = _OPT_ZOOM_MODEL_RE.sub(r"\1", text)
         text = _GORETEX_RE.sub("gtx", text)
         text = _SUPERCOMP_RE.sub("supercomp", text)
         for tf_pat in _TECH_FABRIC_PATTERNS:
@@ -906,18 +934,23 @@ class ProductNormalizer:
                 continue
             cleaned_tokens.append(t)
 
-        # Deduplicate consecutive identical tokens
+        # Deduplicate repeated tokens (both consecutive and non-consecutive) while preserving order
         dedup_tokens = []
+        seen_tokens = set()
         for t in cleaned_tokens:
+            if len(t) >= 2 and t in seen_tokens:
+                continue
             if not dedup_tokens or dedup_tokens[-1] != t:
                 dedup_tokens.append(t)
+                if len(t) >= 2:
+                    seen_tokens.add(t)
 
         return " ".join(dedup_tokens).strip(), colorway
 
     @classmethod
-    def build_canonical_display_name(cls, title: str, brand: Optional[str] = None) -> str:
+    def build_canonical_display_name(cls, title: str, brand: Optional[str] = None, url: Optional[str] = None) -> str:
         """Build a clean, complete, human-readable canonical product title from an offer title."""
-        eff_brand = cls.extract_brand(title, brand)
+        eff_brand = cls.extract_brand(title, brand, url=url)
         cleaned_base, _ = cls.clean_title(title, eff_brand)
         if not cleaned_base:
             cleaned_base = re.sub(r"\s+", " ", (title or "").strip())

@@ -897,7 +897,7 @@ export function isValidImageUrl(url: string | null | undefined): boolean {
 }
 
 export function normalizeSize(raw: string): string {
-  return raw
+  let clean = raw
     .trim()
     .toUpperCase()
     .replace(",", ".")
@@ -908,7 +908,23 @@ export function normalizeSize(raw: string): string {
     .replace(" 2/3", ".5")
     .replace(" 1/3", ".5")
     .replace(".2/3", ".5")
-    .replace(".1/3", ".5");
+    .replace(".1/3", ".5")
+    .replace(/\.0$/, "");
+
+  // Apparel size aliases (e.g. 2XL <-> XXL, 3XL <-> XXXL)
+  if (clean === "2XL") return "XXL";
+  if (clean === "3XL") return "XXXL";
+  if (clean === "4XL") return "XXXXL";
+  if (clean === "2XS") return "XXS";
+
+  // Decimal third-sizes from Adidas/store catalogs (e.g. 42.7 -> 42.5, 43.3 -> 43.5)
+  if (/^\d{2}\.(?:7|67|66|3|33)$/.test(clean)) {
+    const base = Math.floor(Number(clean));
+    if (Number.isFinite(base)) {
+      return `${base}.5`;
+    }
+  }
+  return clean;
 }
 
 const EU_TO_US_MEN: Record<string, string> = {
@@ -932,7 +948,7 @@ function buildSizeCandidates(required: string, isFemale: boolean): Set<string> {
 }
 
 /**
- * Generates raw jsonb string variants (dot/comma/fraction/EU/US/case) for fast GIN-indexed
+ * Generates raw jsonb string variants (dot/comma/fraction/decimal-thirds/2XL/EU/US/case) for fast GIN-indexed
  * `o.available_sizes ?| size_candidates` matching inside Postgres!
  */
 export function buildSizeVariantsForSql(required: string | null | undefined, gender?: string | null): string[] | null {
@@ -950,11 +966,20 @@ export function buildSizeVariantsForSql(required: string | null | undefined, gen
   }
 
   const expanded = new Set<string>();
+  const addVariant = (v: string) => {
+    expanded.add(v);
+    expanded.add(v.toLowerCase());
+  };
+
   for (const s of cands) {
-    expanded.add(s);
-    expanded.add(s.toLowerCase());
+    addVariant(s);
     expanded.add(`EU ${s}`);
     expanded.add(`${s} EU`);
+    if (s === "XXL") addVariant("2XL");
+    else if (s === "XXXL") addVariant("3XL");
+    else if (s === "XXXXL") addVariant("4XL");
+    else if (s === "XXS") addVariant("2XS");
+
     if (s.endsWith(".5")) {
       const base = s.slice(0, -2);
       expanded.add(`${base},5`);
@@ -965,6 +990,16 @@ export function buildSizeVariantsForSql(required: string | null | undefined, gen
       expanded.add(`${base}.2/3`);
       expanded.add(`${base}.1/3`);
       expanded.add(`EU ${base},5`);
+      // Adidas / store decimal third-sizes (e.g. 42.7, 42.66, 43.3, 43.33)
+      expanded.add(`${base}.7`);
+      expanded.add(`${base},7`);
+      expanded.add(`${base}.67`);
+      expanded.add(`${base}.66`);
+      expanded.add(`${base}.3`);
+      expanded.add(`${base},3`);
+      expanded.add(`${base}.33`);
+      expanded.add(`EU ${base}.7`);
+      expanded.add(`EU ${base}.3`);
     } else if (/^\d+$/.test(s)) {
       expanded.add(`${s}.0`);
       expanded.add(`${s},0`);
@@ -1034,6 +1069,7 @@ interface InternalProduct extends MatchedProductOut {
   relevance_score: number;
   matched_entity_count: number;
   matched_digit_exact: boolean;
+  freshest_checked_at_ms: number;
 }
 
 interface RawOfferRow {
@@ -1052,6 +1088,7 @@ interface RawOfferRow {
   shipping_cost: number | null;
   free_shipping_threshold: number | null;
   courier: string | null;
+  last_checked_at?: string | null;
   products?: {
     id?: string;
     canonical_name?: string;
@@ -1533,6 +1570,7 @@ function buildInternalProductFromOffers(
     shipping_cost: number | null;
     free_shipping_threshold: number | null;
     courier: string | null;
+    last_checked_at?: string | null;
   }>,
   opts: {
     maxPrice?: number | null;
@@ -1557,6 +1595,7 @@ function buildInternalProductFromOffers(
   const seenOfferKeys = new Set<string>();
   const allSizes = new Set<string>();
   const gallery: string[] = [];
+  let freshestCheckedMs = 0;
 
   const pushGallery = (u: string | null | undefined) => {
     if (isValidImageUrl(u) && !gallery.includes(u!)) {
@@ -1608,6 +1647,10 @@ function buildInternalProductFromOffers(
 
     const availSizes = (r.available_sizes ?? []).map(String).filter(Boolean);
     for (const s of availSizes) allSizes.add(s);
+    if (r.last_checked_at) {
+      const ts = Date.parse(r.last_checked_at);
+      if (Number.isFinite(ts) && ts > freshestCheckedMs) freshestCheckedMs = ts;
+    }
 
     validOffers.push({
       store_id: r.store_id,
@@ -1684,6 +1727,7 @@ function buildInternalProductFromOffers(
     relevance_score: 0,
     matched_entity_count: 0,
     matched_digit_exact: false,
+    freshest_checked_at_ms: freshestCheckedMs,
   };
 }
 
@@ -1998,11 +2042,17 @@ function scoreAndGateProducts(
       score -= 85;
     }
 
-    // Multi-store & savings tie-breakers (kept modest so relevance ALWAYS dominates!)
+    // Multi-store, freshness & savings tie-breakers (kept modest so relevance ALWAYS dominates!)
     const nOffers = prod.offers.length;
     if (nOffers >= 4) score += 28;
     else if (nOffers >= 2) score += 16;
     score += Math.min((prod.cross_store_savings ?? 0) * 0.12, 16);
+    if (prod.freshest_checked_at_ms > 0) {
+      const ageDays = (Date.now() - prod.freshest_checked_at_ms) / 86_400_000;
+      if (ageDays <= 3) score += 8;
+      else if (ageDays <= 7) score += 4;
+      else if (ageDays > 21) score -= 4;
+    }
 
     prod.relevance_score = score;
     gated.push(prod);
@@ -2077,27 +2127,19 @@ function scoreAndGateProducts(
     });
   }
 
-  // 8. Deduplicate / merge identical canonical models (including noisy scraper prefixes like "Sneaker " / "Sollevamento Pesi ")
-  const normalizeMergeKey = (name: string): string =>
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/\s*\((uomo|donna)\)$/i, "")
-      .replace(/\b(sneakers?|scarpe|scarpa|sollevamento\s+pesi|trainer)\b/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
+  // 8. Deduplicate / merge identical canonical models (including unclustered brand/title/synonym variants)
   const isNoisyName = (name: string): boolean =>
-    /\b(sneakers?|sollevamento\s+pesi)\b/i.test(name);
+    /\b(sneakers?|sollevamento\s+pesi|adulto|gara\s+su\s+strada|competizione|sportiv[oa])\b/i.test(name) ||
+    /\b(\w+)\s+(?:\S+\s+){0,2}\1\b/i.test(name);
 
   const deduped: InternalProduct[] = [];
   for (const prod of finalList) {
-    const cnameKey = normalizeMergeKey(prod.canonical_name);
+    const cnameKey = buildCanonicalMergeKey(prod.canonical_name, prod.brand);
     const pGender = (prod.gender ?? "Unisex").trim();
 
     let merged = false;
     for (const ex of deduped) {
-      const exBase = normalizeMergeKey(ex.canonical_name);
+      const exBase = buildCanonicalMergeKey(ex.canonical_name, ex.brand);
       if (exBase !== cnameKey) continue;
       const exGender = (ex.gender ?? "Unisex").trim();
       const sameGender = exGender.toLowerCase() === pGender.toLowerCase() ||
@@ -2105,9 +2147,17 @@ function scoreAndGateProducts(
         pGender.toLowerCase() === "unisex";
 
       if (sameGender) {
-        // Prefer the cleaner canonical name (without noisy "Sneaker " prefix)
-        if (isNoisyName(ex.canonical_name) && !isNoisyName(prod.canonical_name)) {
+        // Prefer the cleaner canonical name (with brand prefix and without noisy scraper descriptors)
+        const exHasBrand = Boolean(ex.brand && ex.canonical_name.toLowerCase().startsWith(ex.brand.toLowerCase()));
+        const prodHasBrand = Boolean(prod.brand && prod.canonical_name.toLowerCase().startsWith(prod.brand.toLowerCase()));
+        if (
+          (isNoisyName(ex.canonical_name) && !isNoisyName(prod.canonical_name)) ||
+          (!exHasBrand && prodHasBrand && !isNoisyName(prod.canonical_name))
+        ) {
           ex.canonical_name = prod.canonical_name;
+        }
+        if (exGender.toLowerCase() === "unisex" && pGender.toLowerCase() !== "unisex") {
+          ex.gender = pGender;
         }
         // Merge unique offers into the primary card
         const exKeys = new Set(ex.offers.map((o) => `${o.store_id}|${o.url}`));
@@ -2122,7 +2172,8 @@ function scoreAndGateProducts(
         const prices = ex.offers.map((o) => o.price);
         ex.best_price = Math.min(...prices);
         ex.highest_price = Math.max(...prices);
-        ex.cross_store_savings = ex.highest_price > ex.best_price
+        const distinctStores = new Set(ex.offers.map((o) => o.store_id));
+        ex.cross_store_savings = distinctStores.size > 1 && ex.highest_price > ex.best_price
           ? Math.round((ex.highest_price - ex.best_price) * 100) / 100
           : null;
         if (!isValidImageUrl(ex.image_url) && isValidImageUrl(prod.image_url)) {
@@ -2152,6 +2203,57 @@ function scoreAndGateProducts(
   }
 
   return deduped;
+}
+
+/**
+ * Produces a clean, normalized merge key for runtime cross-store deduplication so fragmented DB clusters
+ * (e.g. "Zoom Fly 6" + "Nike Zoom Fly 6 (Uomo)" + "Zoom Fly 6 Competizione", or
+ * "Nike Pegasus 41 Gtx" + "Nike Zm Pegasus 41 Gore Tex", or
+ * "Under Armour Cappellino Visiera Blitzing" + "Under Armour Cappello Ua Blitzing")
+ * merge cleanly into a single comparative multi-store card without conflating distinct models/versions.
+ */
+export function buildCanonicalMergeKey(canonicalName: string, brand?: string | null): string {
+  const bLow = (brand ?? "").trim().toLowerCase();
+  let s = (canonicalName ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s*\((uomo|donna|unisex|junior)\)\s*$/i, "")
+    .replace(/\bgore[\s-]*tex\b/g, "gtx")
+    .replace(/\b(?:air\s+)?(?:zoom|zm)\s+(pegasus|vomero|structure|winflo)\b/g, "$1")
+    .replace(/\bzm\b/g, "zoom")
+    .replace(/\b2\s+in\s+1\b|\b2\s+1\b/g, "2in1")
+    .replace(/\b(cappellino|cappello|berretto)\b/g, "cap")
+    .replace(/\b(sneakers?|scarpe|scarpa|sollevamento\s+pesi|trainer|adulto|uomini|uomo|donne|donna|unisex|mens?|womens?|wmns|gara\s+su\s+strada|competizione|da\s+corsa|sportiv[oa]|visiera)\b/g, " ");
+
+  if (bLow === "under armour") {
+    s = s.replace(/\bua\b/g, " ");
+  }
+
+  if (bLow) {
+    s = s.replace(new RegExp(`\\b${escapeRegExp(bLow)}\\b`, "gi"), " ");
+  }
+
+  const rawTokens = s
+    .replace(/[^a-z0-9àèéìòù]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  // Deduplicate repeated tokens while preserving order (e.g. "asics cap asics 5 pannelli")
+  const dedupedTokens: string[] = [];
+  const seenToks = new Set<string>();
+  for (const t of rawTokens) {
+    if (!seenToks.has(t)) {
+      seenToks.add(t);
+      dedupedTokens.push(t);
+    }
+  }
+
+  const core = dedupedTokens.join(" ").trim();
+  if (bLow && core && !core.startsWith(`${bLow} `) && core !== bLow) {
+    return `${bLow} ${core}`;
+  }
+  return core || (canonicalName ?? "").trim().toLowerCase();
 }
 
 // ============================================================================
@@ -2384,13 +2486,17 @@ export async function searchCatalogOffers(
     return Array.isArray(semRows) ? (semRows as SemanticRpcRow[]) : [];
   };
 
+  const rpcResultLimit = opts.sortBy === "price_asc"
+    ? Math.min(Math.max(limit * 3, 90), 160)
+    : Math.min(Math.max(limit * 2, 48), 110);
+
   const lexicalPromise = (searchTerms.length > 0 || brand || browseAllowedCategories)
     ? supabase.rpc("search_products_catalog_v4", {
         ...rpcBaseParams,
         search_terms: searchTerms.length > 0 ? searchTerms : null,
         brand_filter: brand,
         allowed_categories: browseAllowedCategories,
-        result_limit: opts.sortBy === "price_asc" ? 180 : 130,
+        result_limit: rpcResultLimit,
       }).then((r) => (r.data as RpcProductRow[] | null) ?? null)
     : Promise.resolve<RpcProductRow[] | null>(null);
 
@@ -2650,7 +2756,7 @@ export async function searchCatalogMultiQuery(
   const merged: MatchedProductOut[] = [];
   const overflow: Array<{ prod: MatchedProductOut; role: "primary" | "variant" | "complementary" }> = [];
   const seenIds = new Set<string>(excludeIdSet ?? []);
-  const seenNames = new Set<string>();
+  const byMergeKey = new Map<string, MatchedProductOut>();
   const familyCounts = new Map<string, number>();
   const brandCounts = new Map<string, number>();
   const primaryIds = new Set<string>();
@@ -2666,16 +2772,57 @@ export async function searchCatalogMultiQuery(
   const maxPerFamily = opts.diversifyModels ? (opts.relaxDiversity ? 4 : 2) : 999;
   const maxPerBrand = (opts.diversifyModels && !opts.brand && !opts.sortBy) ? (opts.relaxDiversity ? 8 : 4) : 999;
 
+  const mergeOffersInto = (target: MatchedProductOut, source: MatchedProductOut) => {
+    const existingKeys = new Set(target.offers.map((o) => `${o.store_id}|${o.url}`));
+    let added = false;
+    for (const o of source.offers) {
+      const k = `${o.store_id}|${o.url}`;
+      if (!existingKeys.has(k)) {
+        target.offers.push(o);
+        existingKeys.add(k);
+        added = true;
+      }
+    }
+    if (!added) return;
+    target.offers.sort((a, b) => a.price - b.price);
+    const prices = target.offers.map((o) => o.price);
+    target.best_price = Math.min(...prices);
+    target.highest_price = Math.max(...prices);
+    const distinctStores = new Set(target.offers.map((o) => o.store_id));
+    target.cross_store_savings = distinctStores.size > 1 && target.highest_price > target.best_price
+      ? Math.round((target.highest_price - target.best_price) * 100) / 100
+      : null;
+    if (!isValidImageUrl(target.image_url) && isValidImageUrl(source.image_url)) {
+      target.image_url = source.image_url;
+    }
+  };
+
   const tryPush = (prod: MatchedProductOut, role: "primary" | "variant" | "complementary") => {
-    const nameKey = prod.canonical_name
-      .trim()
-      .toLowerCase()
-      .replace(/\b(sneakers?|scarpe|scarpa|sollevamento\s+pesi)\b/g, " ")
-      .replace(/\s+/g, " ")
-      .trim() + "|" + (prod.gender ?? "Unisex").toLowerCase();
-    if (seenIds.has(prod.id) || seenNames.has(nameKey)) return;
+    if (seenIds.has(prod.id)) return;
     seenIds.add(prod.id);
-    seenNames.add(nameKey);
+
+    const mergeBase = buildCanonicalMergeKey(prod.canonical_name, prod.brand);
+    const gLow = (prod.gender ?? "Unisex").trim().toLowerCase();
+    const exactKey = `${mergeBase}|${gLow}`;
+    const unisexKey = `${mergeBase}|unisex`;
+
+    // Merge duplicate clusters found across parallel sub-queries instead of dropping their offers!
+    const existingMatch = byMergeKey.get(exactKey) ??
+      (gLow !== "unisex" ? byMergeKey.get(unisexKey) : undefined);
+    if (existingMatch) {
+      mergeOffersInto(existingMatch, prod);
+      return;
+    }
+    if (gLow === "unisex") {
+      for (const [k, existing] of byMergeKey.entries()) {
+        if (k.startsWith(`${mergeBase}|`)) {
+          mergeOffersInto(existing, prod);
+          return;
+        }
+      }
+    }
+
+    byMergeKey.set(exactKey, prod);
 
     const fam = modelFamilyKey(prod);
     const bKey = (prod.brand ?? "unknown").toLowerCase();
@@ -2926,4 +3073,117 @@ export async function saveChatTurn(
   } catch {
     return null;
   }
+}
+
+export interface FastPathInput {
+  normalizedQuery: string;
+  mode: string | null;
+  isFollowUp: boolean;
+  categorySwitched: boolean;
+  pureQuestion: boolean;
+  broadeningFollowUp: boolean;
+  currentBrand: string | null;
+  allQueryBrandsCount: number;
+  currentEntities: string[];
+  currentExplicitPType: ProductType | null;
+  detProductType: ProductType | null;
+  hasExplicitFilterMutation: boolean;
+  hasPriorSubject: boolean;
+}
+
+export interface FastPathDecision {
+  skipStage1: boolean;
+  skipStage2: boolean;
+  reason: string | null;
+}
+
+const FAST_PATH_ADVISORY_OR_CONCEPT_RE =
+  /\b(miglior[ie]|consigli[ao]|consigliami|iniziare|principiant[ei]?|ginocchi[ao]|schiena|fascite|pronat|supinat|piatt[ae]|larg[ae]|strett[ae]|alternativ[ae]|simil[ie]|maraton[ae]|mezza\s+maratona|gara|ritm[oi]|veloc[ei]|lent[oi]|pesant[ei]|legger[ae]|ammortizzat[aeoi]|reattiv[aeoi]|stabil[ei]|traspirant[ei]|impermeabil[ei]|caldo|freddo|pioggia|neve|fango|sterrato|asfalto|pista|palestra|crossfit|hyrox|squat|allenamento|confronta|confronto|versus|differenz[ae]|\bvs\b|quanto|come|qual[ei]|perch[eé]|peso|\d+\s*kg)\b|\?/i;
+
+const FAST_PATH_FILTER_NOISE_RE =
+  /\b(al\s+di\s+sotto|sotto|sopra|oltre|fino|entro|meno|massimo|minimo|prezzo|prezzi|budget|euro|eur|tra|ed?|da|di|dei|degli|delle|del|dello|della|ai|agli|alle|al|all|il|lo|la|i|gli|le|un|una|uno|con|senza|per|su|in|solo|soltanto|esclusivamente|mostra|mostrami|fammi|vedere|cerca|cercami|trova|voglio|vorrei|dammi|filtra|ordina|rimuovi|togli|azzera|elimina|senza\s+limiti?|tutt[eio]|qualsiasi|limite|filtro|filtri|taglia|taglie|numero|misura|mia|mio|uomo|uomini|maschile|donna|donne|femminile|unisex|spedizione|consegna|gratuita|gratis|free|shipping|sconto|sconti|scontat[aeoi]|offerta|offerte|promo|promozione|saldi|economich[ei]|economic[oi]|car[aeoi]|costos[aeoi]|crescente|decrescente|basso|alto|pi[uù]|non|tranne|esclus[aeoi]|escludi|evita|piastra|carbonio|carbon|cappuccio|modelli?|prodotti?|articoli?|varianti?|color[ei]|ner[oaie]|black|bianc[oa]|bianch[ei]|white|blu|azzurr[oaie]|navy|blue|ross[oaie]|red|verd[ei]|green|grigi[oaie]|grey|gray|rosa|pink|arancion[ei]|orange|giall[oaie]|yellow|marron[ei]|brown|beige|viola|purple|brand|marca|marche|negozio|negozi|store)\b/gi;
+
+/**
+ * Decides whether a search request can safely bypass Stage-1 Planner LLM and/or Stage-2 Merchandiser LLM
+ * without any quality loss:
+ *  - Pure filter/sort/reset follow-ups (e.g. "Sotto 120€", "Taglia 43", "Solo nere", "Più economiche")
+ *  - High-confidence exact Brand+Model queries without advisory/comparison intent (e.g. "Nike Pegasus 41")
+ *  - Classic Mode grid searches where editorial merchandising is not shown (skips Stage-2 always; skips Stage-1 on non-advisory queries)
+ */
+export function evaluateDeterministicFastPath(input: FastPathInput): FastPathDecision {
+  const q = input.normalizedQuery.trim();
+  const isClassic = input.mode === "classic";
+  const isComparison = input.allQueryBrandsCount >= 2 ||
+    /\b(confronta|confronto|\bvs\b|versus|differenz[ae])\b/i.test(q);
+
+  if (input.pureQuestion || isComparison) {
+    return { skipStage1: false, skipStage2: false, reason: null };
+  }
+
+  const hasAdvisoryCue = FAST_PATH_ADVISORY_OR_CONCEPT_RE.test(q);
+  const skipStage2 = isClassic;
+
+  // Case 1: Pure filter / sort / reset follow-up over an established conversation subject
+  if (
+    input.isFollowUp &&
+    input.hasPriorSubject &&
+    !input.categorySwitched &&
+    !input.broadeningFollowUp &&
+    input.currentEntities.length === 0 &&
+    !input.currentExplicitPType &&
+    input.hasExplicitFilterMutation &&
+    !hasAdvisoryCue
+  ) {
+    // Strip known filter/store/brand/size/price tokens and check that no unhandled semantic intent remains
+    let residual = q.toLowerCase();
+    for (const st of KNOWN_STORES) {
+      residual = residual.replace(new RegExp(st.regex.source, "gi"), " ");
+    }
+    for (const kb of KNOWN_BRANDS) {
+      residual = residual.replace(new RegExp(`\\b${kb.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"), " ");
+    }
+    residual = residual
+      .replace(/€|\$|%|<=|>=|<|>|\b\d+(?:[.,]\d+)?\b/g, " ")
+      .replace(/\b(?:xxxs|xxs|xs|s|m|l|xl|xxl|xxxl|2xl|3xl)\b/gi, " ")
+      .replace(FAST_PATH_FILTER_NOISE_RE, " ")
+      .replace(/[^a-zàèéìòù0-9]+/gi, " ")
+      .trim();
+
+    if (residual.length === 0) {
+      return { skipStage1: true, skipStage2, reason: "followup_filter" };
+    }
+  }
+
+  // Case 2: High-confidence exact Brand + Model lookup (e.g. "Nike Pegasus 41", "Garmin Forerunner 265")
+  if (
+    !input.isFollowUp &&
+    !hasAdvisoryCue &&
+    input.currentBrand != null &&
+    input.currentEntities.length >= 1 &&
+    input.detProductType !== "long_sleeve_top"
+  ) {
+    const coreTokens = q
+      .toLowerCase()
+      .replace(/€|\$|%|<=|>=|<|>/g, " ")
+      .replace(FAST_PATH_FILTER_NOISE_RE, " ")
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length >= 1);
+    if (coreTokens.length >= 2 && coreTokens.length <= 6) {
+      return { skipStage1: true, skipStage2, reason: "exact_brand_model" };
+    }
+  }
+
+  // Case 3: Classic Mode structured browse / brand / category query without advisory cues
+  if (
+    isClassic &&
+    !hasAdvisoryCue &&
+    (input.currentBrand != null ||
+      input.detProductType != null ||
+      input.currentEntities.length > 0 ||
+      (input.isFollowUp && input.hasPriorSubject))
+  ) {
+    return { skipStage1: true, skipStage2: true, reason: "classic_structured" };
+  }
+
+  return { skipStage1: false, skipStage2, reason: skipStage2 ? "classic_skip_merch" : null };
 }

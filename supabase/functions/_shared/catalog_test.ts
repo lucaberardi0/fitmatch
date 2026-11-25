@@ -1,9 +1,11 @@
 import {
+  buildCanonicalMergeKey,
   buildCatalogSearchTerms,
   buildSizeVariantsForSql,
   detectExplicitProductType,
   detectSingleProductType,
   detectSubBrand,
+  evaluateDeterministicFastPath,
   extractAllBrands,
   extractBrand,
   extractExcludedBrands,
@@ -14,6 +16,7 @@ import {
   isProductCompatible,
   modelFamilyKey,
   normalizeProductTypeGroup,
+  normalizeSize,
 } from "./catalog.ts";
 
 function assert(cond: unknown, msg: string): void {
@@ -216,4 +219,175 @@ Deno.test("Shoes gating blocks gear/pack/bike racks and modelFamilyKey groups su
   assertEq(modelFamilyKey(dummy("Brooks Ghost Max 3 (Uomo)")), "brooks ghost", "Ghost Max -> brooks ghost");
   assertEq(modelFamilyKey(dummy("Brooks Ghost Amp (Uomo)")), "brooks ghost", "Ghost Amp -> brooks ghost");
   assertEq(modelFamilyKey(dummy("Brooks Ghost 18 Large")), "brooks ghost", "Ghost 18 Large -> brooks ghost");
+});
+
+Deno.test("normalizeSize & buildSizeVariantsForSql handle 2XL/XXL aliases and Adidas decimal third-sizes", () => {
+  assertEq(normalizeSize("2XL"), "XXL", "2XL normalizes to XXL");
+  assertEq(normalizeSize("3xl"), "XXXL", "3xl normalizes to XXXL");
+  assertEq(normalizeSize("42.7"), "42.5", "42.7 normalizes to 42.5");
+  assertEq(normalizeSize("43,33"), "43.5", "43,33 normalizes to 43.5");
+  assertEq(normalizeSize("44.0"), "44", "44.0 normalizes to 44");
+
+  const xxl = buildSizeVariantsForSql("XXL", null) ?? [];
+  assert(xxl.includes("XXL") && xxl.includes("2XL") && xxl.includes("2xl"), "XXL includes 2XL variants");
+  const twoXl = buildSizeVariantsForSql("2XL", null) ?? [];
+  assert(twoXl.includes("XXL") && twoXl.includes("2XL"), "2XL includes XXL variants");
+
+  const eu425 = buildSizeVariantsForSql("42.5", "Uomo") ?? [];
+  assert(eu425.includes("42.7") && eu425.includes("42.67") && eu425.includes("42.3"), "42.5 includes Adidas decimal thirds");
+});
+
+Deno.test("buildCanonicalMergeKey collapses fragmented store duplicates without conflating distinct models", () => {
+  assertEq(
+    buildCanonicalMergeKey("Zoom Fly 6", "Nike"),
+    buildCanonicalMergeKey("Nike Zoom Fly 6 (Uomo)", "Nike"),
+    "Zoom Fly 6 merges with Nike Zoom Fly 6 (Uomo)",
+  );
+  assertEq(
+    buildCanonicalMergeKey("Zoom Fly 6 Competizione Uomini", "Nike"),
+    buildCanonicalMergeKey("Nike Zoom Fly 6 (Uomo)", "Nike"),
+    "Zoom Fly 6 Competizione Uomini merges with Nike Zoom Fly 6 (Uomo)",
+  );
+  assertEq(
+    buildCanonicalMergeKey("Nike Zoom Fly 6 Se Gara Su Strada", "Nike"),
+    buildCanonicalMergeKey("Nike Zoom Fly 6 Se", "Nike"),
+    "Zoom Fly 6 Se Gara Su Strada merges with Zoom Fly 6 Se",
+  );
+  assert(
+    buildCanonicalMergeKey("Nike Zoom Fly 6", "Nike") !== buildCanonicalMergeKey("Nike Zoom Fly 6 Se", "Nike"),
+    "SE edition remains distinct from base Zoom Fly 6",
+  );
+  assertEq(
+    buildCanonicalMergeKey("Nike Pegasus 41 Gtx", "Nike"),
+    buildCanonicalMergeKey("Nike Zm Pegasus 41 Gore Tex", "Nike"),
+    "Zm + Gore Tex merges with Pegasus 41 Gtx",
+  );
+  assertEq(
+    buildCanonicalMergeKey("Under Armour Cappellino Visiera Blitzing", "Under Armour"),
+    buildCanonicalMergeKey("Under Armour Cappello Ua Blitzing", "Under Armour"),
+    "UA Blitzing cap variants merge cleanly",
+  );
+  assertEq(
+    buildCanonicalMergeKey("Under Armour Berretto Blitzing", "Under Armour"),
+    buildCanonicalMergeKey("Under Armour Cappellino Blitzing", "Under Armour"),
+    "Berretto Blitzing merges with Cappellino Blitzing",
+  );
+  assertEq(
+    buildCanonicalMergeKey("Asics Cappellino Asics 5 Pannelli", "Asics"),
+    buildCanonicalMergeKey("Asics Cappellino 5 Pannelli", "Asics"),
+    "Repeated brand token in title is deduplicated",
+  );
+});
+
+Deno.test("evaluateDeterministicFastPath skips Stage-1 on exact brand+model, pure filter follow-ups, and Classic Mode", () => {
+  // 1. Exact Brand + Model -> skips Stage 1, keeps Stage 2 in Deep Dive
+  const exactDeep = evaluateDeterministicFastPath({
+    normalizedQuery: "Nike Pegasus 41",
+    mode: null,
+    isFollowUp: false,
+    categorySwitched: false,
+    pureQuestion: false,
+    broadeningFollowUp: false,
+    currentBrand: "Nike",
+    allQueryBrandsCount: 1,
+    currentEntities: ["pegasus", "41"],
+    currentExplicitPType: null,
+    detProductType: "shoes",
+    hasExplicitFilterMutation: false,
+    hasPriorSubject: false,
+  });
+  assertEq(exactDeep.skipStage1, true, "Nike Pegasus 41 skips Stage 1");
+  assertEq(exactDeep.skipStage2, false, "Nike Pegasus 41 keeps Stage 2 in Deep Dive");
+
+  // 2. Advisory query -> NEVER skips Stage 1
+  const advisory = evaluateDeterministicFastPath({
+    normalizedQuery: "Nike Pegasus 41 per maratona?",
+    mode: null,
+    isFollowUp: false,
+    categorySwitched: false,
+    pureQuestion: false,
+    broadeningFollowUp: false,
+    currentBrand: "Nike",
+    allQueryBrandsCount: 1,
+    currentEntities: ["pegasus", "41"],
+    currentExplicitPType: null,
+    detProductType: "shoes",
+    hasExplicitFilterMutation: false,
+    hasPriorSubject: false,
+  });
+  assertEq(advisory.skipStage1, false, "Advisory/question query must use Stage 1 LLM");
+
+  // 3. Pure filter follow-up -> skips Stage 1
+  const filterFollowUp = evaluateDeterministicFastPath({
+    normalizedQuery: "Sotto 120€ solo nere",
+    mode: null,
+    isFollowUp: true,
+    categorySwitched: false,
+    pureQuestion: false,
+    broadeningFollowUp: false,
+    currentBrand: null,
+    allQueryBrandsCount: 0,
+    currentEntities: [],
+    currentExplicitPType: null,
+    detProductType: "shoes",
+    hasExplicitFilterMutation: true,
+    hasPriorSubject: true,
+  });
+  assertEq(filterFollowUp.skipStage1, true, "Pure filter follow-up skips Stage 1");
+
+  // 4. Filter follow-up WITH advisory intent -> stays on Stage 1 LLM
+  const filterWithAdvice = evaluateDeterministicFastPath({
+    normalizedQuery: "Sotto 120€ per maratona",
+    mode: null,
+    isFollowUp: true,
+    categorySwitched: false,
+    pureQuestion: false,
+    broadeningFollowUp: false,
+    currentBrand: null,
+    allQueryBrandsCount: 0,
+    currentEntities: [],
+    currentExplicitPType: null,
+    detProductType: "shoes",
+    hasExplicitFilterMutation: true,
+    hasPriorSubject: true,
+  });
+  assertEq(filterWithAdvice.skipStage1, false, "Filter follow-up with advisory cue stays on Stage 1");
+
+  // 5. Classic Mode category + price -> skips BOTH Stage 1 & Stage 2
+  const classicStructured = evaluateDeterministicFastPath({
+    normalizedQuery: "Scarpe Nike sotto 120€",
+    mode: "classic",
+    isFollowUp: false,
+    categorySwitched: false,
+    pureQuestion: false,
+    broadeningFollowUp: false,
+    currentBrand: "Nike",
+    allQueryBrandsCount: 1,
+    currentEntities: [],
+    currentExplicitPType: "shoes",
+    detProductType: "shoes",
+    hasExplicitFilterMutation: true,
+    hasPriorSubject: false,
+  });
+  assertEq(classicStructured.skipStage1, true, "Classic structured skips Stage 1");
+  assertEq(classicStructured.skipStage2, true, "Classic structured skips Stage 2");
+
+  // 6. Comparison -> NEVER skips Stage 1 or Stage 2
+  const comparison = evaluateDeterministicFastPath({
+    normalizedQuery: "Asics Nimbus 26 vs Hoka Bondi 8",
+    mode: "classic",
+    isFollowUp: false,
+    categorySwitched: false,
+    pureQuestion: false,
+    broadeningFollowUp: false,
+    currentBrand: "Asics",
+    allQueryBrandsCount: 2,
+    currentEntities: ["nimbus", "26", "bondi", "8"],
+    currentExplicitPType: null,
+    detProductType: "shoes",
+    hasExplicitFilterMutation: false,
+    hasPriorSubject: false,
+  });
+  assertEq(comparison.skipStage1, false, "Comparison keeps Stage 1");
+  assertEq(comparison.skipStage2, false, "Comparison keeps Stage 2");
 });
