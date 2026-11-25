@@ -230,14 +230,19 @@ class SyncScheduler:
             if self.current_task == "discovery":
                 self.current_task = "idle"
 
-    def _run_refresh_task(self, limit: int = 50, trigger_source: str = "scheduler") -> Dict[str, Any]:
+    def _run_refresh_task(
+        self,
+        limit: int = 50,
+        trigger_source: str = "scheduler",
+        priority_deals: bool = True,
+    ) -> Dict[str, Any]:
         """Execute continuous price and stock refresh for indexed products with persistent session tracking."""
         if self.updater.is_running:
             logger.warning("[SyncScheduler] Price updater is already active. Skipping duplicate refresh task to prevent collision.")
             return {"status": "busy", "message": "Aggiornamento prezzi già in corso."}
 
         self.current_task = "refresh"
-        logger.info(f"[SyncScheduler] Initiating price refresh cycle for {limit} products...")
+        logger.info(f"[SyncScheduler] Initiating price refresh cycle for {limit} products (priority_deals={priority_deals})...")
         start_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         start_time = time.time()
 
@@ -245,12 +250,12 @@ class SyncScheduler:
         session_id = self.db.create_sync_session(
             session_type="price_refresh",
             trigger_source=trigger_source,
-            metadata={"limit": limit}
+            metadata={"limit": limit, "priority_deals": priority_deals}
         )
         logger.info(f"[SyncScheduler] Created price_refresh session {session_id}")
 
         try:
-            res = self.updater.run_update_sync(limit=limit)
+            res = self.updater.run_update_sync(limit=limit, priority_deals=priority_deals)
             res_status = res.get("status", "success")
 
             if res_status == "busy":
@@ -465,7 +470,12 @@ class SyncScheduler:
             "message": f"Avvio scraping e scoperta catalogo in background (target: {limit_per_store} per negozio)."
         }
 
-    def trigger_refresh_now(self, limit: int = 50, trigger_source: str = "manual_api") -> Dict[str, Any]:
+    def trigger_refresh_now(
+        self,
+        limit: int = 50,
+        trigger_source: str = "manual_api",
+        priority_deals: bool = True,
+    ) -> Dict[str, Any]:
         """Trigger an immediate price refresh run in background."""
         if self.current_task != "idle" or self.updater.is_running:
             return {"status": "busy", "message": f"Task already running: {self.current_task} (updater_running={self.updater.is_running})"}
@@ -473,7 +483,7 @@ class SyncScheduler:
         self.current_task = "refresh"
         thread = threading.Thread(
             target=self._run_refresh_task,
-            args=(limit, trigger_source),
+            args=(limit, trigger_source, priority_deals),
             daemon=True
         )
         thread.start()

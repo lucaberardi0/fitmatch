@@ -134,24 +134,31 @@ class CategoryCrawler:
             return "cycling"
         if any(w in tl for w in [
             "scarponi sci", "maschera sci", "casco sci", "attacchi sci", "snowboard",
-            "atomic ", "rossignol", "nordica", "dalbello", "tecnica mach", "lange ", "head kore", "volkl", "blizzard ",
-        ]):
+            "rossignol", "nordica", "dalbello", "tecnica mach", "lange ", "head kore", "blizzard ",
+        ]) or (
+            "atomic " in tl and not any(c in tl for c in ["atomic pink", "atomic orange", "atomic red", "atomic green", "atomic teal", "atomic blue", "atomic purple"])
+        ) or (
+            "volkl" in tl and not any(t in tl for t in ["overgrip", "tennis", "corda", "grip"])
+        ):
             return "winter_sports"
-        if any(w in tl for w in [
+        is_juan_lebron_padel = any(w in tl for w in ["babolat", "juan lebron", "premura", "veron", "padel", "viper"])
+        if not is_juan_lebron_padel and any(w in tl for w in [
             "basket", "basketball", "pallacanestro", "lebron", "curry", "luka ", "giannis",
             "kd ", "kobe ", "air jordan", "spalding", "molten", "canotta nba",
         ]):
             return "basketball"
         if any(w in tl for w in [
-            "tennis", "terra battuta", "gel-resolution", "gel resolution", "court ff",
+            "tennis", "terra battuta", "terra rossa", "gel-resolution", "gel resolution",
+            "gel-challenger", "gel challenger", "solution speed", "court ff",
             "barricade", "nikecourt", "babolat pure", "wilson blade", "pro staff", "yonex ezone",
-        ]):
+        ]) and "padel" not in tl:
             return "tennis"
         if any(w in tl for w in [
             "calcio", "calcetto", "futsal", "parastinchi", "guanti portiere", "mercurial", "predator", "phantom", "copa pure",
         ]):
             return "football_boots"
-        if any(w in tl for w in [
+        is_bike_handlebar = "manubri" in tl and any(w in tl for w in ["ergo", "compact", "aero", "carbon", "alluminio", "mm", "strada", "gravel", "mtb", "bici", "vibe", "sostegno", "supporto"])
+        if not is_bike_handlebar and any(w in tl for w in [
             "theragun", "hyperice", "massaggiante", "recupero", "loop band", "elastico", "elastici",
             "manubri", "kettlebell", "foam roller", "tappetino", "pesi", "corda saltare", "compex",
             "dropset", "metcon", "tribase", "nano"
@@ -170,7 +177,13 @@ class CategoryCrawler:
                 "tx4", "tx5", "lowa", "moab", "merrell", "mojito", "ribelle"
             ]):
                 return "outdoor"
-            if any(w in tl for w in ["running", "corsa", "maratona", "pegasus", "vomero", "nimbus", "cumulus", "novablast", "clifton", "bondi", "ghost", "glycerin", "adizero", "endorphin"]):
+            if any(w in tl for w in [
+                "running", "corsa", "maratona", "pegasus", "vomero", "streakfly", "vaporfly", "alphafly",
+                "zoom fly", "invincible", "nimbus", "cumulus", "novablast", "kayano", "superblast",
+                "metaspeed", "clifton", "bondi", "mach ", "rincon", "ghost", "glycerin", "adizero",
+                "endorphin", "triumph", "deviate", "velocity nitro", "cloudmonster", "cloudsurfer",
+                "fresh foam", "fuelcell", "1080",
+            ]):
                 return "running_shoes"
             return "shoes"
         return art_type or "gear"
@@ -1890,14 +1903,43 @@ class CategoryCrawler:
         if stores:
             allowed = {s.lower() for s in stores}
             target_stores = [item for item in all_stores if item[0] in allowed]
+        else:
+            # Crawl stalest stores first so tail stores (e.g. Shopify partners) never starve on timeouts
+            freshness_order = self.db.get_store_freshness_order()
+            if freshness_order:
+                rank_map = {sid: idx for idx, sid in enumerate(freshness_order)}
+                target_stores = sorted(
+                    target_stores,
+                    key=lambda item: (rank_map.get(item[0], -1), item[0]),
+                )
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+
+        counts_lock = threading.Lock()
+
+        def _run_store(store_id: str, crawl_func):
+            try:
+                crawled = crawl_func(max_items=limit_per_store)
+            except Exception as e:
+                logger.error(f"Error during crawl for store '{store_id}': {e}")
+                crawled = 0
+            with counts_lock:
+                counts[store_id] = crawled
 
         try:
-            for store_id, crawl_func in target_stores:
-                try:
-                    counts[store_id] = crawl_func(max_items=limit_per_store)
-                except Exception as e:
-                    logger.error(f"Error during crawl for store '{store_id}': {e}")
-                    counts[store_id] = 0
+            workers = min(3, max(len(target_stores), 1))
+            if workers <= 1:
+                for store_id, crawl_func in target_stores:
+                    _run_store(store_id, crawl_func)
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = [pool.submit(_run_store, sid, fn) for sid, fn in target_stores]
+                    for fut in as_completed(futures):
+                        try:
+                            fut.result()
+                        except Exception as e:
+                            logger.error(f"Store crawl worker error: {e}")
         finally:
             self.current_session_id = None
 

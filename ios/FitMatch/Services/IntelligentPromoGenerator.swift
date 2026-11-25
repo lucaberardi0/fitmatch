@@ -5,6 +5,12 @@ import Foundation
 /// category context, and authentic shipping thresholds.
 struct IntelligentPromoGenerator {
 
+    /// Grammatically correct Italian preposition before a percentage ("all'80%", "all'11%", "al 55%")
+    static func upToPercent(_ pct: Int) -> String {
+        let usesElision = pct == 8 || pct == 11 || (pct >= 80 && pct <= 89)
+        return usesElision ? "all'\(pct)%" : "al \(pct)%"
+    }
+
     static func generate(for showcase: StoreShowcase, category: String? = nil) -> String {
         // If a server-provided dynamic promo text already exists, respect it
         if let custom = showcase.promo_text, !custom.isEmpty {
@@ -17,6 +23,7 @@ struct IntelligentPromoGenerator {
         // 1. Calculate Real Maximum Discount from actual visible products
         let discounts = products.compactMap { $0.discount_pct }.filter { $0 > 0 }
         let maxDisc = Int((discounts.max() ?? showcase.avg_discount).rounded())
+        let discPhrase = upToPercent(maxDisc)
 
         // 2. Identify top brands present in this store's current selection
         let brands = products.compactMap { $0.brand }.filter {
@@ -33,154 +40,145 @@ struct IntelligentPromoGenerator {
                let t = rule.threshold, t > 0 {
                 return Int(t.rounded())
             }
-            // Store fallback shipping rule known values
             let sid = showcase.store_id.lowercased()
             if sid == "deporvillage" { return 80 }
             if sid == "top4running" { return 75 }
             if sid == "alltricks" { return 69 }
             if sid == "misterrunning" { return 49 }
             if sid == "decathlon" { return 60 }
-            if sid == "cisalfa" { return 99 }
-            if sid == "maxisport" { return 99 }
-            if sid == "nencini" || sid == "sportler" || sid == "df_sportspecialist" { return 100 }
-            if sid == "runningwarehouse" { return 59 }
+            if sid == "cisalfa" || sid == "maxisport" || sid == "nike" { return 99 }
+            if sid == "nencini" || sid == "sportler" || sid == "df_sportspecialist" || sid == "bshopzone" { return 100 }
+            if sid == "runningwarehouse" || sid == "intersport" || sid == "tennis_point" { return 59 }
+            if sid == "adidas" || sid == "basketballstore" { return 50 }
             return nil
         }()
 
-        // 4. Category-Specific Intelligent Claims (Real-time contextual adaptation)
+        // 4. Category-Specific Concise Claims
         if cat != "tutti" && !cat.isEmpty {
             switch cat {
             case "smartwatch":
-                let hasGarmin = products.contains { $0.title.lowercased().contains("garmin") }
-                let hasPolar = products.contains { $0.title.lowercased().contains("polar") }
-                let hasSuunto = products.contains { $0.title.lowercased().contains("suunto") }
+                let hasGarmin = products.contains { $0.title.lowercased().contains("garmin") || ($0.brand ?? "").lowercased() == "garmin" }
+                let hasPolar = products.contains { $0.title.lowercased().contains("polar") || ($0.brand ?? "").lowercased() == "polar" }
+                let hasSuunto = products.contains { $0.title.lowercased().contains("suunto") || ($0.brand ?? "").lowercased() == "suunto" }
 
                 if (hasGarmin && hasPolar) && maxDisc > 0 {
-                    return "Garmin e Polar scontati fino al -\(maxDisc)%"
+                    return "Garmin e Polar fino \(discPhrase)"
                 } else if hasGarmin && maxDisc > 0 {
-                    return "Offerte Garmin e GPS fino al -\(maxDisc)%"
+                    return "Garmin e GPS fino \(discPhrase)"
                 } else if hasSuunto && maxDisc > 0 {
-                    return "Sportwatch Suunto fino al -\(maxDisc)%"
+                    return "Sportwatch Suunto fino \(discPhrase)"
                 } else if maxDisc > 0 {
-                    return "Smartwatch e sportwatch fino al -\(maxDisc)%"
+                    return "Smartwatch GPS fino \(discPhrase)"
                 } else if let threshold = freeThreshold {
-                    return "Smartwatch con spedizione gratis da \(threshold) €"
+                    return "Spedizione gratis da \(threshold) €"
                 } else {
-                    return "Dispositivi GPS e cardio con garanzia ufficiale"
+                    return "Dispositivi GPS con garanzia ufficiale"
                 }
 
             case "running":
                 if let brand = topBrand, maxDisc > 0 {
-                    return "Scarpe \(brand) e running fino al -\(maxDisc)%"
+                    return "\(brand) e scarpe running fino \(discPhrase)"
                 } else if maxDisc > 0 {
-                    return "Risparmia fino al \(maxDisc)% sui saldi running"
+                    return "Scarpe running fino \(discPhrase)"
                 } else if let threshold = freeThreshold {
-                    return "Scarpe da corsa con spedizione gratis da \(threshold) €"
+                    return "Spedizione gratis da \(threshold) €"
                 } else {
-                    return "Scarpe da gara e allenamento ai migliori prezzi"
+                    return "Scarpe da gara e allenamento"
                 }
 
             case "abbigliamento":
                 if maxDisc > 0 {
-                    return "Abbigliamento tecnico con sconti fino al -\(maxDisc)%"
+                    return "Abbigliamento tecnico fino \(discPhrase)"
                 } else if let threshold = freeThreshold {
-                    return "Completi e tute con spedizione gratis da \(threshold) €"
+                    return "Spedizione gratis da \(threshold) €"
                 } else {
-                    return "Abbigliamento sportivo ufficiale di stagione"
+                    return "Abbigliamento sportivo di stagione"
                 }
 
             case "padel":
                 if maxDisc > 0 {
-                    return "Racchette e abbigliamento padel fino al -\(maxDisc)%"
+                    return "Racchette e scarpe padel fino \(discPhrase)"
                 } else if let threshold = freeThreshold {
-                    return "Attrezzatura padel con spedizione gratis da \(threshold) €"
+                    return "Padel • Sped. gratis da \(threshold) €"
                 } else {
-                    return "Racchette e borse padel delle migliori marche"
+                    return "Attrezzatura padel dei top brand"
                 }
 
             case "cycling", "ciclismo":
                 if maxDisc > 0 {
-                    return "Ciclismo e accessori bici con sconti fino al -\(maxDisc)%"
+                    return "Ciclismo e accessori fino \(discPhrase)"
                 } else if let threshold = freeThreshold {
-                    return "Componenti e abbigliamento bici con sped. gratis da \(threshold) €"
+                    return "Ciclismo • Sped. gratis da \(threshold) €"
                 } else {
-                    return "Accessori e caschi ciclismo certificati"
+                    return "Componenti e abbigliamento bici"
                 }
 
             case "outdoor":
                 if maxDisc > 0 {
-                    return "Trekking e scarpe da trail fino al -\(maxDisc)%"
+                    return "Trail e outdoor fino \(discPhrase)"
                 } else if let threshold = freeThreshold {
-                    return "Attrezzatura outdoor con spedizione gratis da \(threshold) €"
+                    return "Outdoor • Sped. gratis da \(threshold) €"
                 } else {
-                    return "Scarponi e abbigliamento outdoor garantito"
+                    return "Scarpe trail e attrezzatura montagna"
                 }
 
             case "fitness":
                 if maxDisc > 0 {
-                    return "Fitness e training con sconti fino al -\(maxDisc)%"
+                    return "Fitness e training fino \(discPhrase)"
                 } else {
-                    return "Attrezzatura palestra e pesi ai migliori prezzi"
+                    return "Scarpe e attrezzatura palestra"
                 }
 
             case "donna":
                 if maxDisc > 0 {
-                    return "Collezione donna con sconti fino al -\(maxDisc)%"
+                    return "Selezione donna fino \(discPhrase)"
                 } else {
-                    return "Abbigliamento e calzature donna certificate"
+                    return "Calzature e abbigliamento donna"
                 }
 
             case "uomo":
                 if maxDisc > 0 {
-                    return "Collezione uomo con sconti fino al -\(maxDisc)%"
+                    return "Selezione uomo fino \(discPhrase)"
                 } else {
-                    return "Abbigliamento e scarpe uomo in promozione"
+                    return "Calzature e abbigliamento uomo"
                 }
 
             case "accessori":
                 if maxDisc > 0 {
-                    return "Occhiali e accessori tecnici fino al -\(maxDisc)%"
+                    return "Occhiali e accessori fino \(discPhrase)"
                 } else {
-                    return "Accessori sportivi con garanzia ufficiale"
+                    return "Accessori tecnici sportivi"
                 }
 
             default:
-                // Completely generic & flexible for any new category added in the future!
                 if maxDisc > 0 {
-                    return "Offerte \(cat.capitalized) con sconti reali fino al -\(maxDisc)%"
+                    return "Sconti verificati fino \(discPhrase)"
                 } else {
-                    return "Selezione speciale \(cat.capitalized) ai migliori prezzi"
+                    return "Selezione \(cat.capitalized) ai migliori prezzi"
                 }
             }
         }
 
-        // 5. General ("Tutte" / All Holiday Deals) Real Data Driven Copy
-        if maxDisc >= 70 {
-            if let threshold = freeThreshold {
-                return "Risparmia fino al \(maxDisc)% • Spedizione gratis da \(threshold) €"
+        // 5. General ("Tutte") Concise Data-Driven Copy
+        let atlCount = products.filter { $0.isVerifiedAllTimeLow }.count
+        let bestPriceCount = products.filter { $0.isVerifiedBestMarketPrice }.count
+
+        if maxDisc > 0 {
+            if atlCount >= 2 {
+                return "Fino \(discPhrase) • \(atlCount) minimi storici"
+            } else if bestPriceCount >= 2 {
+                return "Fino \(discPhrase) • Miglior prezzo garantito"
+            } else if let threshold = freeThreshold {
+                return "Sconti fino \(discPhrase) • Sped. gratis da \(threshold) €"
             } else if let brand = topBrand {
-                return "Saldi fino al \(maxDisc)% su \(brand) e top brand"
+                return "Sconti fino \(discPhrase) su \(brand) e top brand"
             } else {
-                return "Risparmia fino al \(maxDisc)% sui saldi di stagione"
-            }
-        } else if maxDisc >= 40 {
-            if let threshold = freeThreshold {
-                return "Sconti fino al \(maxDisc)% e spedizione gratis da \(threshold) €"
-            } else if let brand = topBrand {
-                return "Sconti fino al \(maxDisc)% su modelli \(brand) selezionati"
-            } else {
-                return "Risparmia fino al \(maxDisc)% su \(products.count)+ articoli in saldo"
-            }
-        } else if maxDisc > 0 {
-            if let threshold = freeThreshold {
-                return "Prezzi ribassati fino al -\(maxDisc)% • Sped. gratis da \(threshold) €"
-            } else {
-                return "Offerte selezionate con sconti fino al -\(maxDisc)%"
+                return "Offerte verificate fino \(discPhrase)"
             }
         } else if let threshold = freeThreshold {
-            return "Spedizione gratuita su ordini superiori a \(threshold) €"
+            return "Spedizione gratis da \(threshold) €"
         } else {
-            return "Rivenditore autorizzato con stock ufficiale garantito"
+            return "Rivenditore partner verificato"
         }
     }
 

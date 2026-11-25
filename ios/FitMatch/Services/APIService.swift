@@ -16,6 +16,8 @@ class APIService: ObservableObject {
     // Client-side deals cache (5-minute validity) & in-flight deduplication
     private var dealsShowcasesCache: [String: (showcases: [StoreShowcase], expiry: Date)] = [:]
     private var inFlightDealsTasks: [String: Task<[StoreShowcase], Error>] = [:]
+    private var topDealsCrossStoreCache: [String: (deals: [StoreShowcaseProduct], total: Int, expiry: Date)] = [:]
+    private var inFlightTopDealsTasks: [String: Task<(deals: [StoreShowcaseProduct], totalMatching: Int), Error>] = [:]
     // Client-side home showcases cache (memory + disk for instant cold-start render) & deduplication
     private var homeShowcasesCache: (showcases: [StoreShowcase], expiry: Date)? = nil
     private var inFlightHomeShowcasesTask: Task<[StoreShowcase], Error>? = nil
@@ -1790,25 +1792,87 @@ class APIService: ObservableObject {
         return []
     }
 
-    func cachedDealsShowcases(for category: String?) -> [StoreShowcase]? {
-        let key = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
+    func cachedDealsShowcases(for category: String?, filters: DealsFilterOptions = DealsFilterOptions()) -> [StoreShowcase]? {
+        let catKey = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
             $0.isEmpty ? nil : $0
         } ?? "tutti"
+        let key = "\(catKey)_\(filters.cacheKeySuffix)"
         guard let cached = dealsShowcasesCache[key], Date() < cached.expiry else {
             return nil
         }
         return cached.showcases
     }
 
-    func prefetchDefaultDealsIfNeeded() async {
-        if cachedDealsShowcases(for: "tutti") != nil { return }
-        _ = try? await getDealsShowcases(category: nil, forceRefresh: false)
-    }
-
-    func getDealsShowcases(category: String? = nil, forceRefresh: Bool = false) async throws -> [StoreShowcase] {
-        let cacheKey = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
+    func cachedTopDealsCrossStore(for category: String?, filters: DealsFilterOptions = DealsFilterOptions()) -> (deals: [StoreShowcaseProduct], total: Int)? {
+        let catKey = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
             $0.isEmpty ? nil : $0
         } ?? "tutti"
+        let key = "\(catKey)_\(filters.cacheKeySuffix)"
+        guard let cached = topDealsCrossStoreCache[key], Date() < cached.expiry else {
+            return nil
+        }
+        return (cached.deals, cached.total)
+    }
+
+    func prefetchDefaultDealsIfNeeded() async {
+        let needShowcases = cachedDealsShowcases(for: "tutti") == nil
+        let needTopDeals = cachedTopDealsCrossStore(for: "tutti") == nil
+        guard needShowcases || needTopDeals else { return }
+        async let showcasesPrefetch: Void = {
+            if needShowcases {
+                _ = try? await self.getDealsShowcases(category: nil, filters: DealsFilterOptions(), forceRefresh: false)
+            }
+        }()
+        async let topDealsPrefetch: Void = {
+            if needTopDeals {
+                _ = try? await self.getTopDealsCrossStore(category: nil, filters: DealsFilterOptions(), limit: 40, forceRefresh: false)
+            }
+        }()
+        _ = await (showcasesPrefetch, topDealsPrefetch)
+    }
+
+    func getTopDealsCrossStore(
+        category: String? = nil,
+        filters: DealsFilterOptions = DealsFilterOptions(),
+        limit: Int = 40,
+        forceRefresh: Bool = false
+    ) async throws -> (deals: [StoreShowcaseProduct], totalMatching: Int) {
+        let catKey = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
+            $0.isEmpty ? nil : $0
+        } ?? "tutti"
+        let cacheKey = "\(catKey)_\(filters.cacheKeySuffix)"
+
+        if !forceRefresh, let cached = topDealsCrossStoreCache[cacheKey], Date() < cached.expiry {
+            return (cached.deals, cached.total)
+        }
+        if !forceRefresh, let existing = inFlightTopDealsTasks[cacheKey] {
+            return try await existing.value
+        }
+
+        let task = Task<(deals: [StoreShowcaseProduct], totalMatching: Int), Error> {
+            try await SupabaseManager.shared.fetchTopDealsCrossStoreDirect(
+                category: category,
+                filters: filters,
+                limit: limit
+            )
+        }
+        inFlightTopDealsTasks[cacheKey] = task
+        defer { inFlightTopDealsTasks[cacheKey] = nil }
+
+        let result = try await task.value
+        topDealsCrossStoreCache[cacheKey] = (result.deals, result.totalMatching, Date().addingTimeInterval(300))
+        return result
+    }
+
+    func getDealsShowcases(
+        category: String? = nil,
+        filters: DealsFilterOptions = DealsFilterOptions(),
+        forceRefresh: Bool = false
+    ) async throws -> [StoreShowcase] {
+        let catKey = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
+            $0.isEmpty ? nil : $0
+        } ?? "tutti"
+        let cacheKey = "\(catKey)_\(filters.cacheKeySuffix)"
 
         if !forceRefresh, let cached = dealsShowcasesCache[cacheKey], Date() < cached.expiry {
             return cached.showcases
@@ -1820,23 +1884,29 @@ class APIService: ObservableObject {
 
         let task = Task<[StoreShowcase], Error> {
             do {
-                let direct = try await SupabaseManager.shared.fetchDealsShowcasesDirect(category: category)
-                // Only fall back to general store showcases for "tutti" if direct returned empty;
-                // for specific categories, the RPC evaluates the entire catalog authoritatively.
-                if !direct.isEmpty || cacheKey != "tutti" {
+                let direct = try await SupabaseManager.shared.fetchDealsShowcasesDirect(
+                    category: category,
+                    filters: filters
+                )
+                // Only fall back to general store showcases for default "tutti" if direct returned empty;
+                // for filtered or specific categories, the RPC evaluates the entire catalog authoritatively.
+                if !direct.isEmpty || catKey != "tutti" || !filters.isDefault {
                     return direct
                 }
             } catch {
                 print("APIService fetchDealsShowcasesDirect error: \(error)")
+                if !filters.isDefault {
+                    throw error
+                }
             }
 
-            // Fallback when RPC/Supabase direct failed (or "tutti" returned empty)
-            guard cacheKey != "tutti" else {
+            // Fallback when RPC/Supabase direct failed (default filters only)
+            guard catKey != "tutti" else {
                 return try await getStoreShowcases()
             }
 
             let allStores = try await getStoreShowcases()
-            return filterShowcasesByCategory(allStores, category: cacheKey)
+            return filterShowcasesByCategory(allStores, category: catKey)
         }
 
         inFlightDealsTasks[cacheKey] = task

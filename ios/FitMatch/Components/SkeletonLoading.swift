@@ -201,7 +201,7 @@ struct ShopProductCardSkeleton: View {
     }
 }
 
-// MARK: - 3. Deals Screen Skeleton
+// MARK: - 3. Deals Screen Skeleton (Aligned with DealsView 2-Column Store Grid — No Duplicate Pills)
 
 struct ShopDealsSkeletonView: View {
     private let columns = [
@@ -210,68 +210,44 @@ struct ShopDealsSkeletonView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Category Pills Skeleton
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(0..<6, id: \.self) { i in
-                        ShopSkeletonCapsule(width: i == 0 ? 70 : 85, height: 34)
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-            .padding(.vertical, 8)
-
-            // Deals Cards Grid
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 20) {
-                    // Store 1 Section Skeleton
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 10) {
-                            ShopSkeletonCircle(size: 32)
-                            ShopSkeletonTextLine(width: 120, height: 16, cornerRadius: 6)
-                            Spacer()
-                            ShopSkeletonCapsule(width: 75, height: 28)
+        VStack(spacing: 22) {
+            ForEach(0..<2, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 14) {
+                    // Store Header Skeleton matching 44pt store avatar + name + subtitle
+                    HStack(spacing: 12) {
+                        ShopSkeletonCircle(size: 44)
+                        VStack(alignment: .leading, spacing: 6) {
+                            ShopSkeletonTextLine(width: 135, height: 15, cornerRadius: 6)
+                            ShopSkeletonTextLine(width: 190, height: 11, cornerRadius: 5)
                         }
-                        .padding(.horizontal, 16)
-
-                        LazyVGrid(columns: columns, spacing: 12) {
-                            ShopProductCardSkeleton()
-                            ShopProductCardSkeleton()
-                        }
-                        .padding(.horizontal, 16)
+                        Spacer()
+                        ShopSkeletonCircle(size: 28)
                     }
-                    .padding(.vertical, 14)
-                    .background(Color.white)
-                    .cornerRadius(24)
                     .padding(.horizontal, 16)
 
-                    // Store 2 Section Skeleton
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 10) {
-                            ShopSkeletonCircle(size: 32)
-                            ShopSkeletonTextLine(width: 140, height: 16, cornerRadius: 6)
-                            Spacer()
-                            ShopSkeletonCapsule(width: 75, height: 28)
+                    // 2x2 Deal Card Grid Skeleton
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(0..<4, id: \.self) { _ in
+                            VStack(alignment: .leading, spacing: 6) {
+                                ShopSkeletonBlock(cornerRadius: 18, height: 176)
+                                    .frame(maxWidth: .infinity)
+                                ShopSkeletonTextLine(width: 62, height: 9, cornerRadius: 4)
+                                ShopSkeletonTextLine(height: 12, cornerRadius: 5)
+                                    .frame(maxWidth: .infinity)
+                                ShopSkeletonTextLine(width: 112, height: 12, cornerRadius: 5)
+                                HStack(spacing: 6) {
+                                    ShopSkeletonTextLine(width: 62, height: 15, cornerRadius: 5)
+                                    ShopSkeletonTextLine(width: 46, height: 11, cornerRadius: 4)
+                                }
+                                ShopSkeletonCapsule(width: 88, height: 18)
+                            }
                         }
-                        .padding(.horizontal, 16)
-
-                        LazyVGrid(columns: columns, spacing: 12) {
-                            ShopProductCardSkeleton()
-                            ShopProductCardSkeleton()
-                        }
-                        .padding(.horizontal, 16)
                     }
-                    .padding(.vertical, 14)
-                    .background(Color.white)
-                    .cornerRadius(24)
                     .padding(.horizontal, 16)
-
-                    Spacer(minLength: 120)
                 }
-                .padding(.top, 8)
             }
         }
+        .padding(.top, 4)
     }
 }
 

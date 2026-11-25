@@ -257,14 +257,20 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\bciclocomputer\b", r"\bbike\s+computer\b", r"\bcontachilometri\b", r"\bcontatore\b",
         r"\bgarmin\s+edge\b", r"\bedge\s+(?:130|530|540|550|830|840|1030|1040|1050|explore|mtb)\b",
         r"\bwahoo\s+elemnt\b", r"\bbryton\b", r"\bigpsport\b",
+        r"\bportabici\b", r"\bporte\s+velo\b", r"\bvaria\s+rtl\b", r"\baria\s+rtl\b",
+        r"\bmanubrio\b.*\b(?:ergo|compact|aero|carbon|alluminio|\d{2}[.,]\d\s*mm|strada|gravel|mtb|vibe)\b",
         r"\bdisco\s+freno\b", r"\bpneumatico\s+(?:da\s+)?strada\b", r"\bborsa\s+(?:da\s+)?sella\b",
-        r"\bcoperton[ei]\b", r"\bbiciclett[ae]\b", r"\bgravel\b.*\b(?:bike|bici|di2|\d{2})\b",
+        r"\bcoperton[ei]\b", r"\bbiciclett[ae]\b", r"\bridley\b", r"\bgravel\b.*\b(?:bike|bici|di2|\d{2})\b",
         r"\bbike\b(?!.*\b(?:short|shirt|biking)\b)", r"\bstrada\b.*\b(?:di2|105|ultegra|dura[\s-]*ace)\b",
         r"\bcyclette\b", r"\bbici\b", r"\bmtb\b(?!.*\b(?:scarp|shoes)\b)", r"\bshimano\b.*\b(?:raggio|cassetta|freno|deragliatore|catena)\b"
     ]),
     ("gps_watch", [
-        r"\bsmartwatch\b", r"\borologi[o]?\b", r"\bforerunner\b", r"\bfenix\b",
-        r"\bepix\b", r"\binstinct\b", r"\bvenu\b", r"\bvivoactive\b",
+        r"\bsmartwatch\b", r"\borologi[o]?\b", r"\bforerunner\b",
+        r"\bfenix\s*(?:[5678e]\b|solar|sapphire|chronos)\b", r"\bgarmin\b.*\bfenix\b",
+        r"\bepix\b",
+        r"\binstinct\s*(?:[23e]\b|solar|crossover|tactical|surf|esports|40\s*mm|45\s*mm|50\s*mm)\b",
+        r"\bgarmin\b.*\binstinct\b",
+        r"\bvenu\b", r"\bvivoactive\b",
         r"\bcardiofrequenzimetr[oi]\b", r"\bapple\s+watch\b",
         r"\bt[\s-]?rex\s*\d\b", r"\bamazfit\b", r"\bcoros\s+(?:pace|apex|vertix|nomad)\b",
         r"\bpolar\s+(?:vantage|pacer|grit|ignite)\b", r"\bsuunto\s+(?:race|vertical|9|peak|run)\b"
@@ -295,7 +301,8 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\bsutro\b", r"\bjawbreaker\b", r"\bradar\s+ev\b", r"\bshow\s+x\d\b"
     ]),
     ("racket", [
-        r"\bpadel\b", r"\bpala\b", r"\bpalas\b", r"\bracchett[ae]\s*(?:da\s*)?padel\b",
+        r"\bpadel\b", r"\bpala\b", r"\bpalas\b", r"\bracchett[ae]\s*(?:da\s*)?(?:padel|pickleball)\b",
+        r"\bpickleball\b", r"\bjuan\s+lebron\b",
         r"\b(?:vertex|hack|at10|ml10|metalbone|adipower|technical\s+viper|air\s+viper|counter\s+viper)\b",
         r"\btubo\s+palle\b", r"\bpall[ae]\s+padel\b", r"\bovergrip\b"
     ]),
@@ -319,7 +326,7 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
         r"\b(?:giacc[ae]|pantalon[ei]|tuta)\s+(?:da\s+)?(?:sci|neve|snow)\b"
     ]),
     ("trainer", [
-        r"\brull[oi]\b", r"\bsmart trainer\b", r"\bkickr\b", r"\bflux\b", r"\bsuito\b", r"\bdireto\b"
+        r"\brull[oi]\b", r"\bsmart trainer\b", r"\bkickr\b", r"\btacx\s+flux\b", r"\bsuito\b", r"\bdireto\b"
     ]),
     ("football_boots", [
         r"\bscarp[ae]\s*(?:da\s*)?calcio\b", r"\bscarp[ae]\s*(?:da\s*)?calcetto\b",
@@ -342,13 +349,15 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
     ("pants", [
         r"\bpantalon[ie]\b", r"\bpantaloncin[oi]\b", r"\bshorts?\b", r"\btights?\b",
         r"\bleggings?\b", r"\bcapri\b", r"\bcalzamagli[ae]\b", r"\bbermuda\b", r"\bsprinter\b",
+        r"\bcorsar[oi]\b", r"\bbib\b",
         r"\btrack\s*pants?\b", r"\bsweatpants?\b", r"\bjoggers?\b",
         r"\bsalopette\b", r"\btuta\s+gara\b", r"\bciclista\s+seamless\b", r"\bcoscial[ei]\b",
         r"\bgonn[ae]\b", r"\bskirts?\b", r"\b2\s*in\s*1\b", r"\b2in1\b",
-        r"(?<![\.,\d])\b[34579]\s*(?:inch|in\b|''|\´\´)", r"\badizero\s+pacer\b"
+        r"(?<![\.,\d])\b[234579]\s*(?:inch|in\b|''|\´\´)", r"\badizero\s+pacer\b"
     ]),
     ("top", [
         r"\bmagli[ae]\b", r"\bmagliett[ae]\b", r"\bt-?shirts?\b", r"\bshirts?\b", r"\bcanott[ae]\b",
+        r"\bcamic(?:ia|ie)\b",
         r"\bsinglets?\b", r"\bsnglt\b", r"\btank\b", r"\bcrop\b", r"\bcropped\b", r"\btee\b",
         r"\btops?\b(?!\s+(?:sala|flex|ten|gun|strap|load|speed))", r"\bfelp[ae]\b", r"\bhoodie\b", r"\bsweatshirt\b",
         r"\blong[\s-]*sleeve\b", r"\blongsleeve\b", r"\bpile\b", r"\bmaglion[ei]\b", r"\bpullover\b",
@@ -453,7 +462,7 @@ _PARENS_RE = re.compile(r"[()]")
 _PUNCT_RE = re.compile(r"[^\w\s]")
 _LONG_DIGITS_RE = re.compile(r"^\d{6,}$")
 _APPAREL_NO_SHOE_RE = re.compile(
-    r"\b(magli[ae]|magliett[ae]|t[\s-]*shirt|tshirt|pantaloncin[oi]|pantalon[ie]|shorts?|giacc(?:a|he)|smanicat[aoe]|canott[ae]|singlet|felp[ae]|hoodie|calz[ae]|calzin[oi]|gonn[ae]|berrett[oi]|cappellin[oi]|zain[oi]|scaldacollo)\b"
+    r"\b(magli[ae]|magliett[ae]|camic(?:ia|ie)|t[\s-]*shirt|tshirt|pantaloncin[oi]|pantalon[ie]|shorts?|corsar[oi]|salopette|bib|2\s*inch|giacc(?:a|he)|smanicat[aoe]|canott[ae]|singlet|felp[ae]|hoodie|calz[ae]|calzin[oi]|gonn[ae]|berrett[oi]|cappellin[oi]|zain[oi]|scaldacollo)\b"
 )
 _AMBIGUOUS_SHOE_MODEL_KEYS = {"ride", "guide", "launch", "challenger", "mach", "infinity", "edge", "boston", "excite"}
 _SUB_BRAND_MODEL_KEYS = {
@@ -725,6 +734,26 @@ class ProductNormalizer:
                     continue
                 if model_sub in _AMBIGUOUS_SHOE_MODEL_KEYS and is_apparel_item:
                     continue
+                if model_sub == "fenix" and re.search(r"\b(ridley|joma|siux|racchett|padel|flow|attacch|snowboard|bici|biciclett|barefoot)\b", lower_title):
+                    continue
+                if model_sub == "instinct" and re.search(r"\b(scarpa|vsr?|arrampicat|climbing|gilet|zaino|idratazion|eklipse|peruzzo|portabici|porte\s+velo|lucchetto|raquettes|ciaspole|tsl|muta|apnea|mares|neoprene)\b", lower_title):
+                    continue
+                if model_sub == "lebron" and re.search(r"\b(babolat|juan\s+lebron|padel|premura|veron|viper|trucker)\b", lower_title):
+                    continue
+                if model_sub == "hyperion" and re.search(r"\b(joola|pickleball|racchett)\b", lower_title):
+                    continue
+                if model_sub == "neo" and re.search(r"\b(haylou|watch|orologio|smartwatch|mizuno)\b", lower_title):
+                    continue
+                if model_sub == "ride" and re.search(r"\b(bib|salopette|columbia|adventure\s+ride|ciclismo)\b", lower_title):
+                    continue
+                if model_sub == "nano" and re.search(r"\b(nano[\s-]?air|patagonia|freeride|giacca|jkt)\b", lower_title):
+                    continue
+                if model_sub == "flux" and re.search(r"\b(zx\s+flux|scarpa|scarpe|racer|adidas)\b", lower_title):
+                    continue
+                if model_sub == "edge" and re.search(r"\b(metaspeed\s+edge|hyperboost\s+edge|nano\s+x\d+\s+edge|scarpe|scarpa|asics|adidas|reebok)\b", lower_title):
+                    continue
+                if model_sub == "boston" and re.search(r"\b(celtics|nba|basketball)\b", lower_title):
+                    continue
                 if m_pat.search(lower_title):
                     return brand_name
         if "adizero" in lower_title:
@@ -807,8 +836,11 @@ class ProductNormalizer:
             elif atype == "pack":
                 if re.search(r"\b(scarp[ae]|shoes?|sneakers?|calcio|calcetto|predator|copa\s+(?:pure|sense|gloro)|mercurial|tiempo|phantom|f50|furon|future\s*[78]|ultra\s*5|pegasus|vaporfly|alphafly|nimbus|clifton|bondi|adizero|fg|ag|tf|mg|sg)\b", tl_main):
                     continue
+            elif atype == "gps_watch":
+                if re.search(r"\b(cavo\s+ricarica|portabici|porte\s+velo|racchett[ae]|padel|attacch[oi]|snowboard|raquettes|ciaspole|muta|apnea|gilet|zaino|idratazion|eklipse|ridley|biciclett|bici|joma\s+fenix|scarpe|scarpette|barefoot|instinct\s+vsr?)\b", tl):
+                    continue
             elif atype == "racket":
-                if re.search(r"\b(scarp[ae]|shoes?|sneakers?|shorts?|pantaloncin[oi]|pantalon[ie]|magli[ae]|t-?shirts?|giacc[ae]|calz[ae]|gtx|gore[\s-]*tex)\b", tl_main) and not re.search(r"\b(racchett[ae]|pala\s*padel)\b", tl_main):
+                if re.search(r"\b(scarp[ae]|shoes?|sneakers?|shorts?|pantaloncin[oi]|pantalon[ie]|magli[ae]|t-?shirts?|giacc[ae]|calz[ae]|cappellin[oi]|trucker|premura|weightlifting|gtx|gore[\s-]*tex)\b", tl_main) and not re.search(r"\b(racchett[ae]|pala\s*padel)\b", tl_main):
                     continue
             elif atype == "football_boots":
                 if _NON_FOOTBALL_CUE_RE.search(tl_main) and not _FOOTBALL_EXPLICIT_RE.search(tl_main):
@@ -831,6 +863,12 @@ class ProductNormalizer:
                         if "garmin" in tl or _EDGE_MODEL_RE.search(tl):
                             return "cycling"
                         continue
+                    if model_sub == "fenix" and re.search(r"\b(ridley|joma|siux|racchett|padel|flow|attacch|snowboard|bici|barefoot)\b", tl):
+                        continue
+                    if model_sub == "instinct" and re.search(r"\b(scarpa|vsr?|arrampicat|climbing|gilet|zaino|idratazion|eklipse|peruzzo|portabici|porte\s+velo|raquettes|ciaspole|tsl|muta|apnea|mares|neoprene)\b", tl):
+                        continue
+                    if model_sub == "pacer" and (is_apparel_item or "craft" in tl):
+                        continue
                     return "gps_watch"
                 if brand_name == "Oakley":
                     return "eyewear"
@@ -841,6 +879,8 @@ class ProductNormalizer:
                 if brand_name in ("Babolat", "Wilson", "Yonex") and model_sub in ("pure drive", "pure aero", "pure strike", "pro staff", "ezone", "vcore", "percept"):
                     return "tennis"
                 if model_sub in ("lebron", "giannis", "sabrina", "luka", "tatum", "harden", "curry", "way of wade"):
+                    if model_sub == "lebron" and re.search(r"\b(babolat|juan\s+lebron|padel|premura|veron|viper|trucker)\b", tl):
+                        continue
                     return "basketball"
                 if model_sub in ("hawx", "redster", "speedmachine", "promachine"):
                     return "winter_sports"

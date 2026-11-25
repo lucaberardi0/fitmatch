@@ -804,6 +804,239 @@ struct CatalogStatsResponse: Codable {
     let top_savings: [TopSaving]
 }
 
+// MARK: - Deal Title Sanitizer & Filter Options
+
+struct DealTitleSanitizer {
+    private static let preservedAcronyms: Set<String> = [
+        "GTX", "GPS", "NBA", "FG", "AG", "TF", "MG", "SG", "IC", "IN",
+        "AMOLED", "SE", "TR", "FF", "GT", "SL", "XL", "XXL", "XXS", "XS",
+        "UA", "2IN1", "3D", "UV", "SPF", "EAA", "BCAA", "PRO", "MAX", "AIR",
+        "ACG", "DRY", "DRI", "FIT", "WR", "WP", "ISO", "HRM", "LED", "USB",
+        "CTRL", "HRD", "ML10", "AT10", "XT", "RC", "LD", "SP", "MD", "GW",
+        "BOA", "LYT", "PRD", "SW", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9",
+        "2L", "3L", "II", "III", "IV", "VI", "VII", "VIII", "IX", "X", "XI", "XII",
+        "XXII", "XXI", "XS/S", "M/L", "S/M", "L/XL", "W", "M"
+    ]
+
+    /// Decodes common named and numeric HTML entities (e.g. &nbsp;, &#xE0;, &#224;, &amp;)
+    static func decodeHTMLEntities(_ raw: String) -> String {
+        var s = raw
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&apos;", with: "'")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&rsquo;", with: "'")
+            .replacingOccurrences(of: "&lsquo;", with: "'")
+            .replacingOccurrences(of: "&ndash;", with: "–")
+            .replacingOccurrences(of: "&mdash;", with: "—")
+            .replacingOccurrences(of: "&trade;", with: "™")
+            .replacingOccurrences(of: "&reg;", with: "®")
+            .replacingOccurrences(of: "&deg;", with: "°")
+            .replacingOccurrences(of: "&agrave;", with: "à")
+            .replacingOccurrences(of: "&egrave;", with: "è")
+            .replacingOccurrences(of: "&eacute;", with: "é")
+            .replacingOccurrences(of: "&igrave;", with: "ì")
+            .replacingOccurrences(of: "&ograve;", with: "ò")
+            .replacingOccurrences(of: "&ugrave;", with: "ù")
+
+        // Generic hex entities: &#xE0;
+        if s.contains("&#x") || s.contains("&#X"),
+           let hexRegex = try? NSRegularExpression(pattern: #"&#[xX]([0-9a-fA-F]+);"#) {
+            let matches = hexRegex.matches(in: s, range: NSRange(location: 0, length: s.utf16.count)).reversed()
+            for match in matches {
+                if let fullRange = Range(match.range, in: s),
+                   let codeRange = Range(match.range(at: 1), in: s),
+                   let scalarVal = UInt32(s[codeRange], radix: 16),
+                   let scalar = UnicodeScalar(scalarVal) {
+                    s.replaceSubrange(fullRange, with: String(scalar))
+                }
+            }
+        }
+
+        // Generic decimal entities: &#224;
+        if s.contains("&#"),
+           let decRegex = try? NSRegularExpression(pattern: #"&#([0-9]+);"#) {
+            let matches = decRegex.matches(in: s, range: NSRange(location: 0, length: s.utf16.count)).reversed()
+            for match in matches {
+                if let fullRange = Range(match.range, in: s),
+                   let codeRange = Range(match.range(at: 1), in: s),
+                   let scalarVal = UInt32(s[codeRange]),
+                   let scalar = UnicodeScalar(scalarVal) {
+                    s.replaceSubrange(fullRange, with: String(scalar))
+                }
+            }
+        }
+
+        return s
+    }
+
+    /// Cleans noisy store titles: decodes HTML, normalizes ALL CAPS, removes duplicate brand echoes & extra whitespace.
+    static func clean(_ rawTitle: String, brand: String? = nil, canonicalName: String? = nil) -> String {
+        var s = decodeHTMLEntities(rawTitle)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if s.isEmpty, let canon = canonicalName?.trimmingCharacters(in: .whitespacesAndNewlines), !canon.isEmpty {
+            s = decodeHTMLEntities(canon)
+        }
+
+        // Normalize shouting ALL CAPS titles (e.g. "SCARPE RUNNING ASICS METASPEED SP M")
+        let letters = s.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        if letters.count >= 8 {
+            let upperCount = letters.filter { CharacterSet.uppercaseLetters.contains($0) }.count
+            if Double(upperCount) / Double(letters.count) > 0.82 {
+                s = smartTitleCase(s)
+            }
+        }
+
+        // Collapse duplicated brand repetitions (e.g. "Puma Scarpe Puma MagMax NITRO 2", "adidas Performance adidas Scarpe...")
+        if let rawBrand = brand?.trimmingCharacters(in: .whitespacesAndNewlines), !rawBrand.isEmpty {
+            let escaped = NSRegularExpression.escapedPattern(for: rawBrand)
+            // Remove trailing standalone brand echo ("... PUMA") if brand already appears earlier
+            if let trailingRegex = try? NSRegularExpression(pattern: #"(?i)\s+\b"# + escaped + #"\b$"#) {
+                let firstLoc = s.range(of: rawBrand, options: .caseInsensitive)?.lowerBound
+                let lastRange = s.range(of: rawBrand, options: [.caseInsensitive, .backwards])
+                if let firstLoc, let lastRange, firstLoc != lastRange.lowerBound {
+                    s = trailingRegex.stringByReplacingMatches(
+                        in: s,
+                        range: NSRange(location: 0, length: s.utf16.count),
+                        withTemplate: ""
+                    ).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+            // Collapse "Brand Performance Brand ..." or "Brand Scarpe Brand ..."
+            if let midDupRegex = try? NSRegularExpression(pattern: #"(?i)^("# + escaped + #")\s+(?:(?:performance|scarpe(?:\s+da)?\s+\w+|scarpa(?:\s+da)?\s+\w+|orologio(?:\s+gps)?|smartwatch(?:\s+gps)?|racchetta(?:\s+da)?\s+\w+|gel\s+energetico|barrette?\s+energetiche?)\s+)+\1\b"#) {
+                if midDupRegex.firstMatch(in: s, range: NSRange(location: 0, length: s.utf16.count)) != nil {
+                    // Remove only the leading brand prefix so "Scarpe Brand Model" becomes clean "Brand Model"
+                    if let leadRegex = try? NSRegularExpression(pattern: #"(?i)^"# + escaped + #"\s+"#) {
+                        s = leadRegex.stringByReplacingMatches(
+                            in: s,
+                            range: NSRange(location: 0, length: s.utf16.count),
+                            withTemplate: ""
+                        )
+                    }
+                }
+            }
+        }
+
+        return s
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Strips a redundant leading brand name when the brand is already rendered in its own eyebrow label.
+    static func stripLeadingBrand(_ cleanedTitle: String, brand: String?) -> String {
+        guard let b = brand?.trimmingCharacters(in: .whitespacesAndNewlines), !b.isEmpty else {
+            return cleanedTitle
+        }
+        let escaped = NSRegularExpression.escapedPattern(for: b)
+        let pattern = #"(?i)^"# + escaped + #"(?:\s+performance|\s+swim|\s+running)?[\s:\-–]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return cleanedTitle }
+        let stripped = regex.stringByReplacingMatches(
+            in: cleanedTitle,
+            range: NSRange(location: 0, length: cleanedTitle.utf16.count),
+            withTemplate: ""
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard stripped.count >= 4 else { return cleanedTitle }
+        return stripped.prefix(1).uppercased() + stripped.dropFirst()
+    }
+
+    private static func smartTitleCase(_ text: String) -> String {
+        let lowerWords: Set<String> = ["da", "di", "del", "della", "dei", "delle", "per", "con", "su", "in", "a", "e", "o", "la", "il", "lo", "le", "gli", "un", "una", "x"]
+        let words = text.components(separatedBy: " ")
+        return words.enumerated().map { idx, word in
+            let upper = word.uppercased()
+            let cleanAlphaNum = upper.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+            if preservedAcronyms.contains(cleanAlphaNum) {
+                return upper
+            }
+            let lower = word.lowercased()
+            if idx > 0 && lowerWords.contains(lower) {
+                return lower
+            }
+            if lower.contains("-") {
+                return lower.split(separator: "-", omittingEmptySubsequences: false)
+                    .map { part -> String in
+                        let pUp = String(part).uppercased()
+                        if preservedAcronyms.contains(pUp) { return pUp }
+                        return String(part).prefix(1).uppercased() + String(part).dropFirst()
+                    }
+                    .joined(separator: "-")
+            }
+            return lower.prefix(1).uppercased() + lower.dropFirst()
+        }.joined(separator: " ")
+    }
+}
+
+enum DealsSortOption: String, CaseIterable, Identifiable, Hashable {
+    case quality = "quality"
+    case discount = "discount"
+    case savings = "savings"
+    case priceAsc = "price_asc"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .quality: return "Consigliati"
+        case .discount: return "Sconto più alto"
+        case .savings: return "Maggior risparmio (€)"
+        case .priceAsc: return "Prezzo crescente"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .quality: return "Consigliati"
+        case .discount: return "Sconto %"
+        case .savings: return "Risparmio €"
+        case .priceAsc: return "Prezzo ↑"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .quality: return "sparkles"
+        case .discount: return "percent"
+        case .savings: return "eurosign.circle"
+        case .priceAsc: return "arrow.up"
+        }
+    }
+}
+
+struct DealsFilterOptions: Equatable, Hashable {
+    var gender: String? = nil        // nil, "uomo", "donna", "unisex"
+    var size: String? = nil          // e.g. "43", "M"
+    var maxPrice: Double? = nil
+    var minDiscount: Double? = nil
+    var freeShippingOnly: Bool = false
+    var includeKids: Bool = false
+    var brand: String? = nil
+    var sort: DealsSortOption = .quality
+
+    var activeFilterCount: Int {
+        var count = 0
+        if let g = gender, !g.isEmpty { count += 1 }
+        if let s = size, !s.isEmpty { count += 1 }
+        if maxPrice != nil { count += 1 }
+        if minDiscount != nil { count += 1 }
+        if freeShippingOnly { count += 1 }
+        if includeKids { count += 1 }
+        if let b = brand, !b.isEmpty { count += 1 }
+        if sort != .quality { count += 1 }
+        return count
+    }
+
+    var isDefault: Bool {
+        activeFilterCount == 0
+    }
+
+    var cacheKeySuffix: String {
+        "\(gender ?? "")|\(size ?? "")|\(maxPrice.map { String(Int($0)) } ?? "")|\(minDiscount.map { String(Int($0)) } ?? "")|\(freeShippingOnly ? 1 : 0)|\(includeKids ? 1 : 0)|\(brand?.lowercased() ?? "")|\(sort.rawValue)"
+    }
+}
+
 // MARK: - Shopify Shop-Style Store Showcase Models
 
 struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
@@ -825,6 +1058,22 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
     let shipping_label: String?
     let free_shipping_threshold: Double?
     let courier: String?
+    // Rich v2 deals & cross-store metadata
+    let store_id: String?
+    let store_name: String?
+    let store_rating: String?
+    let store_review_count: String?
+    let store_logo_url: String?
+    let product_category: String?
+    let product_gender: String?
+    let size_count: Int?
+    let multi_store_count: Int?
+    let market_min_price: Double?
+    let is_best_market_price: Bool?
+    let is_all_time_low: Bool?
+    let price_drop_eur: Double?
+    let deal_score: Double?
+    let last_checked_at: String?
 
     init(
         id: String,
@@ -844,7 +1093,22 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         is_free_shipping: Bool? = nil,
         shipping_label: String? = nil,
         free_shipping_threshold: Double? = nil,
-        courier: String? = nil
+        courier: String? = nil,
+        store_id: String? = nil,
+        store_name: String? = nil,
+        store_rating: String? = nil,
+        store_review_count: String? = nil,
+        store_logo_url: String? = nil,
+        product_category: String? = nil,
+        product_gender: String? = nil,
+        size_count: Int? = nil,
+        multi_store_count: Int? = nil,
+        market_min_price: Double? = nil,
+        is_best_market_price: Bool? = nil,
+        is_all_time_low: Bool? = nil,
+        price_drop_eur: Double? = nil,
+        deal_score: Double? = nil,
+        last_checked_at: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -864,10 +1128,58 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         self.shipping_label = shipping_label
         self.free_shipping_threshold = free_shipping_threshold
         self.courier = courier
+        self.store_id = store_id
+        self.store_name = store_name
+        self.store_rating = store_rating
+        self.store_review_count = store_review_count
+        self.store_logo_url = store_logo_url
+        self.product_category = product_category
+        self.product_gender = product_gender
+        self.size_count = size_count
+        self.multi_store_count = multi_store_count
+        self.market_min_price = market_min_price
+        self.is_best_market_price = is_best_market_price
+        self.is_all_time_low = is_all_time_low
+        self.price_drop_eur = price_drop_eur
+        self.deal_score = deal_score
+        self.last_checked_at = last_checked_at
     }
 
     var effectiveBrand: String {
         ProductBrandHelper.extractBrand(from: title, fallback: brand)
+    }
+
+    var cleanDisplayTitle: String {
+        DealTitleSanitizer.clean(title, brand: effectiveBrand, canonicalName: canonical_name)
+    }
+
+    var titleWithoutLeadingBrand: String {
+        DealTitleSanitizer.stripLeadingBrand(cleanDisplayTitle, brand: effectiveBrand)
+    }
+
+    var effectiveFreeShipping: Bool {
+        if let free = is_free_shipping { return free }
+        if let ship = shipping_cost { return ship == 0.0 }
+        if let threshold = free_shipping_threshold, threshold > 0 {
+            return current_price >= threshold
+        }
+        if let sid = store_id, let rule = DynamicCatalogRegistry.shared.shippingRule(for: sid),
+           let threshold = rule.threshold, threshold > 0 {
+            return current_price >= threshold
+        }
+        return false
+    }
+
+    var hasMultipleStores: Bool {
+        (multi_store_count ?? 1) > 1
+    }
+
+    var isVerifiedAllTimeLow: Bool {
+        is_all_time_low == true
+    }
+
+    var isVerifiedBestMarketPrice: Bool {
+        is_best_market_price == true
     }
 
     var formattedPrice: String {
@@ -880,8 +1192,16 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
     }
 
     var discountBadge: String? {
-        guard let discount_pct = discount_pct, discount_pct > 0 else { return nil }
-        return String(format: "-%.0f%%", discount_pct)
+        if let discount_pct = discount_pct, discount_pct >= 5 {
+            return String(format: "-%.0f%%", discount_pct)
+        }
+        if let orig = original_price, orig > current_price {
+            let pct = ((orig - current_price) / orig) * 100.0
+            if pct >= 5 {
+                return String(format: "-%.0f%%", pct)
+            }
+        }
+        return nil
     }
 
     var allImages: [String] {
@@ -898,12 +1218,15 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
     }
 
     func toMatchedProduct(storeId: String, storeName: String) -> MatchedProduct {
+        let resolvedStoreId = storeId.isEmpty ? (store_id ?? "") : storeId
+        let resolvedStoreName = storeName.isEmpty ? (store_name ?? "Partner Store") : storeName
         let effBrand = ProductBrandHelper.extractBrand(from: title, fallback: brand)
+        let cleanTitle = cleanDisplayTitle
         let offer = Offer(
-            store_id: storeId,
-            store_name: storeName,
+            store_id: resolvedStoreId,
+            store_name: resolvedStoreName,
             product_id: product_id,
-            title: title,
+            title: cleanTitle,
             brand: effBrand,
             price: current_price,
             original_price: original_price,
@@ -916,18 +1239,24 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
             in_stock: true,
             shipping_cost: shipping_cost,
             total_price: total_price,
-            is_free_shipping: is_free_shipping,
+            is_free_shipping: effectiveFreeShipping,
             shipping_label: shipping_label,
             free_shipping_threshold: free_shipping_threshold,
             courier: courier
         )
+        let resolvedProductId = (product_id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? product_id!
+            : "\(resolvedStoreId)_\(id)"
+        let resolvedCanonical = canonical_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? cleanTitle
+            : DealTitleSanitizer.clean(canonical_name, brand: effBrand)
         return MatchedProduct(
-            id_val: "\(storeId)_\(product_id ?? UUID().uuidString)",
-            canonical_name: canonical_name,
+            id_val: resolvedProductId,
+            canonical_name: resolvedCanonical,
             brand: effBrand,
             image_url: image_url,
             gallery_images: gallery_images,
-            gender: nil,
+            gender: product_gender,
             offers: [offer],
             best_price: current_price,
             highest_price: original_price ?? current_price,

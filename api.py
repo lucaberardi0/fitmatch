@@ -2136,9 +2136,16 @@ def trigger_scheduler_discovery(limit_per_store: int = Query(200, ge=10, le=1000
 
 
 @app.post("/api/scheduler/run-refresh")
-def trigger_scheduler_refresh(limit: int = Query(50, ge=10, le=500)):
+def trigger_scheduler_refresh(
+    limit: int = Query(50, ge=10, le=500),
+    priority_deals: bool = Query(True),
+):
     """Trigger an immediate price & stock refresh for indexed products in background with session tracking."""
-    return scheduler.trigger_refresh_now(limit=limit, trigger_source="manual_api")
+    return scheduler.trigger_refresh_now(
+        limit=limit,
+        trigger_source="manual_api",
+        priority_deals=priority_deals,
+    )
 
 
 @app.post("/api/scheduler/run-enrichment")

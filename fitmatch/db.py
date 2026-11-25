@@ -397,11 +397,20 @@ class Database:
             conn.commit()
             return cluster_key
 
-    def get_products_for_update(self, limit: int = 30) -> List[Dict[str, Any]]:
-        """Fetch indexed products that need periodic price & stock re-verification."""
+    def get_products_for_update(
+        self,
+        limit: int = 30,
+        priority_deals: bool = True,
+        stale_hours: int = 24,
+    ) -> List[Dict[str, Any]]:
+        """Fetch indexed products that need periodic price & stock re-verification (prioritizing wishlist & top deals)."""
         if self.use_supabase and self.supabase:
             try:
-                return self.supabase.get_products_for_update(limit=limit)
+                return self.supabase.get_products_for_update(
+                    limit=limit,
+                    priority_deals=priority_deals,
+                    stale_hours=stale_hours,
+                )
             except Exception as e:
                 logger.error(f"[Database] Error get_products_for_update from Supabase: {e}")
 
@@ -414,6 +423,15 @@ class Database:
                 LIMIT ?
             """, (limit,)).fetchall()
             return [dict(r) for r in rows]
+
+    def get_store_freshness_order(self) -> List[str]:
+        """Return store IDs sorted from stalest to freshest so discovery runs never starve tail stores."""
+        if self.use_supabase and self.supabase:
+            try:
+                return self.supabase.get_store_freshness_order()
+            except Exception as e:
+                logger.debug(f"[Database] Error get_store_freshness_order from Supabase: {e}")
+        return []
 
     def get_offer_price(self, offer_id: str) -> Optional[float]:
         """Get the current recorded price for a specific offer."""

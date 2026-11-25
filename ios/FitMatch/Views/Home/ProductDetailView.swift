@@ -70,11 +70,15 @@ struct StoreRatingHelper {
 // MARK: - Main Product Detail View
 
 struct ProductDetailView: View {
-    let product: MatchedProduct
+    @State private var product: MatchedProduct
     var openedFromSearch: Bool = false
     private let userPreferredSize: String?
+    private let initialTappedOfferURL: String?
+    private let initialTappedStoreId: String?
 
     @State private var selectedOfferIndex: Int = 0
+    @State private var isHydratingOffers: Bool = false
+    @State private var hasHydratedOffers: Bool = false
     @State private var selectedSize: String? = nil
     @State private var selectedVariant: String? = nil
     @State private var selectedImageIndex: Int = 0
@@ -113,8 +117,10 @@ struct ProductDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     init(product: MatchedProduct, initialSize: String? = nil, openedFromSearch: Bool = false) {
-        self.product = product
+        self._product = State(initialValue: product)
         self.openedFromSearch = openedFromSearch
+        self.initialTappedOfferURL = product.offers.first?.url
+        self.initialTappedStoreId = product.offers.first?.store_id
         let prefs = UserPreferencesManager.shared.preferences
         let prefSize = product.isComparable ? prefs.preferredShoeSize : prefs.preferredApparelSize
         let normPref = prefSize.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
@@ -406,8 +412,10 @@ struct ProductDetailView: View {
         .task {
             let galleryUrls = displayedImages.compactMap { URL(string: $0) }
             ImageCacheManager.shared.prefetch(urls: galleryUrls, maxPixelSize: 1200)
-            await loadPriceHistory()
-            await loadRelatedProducts()
+            async let hydrationTask: Void = hydrateMultiStoreOffersIfNeeded()
+            async let historyTask: Void = loadPriceHistory()
+            async let relatedTask: Void = loadRelatedProducts()
+            _ = await (hydrationTask, historyTask, relatedTask)
         }
     }
 
@@ -1444,13 +1452,18 @@ struct ProductDetailView: View {
 
                     Spacer()
 
-                    Text("\(product.offers.count) negozi")
+                    Text("\(product.offers.count) \(product.offers.count == 1 ? "negozio" : "negozi")")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundColor(.shopPurple)
                         .padding(.horizontal, 9)
                         .padding(.vertical, 4)
                         .background(Color.shopPurpleLight)
                         .clipShape(Capsule())
+                    if isHydratingOffers {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .tint(.shopPurple)
+                    }
                 }
 
                 if let savings = product.cross_store_savings, savings > 1.0 {
@@ -1794,13 +1807,66 @@ struct ProductDetailView: View {
 
     // MARK: - Data Fetching
 
+    private func hydrateMultiStoreOffersIfNeeded() async {
+        guard !hasHydratedOffers else { return }
+        // Hydrate sibling partner store offers whenever opened from a single-offer card (Deals / Home / StoreDetail / Wishlist)
+        let candidateProductId = product.offers.first?.product_id ?? product.id_val
+        guard let pid = candidateProductId?.trimmingCharacters(in: .whitespacesAndNewlines), !pid.isEmpty else {
+            hasHydratedOffers = true
+            return
+        }
+        // Only skip when we already have multiple distinct stores and gallery images
+        let currentDistinctStores = Set(product.offers.map { $0.store_id.lowercased() }).count
+        if currentDistinctStores > 1 && !(product.gallery_images ?? []).isEmpty {
+            hasHydratedOffers = true
+            return
+        }
+
+        await MainActor.run { isHydratingOffers = true }
+        defer {
+            Task { @MainActor in
+                self.isHydratingOffers = false
+                self.hasHydratedOffers = true
+            }
+        }
+
+        guard let hydrated = await SupabaseManager.shared.fetchHydratedProductDirect(productId: pid) else {
+            return
+        }
+
+        await MainActor.run {
+            // Preserve the user's tapped store/offer index when found in the hydrated list
+            var targetIdx = 0
+            if let tappedURL = initialTappedOfferURL,
+               let exactIdx = hydrated.offers.firstIndex(where: { $0.url == tappedURL }) {
+                targetIdx = exactIdx
+            } else if let tappedStore = initialTappedStoreId?.lowercased(),
+                      let storeIdx = hydrated.offers.firstIndex(where: { $0.store_id.lowercased() == tappedStore }) {
+                targetIdx = storeIdx
+            }
+
+            withAnimation(.easeInOut(duration: 0.22)) {
+                self.product = hydrated
+                self.selectedOfferIndex = targetIdx
+                if self.selectedSize == nil, let pref = self.userPreferredSize,
+                   hydrated.allAvailableSizes.contains(where: { $0.replacingOccurrences(of: ",", with: ".") == pref }) {
+                    self.selectedSize = pref
+                }
+            }
+
+            let extraUrls = hydrated.allImages.compactMap { URL(string: $0) }
+            ImageCacheManager.shared.prefetch(urls: extraUrls, maxPixelSize: 1200)
+        }
+    }
+
     private func loadPriceHistory() async {
         guard priceHistory == nil else { return }
         isLoadingPriceHistory = true
+        let resolvedPid = product.offers.first?.product_id ?? product.id_val
         do {
             let res = try await APIService.shared.fetchPriceHistory(
                 canonicalName: product.canonical_name,
-                productId: product.id_val
+                productId: resolvedPid
             )
             await MainActor.run {
                 self.priceHistory = res

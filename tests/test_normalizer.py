@@ -382,6 +382,58 @@ def test_phase2_clustering_cleanup_and_enriched_embeddings(normalizer):
     assert "daily trainer" in emb_text.lower()
 
 
+def test_deals_audit_taxonomy_false_positive_regressions(normalizer):
+    from fitmatch.crawler import CategoryCrawler
+
+    crawler = CategoryCrawler.__new__(CategoryCrawler)
+    crawler.normalizer = normalizer
+
+    # Non-watches containing "fenix" / "instinct" must NEVER become Garmin gps_watch
+    assert normalizer.detect_article_type("Ridley Prodotto ricondizionato - Ridley Fenix SL Disc Tiagra") == "cycling"
+    assert normalizer.extract_brand("Ridley Prodotto ricondizionato - Ridley Fenix SL Disc Tiagra") != "Garmin"
+    assert normalizer.detect_article_type("Peruzzo Portabici Pure Instinct 4 Su Gancio Sfera") == "cycling"
+    assert normalizer.extract_brand("Peruzzo Portabici Pure Instinct 4 Su Gancio Sfera") != "Garmin"
+    assert normalizer.detect_article_type("Instinct Trail Gilet Idratazione Eklipse 12L") == "hydration"
+    assert normalizer.extract_brand("Instinct Trail Gilet Idratazione Eklipse 12L") != "Garmin"
+    assert normalizer.detect_article_type("Scarpa Instinct VSR Arrampicata") != "gps_watch"
+    assert normalizer.extract_brand("Scarpa Instinct VSR Arrampicata") == "Scarpa"
+    assert normalizer.detect_article_type("Joma Fenix Scarpe Running") == "shoes"
+    assert normalizer.extract_brand("Joma Fenix Scarpe Running") == "Joma"
+    assert normalizer.detect_article_type("Muta Apnea Instinct 5mm") == "swim"
+    assert normalizer.detect_article_type("Siux Racchetta Padel Fenix Pro 2026") == "racket"
+
+    # Real Garmin watches stay Garmin gps_watch
+    assert normalizer.detect_article_type("Garmin Fenix 8 AMOLED 47mm") == "gps_watch"
+    assert normalizer.extract_brand("Garmin Fenix 8 AMOLED 47mm") == "Garmin"
+    assert normalizer.detect_article_type("Garmin Instinct 3 Solar 45mm") == "gps_watch"
+
+    # Juan Lebron (Padel) must never be classified as NBA Basketball / Nike
+    assert normalizer.extract_brand("BABOLAT VERON JUAN LEBRON 3.1") == "Babolat"
+    assert crawler._detect_category("BABOLAT VERON JUAN LEBRON 3.1") == "padel"
+    assert normalizer.extract_brand("BABOLAT PREMURA 3 MEN LEBRON") == "Babolat"
+    assert crawler._detect_category("BABOLAT PREMURA 3 MEN LEBRON") != "basketball"
+
+    # Apparel items (camicia, corsaro, 2inch, bib) must never be classified as shoes
+    assert normalizer.detect_article_type("adizero Camicia da corsa Donna-viola") == "top"
+    assert normalizer.detect_article_type("UNDER ARMOUR Corsaro Uomo UA Coolswitch Run Compression") == "pants"
+    assert normalizer.detect_article_type("adidas Adizero 2inch") == "pants"
+    assert normalizer.detect_article_type("Adventure Ride II Bib") == "pants"
+    assert normalizer.extract_brand("Adventure Ride II Bib") != "Saucony"
+
+    # Bike handlebar ("manubrio") vs fitness dumbbells ("manubri")
+    assert normalizer.detect_article_type("Pro Manubrio PRO LT COMPACT ERGO 31,8mm") == "cycling"
+    assert crawler._detect_category("Pro Manubrio PRO LT COMPACT ERGO 31,8mm") == "cycling"
+
+    # "Atomic Pink" shoe colorway & "Volkl Overgrip" must never be winter_sports
+    assert crawler._detect_category("Nike Streakfly 2 - Atomic Pink/white/racer Blue") == "running_shoes"
+    assert crawler._detect_category("Confezione da 12 Overgrip Volkl Super Grip II Bianco") != "winter_sports"
+
+    # Tennis shoes (Solution Speed / Gel-Challenger) must route to tennis, not running_shoes
+    assert crawler._detect_category("ASICS Scarpe tennis uomo Asics SOLUTION SPEED FF 4 terra battuta") == "tennis"
+    assert crawler._detect_category("Asics Gel-Challenger 14 Scarpa per terra rossa Donna") == "tennis"
+
+
+
 
 
 

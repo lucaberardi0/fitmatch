@@ -62,21 +62,35 @@ class ScraperRegistry:
         else:
             self.scrapers = [cls() for cls in self.DEFAULT_SCRAPERS]
 
-    def search_all(self, query: str, limit_per_store: int = 10, max_workers: int = 16) -> Dict[str, Any]:
-        """Query all registered stores concurrently."""
+    def search_all(
+        self,
+        query: str,
+        limit_per_store: int = 10,
+        max_workers: int = 16,
+        store_ids: List[str] = None,
+        timeout: float = None,
+    ) -> Dict[str, Any]:
+        """Query all (or selected) registered stores concurrently with optional wall-clock timeout."""
         start_time = time.time()
         all_offers: List[Offer] = []
         store_results: Dict[str, int] = {}
         successful_stores: List[str] = []
         failed_stores: List[str] = []
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_scraper = {
-                executor.submit(scraper.search, query, limit_per_store): scraper
-                for scraper in self.scrapers
-            }
+        target_scrapers = self.scrapers
+        if store_ids:
+            allowed = {s.lower().strip() for s in store_ids if s}
+            filtered = [s for s in self.scrapers if getattr(s, "store_id", "").lower() in allowed]
+            if filtered:
+                target_scrapers = filtered
 
-            for future in as_completed(future_to_scraper):
+        executor = ThreadPoolExecutor(max_workers=min(max_workers, max(len(target_scrapers), 1)))
+        future_to_scraper = {
+            executor.submit(scraper.search, query, limit_per_store): scraper
+            for scraper in target_scrapers
+        }
+        try:
+            for future in as_completed(future_to_scraper, timeout=timeout):
                 scraper = future_to_scraper[future]
                 try:
                     offers = future.result()
@@ -88,6 +102,15 @@ class ScraperRegistry:
                     logger.error(f"[{scraper.store_name}] Failed while searching for '{query}': {e}")
                     failed_stores.append(scraper.store_name)
                     store_results[scraper.store_name] = 0
+        except TimeoutError:
+            for fut, scraper in future_to_scraper.items():
+                if not fut.done():
+                    fut.cancel()
+                    failed_stores.append(scraper.store_name)
+                    store_results[scraper.store_name] = 0
+                    logger.warning(f"[{scraper.store_name}] Timed out after {timeout}s for '{query}'")
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
         elapsed = round(time.time() - start_time, 2)
 

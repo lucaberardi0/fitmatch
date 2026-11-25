@@ -407,13 +407,36 @@ class SupabaseClient:
         if price_changed:
             self.record_price_history(offer_id, float(offer.price))
 
-    def get_products_for_update(self, limit: int = 30) -> List[Dict[str, Any]]:
-        """Fetch products ordered by least recently updated for autonomous background refresh."""
+    def get_products_for_update(
+        self,
+        limit: int = 30,
+        priority_deals: bool = True,
+        stale_hours: int = 24,
+    ) -> List[Dict[str, Any]]:
+        """Fetch prioritized products (wishlist -> visible deals across all stores -> oldest catalog) for refresh."""
+        if priority_deals:
+            rpc_res = self._request(
+                "rpc/get_priority_products_for_refresh",
+                method="POST",
+                data={"p_limit": int(limit), "p_stale_hours": int(stale_hours)},
+            )
+            rpc_data = rpc_res.get("data")
+            if isinstance(rpc_data, list) and rpc_data:
+                return rpc_data
+
         endpoint = f"products?select=id,canonical_name,brand,category,gender,updated_at&order=updated_at.asc.nullsfirst&limit={limit}"
         res = self._request(endpoint)
         if not res.get("data") and "57014" in str(res.get("error") or ""):
             res = self._request(f"products?select=id,canonical_name,brand,category,gender,updated_at&limit={limit}")
         return res.get("data") or []
+
+    def get_store_freshness_order(self) -> List[str]:
+        """Return store_ids ordered from stalest last_checked_at to newest so crawler never starves tail stores."""
+        rpc_res = self._request("rpc/get_store_freshness_order", method="POST", data={})
+        rows = rpc_res.get("data")
+        if isinstance(rows, list) and rows:
+            return [str(r.get("store_id") or "").lower().strip() for r in rows if r.get("store_id")]
+        return []
 
     def get_offer_price(self, offer_id: str) -> Optional[float]:
         """Fetch current price of a specific offer in Supabase."""
