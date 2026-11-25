@@ -23,4 +23,5 @@ ios/*.xcworkspace/xcuserdata/
 .build/
 certs/
 *.p8
+supabase/.temp/
 
