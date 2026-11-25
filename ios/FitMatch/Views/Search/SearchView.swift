@@ -609,11 +609,46 @@ struct SearchView: View {
         let turnsCount = max(1, session.turn_count ?? 1)
         let rawSubtitle = (session.subtitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanSubtitle: String? = {
-            guard !rawSubtitle.isEmpty,
-                  rawSubtitle.caseInsensitiveCompare(session.title) != .orderedSame,
-                  rawSubtitle.range(of: #"\b(ai|ia)\b"#, options: [.regularExpression, .caseInsensitive]) == nil
-            else { return nil }
-            return rawSubtitle
+            let genericSubtitles: Set<String> = [
+                "ho cercato prodotti",
+                "ho cercato",
+                "ricerca prodotti",
+                "ricerca",
+                "offerte verificate nel catalogo fitmatch cloud"
+            ]
+            if !rawSubtitle.isEmpty,
+               !genericSubtitles.contains(rawSubtitle.lowercased()),
+               rawSubtitle.caseInsensitiveCompare(session.title) != .orderedSame,
+               rawSubtitle.range(of: #"\b(ai|ia)\b"#, options: [.regularExpression, .caseInsensitive]) == nil {
+                return rawSubtitle
+            }
+            if let ctx = session.context_state {
+                if turnsCount > 1,
+                   let lastQ = ctx.last_query?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !lastQ.isEmpty,
+                   lastQ.caseInsensitiveCompare(session.title) != .orderedSame {
+                    return lastQ
+                }
+                let titleLower = session.title.lowercased()
+                var parts: [String] = []
+                if let g = ctx.gender?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !g.isEmpty, g.lowercased() != "unisex",
+                   !titleLower.contains(g.lowercased()) {
+                    parts.append(g.capitalized)
+                }
+                if let sz = ctx.size?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !sz.isEmpty,
+                   !titleLower.contains(sz.lowercased()) {
+                    parts.append("Tg. \(sz)")
+                }
+                if let mp = ctx.max_price, mp > 0 {
+                    parts.append("fino a \(Int(mp)) €")
+                }
+                if !parts.isEmpty {
+                    return parts.joined(separator: " · ")
+                }
+            }
+            return nil
         }()
 
         return Button(action: {

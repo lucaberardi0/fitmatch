@@ -201,53 +201,66 @@ struct ShopProductCardSkeleton: View {
     }
 }
 
-// MARK: - 3. Deals Screen Skeleton (Aligned with DealsView 2-Column Store Grid — No Duplicate Pills)
+// MARK: - 3. Deals Screen Skeleton (Aligned with Minimal DealsView Grid & White Store Cards)
 
 struct ShopDealsSkeletonView: View {
+    var showStoreHeaders: Bool = false
+
     private let columns = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
     ]
 
     var body: some View {
-        VStack(spacing: 22) {
-            ForEach(0..<2, id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 14) {
-                    // Store Header Skeleton matching 44pt store avatar + name + subtitle
-                    HStack(spacing: 12) {
-                        ShopSkeletonCircle(size: 44)
-                        VStack(alignment: .leading, spacing: 6) {
-                            ShopSkeletonTextLine(width: 135, height: 15, cornerRadius: 6)
-                            ShopSkeletonTextLine(width: 190, height: 11, cornerRadius: 5)
-                        }
-                        Spacer()
-                        ShopSkeletonCircle(size: 28)
-                    }
-                    .padding(.horizontal, 16)
-
-                    // 2x2 Deal Card Grid Skeleton
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(0..<4, id: \.self) { _ in
+        if showStoreHeaders {
+            VStack(spacing: ShopLayout.sectionSpacing) {
+                ForEach(0..<2, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 12) {
+                            ShopSkeletonCircle(size: 42)
                             VStack(alignment: .leading, spacing: 6) {
-                                ShopSkeletonBlock(cornerRadius: 18, height: 176)
-                                    .frame(maxWidth: .infinity)
-                                ShopSkeletonTextLine(width: 62, height: 9, cornerRadius: 4)
-                                ShopSkeletonTextLine(height: 12, cornerRadius: 5)
-                                    .frame(maxWidth: .infinity)
-                                ShopSkeletonTextLine(width: 112, height: 12, cornerRadius: 5)
-                                HStack(spacing: 6) {
-                                    ShopSkeletonTextLine(width: 62, height: 15, cornerRadius: 5)
-                                    ShopSkeletonTextLine(width: 46, height: 11, cornerRadius: 4)
-                                }
-                                ShopSkeletonCapsule(width: 88, height: 18)
+                                ShopSkeletonTextLine(width: 130, height: 15, cornerRadius: 6)
+                                ShopSkeletonTextLine(width: 170, height: 11, cornerRadius: 5)
+                            }
+                            Spacer()
+                            ShopSkeletonCircle(size: 28)
+                        }
+
+                        LazyVGrid(columns: columns, spacing: 14) {
+                            ForEach(0..<4, id: \.self) { _ in
+                                dealCardSkeleton
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.largeCardRadius)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                 }
             }
+            .padding(.top, 2)
+        } else {
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(0..<6, id: \.self) { _ in
+                    dealCardSkeleton
+                }
+            }
+            .padding(.horizontal, ShopLayout.screenPadding)
+            .padding(.top, 2)
         }
-        .padding(.top, 4)
+    }
+
+    private var dealCardSkeleton: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ShopSkeletonBlock(cornerRadius: ShopLayout.mediumRadius, height: 170)
+                .frame(maxWidth: .infinity)
+            ShopSkeletonTextLine(width: 72, height: 9, cornerRadius: 4)
+            ShopSkeletonTextLine(height: 12, cornerRadius: 5)
+                .frame(maxWidth: .infinity)
+            ShopSkeletonTextLine(width: 105, height: 12, cornerRadius: 5)
+            HStack(spacing: 6) {
+                ShopSkeletonTextLine(width: 60, height: 15, cornerRadius: 5)
+                ShopSkeletonTextLine(width: 44, height: 11, cornerRadius: 4)
+            }
+        }
     }
 }
 

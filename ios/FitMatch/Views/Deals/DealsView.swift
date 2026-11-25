@@ -20,13 +20,6 @@ enum DealsViewMode: String, CaseIterable, Identifiable {
         case .byStore: return "Per Negozio"
         }
     }
-
-    var icon: String {
-        switch self {
-        case .topDeals: return "flame.fill"
-        case .byStore: return "storefront.fill"
-        }
-    }
 }
 
 struct DealsView: View {
@@ -49,7 +42,6 @@ struct DealsView: View {
     @State private var loadError: String? = nil
     @State private var selectedCategory: String = "tutti"
     @State private var filters = DealsFilterOptions()
-    @State private var expandedStoreIds: Set<String> = []
     @State private var isSwitchingQuery = false
     @State private var showingFilterSheet = false
     @State private var activeLoadTask: Task<Void, Never>? = nil
@@ -69,7 +61,7 @@ struct DealsView: View {
         }
     }
 
-    // MARK: - Derived Data & Metrics
+    // MARK: - Derived Data
 
     private var displayedShowcases: [StoreShowcase] {
         let visible = showcases.filter {
@@ -89,42 +81,6 @@ struct DealsView: View {
         }
     }
 
-    private var activeProductsForMetrics: [StoreShowcaseProduct] {
-        switch viewMode {
-        case .topDeals:
-            return displayedTopDeals.isEmpty ? displayedShowcases.flatMap { $0.products } : displayedTopDeals
-        case .byStore:
-            return displayedShowcases.isEmpty ? displayedTopDeals : displayedShowcases.flatMap { $0.products }
-        }
-    }
-
-    private var realMaxDiscountPct: Int {
-        let allDiscs = activeProductsForMetrics.compactMap { $0.discount_pct }.filter { $0 > 0 }
-        return Int((allDiscs.max() ?? 0).rounded())
-    }
-
-    private var verifiedHighlightsCount: Int {
-        activeProductsForMetrics.filter { $0.isVerifiedAllTimeLow || $0.isVerifiedBestMarketPrice }.count
-    }
-
-    private var totalCategoryDealsCount: Int {
-        switch viewMode {
-        case .topDeals:
-            return max(totalTopDealsMatching, displayedTopDeals.count)
-        case .byStore:
-            return displayedShowcases.reduce(0) { $0 + max($1.total_offers, $1.products.count) }
-        }
-    }
-
-    private var activeStoreCount: Int {
-        switch viewMode {
-        case .topDeals:
-            return Set(displayedTopDeals.compactMap { $0.store_id?.lowercased() }).count
-        case .byStore:
-            return displayedShowcases.count
-        }
-    }
-
     private var isCurrentViewEmpty: Bool {
         switch viewMode {
         case .topDeals: return displayedTopDeals.isEmpty
@@ -132,147 +88,71 @@ struct DealsView: View {
         }
     }
 
-    private var showHeroAndSpotlight: Bool {
-        selectedCategory == "tutti" && filters.isDefault
-    }
-
-    private var preferredSizeForActiveCategory: String? {
-        let nonSized: Set<String> = ["smartwatch", "padel", "nutrizione", "accessori"]
-        if nonSized.contains(selectedCategory) { return nil }
-        let apparelCats: Set<String> = ["abbigliamento", "fitness", "nuoto"]
-        let shoe = prefs.preferences.preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines)
-        let apparel = prefs.preferences.preferredApparelSize.trimmingCharacters(in: .whitespacesAndNewlines)
-        if apparelCats.contains(selectedCategory) {
-            return apparel.isEmpty ? (shoe.isEmpty ? nil : shoe) : apparel
+    private var activeFilterChips: [(id: String, label: String, remove: () -> Void)] {
+        var chips: [(String, String, () -> Void)] = []
+        if let g = filters.gender, !g.isEmpty {
+            chips.append(("gender", g.capitalized, {
+                var next = filters; next.gender = nil
+                applyQuery(category: selectedCategory, filters: next)
+            }))
         }
-        return shoe.isEmpty ? (apparel.isEmpty ? nil : apparel) : shoe
+        if let sz = filters.size, !sz.isEmpty {
+            chips.append(("size", "Tg. \(sz)", {
+                var next = filters; next.size = nil
+                applyQuery(category: selectedCategory, filters: next)
+            }))
+        }
+        if let mp = filters.maxPrice {
+            chips.append(("price", "≤ \(Int(mp)) €", {
+                var next = filters; next.maxPrice = nil
+                applyQuery(category: selectedCategory, filters: next)
+            }))
+        }
+        if let md = filters.minDiscount {
+            chips.append(("disc", "≥ \(Int(md))%", {
+                var next = filters; next.minDiscount = nil
+                applyQuery(category: selectedCategory, filters: next)
+            }))
+        }
+        if let br = filters.brand, !br.isEmpty {
+            chips.append(("brand", br, {
+                var next = filters; next.brand = nil
+                applyQuery(category: selectedCategory, filters: next)
+            }))
+        }
+        if filters.freeShippingOnly {
+            chips.append(("ship", "Sped. gratis", {
+                var next = filters; next.freeShippingOnly = false
+                applyQuery(category: selectedCategory, filters: next)
+            }))
+        }
+        if filters.includeKids {
+            chips.append(("kids", "Incl. Bambino", {
+                var next = filters; next.includeKids = false
+                applyQuery(category: selectedCategory, filters: next)
+            }))
+        }
+        return chips
     }
 
-    private var isGenderCategorySelected: Bool {
-        selectedCategory == "uomo" || selectedCategory == "donna"
-    }
-
-    // Fallback categories when offline before first /api/stores sync
     private let defaultCategories: [DealCategoryFilter] = [
-        DealCategoryFilter(
-            id: "tutti",
-            name: "Tutte",
-            icon: "flame.fill",
-            accentColor: Color(red: 245/255, green: 75/255, blue: 45/255),
-            bgTint: Color(red: 254/255, green: 242/255, blue: 240/255)
-        ),
-        DealCategoryFilter(
-            id: "donna",
-            name: "Donna",
-            icon: "figure.walk",
-            accentColor: Color(red: 235/255, green: 65/255, blue: 85/255),
-            bgTint: Color(red: 253/255, green: 240/255, blue: 244/255)
-        ),
-        DealCategoryFilter(
-            id: "uomo",
-            name: "Uomo",
-            icon: "figure.stand",
-            accentColor: Color(red: 35/255, green: 115/255, blue: 235/255),
-            bgTint: Color(red: 238/255, green: 246/255, blue: 255/255)
-        ),
-        DealCategoryFilter(
-            id: "running",
-            name: "Scarpe Running",
-            icon: "figure.run",
-            accentColor: Color(red: 20/255, green: 160/255, blue: 120/255),
-            bgTint: Color(red: 236/255, green: 250/255, blue: 245/255)
-        ),
-        DealCategoryFilter(
-            id: "abbigliamento",
-            name: "Abbigliamento",
-            icon: "tshirt.fill",
-            accentColor: Color(red: 120/255, green: 60/255, blue: 215/255),
-            bgTint: Color(red: 246/255, green: 240/255, blue: 254/255)
-        ),
-        DealCategoryFilter(
-            id: "smartwatch",
-            name: "Smartwatch & GPS",
-            icon: "applewatch",
-            accentColor: Color(red: 15/255, green: 140/255, blue: 195/255),
-            bgTint: Color(red: 238/255, green: 248/255, blue: 253/255)
-        ),
-        DealCategoryFilter(
-            id: "accessori",
-            name: "Accessori",
-            icon: "bag.fill",
-            accentColor: Color(red: 225/255, green: 145/255, blue: 20/255),
-            bgTint: Color(red: 254/255, green: 248/255, blue: 238/255)
-        ),
-        DealCategoryFilter(
-            id: "outdoor",
-            name: "Outdoor & Trail",
-            icon: "mountain.2.fill",
-            accentColor: Color(red: 45/255, green: 135/255, blue: 75/255),
-            bgTint: Color(red: 240/255, green: 249/255, blue: 242/255)
-        ),
-        DealCategoryFilter(
-            id: "padel",
-            name: "Padel",
-            icon: "tennisball.fill",
-            accentColor: Color(red: 135/255, green: 185/255, blue: 25/255),
-            bgTint: Color(red: 248/255, green: 252/255, blue: 238/255)
-        ),
-        DealCategoryFilter(
-            id: "cycling",
-            name: "Ciclismo",
-            icon: "bicycle",
-            accentColor: Color(red: 70/255, green: 75/255, blue: 210/255),
-            bgTint: Color(red: 242/255, green: 243/255, blue: 254/255)
-        ),
-        DealCategoryFilter(
-            id: "fitness",
-            name: "Fitness & Gym",
-            icon: "dumbbell.fill",
-            accentColor: Color(red: 215/255, green: 50/255, blue: 120/255),
-            bgTint: Color(red: 253/255, green: 240/255, blue: 248/255)
-        ),
-        DealCategoryFilter(
-            id: "calcio",
-            name: "Calcio & Calcetto",
-            icon: "soccerball",
-            accentColor: Color(red: 22/255, green: 145/255, blue: 70/255),
-            bgTint: Color(red: 238/255, green: 250/255, blue: 242/255)
-        ),
-        DealCategoryFilter(
-            id: "tennis",
-            name: "Tennis",
-            icon: "tennis.racket",
-            accentColor: Color(red: 215/255, green: 115/255, blue: 15/255),
-            bgTint: Color(red: 255/255, green: 247/255, blue: 236/255)
-        ),
-        DealCategoryFilter(
-            id: "basket",
-            name: "Basket",
-            icon: "basketball.fill",
-            accentColor: Color(red: 225/255, green: 82/255, blue: 25/255),
-            bgTint: Color(red: 255/255, green: 242/255, blue: 235/255)
-        ),
-        DealCategoryFilter(
-            id: "sci",
-            name: "Sci & Neve",
-            icon: "snowflake",
-            accentColor: Color(red: 14/255, green: 125/255, blue: 205/255),
-            bgTint: Color(red: 238/255, green: 247/255, blue: 255/255)
-        ),
-        DealCategoryFilter(
-            id: "nuoto",
-            name: "Nuoto",
-            icon: "figure.pool.swim",
-            accentColor: Color(red: 0/255, green: 155/255, blue: 185/255),
-            bgTint: Color(red: 236/255, green: 251/255, blue: 254/255)
-        ),
-        DealCategoryFilter(
-            id: "nutrizione",
-            name: "Nutrizione",
-            icon: "bolt.heart.fill",
-            accentColor: Color(red: 150/255, green: 65/255, blue: 200/255),
-            bgTint: Color(red: 248/255, green: 240/255, blue: 255/255)
-        )
+        DealCategoryFilter(id: "tutti", name: "Tutte", icon: "flame", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "donna", name: "Donna", icon: "figure.walk", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "uomo", name: "Uomo", icon: "figure.stand", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "running", name: "Scarpe Running", icon: "figure.run", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "abbigliamento", name: "Abbigliamento", icon: "tshirt", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "smartwatch", name: "Smartwatch & GPS", icon: "applewatch", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "accessori", name: "Accessori", icon: "bag", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "outdoor", name: "Outdoor & Trail", icon: "mountain.2", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "padel", name: "Padel", icon: "tennisball", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "cycling", name: "Ciclismo", icon: "bicycle", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "fitness", name: "Fitness & Gym", icon: "dumbbell", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "calcio", name: "Calcio & Calcetto", icon: "soccerball", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "tennis", name: "Tennis", icon: "tennis.racket", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "basket", name: "Basket", icon: "basketball", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "sci", name: "Sci & Neve", icon: "snowflake", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "nuoto", name: "Nuoto", icon: "figure.pool.swim", accentColor: .shopDark, bgTint: .shopSurfaceElevated),
+        DealCategoryFilter(id: "nutrizione", name: "Nutrizione", icon: "bolt.heart", accentColor: .shopDark, bgTint: .shopSurfaceElevated)
     ]
 
     private var categories: [DealCategoryFilter] {
@@ -281,9 +161,9 @@ struct DealsView: View {
             DealCategoryFilter(
                 id: item.id,
                 name: item.name,
-                icon: (item.icon?.isEmpty == false ? item.icon! : "tag.fill"),
-                accentColor: item.accent_hex.flatMap { Color(hex: $0) } ?? .shopPurple,
-                bgTint: item.bg_hex.flatMap { Color(hex: $0) } ?? .shopPurpleLight
+                icon: (item.icon?.isEmpty == false ? item.icon! : "tag"),
+                accentColor: .shopDark,
+                bgTint: .shopSurfaceElevated
             )
         }
     }
@@ -292,29 +172,23 @@ struct DealsView: View {
         ZStack(alignment: .bottom) {
             ScrollViewReader { scrollProxy in
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 14) {
-                        // MARK: - 1. Category Filter Pills Bar
+                    VStack(spacing: 12) {
+                        // MARK: - 1. Single Clean Category Row
                         categoryPillsBar
-                            .padding(.top, 4)
+                            .padding(.top, 2)
 
-                        // MARK: - 2. Dynamic Hero / Editorial (Default "Tutte") OR Compact Context Banner
-                        if showHeroAndSpotlight {
-                            heroBannerSection
-                            dealsSpotlightCarousel
-                        } else {
-                            compactContextBanner
-                        }
-
-                        // MARK: - 3. View Mode Switcher ("Top Offerte" vs "Per Negozio") + Inline Sort
+                        // MARK: - 2. Quiet Mode Switcher + Inline Sort Text Menu
                         modeAndSortBar
 
-                        // MARK: - 4. Real Quick Filter Chips (Mia taglia, Sped. gratis, Uomo/Donna, Budget, Sconto, Active pills)
-                        quickFilterChipsBar
+                        // MARK: - 3. Active Filters Summary (Shown ONLY when filters are applied)
+                        if !activeFilterChips.isEmpty {
+                            activeFiltersBar
+                        }
 
-                        // MARK: - 5. Main Results Area
+                        // MARK: - 4. Products Grid or Clean Store Cards
                         Group {
                             if isSwitchingQuery || (isLoading && isCurrentViewEmpty) {
-                                ShopDealsSkeletonView()
+                                ShopDealsSkeletonView(showStoreHeaders: viewMode == .byStore)
                                     .shopFadeScaleTransition()
                             } else if let err = loadError, isCurrentViewEmpty {
                                 errorStateView(message: err)
@@ -326,20 +200,20 @@ struct DealsView: View {
                                 topDealsGridSection
                                     .shopFadeScaleTransition()
                             } else {
-                                LazyVStack(spacing: 22) {
+                                LazyVStack(spacing: ShopLayout.sectionSpacing) {
                                     ForEach(displayedShowcases) { showcase in
-                                        storeDealsSection(showcase: showcase)
+                                        storeDealsCard(showcase: showcase)
                                     }
                                 }
+                                .padding(.top, 2)
                                 .shopFadeScaleTransition()
                             }
                         }
                         .animation(ShopMotion.gridReflow, value: selectedCategory)
                         .animation(ShopMotion.gridReflow, value: viewMode)
                         .animation(ShopMotion.gridReflow, value: filters.cacheKeySuffix)
-                        .animation(.easeOut(duration: 0.22), value: isSwitchingQuery)
+                        .animation(.easeOut(duration: 0.2), value: isSwitchingQuery)
 
-                        // Spacer for bottom dock and floating filter pill
                         Color.clear.frame(height: ShopLayout.bottomFilterDockClearance)
                     }
                     .id("deals_top")
@@ -355,7 +229,7 @@ struct DealsView: View {
                 }
             }
 
-            // MARK: - 6. Floating "Filtra" Pill with Active Count Badge
+            // MARK: - 5. Single Floating "Filtra" Pill
             floatingFilterButton
         }
         .sheet(isPresented: $showingFilterSheet) {
@@ -380,7 +254,6 @@ struct DealsView: View {
             if isCurrentViewEmpty {
                 applyQuery(category: selectedCategory, filters: filters)
             }
-            // Warm the secondary mode in background for instant switching on default "Tutte"
             if selectedCategory == "tutti" && filters.isDefault {
                 Task {
                     if viewMode == .topDeals && api.cachedDealsShowcases(for: "tutti") == nil {
@@ -406,179 +279,7 @@ struct DealsView: View {
         }
     }
 
-    // MARK: - 1. Dynamic Hero Promo Banner (Compact, Data-Grounded)
-
-    private var heroBannerSection: some View {
-        let maxDisc = realMaxDiscountPct
-        let verified = verifiedHighlightsCount
-        let subtitleText: String = {
-            if maxDisc >= 10 && verified > 0 {
-                return "Sconti verificati fino \(IntelligentPromoGenerator.upToPercent(maxDisc)) • \(verified) minimi storici e miglior prezzo"
-            } else if maxDisc >= 10 {
-                return "Ribassi verificati fino \(IntelligentPromoGenerator.upToPercent(maxDisc)) sui migliori negozi sportivi"
-            } else {
-                return "Confronto in tempo reale tra i migliori negozi sportivi partner"
-            }
-        }()
-
-        return ZStack(alignment: .bottomLeading) {
-            if UIImage(named: "deals_hero_banner") != nil {
-                Image("deals_hero_banner")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 154)
-                    .clipped()
-                    .overlay(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 168/255, green: 34/255, blue: 74/255).opacity(0.84),
-                                Color(red: 185/255, green: 42/255, blue: 82/255).opacity(0.38),
-                                .clear
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-            } else {
-                LinearGradient(
-                    colors: [
-                        Color(red: 245/255, green: 85/255, blue: 72/255),
-                        Color(red: 220/255, green: 52/255, blue: 88/255),
-                        Color(red: 145/255, green: 34/255, blue: 98/255)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 5) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 10.5, weight: .bold))
-                        .foregroundColor(.white)
-                    Text("OFFERTE VERIFICATE")
-                        .font(.system(size: 10, weight: .heavy, design: .rounded))
-                        .foregroundColor(.white)
-                        .tracking(0.8)
-                }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 3.5)
-                .background(Color.white.opacity(0.22))
-                .clipShape(Capsule())
-
-                Text("I migliori affari,\nconfrontati davvero")
-                    .font(.system(size: 22, weight: .heavy, design: .rounded))
-                    .foregroundColor(.white)
-                    .lineSpacing(1.5)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(subtitleText)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundColor(.white.opacity(0.95))
-                    .lineLimit(2)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 15)
-            .padding(.trailing, 76)
-        }
-        .frame(height: 154)
-        .clipShape(RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous))
-        .padding(.horizontal, ShopLayout.screenPadding)
-        .shadow(color: Color(red: 220/255, green: 52/255, blue: 88/255).opacity(0.18), radius: 12, x: 0, y: 5)
-    }
-
-    // MARK: - 1b. Compact Context Header (Category or Active Filters -> Products Immediately Above the Fold)
-
-    private var compactContextBanner: some View {
-        let activeCat = categories.first(where: { $0.id == selectedCategory })
-        let accent = activeCat?.accentColor ?? .shopPurple
-        let tint = activeCat?.bgTint ?? .shopPurpleLight
-        let maxDisc = realMaxDiscountPct
-        let storesCnt = activeStoreCount
-        let totalDeals = totalCategoryDealsCount
-        let titleText: String = {
-            if selectedCategory == "tutti" {
-                return "Offerte filtrate"
-            }
-            return activeCat?.name ?? selectedCategory.capitalized
-        }()
-
-        return HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(tint)
-                    .frame(width: 42, height: 42)
-                Image(systemName: activeCat?.icon ?? "slider.horizontal.3")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(accent)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(titleText)
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundColor(.shopDark)
-                        .lineLimit(1)
-
-                    if filters.activeFilterCount > 0 {
-                        Text("\(filters.activeFilterCount) \(filters.activeFilterCount == 1 ? "filtro" : "filtri")")
-                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopPurple)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(Color.shopPurpleLight)
-                            .clipShape(Capsule())
-                    }
-                }
-
-                if totalDeals > 0 {
-                    let discSuffix = maxDisc >= 10 ? " • fino \(IntelligentPromoGenerator.upToPercent(maxDisc))" : ""
-                    let storePart = storesCnt > 0 ? " in \(storesCnt) \(storesCnt == 1 ? "negozio" : "negozi")" : ""
-                    Text("\(totalDeals) offerte\(storePart)\(discSuffix)")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.shopTextMuted)
-                        .lineLimit(1)
-                } else if isLoading || isSwitchingQuery {
-                    Text("Ricerca migliori sconti in corso...")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.shopTextMuted)
-                } else {
-                    Text("Nessuna offerta trovata con questa combinazione")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.shopTextMuted)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer(minLength: 4)
-
-            Button(action: {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                applyQuery(category: "tutti", filters: DealsFilterOptions())
-            }) {
-                Text(!filters.isDefault ? "Reset" : "Tutte")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundColor(.shopDark)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 6)
-                    .background(Color.shopSurfaceElevated)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.shopBorder, lineWidth: 1)
-        )
-        .padding(.horizontal, ShopLayout.screenPadding)
-    }
-
-    // MARK: - 2. Category Filter Pills Bar
+    // MARK: - 1. Clean Category Pills Bar
 
     private var categoryPillsBar: some View {
         ScrollViewReader { proxy in
@@ -590,50 +291,37 @@ struct DealsView: View {
                         Button(action: {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             var nextFilters = filters
-                            // Prevent contradictory category ("donna") + gender filter ("uomo")
                             if cat.id == "uomo" || cat.id == "donna" {
                                 nextFilters.gender = nil
                             }
                             applyQuery(category: cat.id, filters: nextFilters)
                         }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: cat.icon)
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                    .foregroundColor(isSelected ? .white : cat.accentColor)
-
-                                Text(cat.name)
-                                    .font(.system(size: 13.5, weight: isSelected ? .bold : .medium, design: .rounded))
-                                    .foregroundColor(isSelected ? .white : Color(red: 35/255, green: 38/255, blue: 46/255))
-                                    .lineLimit(1)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8.5)
-                            .background(
-                                ZStack {
-                                    Capsule()
-                                        .fill(Color.white)
-
-                                    if isSelected {
-                                        Capsule()
-                                            .fill(Color(red: 22/255, green: 22/255, blue: 26/255))
-                                            .shadow(color: Color.black.opacity(0.12), radius: 5, x: 0, y: 2)
-                                            .matchedGeometryEffect(id: "deals_cat_pill", in: dealsCatNamespace)
+                            Text(cat.name)
+                                .font(.system(size: 13.5, weight: isSelected ? .bold : .medium, design: .rounded))
+                                .foregroundColor(isSelected ? .white : .shopDark)
+                                .lineLimit(1)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(
+                                    ZStack {
+                                        Capsule().fill(Color.white)
+                                        if isSelected {
+                                            Capsule()
+                                                .fill(Color.shopDark)
+                                                .matchedGeometryEffect(id: "deals_cat_pill", in: dealsCatNamespace)
+                                        }
                                     }
-                                }
-                            )
-                            .overlay(
-                                Capsule()
-                                    .stroke(
-                                        isSelected ? Color.clear : Color(red: 228/255, green: 230/255, blue: 236/255),
-                                        lineWidth: 1
-                                    )
-                            )
+                                )
+                                .overlay(
+                                    Capsule()
+                                        .stroke(isSelected ? Color.clear : Color.shopBorder, lineWidth: 1)
+                                )
                         }
                         .buttonStyle(ShopCardPressStyle(scale: 0.96, pressedOpacity: 0.92))
                         .id(cat.id)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, ShopLayout.screenPadding)
             }
             .onAppear {
                 proxy.scrollTo(selectedCategory, anchor: .center)
@@ -655,11 +343,10 @@ struct DealsView: View {
         }
     }
 
-    // MARK: - 3. View Mode Switcher ("Top Offerte" vs "Per Negozio") + Inline Sort
+    // MARK: - 2. Quiet Mode Switcher + Clean Text Sort Menu
 
     private var modeAndSortBar: some View {
-        HStack(spacing: 10) {
-            // Segmented Mode Pill
+        HStack(spacing: 12) {
             HStack(spacing: 2) {
                 ForEach(DealsViewMode.allCases) { mode in
                     let isSelected = viewMode == mode
@@ -668,38 +355,32 @@ struct DealsView: View {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         switchViewMode(to: mode)
                     }) {
-                        HStack(spacing: 5) {
-                            Image(systemName: mode.icon)
-                                .font(.system(size: 11, weight: .bold))
-                            Text(mode.title)
-                                .font(.system(size: 12.5, weight: isSelected ? .bold : .semibold, design: .rounded))
-                                .lineLimit(1)
-                        }
-                        .foregroundColor(isSelected ? .white : .shopDark)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7.5)
-                        .background(
-                            ZStack {
-                                if isSelected {
-                                    Capsule()
-                                        .fill(Color.shopDark)
-                                        .shadow(color: Color.black.opacity(0.10), radius: 4, x: 0, y: 2)
-                                        .matchedGeometryEffect(id: "deals_mode_pill", in: dealsModeNamespace)
+                        Text(mode.title)
+                            .font(.system(size: 12.5, weight: isSelected ? .bold : .medium, design: .rounded))
+                            .foregroundColor(isSelected ? .shopDark : .shopTextMuted)
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6.5)
+                            .background(
+                                ZStack {
+                                    if isSelected {
+                                        Capsule()
+                                            .fill(Color.white)
+                                            .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1)
+                                            .matchedGeometryEffect(id: "deals_mode_pill", in: dealsModeNamespace)
+                                    }
                                 }
-                            }
-                        )
+                            )
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(3)
-            .background(Color.white)
+            .background(Color.shopSurfaceElevated)
             .clipShape(Capsule())
-            .overlay(Capsule().stroke(Color.shopBorder, lineWidth: 1))
 
             Spacer(minLength: 4)
 
-            // Quick Sort Menu Pill
             Menu {
                 ForEach(DealsSortOption.allCases) { option in
                     Button(action: {
@@ -713,381 +394,62 @@ struct DealsView: View {
                     }
                 }
             } label: {
-                let isCustomSort = filters.sort != .quality
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 10.5, weight: .bold))
+                HStack(spacing: 4) {
                     Text(filters.sort.shortTitle)
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .lineLimit(1)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                 }
-                .foregroundColor(isCustomSort ? .shopPurple : .shopDark)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8.5)
-                .background(isCustomSort ? Color.shopPurpleLight : Color.white)
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule().stroke(isCustomSort ? Color.shopPurple.opacity(0.35) : Color.shopBorder, lineWidth: 1)
-                )
+                .foregroundColor(filters.sort == .quality ? .shopTextMuted : .shopPurple)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 4)
             }
         }
         .padding(.horizontal, ShopLayout.screenPadding)
     }
 
-    // MARK: - 4. Quick Filter Chips Bar (One-Tap Real Server Filters)
+    // MARK: - 3. Active Filters Bar (Only Rendered When Filters Are Active)
 
-    private var quickFilterChipsBar: some View {
-        let prefSize = preferredSizeForActiveCategory
-        let isUsingPrefSize = (prefSize != nil && filters.size?.caseInsensitiveCompare(prefSize!) == .orderedSame)
-
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                // 1. "Mia taglia" one-tap toggle
-                if let sz = prefSize {
-                    quickToggleChip(
-                        title: "Mia taglia (\(sz))",
-                        icon: "ruler",
-                        isActive: isUsingPrefSize,
-                        activeColor: .shopPurple,
-                        activeBg: .shopPurpleLight
-                    ) {
-                        var next = filters
-                        next.size = isUsingPrefSize ? nil : sz
-                        applyQuery(category: selectedCategory, filters: next)
-                    }
-                }
-
-                // Custom size pill if user selected a size different from their saved preferred size
-                if let activeSz = filters.size, !activeSz.isEmpty, !isUsingPrefSize {
-                    removableFilterChip(label: "Tg. \(activeSz)") {
-                        var next = filters
-                        next.size = nil
-                        applyQuery(category: selectedCategory, filters: next)
-                    }
-                }
-
-                // 2. "Sped. gratis" one-tap toggle
-                quickToggleChip(
-                    title: "Sped. gratis",
-                    icon: "box.truck.fill",
-                    isActive: filters.freeShippingOnly,
-                    activeColor: .shopGreen,
-                    activeBg: .shopGreenLight
-                ) {
-                    var next = filters
-                    next.freeShippingOnly.toggle()
-                    applyQuery(category: selectedCategory, filters: next)
-                }
-
-                // 3. Combinable Gender chips (hidden when already in Donna/Uomo category)
-                if !isGenderCategorySelected {
-                    quickToggleChip(
-                        title: "Uomo",
-                        icon: "figure.stand",
-                        isActive: filters.gender == "uomo",
-                        activeColor: Color(red: 35/255, green: 115/255, blue: 235/255),
-                        activeBg: Color(red: 238/255, green: 246/255, blue: 255/255)
-                    ) {
-                        var next = filters
-                        next.gender = (next.gender == "uomo") ? nil : "uomo"
-                        applyQuery(category: selectedCategory, filters: next)
-                    }
-
-                    quickToggleChip(
-                        title: "Donna",
-                        icon: "figure.walk",
-                        isActive: filters.gender == "donna",
-                        activeColor: Color(red: 235/255, green: 65/255, blue: 85/255),
-                        activeBg: Color(red: 253/255, green: 240/255, blue: 244/255)
-                    ) {
-                        var next = filters
-                        next.gender = (next.gender == "donna") ? nil : "donna"
-                        applyQuery(category: selectedCategory, filters: next)
-                    }
-
-                    if filters.gender == "unisex" {
-                        removableFilterChip(label: "Unisex") {
-                            var next = filters
-                            next.gender = nil
-                            applyQuery(category: selectedCategory, filters: next)
-                        }
-                    }
-                }
-
-                // 4. Quick High Discount chip (≥ 40%)
-                let isQuickDisc = filters.minDiscount == 40
-                quickToggleChip(
-                    title: "≥ 40%",
-                    icon: "percent",
-                    isActive: isQuickDisc,
-                    activeColor: .shopRed,
-                    activeBg: Color(red: 254/255, green: 242/255, blue: 242/255)
-                ) {
-                    var next = filters
-                    next.minDiscount = isQuickDisc ? nil : 40
-                    applyQuery(category: selectedCategory, filters: next)
-                }
-
-                // Custom discount pill if set via Filter Sheet to another value (20, 30, 50...)
-                if let customDisc = filters.minDiscount, customDisc != 40 {
-                    removableFilterChip(label: "≥ \(Int(customDisc))%") {
-                        var next = filters
-                        next.minDiscount = nil
-                        applyQuery(category: selectedCategory, filters: next)
-                    }
-                }
-
-                // 5. Quick Budget chip (≤ 100 €)
-                let isQuickBudget = filters.maxPrice == 100
-                quickToggleChip(
-                    title: "≤ 100 €",
-                    icon: "eurosign.circle",
-                    isActive: isQuickBudget,
-                    activeColor: .shopPurple,
-                    activeBg: .shopPurpleLight
-                ) {
-                    var next = filters
-                    next.maxPrice = isQuickBudget ? nil : 100
-                    applyQuery(category: selectedCategory, filters: next)
-                }
-
-                // Custom max price pill from Filter Sheet
-                if let customPrice = filters.maxPrice, customPrice != 100 {
-                    removableFilterChip(label: "≤ \(Int(customPrice)) €") {
-                        var next = filters
-                        next.maxPrice = nil
-                        applyQuery(category: selectedCategory, filters: next)
-                    }
-                }
-
-                // Active Brand pill from Filter Sheet
-                if let activeBrand = filters.brand, !activeBrand.isEmpty {
-                    removableFilterChip(label: activeBrand) {
-                        var next = filters
-                        next.brand = nil
-                        applyQuery(category: selectedCategory, filters: next)
-                    }
-                }
-
-                // Active Kids pill if enabled
-                if filters.includeKids {
-                    removableFilterChip(label: "Incl. Bambino") {
-                        var next = filters
-                        next.includeKids = false
-                        applyQuery(category: selectedCategory, filters: next)
-                    }
-                }
-
-                // Reset all filters chip
-                if !filters.isDefault {
+    private var activeFiltersBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(activeFilterChips, id: \.id) { chip in
                     Button(action: {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        applyQuery(category: selectedCategory, filters: DealsFilterOptions())
+                        chip.remove()
                     }) {
                         HStack(spacing: 4) {
-                            Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: 10, weight: .bold))
-                            Text("Reset")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                            Text(chip.label)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8.5, weight: .bold))
                         }
-                        .foregroundColor(.shopRed)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 7)
-                        .background(Color(red: 254/255, green: 242/255, blue: 242/255))
+                        .foregroundColor(.shopPurple)
+                        .padding(.horizontal, 10.5)
+                        .padding(.vertical, 5.5)
+                        .background(Color.shopPurpleLight)
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
+
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    applyQuery(category: selectedCategory, filters: DealsFilterOptions())
+                }) {
+                    Text("Cancella")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundColor(.shopTextMuted)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 5.5)
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, ShopLayout.screenPadding)
         }
     }
 
-    private func quickToggleChip(
-        title: String,
-        icon: String,
-        isActive: Bool,
-        activeColor: Color,
-        activeBg: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            action()
-        }) {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 10.5, weight: .bold))
-                Text(title)
-                    .font(.system(size: 12, weight: isActive ? .bold : .semibold, design: .rounded))
-                    .lineLimit(1)
-            }
-            .foregroundColor(isActive ? activeColor : Color(red: 55/255, green: 58/255, blue: 68/255))
-            .padding(.horizontal, 11.5)
-            .padding(.vertical, 7)
-            .background(isActive ? activeBg : Color.white)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule().stroke(
-                    isActive ? activeColor.opacity(0.42) : Color.shopBorder,
-                    lineWidth: 1
-                )
-            )
-        }
-        .buttonStyle(ShopCardPressStyle(scale: 0.96, pressedOpacity: 0.92))
-    }
-
-    private func removableFilterChip(label: String, onRemove: @escaping () -> Void) -> some View {
-        Button(action: {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            onRemove()
-        }) {
-            HStack(spacing: 5) {
-                Text(label)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .black))
-            }
-            .foregroundColor(.shopPurple)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 7)
-            .background(Color.shopPurpleLight)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule().stroke(Color.shopPurple.opacity(0.35), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - 5. Editorial Collections Carousel (Default "Tutte")
-
-    private var dealsSpotlightCarousel: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                spotlightCollectionCard(
-                    title: "Top Saldi Running",
-                    subtitle: "Super-scarpe e modelli gara al miglior prezzo",
-                    icon: "figure.run",
-                    imageName: "deals_running_spotlight",
-                    gradientColors: [
-                        Color(red: 16/255, green: 30/255, blue: 62/255),
-                        Color(red: 36/255, green: 68/255, blue: 122/255)
-                    ],
-                    targetCategory: "running"
-                )
-
-                spotlightCollectionCard(
-                    title: "Smartwatch & GPS",
-                    subtitle: "Garmin, Polar e Suunto scontati",
-                    icon: "applewatch",
-                    imageName: nil,
-                    gradientColors: [
-                        Color(red: 10/255, green: 72/255, blue: 108/255),
-                        Color(red: 16/255, green: 122/255, blue: 158/255)
-                    ],
-                    targetCategory: "smartwatch"
-                )
-
-                spotlightCollectionCard(
-                    title: "Fitness & Palestra",
-                    subtitle: "Metcon, Dropset, Nano e training",
-                    icon: "dumbbell.fill",
-                    imageName: nil,
-                    gradientColors: [
-                        Color(red: 64/255, green: 26/255, blue: 112/255),
-                        Color(red: 126/255, green: 46/255, blue: 152/255)
-                    ],
-                    targetCategory: "fitness"
-                )
-            }
-            .padding(.horizontal, ShopLayout.screenPadding)
-        }
-    }
-
-    private func spotlightCollectionCard(
-        title: String,
-        subtitle: String,
-        icon: String,
-        imageName: String?,
-        gradientColors: [Color],
-        targetCategory: String
-    ) -> some View {
-        Button(action: {
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            applyQuery(category: targetCategory, filters: filters)
-        }) {
-            ZStack(alignment: .bottomLeading) {
-                if let img = imageName, UIImage(named: img) != nil {
-                    Image(img)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 282, height: 92)
-                        .clipped()
-                        .overlay(
-                            LinearGradient(
-                                colors: [
-                                    gradientColors[0].opacity(0.84),
-                                    gradientColors[0].opacity(0.32),
-                                    .clear
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                } else {
-                    LinearGradient(
-                        colors: gradientColors,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    HStack {
-                        Spacer()
-                        Image(systemName: icon)
-                            .font(.system(size: 44, weight: .bold))
-                            .foregroundColor(.white.opacity(0.14))
-                            .padding(.trailing, 18)
-                    }
-                }
-
-                HStack(alignment: .center, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(title)
-                            .font(.system(size: 15.5, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-
-                        Text(subtitle)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundColor(.white.opacity(0.88))
-                            .lineLimit(2)
-                    }
-
-                    Spacer(minLength: 4)
-
-                    Circle()
-                        .fill(Color.white.opacity(0.22))
-                        .frame(width: 30, height: 30)
-                        .overlay(
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                        )
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-            }
-            .frame(width: 282, height: 92)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: gradientColors[0].opacity(0.16), radius: 8, x: 0, y: 4)
-        }
-        .buttonStyle(ShopCardPressStyle(scale: 0.97, pressedOpacity: 0.94))
-    }
-
-    // MARK: - 6. Top Offerte Cross-Store 2-Column Grid
+    // MARK: - 4. Top Offerte Cross-Store Grid
 
     private var topDealsGridSection: some View {
         let deals = displayedTopDeals
@@ -1095,23 +457,6 @@ struct DealsView: View {
         let hasMore = deals.count < total && topDealsLimit < 80 && deals.count < 80
 
         return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(selectedCategory == "tutti" ? "Migliori offerte cross-store" : "Migliori offerte · \(categoryTitle(for: selectedCategory))")
-                        .font(.system(size: 16.5, weight: .bold, design: .rounded))
-                        .foregroundColor(.shopDark)
-                        .lineLimit(1)
-
-                    Text("\(total) offerte verificate • miglior prezzo tra tutti gli store")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundColor(.shopTextMuted)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 8)
-            }
-            .padding(.horizontal, ShopLayout.screenPadding)
-
             LazyVGrid(
                 columns: [
                     GridItem(.flexible(), spacing: 12),
@@ -1133,6 +478,7 @@ struct DealsView: View {
                 }
             }
             .padding(.horizontal, ShopLayout.screenPadding)
+            .padding(.top, 2)
 
             if hasMore {
                 HStack {
@@ -1146,13 +492,9 @@ struct DealsView: View {
                                 ProgressView()
                                     .scaleEffect(0.8)
                                     .tint(.shopDark)
-                            } else {
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(.shopPurple)
                             }
-                            Text(isLoadingMoreTopDeals ? "Caricamento..." : "Carica altre offerte")
-                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                            Text(isLoadingMoreTopDeals ? "Caricamento..." : "Mostra altre offerte")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
                                 .foregroundColor(.shopDark)
                         }
                         .padding(.horizontal, 18)
@@ -1160,7 +502,6 @@ struct DealsView: View {
                         .background(Color.white)
                         .clipShape(Capsule())
                         .overlay(Capsule().stroke(Color.shopBorder, lineWidth: 1))
-                        .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
                     }
                     .buttonStyle(.plain)
                     .disabled(isLoadingMoreTopDeals)
@@ -1171,22 +512,25 @@ struct DealsView: View {
         }
     }
 
-    // MARK: - 7. Store Deals Section ("Per Negozio")
+    // MARK: - 5. Per Negozio Clean White Store Cards (Matching HomeView 1-to-1)
 
-    private func storeDealsSection(showcase: StoreShowcase) -> some View {
+    private func storeDealsCard(showcase: StoreShowcase) -> some View {
         let promoText = showcase.dynamicPromoSubtitle(category: selectedCategory)
-        let reviewCount = showcase.review_count ?? StoreRatingHelper.reviewCount(for: showcase.store_name, storeId: showcase.store_id)
-        let rating = !showcase.rating.isEmpty ? showcase.rating.replacingOccurrences(of: ".", with: ",") : StoreRatingHelper.rating(for: showcase.store_name, storeId: showcase.store_id)
         let isFollowed = followedManager.isFollowing(storeId: showcase.store_id)
-        let isExpanded = expandedStoreIds.contains(showcase.store_id)
-        let visibleProducts = isExpanded ? showcase.products : Array(showcase.products.prefix(4))
-        let hiddenCount = max(0, showcase.products.count - 4)
+        let visibleProducts = Array(showcase.products.prefix(4))
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
                     HStack(spacing: 12) {
-                        ShopStoreLogo(storeName: showcase.store_name, showVerified: false, showLabel: false, size: 44, hasRedRing: true, logoURL: showcase.logo_url)
+                        ShopStoreLogo(
+                            storeName: showcase.store_name,
+                            showVerified: false,
+                            showLabel: false,
+                            size: 42,
+                            hasRedRing: false,
+                            logoURL: showcase.logo_url
+                        )
 
                         VStack(alignment: .leading, spacing: 2.5) {
                             HStack(spacing: 6) {
@@ -1195,34 +539,28 @@ struct DealsView: View {
                                     .foregroundColor(.shopDark)
                                     .lineLimit(1)
 
-                                HStack(spacing: 2.5) {
-                                    Image(systemName: "star.fill")
-                                        .font(.system(size: 9.5, weight: .bold))
-                                        .foregroundColor(.shopOrange)
-                                    Text(rating)
-                                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                                        .foregroundColor(.shopDark)
-                                    Text("(\(reviewCount))")
-                                        .font(.system(size: 10.5, weight: .medium))
-                                        .foregroundColor(.shopTextMuted)
-                                }
-                                .padding(.horizontal, 6.5)
-                                .padding(.vertical, 2)
-                                .background(Color.white)
-                                .clipShape(Capsule())
-                                .overlay(Capsule().stroke(Color.shopBorder, lineWidth: 0.8))
-
                                 if isFollowed {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 11, weight: .bold))
+                                    Text("Segui già")
+                                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
                                         .foregroundColor(.shopPurple)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.shopPurpleLight)
+                                        .clipShape(Capsule())
                                 }
                             }
 
-                            Text(promoText)
-                                .font(.system(size: 12.5, weight: .semibold))
-                                .foregroundColor(Color(red: 220/255, green: 50/255, blue: 35/255))
-                                .lineLimit(1)
+                            HStack(spacing: 5) {
+                                Text(showcase.formattedRatingWithReviews)
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.shopTextMuted)
+                                Text("·")
+                                    .foregroundColor(.shopTextMuted)
+                                Text(promoText)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.shopTextMuted)
+                                    .lineLimit(1)
+                            }
                         }
                     }
                 }
@@ -1235,13 +573,13 @@ struct DealsView: View {
                         followedManager.toggleFollow(storeId: showcase.store_id, storeName: showcase.store_name)
                     }) {
                         Label(
-                            isFollowed ? "Non seguire più" : "Segui negozio",
-                            systemImage: isFollowed ? "person.badge.minus" : "person.badge.plus"
+                            isFollowed ? "Smetti di seguire" : "Segui",
+                            systemImage: isFollowed ? "checkmark.circle.fill" : "plus.circle"
                         )
                     }
 
                     NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                        Label("Visualizza negozio", systemImage: "arrow.right.circle")
+                        Label("Visita il negozio", systemImage: "storefront")
                     }
 
                     Button(role: .destructive, action: {
@@ -1253,85 +591,59 @@ struct DealsView: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(Color(red: 120/255, green: 120/255, blue: 125/255))
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.shopTextMuted)
                         .frame(width: 32, height: 32)
                 }
             }
-            .padding(.horizontal, 16)
 
             LazyVGrid(
                 columns: [
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12)
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10)
                 ],
-                spacing: 16
+                spacing: 14
             ) {
                 ForEach(visibleProducts) { prod in
                     let matched = prod.toMatchedProduct(storeId: showcase.store_id, storeName: showcase.store_name)
                     ShopDealGridCard(
                         product: prod,
                         matchedProduct: matched,
+                        imageBackground: Color.shopSurface,
                         highlightedSize: filters.size
                     )
                 }
             }
-            .padding(.horizontal, 16)
 
-            if hiddenCount > 0 || showcase.total_offers > visibleProducts.count {
-                HStack(spacing: 10) {
-                    if hiddenCount > 0 {
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            withAnimation(ShopMotion.gridReflow) {
-                                if isExpanded {
-                                    expandedStoreIds.remove(showcase.store_id)
-                                } else {
-                                    expandedStoreIds.insert(showcase.store_id)
-                                }
-                            }
-                        }) {
-                            HStack(spacing: 5) {
-                                Text(isExpanded ? "Mostra meno" : "Altre \(hiddenCount) offerte")
-                                    .font(.system(size: 12.5, weight: .bold, design: .rounded))
-                                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                    .font(.system(size: 10, weight: .bold))
-                            }
-                            .foregroundColor(.shopDark)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(Color.white)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Color.shopBorder, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                    }
+            // Single Clean Footer CTA (Exact HomeView Pattern)
+            NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
+                HStack {
+                    Text(showcase.total_offers > visibleProducts.count
+                         ? "Tutte le \(showcase.total_offers) offerte"
+                         : "Acquista tutto")
+                        .font(.system(size: 15.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
 
-                    NavigationLink(destination: StoreDetailView(storeId: showcase.store_id, initialStoreName: showcase.store_name)) {
-                        HStack(spacing: 4) {
-                            Text(showcase.total_offers > showcase.products.count
-                                 ? "Tutte le \(showcase.total_offers) su \(showcase.store_name)"
-                                 : "Vai allo store")
-                                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
-                                .lineLimit(1)
+                    Spacer()
+
+                    Circle()
+                        .fill(Color.shopSurfaceElevated)
+                        .frame(width: 34, height: 34)
+                        .overlay(
                             Image(systemName: "arrow.right")
-                                .font(.system(size: 10.5, weight: .bold))
-                        }
-                        .foregroundColor(.shopPurple)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer(minLength: 0)
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.shopDark)
+                        )
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, -2)
+                .padding(.top, 2)
             }
+            .buttonStyle(.plain)
         }
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.largeCardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
+        .padding(.horizontal, ShopLayout.screenPadding)
     }
 
-    // MARK: - 8. Floating "Filtra" Button with Active Filter Badge
+    // MARK: - 6. Floating "Filtra" Pill
 
     private var floatingFilterButton: some View {
         let activeCount = filters.activeFilterCount
@@ -1341,29 +653,29 @@ struct DealsView: View {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 showingFilterSheet = true
             }) {
-                HStack(spacing: 8) {
+                HStack(spacing: 7) {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 13.5, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
 
                     Text("Filtra")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
 
                     if activeCount > 0 {
                         Text("\(activeCount)")
-                            .font(.system(size: 11.5, weight: .heavy, design: .rounded))
+                            .font(.system(size: 11, weight: .heavy, design: .rounded))
                             .foregroundColor(.white)
-                            .frame(minWidth: 20, minHeight: 20)
+                            .frame(minWidth: 19, minHeight: 19)
                             .padding(.horizontal, 4)
                             .background(Color.shopPurple)
                             .clipShape(Capsule())
                     }
                 }
-                .foregroundColor(activeCount > 0 ? .white : Color(red: 25/255, green: 25/255, blue: 30/255))
-                .padding(.horizontal, activeCount > 0 ? 18 : 22)
-                .padding(.vertical, 12)
+                .foregroundColor(activeCount > 0 ? .white : .shopDark)
+                .padding(.horizontal, activeCount > 0 ? 18 : 20)
+                .padding(.vertical, 11.5)
                 .background(activeCount > 0 ? Color.shopDark : Color.white)
                 .clipShape(Capsule())
-                .shadow(color: Color.black.opacity(activeCount > 0 ? 0.22 : 0.12), radius: 12, x: 0, y: 5)
+                .shadow(color: Color.black.opacity(activeCount > 0 ? 0.18 : 0.10), radius: 10, x: 0, y: 4)
                 .overlay(
                     Capsule().stroke(activeCount > 0 ? Color.clear : Color.shopBorder, lineWidth: 1)
                 )
@@ -1396,18 +708,16 @@ struct DealsView: View {
     }
 
     private var emptyStateView: some View {
-        let activeCategory = categories.first(where: { $0.id == selectedCategory })
         if !filters.isDefault {
             return FitMatchEmptyStateView(
                 icon: "line.3.horizontal.decrease.circle",
-                illustrationName: "empty_deals",
-                accentColor: .shopPurple,
+                accentColor: .shopDark,
                 badgeText: "FILTRI ATTIVI",
                 title: "Nessuna offerta con questi filtri",
                 subtitle: "Prova ad allargare il budget, cambiare taglia o rimuovere uno dei filtri selezionati.",
                 primaryTitle: "Rimuovi filtri",
                 primaryIcon: "arrow.counterclockwise",
-                primaryColor: .shopPurple,
+                primaryColor: .shopDark,
                 onPrimaryTap: {
                     applyQuery(category: selectedCategory, filters: DealsFilterOptions())
                 }
@@ -1416,15 +726,14 @@ struct DealsView: View {
             .padding(.vertical, 12)
         }
         return FitMatchEmptyStateView(
-            icon: activeCategory?.icon ?? "tag.slash",
-            illustrationName: "empty_deals",
-            accentColor: activeCategory?.accentColor ?? .shopPurple,
-            badgeText: "STATO CATEGORIA",
-            title: "Nessuno sconto attivo in \(categoryTitle(for: selectedCategory))",
-            subtitle: "Al momento gli store partner non hanno ribassi verificati in questa categoria. Esplora tutte le offerte o torna più tardi per i nuovi drop.",
+            icon: "tag.slash",
+            accentColor: .shopDark,
+            badgeText: "OFFERTE",
+            title: "Nessuno sconto in \(categoryTitle(for: selectedCategory))",
+            subtitle: "Al momento non ci sono ribassi verificati in questa categoria.",
             primaryTitle: "Vedi tutte le offerte",
-            primaryIcon: "sparkles",
-            primaryColor: .shopPurple,
+            primaryIcon: "arrow.uturn.backward",
+            primaryColor: .shopDark,
             onPrimaryTap: {
                 applyQuery(category: "tutti", filters: DealsFilterOptions())
             }
@@ -1480,7 +789,6 @@ struct DealsView: View {
     private func applyQuery(category newCategory: String, filters newFilters: DealsFilterOptions) {
         activeLoadTask?.cancel()
         loadError = nil
-        expandedStoreIds.removeAll()
         topDealsLimit = 40
 
         var normalizedFilters = newFilters
@@ -1626,12 +934,13 @@ struct DealsView: View {
     }
 }
 
-// MARK: - Redesigned Deal Product Grid Card (Data-Rich, Honest Signals, 2-Line Title)
+// MARK: - Minimal Product Grid Card (Cohesive with HomeView & StoreDetailView)
 
 struct ShopDealGridCard: View {
     let product: StoreShowcaseProduct
     let matchedProduct: MatchedProduct
     var showStorePill: Bool = false
+    var imageBackground: Color = .white
     var highlightedSize: String? = nil
 
     @ObservedObject private var wishlist = WishlistManager.shared
@@ -1658,21 +967,23 @@ struct ShopDealGridCard: View {
         return nil
     }
 
-    private var cleanBrandLabel: String {
+    private var eyebrowText: String {
         let b = product.effectiveBrand.trimmingCharacters(in: .whitespacesAndNewlines)
-        return b.isEmpty ? "SPORT" : b.uppercased()
+        let brandPart = b.isEmpty ? "SPORT" : b.uppercased()
+        if showStorePill, let sName = product.store_name, !sName.isEmpty {
+            return "\(brandPart) · \(sName)"
+        }
+        return brandPart
     }
 
     var body: some View {
         NavigationLink(destination: ProductDetailView(product: matchedProduct)) {
-            VStack(alignment: .leading, spacing: 6) {
-                // 1. Image Container with Crisp Compact Badges
+            VStack(alignment: .leading, spacing: 5.5) {
                 ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.white)
+                    RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                        .fill(imageBackground)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 176)
-                        .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
+                        .frame(height: 170)
 
                     if let imgUrl = product.image_url, let url = URL(string: imgUrl), !imgUrl.isEmpty {
                         ShopCachedAsyncImage(url: url, maxPixelSize: 520) { phase in
@@ -1682,89 +993,72 @@ struct ShopDealGridCard: View {
                                     .resizable()
                                     .scaledToFit()
                                     .frame(maxWidth: .infinity)
-                                    .frame(height: 176)
+                                    .frame(height: 170)
                                     .padding(10)
                                     .transition(.opacity)
                             case .failure:
                                 Image(systemName: "photo")
-                                    .font(.system(size: 28))
+                                    .font(.system(size: 26))
                                     .foregroundColor(Color(red: 210/255, green: 210/255, blue: 215/255))
                                     .frame(maxWidth: .infinity)
-                                    .frame(height: 176)
+                                    .frame(height: 170)
                             case .empty:
-                                ShopSkeletonBlock(cornerRadius: 18, height: 176)
+                                ShopSkeletonBlock(cornerRadius: ShopLayout.mediumRadius, height: 170)
                                     .frame(maxWidth: .infinity)
                             @unknown default:
                                 EmptyView()
                             }
                         }
                     } else {
-                        Image(systemName: "tag.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(Color(red: 220/255, green: 220/255, blue: 225/255))
+                        Image(systemName: "tag")
+                            .font(.system(size: 26))
+                            .foregroundColor(Color(red: 215/255, green: 215/255, blue: 222/255))
                             .frame(maxWidth: .infinity)
-                            .frame(height: 176)
+                            .frame(height: 170)
                     }
 
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.black.opacity(0.06), lineWidth: 0.9)
+                    RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                        .stroke(Color.shopBorder, lineWidth: 1)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 176)
+                        .frame(height: 170)
 
-                    // Top Overlays: Compact "-55%" Badge + Optional Verified Trust Pill (Max 1)
-                    HStack(alignment: .top, spacing: 5) {
+                    HStack(alignment: .top, spacing: 4) {
                         if let disc = discountBadgeText {
                             Text(disc)
-                                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                                .font(.system(size: 10.5, weight: .bold, design: .rounded))
                                 .foregroundColor(.white)
-                                .padding(.horizontal, 7.5)
-                                .padding(.vertical, 3.5)
-                                .background(Color(red: 228/255, green: 42/255, blue: 38/255))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Color.shopRed)
                                 .clipShape(Capsule())
                         }
 
                         Spacer(minLength: 2)
 
                         if product.isVerifiedAllTimeLow {
-                            HStack(spacing: 2.5) {
-                                Image(systemName: "arrow.down.right")
-                                    .font(.system(size: 8.5, weight: .black))
-                                Text("Minimo")
-                                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                            }
-                            .foregroundColor(.shopGreen)
-                            .padding(.horizontal, 6.5)
-                            .padding(.vertical, 3.5)
-                            .background(Color.shopGreenLight.opacity(0.96))
-                            .clipShape(Capsule())
-                        } else if product.isVerifiedBestMarketPrice {
-                            HStack(spacing: 2.5) {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 8.5, weight: .bold))
-                                Text("Top")
-                                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                            }
-                            .foregroundColor(.shopPurple)
-                            .padding(.horizontal, 6.5)
-                            .padding(.vertical, 3.5)
-                            .background(Color.shopPurpleLight.opacity(0.96))
-                            .clipShape(Capsule())
+                            Text("Minimo")
+                                .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopGreen)
+                                .padding(.horizontal, 6.5)
+                                .padding(.vertical, 3)
+                                .background(Color.shopGreenLight)
+                                .clipShape(Capsule())
                         }
                     }
-                    .padding(9)
+                    .padding(8)
 
-                    // Bottom Overlays: Multi-Store Count Pill (Left) + Wishlist Heart (Right)
                     VStack {
                         Spacer()
                         HStack(alignment: .bottom) {
                             if let stores = product.multi_store_count, stores > 1 {
                                 Text("\(stores) negozi")
-                                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                                    .foregroundColor(.white)
+                                    .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.shopDark)
                                     .padding(.horizontal, 7)
-                                    .padding(.vertical, 3.5)
-                                    .background(Color.shopDark.opacity(0.76))
+                                    .padding(.vertical, 3)
+                                    .background(Color.white.opacity(0.92))
                                     .clipShape(Capsule())
+                                    .overlay(Capsule().stroke(Color.shopBorder, lineWidth: 0.7))
                             }
 
                             Spacer()
@@ -1778,52 +1072,39 @@ struct ShopDealGridCard: View {
                                 ZStack {
                                     Circle()
                                         .fill(Color.white.opacity(0.94))
-                                        .frame(width: 31, height: 31)
-                                        .shadow(color: Color.black.opacity(0.10), radius: 5, x: 0, y: 2)
+                                        .frame(width: 30, height: 30)
+                                        .overlay(Circle().stroke(Color.shopBorder.opacity(0.8), lineWidth: 0.7))
 
                                     Image(systemName: wishlist.isFavorite(matchedProduct.canonical_name) ? "heart.fill" : "heart")
-                                        .font(.system(size: 13, weight: .bold))
+                                        .font(.system(size: 12.5, weight: .semibold))
                                         .foregroundColor(wishlist.isFavorite(matchedProduct.canonical_name) ? .shopRed : .shopDark)
                                 }
                             }
                             .buttonStyle(.plain)
                         }
-                        .padding(9)
+                        .padding(8)
                     }
-                    .frame(height: 176)
+                    .frame(height: 170)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 176)
+                .frame(height: 170)
 
-                // 2. Eyebrow Row: Brand (+ Store in Cross-Store mode)
-                HStack(spacing: 4) {
-                    Text(cleanBrandLabel)
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundColor(.shopTextMuted)
-                        .tracking(0.4)
-                        .lineLimit(1)
+                Text(eyebrowText)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundColor(.shopTextMuted)
+                    .lineLimit(1)
+                    .padding(.top, 2)
 
-                    if showStorePill, let sName = product.store_name, !sName.isEmpty {
-                        Text("· \(sName)")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.shopPurple)
-                            .lineLimit(1)
-                    }
-                }
-                .padding(.top, 2)
-
-                // 3. Clean 2-Line Product Title
                 Text(product.titleWithoutLeadingBrand)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.shopDark)
                     .lineLimit(2)
-                    .lineSpacing(1.2)
-                    .frame(height: 34, alignment: .topLeading)
+                    .lineSpacing(1.1)
+                    .frame(height: 33, alignment: .topLeading)
 
-                // 4. Price Row
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Text(String(format: "%.2f €", product.current_price).replacingOccurrences(of: ".", with: ","))
-                        .font(.system(size: 15.5, weight: .heavy, design: .rounded))
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundColor(.shopDark)
 
                     if let orig = product.original_price, orig > product.current_price {
@@ -1835,41 +1116,24 @@ struct ShopDealGridCard: View {
                     }
                 }
 
-                // 5. High-Value Decision Row
                 HStack(spacing: 6) {
                     if let matchedSize = matchedPreferredSize {
-                        HStack(spacing: 2.5) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 9, weight: .bold))
-                            Text("Tg. \(matchedSize)")
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                        }
-                        .foregroundColor(.shopPurple)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2.5)
-                        .background(Color.shopPurpleLight)
-                        .clipShape(Capsule())
+                        Text("✓ Tg. \(matchedSize)")
+                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                            .foregroundColor(.shopPurple)
+                            .lineLimit(1)
                     }
 
                     if product.effectiveFreeShipping {
-                        HStack(spacing: 2.5) {
-                            Image(systemName: "box.truck.fill")
-                                .font(.system(size: 8.5))
-                            Text("Gratis")
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        }
-                        .foregroundColor(.shopGreen)
-                        .lineLimit(1)
-                    } else if matchedPreferredSize == nil, let sc = product.size_count, sc >= 3 {
-                        Text("\(sc) taglie disp.")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.shopTextMuted)
+                        Text(matchedPreferredSize == nil ? "Sped. gratis" : "· Gratis")
+                            .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                            .foregroundColor(.shopGreen)
                             .lineLimit(1)
                     }
 
                     Spacer(minLength: 0)
                 }
-                .frame(height: 18)
+                .frame(height: 14)
             }
         }
         .buttonStyle(ShopCardPressStyle())
@@ -1896,7 +1160,7 @@ struct ShopDealGridCard: View {
     }
 }
 
-// MARK: - Complete Deals Filter, Sort & Category Bottom Sheet
+// MARK: - Clean Native Grouped Filter Sheet (Zero Pill Overload)
 
 struct DealsFilterSheetView: View {
     let categories: [DealCategoryFilter]
@@ -1908,35 +1172,22 @@ struct DealsFilterSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draftCategory: String
     @State private var draftFilters: DealsFilterOptions
-    @State private var sizeTab: SizeGroupTab = .shoes
-
-    enum SizeGroupTab: String, CaseIterable {
-        case shoes = "Scarpe"
-        case apparel = "Abbigliamento"
-    }
 
     private let maxPriceChoices: [(label: String, value: Double?)] = [
         ("Qualsiasi", nil),
-        ("≤ 50 €", 50),
-        ("≤ 80 €", 80),
-        ("≤ 100 €", 100),
-        ("≤ 150 €", 150),
-        ("≤ 200 €", 200)
+        ("Fino a 50 €", 50),
+        ("Fino a 80 €", 80),
+        ("Fino a 100 €", 100),
+        ("Fino a 150 €", 150),
+        ("Fino a 200 €", 200)
     ]
 
     private let minDiscountChoices: [(label: String, value: Double?)] = [
         ("Qualsiasi", nil),
-        ("≥ 20%", 20),
-        ("≥ 30%", 30),
-        ("≥ 40%", 40),
-        ("≥ 50%", 50)
-    ]
-
-    private let genderChoices: [(label: String, value: String?)] = [
-        ("Tutti", nil),
-        ("Uomo", "uomo"),
-        ("Donna", "donna"),
-        ("Unisex", "unisex")
+        ("Almeno 20%", 20),
+        ("Almeno 30%", 30),
+        ("Almeno 40%", 40),
+        ("Almeno 50%", 50)
     ]
 
     private static let topBrandsList: [String] = [
@@ -1961,9 +1212,6 @@ struct DealsFilterSheetView: View {
         self.onApply = onApply
         self._draftCategory = State(initialValue: selectedCategory)
         self._draftFilters = State(initialValue: filters)
-        let isApparelSize = filters.size.map { UserPreferencesManager.apparelSizes.contains($0.uppercased()) } ?? false
-        let isApparelCat = ["abbigliamento", "fitness", "nuoto"].contains(selectedCategory)
-        self._sizeTab = State(initialValue: (isApparelSize || (filters.size == nil && isApparelCat)) ? .apparel : .shoes)
     }
 
     private var availableBrands: [String] {
@@ -1984,482 +1232,316 @@ struct DealsFilterSheetView: View {
         draftCategory != "tutti" || !draftFilters.isDefault
     }
 
+    private var selectedCategoryName: String {
+        categories.first(where: { $0.id == draftCategory })?.name ?? "Tutte"
+    }
+
+    private var selectedMaxPriceLabel: String {
+        maxPriceChoices.first(where: { $0.value == draftFilters.maxPrice })?.label ?? "Qualsiasi"
+    }
+
+    private var selectedMinDiscountLabel: String {
+        minDiscountChoices.first(where: { $0.value == draftFilters.minDiscount })?.label ?? "Qualsiasi"
+    }
+
+    private var genderBinding: Binding<String> {
+        Binding(
+            get: {
+                if draftCategory == "uomo" { return "uomo" }
+                if draftCategory == "donna" { return "donna" }
+                return draftFilters.gender ?? "tutti"
+            },
+            set: { newVal in
+                if draftCategory == "uomo" || draftCategory == "donna" {
+                    draftCategory = "tutti"
+                }
+                draftFilters.gender = (newVal == "tutti") ? nil : newVal
+            }
+        )
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 22) {
-                        // 1. Ordinamento
-                        sortSection
+                    VStack(spacing: 16) {
+                        // Group 1: Ordina, Categoria, Brand
+                        groupedCard {
+                            pickerRow(title: "Ordina per", value: draftFilters.sort.title, isHighlighted: draftFilters.sort != .quality) {
+                                ForEach(DealsSortOption.allCases) { option in
+                                    Button(action: { draftFilters.sort = option }) {
+                                        Label(option.title, systemImage: draftFilters.sort == option ? "checkmark" : option.icon)
+                                    }
+                                }
+                            }
 
-                        // 2. Categoria
-                        categorySection
+                            Divider().padding(.leading, 16)
 
-                        // 3. Genere
-                        genderSection
+                            pickerRow(title: "Categoria", value: selectedCategoryName, isHighlighted: draftCategory != "tutti") {
+                                ForEach(categories) { cat in
+                                    Button(action: {
+                                        draftCategory = cat.id
+                                        if cat.id == "uomo" || cat.id == "donna" {
+                                            draftFilters.gender = nil
+                                        }
+                                    }) {
+                                        if draftCategory == cat.id {
+                                            Label(cat.name, systemImage: "checkmark")
+                                        } else {
+                                            Text(cat.name)
+                                        }
+                                    }
+                                }
+                            }
 
-                        // 4. Taglia
-                        sizeSection
+                            Divider().padding(.leading, 16)
 
-                        // 5. Budget massimo
-                        budgetSection
+                            pickerRow(title: "Brand", value: draftFilters.brand ?? "Tutti", isHighlighted: draftFilters.brand != nil) {
+                                Button(action: { draftFilters.brand = nil }) {
+                                    if draftFilters.brand == nil {
+                                        Label("Tutti", systemImage: "checkmark")
+                                    } else {
+                                        Text("Tutti")
+                                    }
+                                }
+                                ForEach(availableBrands, id: \.self) { brandName in
+                                    Button(action: { draftFilters.brand = brandName }) {
+                                        if draftFilters.brand?.caseInsensitiveCompare(brandName) == .orderedSame {
+                                            Label(brandName, systemImage: "checkmark")
+                                        } else {
+                                            Text(brandName)
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
-                        // 6. Sconto minimo
-                        discountSection
+                        // Group 2: Genere & Taglia
+                        groupedCard {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Genere")
+                                    .font(.system(size: 14.5, weight: .semibold))
+                                    .foregroundColor(.shopDark)
 
-                        // 7. Brand
-                        brandSection
+                                Picker("Genere", selection: genderBinding) {
+                                    Text("Tutti").tag("tutti")
+                                    Text("Uomo").tag("uomo")
+                                    Text("Donna").tag("donna")
+                                    Text("Unisex").tag("unisex")
+                                }
+                                .pickerStyle(.segmented)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
 
-                        // 8. Opzioni extra
-                        optionsSection
+                            Divider().padding(.leading, 16)
+
+                            pickerRow(
+                                title: "Taglia",
+                                value: draftFilters.size.map { "Taglia \($0)" } ?? "Tutte",
+                                isHighlighted: draftFilters.size != nil
+                            ) {
+                                Button(action: { draftFilters.size = nil }) {
+                                    if draftFilters.size == nil {
+                                        Label("Tutte", systemImage: "checkmark")
+                                    } else {
+                                        Text("Tutte")
+                                    }
+                                }
+
+                                let shoePref = preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines)
+                                let appPref = preferredApparelSize.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !shoePref.isEmpty || !appPref.isEmpty {
+                                    Section("Le mie taglie") {
+                                        if !shoePref.isEmpty {
+                                            Button(action: { draftFilters.size = shoePref }) {
+                                                Label("Scarpe: \(shoePref)", systemImage: draftFilters.size == shoePref ? "checkmark" : "star")
+                                            }
+                                        }
+                                        if !appPref.isEmpty {
+                                            Button(action: { draftFilters.size = appPref }) {
+                                                Label("Abbigliamento: \(appPref)", systemImage: draftFilters.size == appPref ? "checkmark" : "star")
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Section("Scarpe (EU)") {
+                                    ForEach(UserPreferencesManager.shoeSizes, id: \.self) { sz in
+                                        Button(action: { draftFilters.size = sz }) {
+                                            if draftFilters.size == sz {
+                                                Label(sz, systemImage: "checkmark")
+                                            } else {
+                                                Text(sz)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Section("Abbigliamento") {
+                                    ForEach(UserPreferencesManager.apparelSizes, id: \.self) { sz in
+                                        Button(action: { draftFilters.size = sz }) {
+                                            if draftFilters.size == sz {
+                                                Label(sz, systemImage: "checkmark")
+                                            } else {
+                                                Text(sz)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Group 3: Budget, Sconto & Opzioni
+                        groupedCard {
+                            pickerRow(title: "Prezzo massimo", value: selectedMaxPriceLabel, isHighlighted: draftFilters.maxPrice != nil) {
+                                ForEach(maxPriceChoices, id: \.label) { item in
+                                    Button(action: { draftFilters.maxPrice = item.value }) {
+                                        if draftFilters.maxPrice == item.value {
+                                            Label(item.label, systemImage: "checkmark")
+                                        } else {
+                                            Text(item.label)
+                                        }
+                                    }
+                                }
+                            }
+
+                            Divider().padding(.leading, 16)
+
+                            pickerRow(title: "Sconto minimo", value: selectedMinDiscountLabel, isHighlighted: draftFilters.minDiscount != nil) {
+                                ForEach(minDiscountChoices, id: \.label) { item in
+                                    Button(action: { draftFilters.minDiscount = item.value }) {
+                                        if draftFilters.minDiscount == item.value {
+                                            Label(item.label, systemImage: "checkmark")
+                                        } else {
+                                            Text(item.label)
+                                        }
+                                    }
+                                }
+                            }
+
+                            Divider().padding(.leading, 16)
+
+                            Toggle("Solo spedizione gratuita", isOn: $draftFilters.freeShippingOnly)
+                                .font(.system(size: 14.5, weight: .semibold))
+                                .foregroundColor(.shopDark)
+                                .tint(.shopPurple)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+
+                            Divider().padding(.leading, 16)
+
+                            Toggle("Includi Bambino / Junior", isOn: $draftFilters.includeKids)
+                                .font(.system(size: 14.5, weight: .semibold))
+                                .foregroundColor(.shopDark)
+                                .tint(.shopPurple)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
-                    .padding(.bottom, 28)
+                    .padding(.bottom, 24)
                 }
 
-                // Sticky Bottom Apply Bar
-                stickyFooter
+                // Single Clean Primary CTA
+                VStack(spacing: 0) {
+                    Divider()
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onApply(draftCategory, draftFilters)
+                        dismiss()
+                    }) {
+                        let count = draftFilters.activeFilterCount
+                        Text(count > 0 ? "Applica filtri (\(count))" : "Mostra offerte")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.shopDark)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 16)
+                    .background(Color.white)
+                }
             }
-            .background(Color(red: 248/255, green: 248/255, blue: 250/255))
-            .navigationTitle("Filtra offerte")
+            .background(Color.shopSurface)
+            .navigationTitle("Filtra")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if hasAnyResettableState {
+                        Button("Ripristina") {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            draftCategory = "tutti"
+                            draftFilters = DealsFilterOptions()
+                        }
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(.shopPurple)
+                    }
+                }
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { dismiss() }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 13.5, weight: .bold))
+                            .font(.system(size: 13, weight: .bold))
                             .foregroundColor(.shopDark)
-                            .frame(width: 32, height: 32)
-                            .background(Color(red: 238/255, green: 239/255, blue: 243/255))
+                            .frame(width: 30, height: 30)
+                            .background(Color.shopSurfaceElevated)
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
-        .presentationDetents([.large])
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
 
-    // MARK: - Sheet Sections
-
-    private var sortSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Ordina per", icon: "arrow.up.arrow.down")
-
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                ForEach(DealsSortOption.allCases) { option in
-                    let isSelected = draftFilters.sort == option
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        draftFilters.sort = option
-                    }) {
-                        HStack(spacing: 7) {
-                            Image(systemName: option.icon)
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(isSelected ? .shopPurple : .shopTextMuted)
-                            Text(option.title)
-                                .font(.system(size: 12.5, weight: isSelected ? .bold : .semibold, design: .rounded))
-                                .foregroundColor(isSelected ? .shopPurple : .shopDark)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.85)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 11)
-                        .background(isSelected ? Color.shopPurpleLight : Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: isSelected ? 1.4 : 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+    private func groupedCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            content()
         }
-    }
-
-    private var categorySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Categoria", icon: "square.grid.2x2.fill")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(categories) { cat in
-                        let isSelected = draftCategory == cat.id
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            draftCategory = cat.id
-                            if cat.id == "uomo" || cat.id == "donna" {
-                                draftFilters.gender = nil
-                            }
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: cat.icon)
-                                    .font(.system(size: 11.5, weight: .bold))
-                                    .foregroundColor(isSelected ? .white : cat.accentColor)
-                                Text(cat.name)
-                                    .font(.system(size: 13, weight: isSelected ? .bold : .semibold, design: .rounded))
-                                    .foregroundColor(isSelected ? .white : .shopDark)
-                                    .lineLimit(1)
-                            }
-                            .padding(.horizontal, 13)
-                            .padding(.vertical, 9)
-                            .background(isSelected ? Color.shopDark : Color.white)
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule().stroke(isSelected ? Color.clear : Color.shopBorder, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private var genderSection: some View {
-        let effectiveGender: String? = {
-            if draftCategory == "uomo" { return "uomo" }
-            if draftCategory == "donna" { return "donna" }
-            return draftFilters.gender
-        }()
-
-        return VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Genere", icon: "person.2.fill")
-
-            HStack(spacing: 8) {
-                ForEach(genderChoices, id: \.label) { item in
-                    let isSelected = effectiveGender == item.value
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        if draftCategory == "uomo" || draftCategory == "donna" {
-                            draftCategory = "tutti"
-                        }
-                        draftFilters.gender = item.value
-                    }) {
-                        Text(item.label)
-                            .font(.system(size: 13, weight: isSelected ? .bold : .semibold, design: .rounded))
-                            .foregroundColor(isSelected ? .white : .shopDark)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 9.5)
-                            .background(isSelected ? Color.shopDark : Color.white)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(isSelected ? Color.clear : Color.shopBorder, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private var sizeSection: some View {
-        let sizes = sizeTab == .shoes ? UserPreferencesManager.shoeSizes : UserPreferencesManager.apparelSizes
-        let userPref = (sizeTab == .shoes ? preferredShoeSize : preferredApparelSize).trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                sectionTitle("Taglia disponibile", icon: "ruler")
-                Spacer()
-                HStack(spacing: 2) {
-                    ForEach(SizeGroupTab.allCases, id: \.self) { tab in
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            sizeTab = tab
-                        }) {
-                            Text(tab.rawValue)
-                                .font(.system(size: 11.5, weight: sizeTab == tab ? .bold : .medium, design: .rounded))
-                                .foregroundColor(sizeTab == tab ? .white : .shopTextMuted)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(sizeTab == tab ? Color.shopDark : Color.clear)
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(2.5)
-                .background(Color.white)
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.shopBorder, lineWidth: 1))
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    // "Tutte" pill
-                    let isAll = draftFilters.size == nil
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        draftFilters.size = nil
-                    }) {
-                        Text("Tutte")
-                            .font(.system(size: 12.5, weight: isAll ? .bold : .semibold, design: .rounded))
-                            .foregroundColor(isAll ? .white : .shopDark)
-                            .padding(.horizontal, 13)
-                            .padding(.vertical, 8.5)
-                            .background(isAll ? Color.shopDark : Color.white)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(isAll ? Color.clear : Color.shopBorder, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-
-                    // User's preferred size pinned first if configured
-                    if !userPref.isEmpty {
-                        let isPrefSelected = draftFilters.size?.caseInsensitiveCompare(userPref) == .orderedSame
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            draftFilters.size = isPrefSelected ? nil : userPref
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "star.fill")
-                                    .font(.system(size: 9.5))
-                                Text("Mia: \(userPref)")
-                                    .font(.system(size: 12.5, weight: .bold, design: .rounded))
-                            }
-                            .foregroundColor(isPrefSelected ? .white : .shopPurple)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8.5)
-                            .background(isPrefSelected ? Color.shopPurple : Color.shopPurpleLight)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Color.shopPurple.opacity(0.35), lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    ForEach(sizes, id: \.self) { sz in
-                        let isSelected = draftFilters.size?.caseInsensitiveCompare(sz) == .orderedSame
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            draftFilters.size = isSelected ? nil : sz
-                        }) {
-                            Text(sz)
-                                .font(.system(size: 13, weight: isSelected ? .bold : .semibold, design: .rounded))
-                                .foregroundColor(isSelected ? .white : .shopDark)
-                                .frame(minWidth: 42)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8.5)
-                                .background(isSelected ? Color.shopPurple : Color.white)
-                                .clipShape(Capsule())
-                                .overlay(Capsule().stroke(isSelected ? Color.clear : Color.shopBorder, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private var budgetSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Budget massimo", icon: "eurosign.circle.fill")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(maxPriceChoices, id: \.label) { item in
-                        let isSelected = draftFilters.maxPrice == item.value
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            draftFilters.maxPrice = item.value
-                        }) {
-                            Text(item.label)
-                                .font(.system(size: 13, weight: isSelected ? .bold : .semibold, design: .rounded))
-                                .foregroundColor(isSelected ? .white : .shopDark)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                                .background(isSelected ? Color.shopDark : Color.white)
-                                .clipShape(Capsule())
-                                .overlay(Capsule().stroke(isSelected ? Color.clear : Color.shopBorder, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private var discountSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Sconto minimo", icon: "percent")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(minDiscountChoices, id: \.label) { item in
-                        let isSelected = draftFilters.minDiscount == item.value
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            draftFilters.minDiscount = item.value
-                        }) {
-                            Text(item.label)
-                                .font(.system(size: 13, weight: isSelected ? .bold : .semibold, design: .rounded))
-                                .foregroundColor(isSelected ? .white : .shopDark)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                                .background(isSelected ? Color.shopRed : Color.white)
-                                .clipShape(Capsule())
-                                .overlay(Capsule().stroke(isSelected ? Color.clear : Color.shopBorder, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private var brandSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Brand", icon: "tag.fill")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    let isAll = draftFilters.brand == nil
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        draftFilters.brand = nil
-                    }) {
-                        Text("Tutti")
-                            .font(.system(size: 13, weight: isAll ? .bold : .semibold, design: .rounded))
-                            .foregroundColor(isAll ? .white : .shopDark)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .background(isAll ? Color.shopDark : Color.white)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(isAll ? Color.clear : Color.shopBorder, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-
-                    ForEach(availableBrands, id: \.self) { brandName in
-                        let isSelected = draftFilters.brand?.caseInsensitiveCompare(brandName) == .orderedSame
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            draftFilters.brand = isSelected ? nil : brandName
-                        }) {
-                            Text(brandName)
-                                .font(.system(size: 13, weight: isSelected ? .bold : .semibold, design: .rounded))
-                                .foregroundColor(isSelected ? .white : .shopDark)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                                .background(isSelected ? Color.shopPurple : Color.white)
-                                .clipShape(Capsule())
-                                .overlay(Capsule().stroke(isSelected ? Color.clear : Color.shopBorder, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private var optionsSection: some View {
-        VStack(spacing: 10) {
-            Toggle(isOn: $draftFilters.freeShippingOnly) {
-                HStack(spacing: 10) {
-                    Image(systemName: "box.truck.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.shopGreen)
-                        .frame(width: 28, height: 28)
-                        .background(Color.shopGreenLight)
-                        .clipShape(Circle())
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Solo spedizione gratuita")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.shopDark)
-                        Text("Mostra solo articoli con consegna a 0 €")
-                            .font(.system(size: 11.5))
-                            .foregroundColor(.shopTextMuted)
-                    }
-                }
-            }
-            .tint(.shopGreen)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color.shopBorder, lineWidth: 1))
-
-            Toggle(isOn: $draftFilters.includeKids) {
-                HStack(spacing: 10) {
-                    Image(systemName: "figure.2.and.child.holdinghands")
-                        .font(.system(size: 14))
-                        .foregroundColor(.shopPurple)
-                        .frame(width: 28, height: 28)
-                        .background(Color.shopPurpleLight)
-                        .clipShape(Circle())
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Includi articoli Bambino / Junior")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.shopDark)
-                        Text("Di default mostriamo solo taglie adulto")
-                            .font(.system(size: 11.5))
-                            .foregroundColor(.shopTextMuted)
-                    }
-                }
-            }
-            .tint(.shopPurple)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color.shopBorder, lineWidth: 1))
-        }
-    }
-
-    private var stickyFooter: some View {
-        HStack(spacing: 12) {
-            Button(action: {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                draftCategory = "tutti"
-                draftFilters = DealsFilterOptions()
-            }) {
-                Text("Ripristina")
-                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
-                    .foregroundColor(hasAnyResettableState ? .shopDark : .shopTextMuted)
-                    .frame(height: 50)
-                    .padding(.horizontal, 20)
-                    .background(Color.white)
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Color.shopBorder, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            .disabled(!hasAnyResettableState)
-
-            Button(action: {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                onApply(draftCategory, draftFilters)
-                dismiss()
-            }) {
-                let count = draftFilters.activeFilterCount
-                Text(count > 0 ? "Applica filtri (\(count))" : "Applica")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(Color.shopDark)
-                    .clipShape(Capsule())
-                    .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 3)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 16)
         .background(Color.white)
-        .overlay(alignment: .top) {
-            Divider()
-        }
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.shopBorder, lineWidth: 1)
+        )
     }
 
-    private func sectionTitle(_ title: String, icon: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(.shopPurple)
-            Text(title)
-                .font(.system(size: 14.5, weight: .bold, design: .rounded))
-                .foregroundColor(.shopDark)
+    private func pickerRow<MenuContent: View>(
+        title: String,
+        value: String,
+        isHighlighted: Bool,
+        @ViewBuilder menu: () -> MenuContent
+    ) -> some View {
+        Menu {
+            menu()
+        } label: {
+            HStack(spacing: 10) {
+                Text(title)
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundColor(.shopDark)
+
+                Spacer()
+
+                HStack(spacing: 5) {
+                    Text(value)
+                        .font(.system(size: 14, weight: isHighlighted ? .semibold : .regular))
+                        .foregroundColor(isHighlighted ? .shopPurple : .shopTextMuted)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.shopTextMuted)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
         }
     }
 }

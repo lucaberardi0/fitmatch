@@ -2375,6 +2375,26 @@ class Database:
             }
         )
 
+        def _derive_subtitle(sess_title: str) -> Optional[str]:
+            q_clean = query.strip()
+            if is_follow_up and q_clean and q_clean.lower() != (sess_title or "").lower():
+                return q_clean[:100]
+            if results:
+                prices = [
+                    float(r["best_price"])
+                    for r in results
+                    if isinstance(r, dict) and r.get("best_price") and float(r["best_price"]) > 0
+                ]
+                count_label = "1 prodotto" if len(results) == 1 else f"{len(results)} prodotti"
+                if prices:
+                    min_p = f"{min(prices):.2f}".replace(".", ",")
+                    return f"{count_label} · da {min_p} €"
+                return count_label
+            raw_header = str(response_payload.get("conversational_header") or "").strip()
+            if raw_header and raw_header.lower() not in {"ho cercato prodotti", "ho cercato", "ricerca prodotti", "ricerca"} and raw_header.lower() != (sess_title or "").lower():
+                return raw_header
+            return None
+
         with self.get_connection() as conn:
             row = conn.execute(
                 "SELECT title, turn_count, context_state, preview_image_url FROM chat_sessions WHERE id = ?",
@@ -2383,6 +2403,7 @@ class Database:
             if row:
                 turn_idx = int(row["turn_count"] or 0)
                 title = row["title"]
+                session_subtitle = _derive_subtitle(title)
                 try:
                     merged_ctx = json.loads(row["context_state"] or "{}")
                 except Exception:
@@ -2399,7 +2420,7 @@ class Database:
                     WHERE id = ?
                     """,
                     (
-                        response_payload.get("conversational_header") or query.strip(),
+                        session_subtitle,
                         eff_preview,
                         turn_idx + 1,
                         json.dumps(merged_ctx),
@@ -2410,6 +2431,7 @@ class Database:
             else:
                 turn_idx = 0
                 title = query.strip()
+                session_subtitle = _derive_subtitle(title)
                 merged_ctx = {k: v for k, v in (context_state or {}).items() if v is not None}
                 conn.execute(
                     """
@@ -2423,7 +2445,7 @@ class Database:
                         user_id,
                         chat_type or "smart_search",
                         title,
-                        response_payload.get("conversational_header") or query.strip(),
+                        session_subtitle,
                         preview_img,
                         1,
                         json.dumps(merged_ctx),
@@ -2473,7 +2495,7 @@ class Database:
                 "user_id": user_id,
                 "chat_type": chat_type or "smart_search",
                 "title": title,
-                "subtitle": response_payload.get("conversational_header") or query.strip(),
+                "subtitle": session_subtitle,
                 "preview_image_url": preview_img,
                 "turn_count": turn_idx + 1,
                 "context_state": merged_ctx,

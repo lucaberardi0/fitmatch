@@ -3022,7 +3022,28 @@ class SupabaseClient:
 
         next_turn_index = int(existing.get("turn_count", 0)) if existing else 0
         title = existing.get("title") if existing else query.strip()
-        subtitle = response_payload.get("conversational_header") or query.strip()
+
+        def _build_session_subtitle() -> Optional[str]:
+            q_clean = query.strip()
+            if is_follow_up and q_clean and q_clean.lower() != (title or "").lower():
+                return q_clean[:100]
+            if results:
+                prices = [
+                    float(r["best_price"])
+                    for r in results
+                    if isinstance(r, dict) and r.get("best_price") and float(r["best_price"]) > 0
+                ]
+                count_label = "1 prodotto" if len(results) == 1 else f"{len(results)} prodotti"
+                if prices:
+                    min_p = f"{min(prices):.2f}".replace(".", ",")
+                    return f"{count_label} · da {min_p} €"
+                return count_label
+            raw_header = str(response_payload.get("conversational_header") or "").strip()
+            if raw_header and raw_header.lower() not in {"ho cercato prodotti", "ho cercato", "ricerca prodotti", "ricerca"} and raw_header.lower() != (title or "").lower():
+                return raw_header
+            return None
+
+        subtitle = _build_session_subtitle()
 
         merged_ctx = dict(existing.get("context_state") or {}) if existing else {}
         if context_state:

@@ -3029,13 +3029,38 @@ export async function saveChatTurn(
     const results = opts.payload.results ?? [];
     const previewUrl = results[0]?.image_url ?? opts.userImageUrl ?? existing?.preview_image_url ?? null;
 
+    const resolvedTitle = existing?.title ?? opts.query.slice(0, 100);
+    const buildSessionSubtitle = (): string | null => {
+      const trimmedQ = opts.query.trim();
+      if (opts.isFollowUp && trimmedQ && trimmedQ.toLowerCase() !== resolvedTitle.toLowerCase()) {
+        return trimmedQ.slice(0, 100);
+      }
+      if (results.length > 0) {
+        const prices = results
+          .map((r: any) => Number(r?.best_price))
+          .filter((p: number) => Number.isFinite(p) && p > 0);
+        const countLabel = results.length === 1 ? "1 prodotto" : `${results.length} prodotti`;
+        if (prices.length > 0) {
+          const minPrice = Math.min(...prices).toFixed(2).replace(".", ",");
+          return `${countLabel} · da ${minPrice} €`;
+        }
+        return countLabel;
+      }
+      const rawHeader = (opts.payload.conversational_header ?? "").trim();
+      const genericHeaders = new Set(["ho cercato prodotti", "ho cercato", "ricerca prodotti", "ricerca"]);
+      if (rawHeader && !genericHeaders.has(rawHeader.toLowerCase()) && rawHeader.toLowerCase() !== resolvedTitle.toLowerCase()) {
+        return rawHeader;
+      }
+      return null;
+    };
+
     await supabase.from("chat_sessions").upsert({
       id: sid,
       device_id: did,
       user_id: uid ?? existing?.user_id ?? null,
       chat_type: opts.chatType,
-      title: existing?.title ?? opts.query.slice(0, 100),
-      subtitle: opts.payload.conversational_header ?? opts.query,
+      title: resolvedTitle,
+      subtitle: buildSessionSubtitle(),
       preview_image_url: previewUrl,
       turn_count: turnIdx + 1,
       context_state: opts.contextState ?? {},

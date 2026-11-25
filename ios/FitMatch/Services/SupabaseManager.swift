@@ -2978,13 +2978,40 @@ class SupabaseManager: ObservableObject {
             features: response.intent?.features ?? prevCtx?.features
         )
 
+        let resolvedTitle = existing?.title ?? query
+        let resolvedSubtitle: String? = {
+            let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            if isFollowUp, !trimmedQuery.isEmpty,
+               trimmedQuery.caseInsensitiveCompare(resolvedTitle) != .orderedSame {
+                return trimmedQuery
+            }
+            let totalProds = response.results.count
+            if totalProds > 0 {
+                let minPrice = response.results.compactMap { $0.best_price }.filter { $0 > 0 }.min()
+                let countLabel = totalProds == 1 ? "1 prodotto" : "\(totalProds) prodotti"
+                if let minP = minPrice {
+                    let priceStr = String(format: "%.2f €", minP).replacingOccurrences(of: ".", with: ",")
+                    return "\(countLabel) · da \(priceStr)"
+                }
+                return countLabel
+            }
+            let rawHeader = (response.conversational_header ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let genericHeaders: Set<String> = ["ho cercato prodotti", "ho cercato", "ricerca prodotti", "ricerca"]
+            if !rawHeader.isEmpty,
+               !genericHeaders.contains(rawHeader.lowercased()),
+               rawHeader.caseInsensitiveCompare(resolvedTitle) != .orderedSame {
+                return rawHeader
+            }
+            return nil
+        }()
+
         let sessionPayload = SessionUpsertPayload(
             id: sid,
             device_id: deviceId,
             user_id: validCurrentUserId ?? existing?.user_id,
             chat_type: "smart_search",
-            title: existing?.title ?? query,
-            subtitle: response.conversational_header ?? query,
+            title: resolvedTitle,
+            subtitle: resolvedSubtitle,
             preview_image_url: previewUrl,
             turn_count: turnIdx + 1,
             context_state: ctx,
