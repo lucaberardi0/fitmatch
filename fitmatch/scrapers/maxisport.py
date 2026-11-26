@@ -100,17 +100,20 @@ class MaxiSportScraper(BaseScraper):
         if not candidates:
             return []
 
-        def _get_sizes(cand: Dict[str, Any]) -> List[str]:
+        def _get_details(cand: Dict[str, Any]) -> Dict[str, Any]:
             try:
-                return self.fetch_sizes(cand["product_url"], title=cand["title"])
+                return self.fetch_pdp_details(cand["product_url"], title=cand["title"])
             except Exception:
-                return []
+                return {"sizes": [], "gallery_images": [], "in_stock": None}
 
         with ThreadPoolExecutor(max_workers=min(len(candidates), 6)) as ex:
-            sizes_results = list(ex.map(_get_sizes, candidates))
+            details_results = list(ex.map(_get_details, candidates))
 
         offers: List[Offer] = []
-        for cand, sizes in zip(candidates, sizes_results):
+        for cand, det in zip(candidates, details_results):
+            gallery = det.get("gallery_images") or ([cand["img_url"]] if cand["img_url"] else [])
+            if cand["img_url"] and cand["img_url"] not in gallery:
+                gallery.insert(0, cand["img_url"])
             offers.append(
                 Offer(
                     store_id=self.store_id,
@@ -121,9 +124,10 @@ class MaxiSportScraper(BaseScraper):
                     price=cand["price"],
                     original_price=cand["orig_price"],
                     url=cand["product_url"],
-                    image_url=cand["img_url"],
-                    available_sizes=sizes,
-                    in_stock=True
+                    image_url=cand["img_url"] or (gallery[0] if gallery else None),
+                    gallery_images=gallery[:8],
+                    available_sizes=det.get("sizes") or [],
+                    in_stock=True if det.get("in_stock") is None else bool(det["in_stock"]),
                 )
             )
 
@@ -168,32 +172,74 @@ class MaxiSportScraper(BaseScraper):
 
         return None
 
-    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
-        """Extract available sizes from Maxi Sport jsonConfig using gender/category context."""
+    @classmethod
+    def _extract_fotorama_gallery(cls, html: str, soup: BeautifulSoup) -> List[str]:
+        """Extract Magento 2 Fotorama full-res product angle photos."""
+        import json, re
+
+        raw_imgs: List[str] = []
+        m = re.search(r'"data"\s*:\s*(\[\s*\{\s*"thumb".*?\}\s*\])', html, re.S)
+        if m:
+            try:
+                items = json.loads(m.group(1))
+                if isinstance(items, list):
+                    for entry in items:
+                        if isinstance(entry, dict):
+                            u = entry.get("full") or entry.get("img") or entry.get("thumb")
+                            if u:
+                                raw_imgs.append(str(u))
+            except Exception:
+                pass
+        if not raw_imgs:
+            raw_imgs = cls.extract_jsonld_images(soup, base_url=cls.base_url, limit=8)
+        return cls.normalize_gallery_urls(raw_imgs, base_url=cls.base_url, limit=8)
+
+    def fetch_pdp_details(self, product_url: str, title: Optional[str] = None) -> Dict[str, Any]:
+        """Extract available sizes and Magento Fotorama gallery from Maxi Sport PDP."""
         html = self._fetch_html(product_url)
         if not html:
-            return []
+            return {"sizes": [], "gallery_images": [], "in_stock": None}
         import json, re
+
         soup = BeautifulSoup(html, "html.parser")
+        gallery = self._extract_fotorama_gallery(html, soup)
+        sizes: List[str] = []
+        in_stock: Optional[bool] = None
+
         for s in soup.find_all("script"):
-            if s.string and "data-role=swatch-options" in s.string:
-                m = re.search(r"\"jsonConfig\":\s*(\{.*?\})\s*,\s*\"jsonSwatchConfig\"", s.string)
-                if m:
-                    try:
-                        cfg = json.loads(m.group(1))
-                        allowed_pids = self._resolve_color_product_ids(cfg, product_url)
-                        for attr_id, attr_data in cfg.get("attributes", {}).items():
-                            label = attr_data.get("label", "").lower()
-                            if "taglia" in label or "size" in label:
-                                raw_sizes = []
-                                for opt in attr_data.get("options", []):
-                                    opt_pids = {str(pid) for pid in (opt.get("products") or [])}
-                                    if not opt_pids:
-                                        continue
-                                    if allowed_pids is not None and not (opt_pids & allowed_pids):
-                                        continue
-                                    raw_sizes.append(opt["label"].strip().replace(",", "."))
-                                return self.normalize_sizes_for_product(raw_sizes, title=title, url=product_url, soup=soup)
-                    except Exception:
-                        pass
-        return []
+            txt = s.string or ""
+            if "jsonConfig" not in txt and "spConfig" not in txt:
+                continue
+            m = re.search(r'"(?:jsonConfig|spConfig)"\s*:\s*(\{.*?\})\s*,\s*"(?:jsonSwatchConfig|gallerySwitchStrategy|mediaCallback)"', txt, re.S)
+            if not m:
+                continue
+            try:
+                cfg = json.loads(m.group(1))
+                allowed_pids = self._resolve_color_product_ids(cfg, product_url)
+                for _, attr_data in (cfg.get("attributes") or {}).items():
+                    label = str(attr_data.get("label", "")).lower()
+                    code = str(attr_data.get("code", "")).lower()
+                    if any(k in label or k in code for k in ("tagli", "size", "misur")):
+                        raw_sizes = []
+                        total_opts = 0
+                        for opt in attr_data.get("options", []):
+                            total_opts += 1
+                            opt_pids = {str(pid) for pid in (opt.get("products") or [])}
+                            if not opt_pids:
+                                continue
+                            if allowed_pids is not None and not (opt_pids & allowed_pids):
+                                continue
+                            raw_sizes.append(str(opt["label"]).strip().replace(",", "."))
+                        sizes = self.normalize_sizes_for_product(raw_sizes, title=title, url=product_url, soup=soup)
+                        if total_opts >= 2:
+                            in_stock = len(raw_sizes) > 0
+                        break
+                if sizes or in_stock is not None:
+                    break
+            except Exception:
+                pass
+        return {"sizes": sizes, "gallery_images": gallery, "in_stock": in_stock}
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Extract available sizes from Maxi Sport jsonConfig using gender/category context."""
+        return self.fetch_pdp_details(product_url, title=title).get("sizes", [])

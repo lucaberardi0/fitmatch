@@ -194,6 +194,31 @@ def normalize_sizes(
                 eu_sizes.add(f"{mval:.1f}" if mval % 1 != 0 else f"{int(mval)}")
                 continue
 
+        # Check leading apparel size BEFORE RE_INVALID_SIZE so strings like
+        # 'S (8 anni - 128/135 cm)', 'M (IT 44-46)', 'L (56-62 cm)', 'XXL - (58/60 IT)' are preserved!
+        cloth_m = re.match(r"^([2345]XL|[XSLM]+)(?:\s*[-/(].*)?$", s_str, re.IGNORECASE)
+        if cloth_m and cloth_m.group(1).upper() in CLOTHING_ORDER:
+            clothing_sizes.append(cloth_m.group(1).upper())
+            continue
+
+        # Junior age apparel sizes in Italian retailer formats (e.g. '10A', '12A', '14A', 'ANNI 7A/8A', 'ANNI 11/12A')
+        jr_range_m = re.match(
+            r"(?i)^(?:anni\s+)(\d{1,2})\s*a?\s*[-/]\s*(\d{1,2})\s*a?$",
+            s_str,
+        )
+        if jr_range_m:
+            a1, a2 = int(jr_range_m.group(1)), int(jr_range_m.group(2))
+            if 1 <= a1 < a2 <= 18:
+                clothing_sizes.append(f"{a1}-{a2}A")
+                continue
+
+        jr_single_m = re.match(r"(?i)^(\d{1,2})a$", s_str)
+        if jr_single_m:
+            age = int(jr_single_m.group(1))
+            if 2 <= age <= 18:
+                clothing_sizes.append(f"{age}A")
+                continue
+
         # Check invalid keywords / placeholders / dimension parts
         if RE_INVALID_SIZE.search(s_str):
             continue

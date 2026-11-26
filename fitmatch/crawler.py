@@ -268,7 +268,10 @@ class CategoryCrawler:
 
                         pid_el = tile.select_one("[data-itemid]")
                         pid = pid_el["data-itemid"] if pid_el and pid_el.get("data-itemid") else None
-                        sizes = self.cisalfa.fetch_sizes(product_url, title=title)
+                        pdp = self.cisalfa.fetch_pdp_details(product_url, title=title)
+                        gallery = pdp.get("gallery_images") or ([img_url] if img_url else [])
+                        if img_url and img_url not in gallery:
+                            gallery.insert(0, img_url)
 
                         offer = Offer(
                             store_id=self.cisalfa.store_id,
@@ -279,9 +282,10 @@ class CategoryCrawler:
                             price=price,
                             original_price=orig_price,
                             url=product_url,
-                            image_url=img_url,
-                            available_sizes=sizes,
-                            in_stock=True
+                            image_url=img_url or (gallery[0] if gallery else None),
+                            gallery_images=gallery[:8],
+                            available_sizes=pdp.get("sizes") or [],
+                            in_stock=True if pdp.get("in_stock") is None else bool(pdp["in_stock"]),
                         )
 
                         cluster_key = self.normalizer.extract_cluster_key(offer)
@@ -385,7 +389,10 @@ class CategoryCrawler:
 
                         pid_el = item.select_one("[data-product-id]")
                         pid = pid_el["data-product-id"] if pid_el and pid_el.get("data-product-id") else None
-                        sizes = self.maxisport.fetch_sizes(product_url, title=title)
+                        pdp = self.maxisport.fetch_pdp_details(product_url, title=title)
+                        gallery = pdp.get("gallery_images") or ([img_url] if img_url else [])
+                        if img_url and img_url not in gallery:
+                            gallery.insert(0, img_url)
 
                         offer = Offer(
                             store_id=self.maxisport.store_id,
@@ -396,9 +403,10 @@ class CategoryCrawler:
                             price=price,
                             original_price=orig_price,
                             url=product_url,
-                            image_url=img_url,
-                            available_sizes=sizes,
-                            in_stock=True
+                            image_url=img_url or (gallery[0] if gallery else None),
+                            gallery_images=gallery[:8],
+                            available_sizes=pdp.get("sizes") or [],
+                            in_stock=True if pdp.get("in_stock") is None else bool(pdp["in_stock"]),
                         )
 
                         cluster_key = self.normalizer.extract_cluster_key(offer)
@@ -620,7 +628,10 @@ class CategoryCrawler:
                         if link_el.has_attr("data-gtmid"):
                             pid = str(link_el["data-gtmid"])
                         time.sleep(0.12)
-                        sizes = self.nencini.fetch_sizes(product_url, title=title)
+                        pdp = self.nencini.fetch_pdp_details(product_url, title=title)
+                        gallery = pdp.get("gallery_images") or ([img_url] if img_url else [])
+                        if img_url and img_url not in gallery:
+                            gallery.insert(0, img_url)
 
                         offer = Offer(
                             store_id=self.nencini.store_id,
@@ -631,9 +642,10 @@ class CategoryCrawler:
                             price=price,
                             original_price=orig_price,
                             url=product_url,
-                            image_url=img_url,
-                            available_sizes=sizes,
-                            in_stock=True
+                            image_url=img_url or (gallery[0] if gallery else None),
+                            gallery_images=gallery[:8],
+                            available_sizes=pdp.get("sizes") or [],
+                            in_stock=True if pdp.get("in_stock") is None else bool(pdp["in_stock"]),
                         )
 
                         cluster_key = self.normalizer.extract_cluster_key(offer)
@@ -1112,7 +1124,10 @@ class CategoryCrawler:
                     img_url = d.get("image_url")
                     pid = str(d.get("id") or item.get("variation_id") or "")
                     time.sleep(0.12)
-                    sizes = self.alltricks.fetch_sizes(raw_url, title=full_title)
+                    pdp = self.alltricks.fetch_pdp_details(raw_url, title=full_title)
+                    gallery = pdp.get("gallery_images") or ([img_url] if img_url else [])
+                    if img_url and img_url not in gallery:
+                        gallery.insert(0, img_url)
 
                     offer = Offer(
                         store_id=self.alltricks.store_id,
@@ -1123,9 +1138,10 @@ class CategoryCrawler:
                         price=price,
                         original_price=orig_price,
                         url=raw_url,
-                        image_url=img_url,
-                        available_sizes=sizes,
-                        in_stock=True
+                        image_url=img_url or (gallery[0] if gallery else None),
+                        gallery_images=gallery[:8],
+                        available_sizes=pdp.get("sizes") or [],
+                        in_stock=True if pdp.get("in_stock") is None else bool(pdp["in_stock"]),
                     )
 
                     cluster_key = self.normalizer.extract_cluster_key(offer)
@@ -1533,11 +1549,8 @@ class CategoryCrawler:
                             continue
                         url = urllib.parse.urljoin(self.adidas.base_url, link)
 
-                        img_obj = p.get("image")
-                        img_url = img_obj.get("src") if isinstance(img_obj, dict) else (img_obj if isinstance(img_obj, str) else None)
-                        if not img_url:
-                            sec_img = p.get("secondImage")
-                            img_url = sec_img.get("src") if isinstance(sec_img, dict) else sec_img
+                        gallery = self.adidas.extract_gallery_from_item(p, limit=8)
+                        img_url = gallery[0] if gallery else None
 
                         pid = str(p.get("productId") or p.get("modelId") or "")
                         raw_sizes = p.get("availableSizes", [])
@@ -1558,6 +1571,7 @@ class CategoryCrawler:
                             original_price=orig_price,
                             url=url,
                             image_url=img_url,
+                            gallery_images=gallery,
                             available_sizes=sizes,
                             in_stock=in_stock
                         )

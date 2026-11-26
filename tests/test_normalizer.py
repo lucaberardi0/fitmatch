@@ -433,6 +433,93 @@ def test_deals_audit_taxonomy_false_positive_regressions(normalizer):
     assert crawler._detect_category("Asics Gel-Challenger 14 Scarpa per terra rossa Donna") == "tennis"
 
 
+def test_overmerged_clusters_and_variant_isolation(normalizer):
+    """Prevent multi-generation shoes, GTX/TR/Wide variants, kids GS, and collection apparel from colliding."""
+    # 1. Multi-number model families (GT-2000 14 vs 15, TR vs GTX, 880 v13 vs v15)
+    gt_offers = [
+        Offer(store_id="s1", store_name="S1", title="ASICS GT 2000 14 Men's Shoes Black/White", price=130.0, url="http://1"),
+        Offer(store_id="s2", store_name="S2", title="Asics Gt-2000 15 - Black/energy Aqua", price=145.0, url="http://2"),
+        Offer(store_id="s3", store_name="S3", title="Asics Gt 2000 14 Tr - Aurora Green/cacti", price=135.0, url="http://3"),
+        Offer(store_id="s4", store_name="S4", title="ASICS GT 2000 14 GTX Men's Shoes Black/Vanilla", price=155.0, url="http://4"),
+    ]
+    assert len(normalizer.group_offers(gt_offers)) == 4
+
+    nb_offers = [
+        Offer(store_id="s1", store_name="S1", title="New Balance Fresh Foam X 880 v13 Running Shoes Blue", price=110.0, url="http://1"),
+        Offer(store_id="s2", store_name="S2", title="New Balance Fresh Foam X 880v15", price=150.0, url="http://2"),
+        Offer(store_id="s3", store_name="S3", title="NEW BALANCE 880 V15", price=145.0, url="http://3"),
+    ]
+    nb_groups = normalizer.group_offers(nb_offers)
+    assert len(nb_groups) == 2  # v13 isolated; 880v15 & 880 V15 unified
+
+    # 2. GTX / Waterproof & Wide variants stay separate from standard models
+    peg_offers = [
+        Offer(store_id="s1", store_name="S1", title="Nike Pegasus 42 - Black/anthracite", price=120.0, url="http://1"),
+        Offer(store_id="s2", store_name="S2", title="Nike Pegasus 42 Gore-Tex Impermeabile", price=155.0, url="http://2"),
+        Offer(store_id="s3", store_name="S3", title="Nike Pegasus 42 Wide - Black", price=125.0, url="http://3"),
+    ]
+    assert len(normalizer.group_offers(peg_offers)) == 3
+
+    # 3. Kids / GS / Bambina / Children shoes never cluster with Adult shoes
+    kids_offers = [
+        Offer(store_id="s1", store_name="S1", title="Asics Novablast 6 - Black/khaki", price=140.0, url="http://1"),
+        Offer(store_id="s2", store_name="S2", title="Asics Scarpe da running Novablast 6 GS", price=80.0, url="http://2"),
+        Offer(store_id="s3", store_name="S3", title="ASICS Scarpe bambina Gel Noosa Tri 16 GS", price=75.0, url="http://3"),
+        Offer(store_id="s4", store_name="S4", title="ASICS Noosa Tri 16 Men's Shoes", price=130.0, url="http://4"),
+    ]
+    assert normalizer.extract_gender("Asics Scarpe da running Novablast 6 GS") == "Junior"
+    assert normalizer.extract_gender("ASICS Scarpe bambina Gel Noosa Tri 16 GS") == "Junior"
+    assert normalizer.extract_gender("Atomic Redster GS Sci Gigante") != "Junior"
+    assert len(normalizer.group_offers(kids_offers)) == 4
+
+    # 4. Multi-dash brand prefix titles ('SCOTT Scarpe - Trail - Uomo - Supertrac 3 - Arancione') never fall into 'general'
+    scott_offers = [
+        Offer(store_id="decathlon", store_name="Decathlon", title="SCOTT Scarpe - Trail - Uomo - Supertrac 3 - Arancione", price=129.0, url="http://1"),
+        Offer(store_id="decathlon", store_name="Decathlon", title="SCOTT Scarpe - Running - Uomo - Pursuit Ride 2 M - Giallo", price=119.0, url="http://2"),
+    ]
+    k_st = normalizer.extract_cluster_key(scott_offers[0])
+    k_pr = normalizer.extract_cluster_key(scott_offers[1])
+    assert "supertrac 3" in k_st and "general" not in k_st
+    assert "pursuit ride 2" in k_pr and "general" not in k_pr
+    assert len(normalizer.group_offers(scott_offers)) == 2
+
+    # 5. Collection-only Top4Running titles split cleanly by URL garment subtype & gender
+    berlin_offers = [
+        Offer(store_id="top4running", store_name="Top4Running", title="adidas BMW Berlin Marathon 2026", price=16.0, url="https://top4running.it/p/adidas-ber26-ru-sock-kx2166"),
+        Offer(store_id="top4running", store_name="Top4Running", title="adidas BMW Berlin Marathon 2026", price=21.0, url="https://top4running.it/p/adidas-ber26-aop-tank-kg8253"),
+        Offer(store_id="top4running", store_name="Top4Running", title="adidas BMW Berlin Marathon 2026", price=21.3, url="https://top4running.it/p/adidas-bmw-berlin-marathon-2026-t-shirt-women-hz9489"),
+        Offer(store_id="top4running", store_name="Top4Running", title="adidas BMW Berlin Marathon 2026", price=26.0, url="https://top4running.it/p/adidas-bmw-berlin-marathon-2026-running-cap-hz9531"),
+        Offer(store_id="top4running", store_name="Top4Running", title="adidas BMW Berlin Marathon 2026", price=33.0, url="https://top4running.it/p/adidas-ber26-ls-tee-m-kx2155"),
+        Offer(store_id="top4running", store_name="Top4Running", title="adidas BMW Berlin Marathon 2026", price=45.0, url="https://top4running.it/p/adidas-ber26-lg-tightm-kg8214"),
+    ]
+    assert len(normalizer.group_offers(berlin_offers)) == 6
+
+    swift_offers = [
+        Offer(store_id="top4running", store_name="Top4Running", title="Nike Swift", price=55.0, url="https://top4running.it/p/nike-dri-fit-swift-halfzip-sweatshirt-women-hq0499-570"),
+        Offer(store_id="top4running", store_name="Top4Running", title="Nike Swift", price=60.0, url="https://top4running.it/p/nike-swift-high-waisted-running-leggings-women-ih8138-630"),
+        Offer(store_id="top4running", store_name="Top4Running", title="Nike Swift", price=85.0, url="https://top4running.it/p/nike-swift-repel-packable-running-jacket-women-hq0650-006"),
+    ]
+    assert len(normalizer.group_offers(swift_offers)) == 3
+
+    # 6. Football boots separate by tier & soleplate (Club TF vs Elite FG)
+    f50_offers = [
+        Offer(store_id="s1", store_name="S1", title="ADIDAS F50 HYPERFAST CLUB TF", price=59.0, url="http://1"),
+        Offer(store_id="s2", store_name="S2", title="ADIDAS F50 HYPERFAST ELITE FG", price=249.0, url="http://2"),
+        Offer(store_id="s3", store_name="S3", title="ADIDAS F50 HYPERFAST LEAGUE SG", price=99.0, url="http://3"),
+    ]
+    assert len(normalizer.group_offers(f50_offers)) == 3
+
+    # 7. Tech-fabric-only titles preserve their product line instead of collapsing to 'general'
+    ua_offers = [
+        Offer(store_id="s1", store_name="S1", title="Under Armour ColdGear", price=45.0, url="https://example.com/ua-coldgear-top"),
+        Offer(store_id="s2", store_name="S2", title="Under Armour HeatGear", price=35.0, url="https://example.com/ua-heatgear-top"),
+    ]
+    assert "coldgear" in normalizer.extract_cluster_key(ua_offers[0])
+    assert "heatgear" in normalizer.extract_cluster_key(ua_offers[1])
+    assert len(normalizer.group_offers(ua_offers)) == 2
+
+
+
 
 
 

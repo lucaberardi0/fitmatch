@@ -404,8 +404,11 @@ class SupabaseClient:
                 method="DELETE",
             )
 
+        # Record daily snapshot or price-change data point in price_history
         if price_changed:
             self.record_price_history(offer_id, float(offer.price))
+        else:
+            self.record_price_history_batch({offer_id: float(offer.price)})
 
     def get_products_for_update(
         self,
@@ -456,6 +459,57 @@ class SupabaseClient:
             "price": float(price)
         }])
         return res.get("status") in (200, 201)
+
+    def record_price_history_batch(self, offer_prices: Dict[str, float], min_interval_hours: int = 24) -> int:
+        """
+        Batch-record real price history snapshots for offers in Supabase.
+        Inserts a point when an offer has no snapshot in the last `min_interval_hours`
+        OR when its current price differs from the latest snapshot by > 0.01 EUR.
+        """
+        valid = {
+            str(oid): round(float(p), 2)
+            for oid, p in (offer_prices or {}).items()
+            if oid and p is not None and float(p) > 0
+        }
+        if not valid:
+            return 0
+
+        cutoff_iso = (datetime.now(timezone.utc) - timedelta(hours=min_interval_hours)).isoformat()
+        q_cutoff = urllib.parse.quote(cutoff_iso, safe="")
+        latest_recent: Dict[str, float] = {}
+
+        oids = list(valid.keys())
+        for i in range(0, len(oids), 25):
+            chunk = oids[i:i + 25]
+            in_clause = ",".join(urllib.parse.quote(f'"{oid}"', safe="") for oid in chunk)
+            res = self._request(
+                f"price_history?offer_id=in.({in_clause})&recorded_at=gte.{q_cutoff}"
+                f"&select=offer_id,price,recorded_at&order=recorded_at.desc&limit=250"
+            )
+            for row in (res.get("data") or []):
+                oid = row.get("offer_id")
+                if oid and oid not in latest_recent and row.get("price") is not None:
+                    try:
+                        latest_recent[oid] = float(row["price"])
+                    except (TypeError, ValueError):
+                        pass
+
+        to_insert: List[Dict[str, Any]] = []
+        for oid, price in valid.items():
+            prev = latest_recent.get(oid)
+            if prev is None or abs(prev - price) > 0.01:
+                to_insert.append({"offer_id": oid, "price": price})
+
+        if not to_insert:
+            return 0
+
+        recorded = 0
+        for i in range(0, len(to_insert), 50):
+            batch = to_insert[i:i + 50]
+            res = self._request("price_history", method="POST", data=batch)
+            if res.get("status") in (200, 201):
+                recorded += len(batch)
+        return recorded
 
     def get_price_history(
         self,
@@ -532,19 +586,6 @@ class SupabaseClient:
                 "store_name": offer_store_map.get(oid, "Store"),
                 "offer_id": oid
             })
-
-        # Baseline point if minimal history
-        if len(raw_points) == len(offer_current_map) and offer_current_map:
-            max_orig = max(offer_orig_map.values()) if offer_orig_map else None
-            min_cur = min(offer_current_map.values())
-            if max_orig and max_orig > min_cur:
-                past_30d = (now - timedelta(days=30)).isoformat()
-                raw_points.insert(0, {
-                    "date": past_30d,
-                    "price": round(max_orig, 2),
-                    "store_name": "Listino Ufficiale",
-                    "offer_id": None
-                })
 
         raw_points.sort(key=lambda x: x["date"])
 
@@ -667,14 +708,26 @@ class SupabaseClient:
             return 0
         offer_rows = list(offer_map.values())
         if self.upsert_offers(offer_rows):
+            try:
+                self.record_price_history_batch({r["id"]: r["current_price"] for r in offer_rows})
+            except Exception as ph_err:
+                logger.debug(f"[Supabase] Batch price_history warning: {ph_err}")
             return len(offer_rows)
 
         # Fallback: retry per-chunk so one bad offer never discards the entire batch
         saved = 0
+        saved_prices: Dict[str, float] = {}
         for idx in range(0, len(offer_rows), 10):
             chunk = offer_rows[idx:idx + 10]
             if self.upsert_offers(chunk):
                 saved += len(chunk)
+                for r in chunk:
+                    saved_prices[r["id"]] = r["current_price"]
+        if saved_prices:
+            try:
+                self.record_price_history_batch(saved_prices)
+            except Exception as ph_err:
+                logger.debug(f"[Supabase] Chunked price_history warning: {ph_err}")
         return saved
 
     def record_crawl_log(

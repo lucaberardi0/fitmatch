@@ -86,46 +86,66 @@ def _urls_match(purl: str, candidate_url: str) -> bool:
     return bool(p1 and p2 and (p1 == p2 or p1.split("/")[-1] == p2.split("/")[-1]))
 
 
-def extract_sizes_for_offer(scraper, store_id: str, purl: str, raw_title: str) -> List[str]:
-    """Fetch verified sizes for a specific offer URL without cross-product contamination."""
+def extract_details_for_offer(scraper, store_id: str, purl: str, raw_title: str) -> Dict[str, Any]:
+    """Fetch verified sizes, multi-angle gallery_images, and stock status in a single PDP request."""
     sizes: List[str] = []
+    gallery: List[str] = []
+    in_stock: Optional[bool] = None
     clean_sid = store_id.lower().strip()
     try:
         if clean_sid == "decathlon":
             res = scraper.search(raw_title, limit=5)
             for o in res:
-                if _urls_match(purl, o.url) and o.available_sizes:
-                    sizes = o.available_sizes
+                if _urls_match(purl, o.url):
+                    if o.available_sizes:
+                        sizes = o.available_sizes
+                    if o.gallery_images:
+                        gallery = list(o.gallery_images)
                     break
         elif clean_sid == "adidas":
             sizes = scraper.fetch_sizes(purl, title=raw_title)
-        elif clean_sid in ["top4running", "misterrunning", "deporvillage"]:
-            if hasattr(scraper, "fetch_sizes"):
-                try:
-                    sizes = scraper.fetch_sizes(purl, title=raw_title)
-                except Exception:
-                    pass
-            if not sizes:
+        else:
+            if hasattr(scraper, "fetch_pdp_details"):
+                pdp = scraper.fetch_pdp_details(purl, title=raw_title) or {}
+                sizes = pdp.get("sizes") or []
+                gallery = pdp.get("gallery_images") or []
+                in_stock = pdp.get("in_stock")
+            else:
+                sizes = scraper.fetch_sizes(purl, title=raw_title)
+
+            if not sizes and clean_sid in ("top4running", "misterrunning", "deporvillage"):
                 res = scraper.search(raw_title, limit=5)
                 for o in res:
-                    if _urls_match(purl, o.url) and o.available_sizes:
-                        sizes = o.available_sizes
+                    if _urls_match(purl, o.url):
+                        if o.available_sizes:
+                            sizes = o.available_sizes
+                        if not gallery and o.gallery_images:
+                            gallery = list(o.gallery_images)
                         break
-        else:
-            sizes = scraper.fetch_sizes(purl, title=raw_title)
     except Exception as e:
-        logger.debug(f"Error fetching sizes for {purl}: {e}")
+        logger.debug(f"Error fetching PDP details for {purl}: {e}")
 
+    norm_sizes: List[str] = []
     if sizes:
         if hasattr(scraper, "normalize_sizes_for_product"):
-            return scraper.normalize_sizes_for_product(sizes, title=raw_title, url=purl)
-        normalizer = ProductNormalizer()
-        return normalize_sizes(
-            sizes,
-            gender=normalizer.extract_gender(raw_title, purl),
-            category=normalizer.detect_article_type(raw_title),
-        )
-    return []
+            norm_sizes = scraper.normalize_sizes_for_product(sizes, title=raw_title, url=purl)
+        else:
+            normalizer = ProductNormalizer()
+            norm_sizes = normalize_sizes(
+                sizes,
+                gender=normalizer.extract_gender(raw_title, purl),
+                category=normalizer.detect_article_type(raw_title),
+            )
+    return {
+        "sizes": norm_sizes,
+        "gallery_images": gallery[:8],
+        "in_stock": in_stock,
+    }
+
+
+def extract_sizes_for_offer(scraper, store_id: str, purl: str, raw_title: str) -> List[str]:
+    """Fetch verified sizes for a specific offer URL without cross-product contamination."""
+    return extract_details_for_offer(scraper, store_id, purl, raw_title).get("sizes", [])
 
 
 def enrich_sizes_for_store(
@@ -134,9 +154,15 @@ def enrich_sizes_for_store(
     max_workers: int = 10,
     dry_run: bool = False,
     refresh_stale: bool = False,
+    galleries_only: bool = False,
 ):
     sb = SupabaseClient()
-    mode_label = "Stale Size Refresh" if refresh_stale else "Size Enrichment"
+    if galleries_only:
+        mode_label = "Gallery + Size Enrichment"
+    elif refresh_stale:
+        mode_label = "Stale Size/Gallery Refresh"
+    else:
+        mode_label = "Size + Gallery Enrichment"
     logger.info(f"=== Starting {mode_label} for Store: {store_id} (Target limit: {limit}) ===")
 
     scrapers = get_all_scrapers()
@@ -147,29 +173,57 @@ def enrich_sizes_for_store(
         return 0
 
     clean_sid = store_id.lower().strip()
-    if refresh_stale:
-        if clean_sid in _BLOCKED_PDP_STORES:
-            logger.info(f"Skipping stale PDP refresh for anti-bot-gated store: {clean_sid}")
-            return 0
+    if clean_sid in _BLOCKED_PDP_STORES and (refresh_stale or galleries_only):
+        logger.info(f"Skipping PDP enrichment for anti-bot-gated store: {clean_sid}")
+        return 0
+
+    if galleries_only:
+        # Target active offers currently missing multi-angle gallery_images (prioritize freshest/higher-value items)
+        endpoint = (
+            f"store_offers?store_id=eq.{clean_sid}&in_stock=neq.false&current_price=gt.20"
+            f"&or=(gallery_images.is.null,gallery_images.eq.[])"
+            f"&order=discount_pct.desc.nullslast,current_price.desc"
+            f"&select=id,product_id,product_url,raw_title,image_url,available_sizes,gallery_images&limit={limit}"
+        )
+        resp = sb._request(endpoint)
+        offers = resp.get("data") or []
+        if len(offers) < limit:
+            # Also catch offers that currently have only 1 image in gallery_images (e.g. df_sportspecialist)
+            extra_ep = (
+                f"store_offers?store_id=eq.{clean_sid}&in_stock=neq.false&current_price=gt.20"
+                f"&order=discount_pct.desc.nullslast,current_price.desc"
+                f"&select=id,product_id,product_url,raw_title,image_url,available_sizes,gallery_images&limit={min(limit * 3, 600)}"
+            )
+            extra_rows = sb._request(extra_ep).get("data") or []
+            seen_ids = {r["id"] for r in offers}
+            for r in extra_rows:
+                if r["id"] in seen_ids:
+                    continue
+                g = r.get("gallery_images") or []
+                if not isinstance(g, list) or len(g) < 2:
+                    offers.append(r)
+                    seen_ids.add(r["id"])
+                    if len(offers) >= limit:
+                        break
+    elif refresh_stale:
         endpoint = (
             f"store_offers?store_id=eq.{clean_sid}"
             f"&order=last_checked_at.asc.nullsfirst"
-            f"&select=id,product_id,product_url,raw_title,available_sizes&limit={limit}"
+            f"&select=id,product_id,product_url,raw_title,image_url,available_sizes,gallery_images&limit={limit}"
         )
         resp = sb._request(endpoint)
         offers = resp.get("data") or []
     else:
-        # Fetch offers with empty sizes
+        # Fetch active offers with empty sizes
         endpoint = (
-            f"store_offers?store_id=eq.{clean_sid}"
-            f"&or=(available_sizes.is.null,available_sizes.eq.[]"
-            f")&select=id,product_id,product_url,raw_title,available_sizes&limit={limit}"
+            f"store_offers?store_id=eq.{clean_sid}&in_stock=neq.false"
+            f"&or=(available_sizes.is.null,available_sizes.eq.[])"
+            f"&select=id,product_id,product_url,raw_title,image_url,available_sizes,gallery_images&limit={limit}"
         )
         resp = sb._request(endpoint)
         offers = resp.get("data") or []
         if not offers:
-            # Fallback query if or clause syntax behaves differently
-            fallback_ep = f"store_offers?store_id=eq.{clean_sid}&select=id,product_id,product_url,raw_title,available_sizes&limit={limit}"
+            fallback_ep = f"store_offers?store_id=eq.{clean_sid}&in_stock=neq.false&select=id,product_id,product_url,raw_title,image_url,available_sizes,gallery_images&limit={limit}"
             f_resp = sb._request(fallback_ep)
             all_rows = f_resp.get("data") or []
             offers = [r for r in all_rows if not r.get("available_sizes")]
@@ -179,6 +233,8 @@ def enrich_sizes_for_store(
         return 0
 
     success_count = 0
+    gallery_count = 0
+    oos_count = 0
     updated_count = 0
     purged_count = 0
     candidate_orphan_pids: List[str] = []
@@ -189,15 +245,36 @@ def enrich_sizes_for_store(
         pid = offer.get("product_id")
         purl = offer.get("product_url")
         raw_title = offer.get("raw_title") or ""
+        existing_img = (offer.get("image_url") or "").strip()
+        existing_gallery = offer.get("gallery_images") or []
+        existing_sizes = offer.get("available_sizes") or []
 
         if not purl:
             return None
 
-        norm = extract_sizes_for_offer(scraper, store_id, purl, raw_title)
+        details = extract_details_for_offer(scraper, store_id, purl, raw_title)
+        norm = details.get("sizes") or []
+        gallery = details.get("gallery_images") or []
+        pdp_in_stock = details.get("in_stock")
+
+        # Keep offer's existing primary image first when building gallery so hero thumbnail never jumps
+        if gallery and existing_img and existing_img not in gallery:
+            gallery = [existing_img] + gallery
+        gallery = gallery[:8]
+
+        payload: Dict[str, Any] = {"id": oid}
+        has_new_gallery = len(gallery) >= 2 and (not isinstance(existing_gallery, list) or len(existing_gallery) < len(gallery))
+
         if norm:
-            payload: Dict[str, Any] = {"id": oid, "available_sizes": norm}
-            if refresh_stale:
-                payload["last_checked_at"] = datetime.now(timezone.utc).isoformat()
+            payload["available_sizes"] = norm
+        if has_new_gallery:
+            payload["gallery_images"] = gallery
+        if pdp_in_stock is False and not norm:
+            payload["available_sizes"] = []
+            payload["in_stock"] = False
+
+        if len(payload) > 1:
+            payload["last_checked_at"] = datetime.now(timezone.utc).isoformat()
             return payload
 
         if refresh_stale:
@@ -212,9 +289,17 @@ def enrich_sizes_for_store(
                     "last_checked_at": datetime.now(timezone.utc).isoformat(),
                 }
             return {"id": oid, "last_checked_at": datetime.now(timezone.utc).isoformat()}
+
+        # In gallery mode, touch last_checked_at only if we actually verified the page (avoid re-fetching empty ones forever)
+        if galleries_only and existing_sizes and gallery:
+            return {
+                "id": oid,
+                "gallery_images": gallery,
+                "last_checked_at": datetime.now(timezone.utc).isoformat(),
+            }
         return None
 
-    logger.info(f"Concurrently fetching sizes with {max_workers} worker threads...")
+    logger.info(f"Concurrently fetching PDP details with {max_workers} worker threads...")
     patches: List[Dict[str, Any]] = []
 
     def _flush_patches(batch: List[Dict[str, Any]]) -> int:
@@ -233,8 +318,9 @@ def enrich_sizes_for_store(
                     count += 1
                 continue
             patch_body = {k: v for k, v in p.items() if k != "id" and not k.startswith("_")}
-            sb._request(f"store_offers?id=eq.{enc_id}", method="PATCH", data=patch_body)
-            count += 1
+            res = sb._request(f"store_offers?id=eq.{enc_id}", method="PATCH", data=patch_body)
+            if res.get("status") in (200, 204):
+                count += 1
         return count
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -243,12 +329,16 @@ def enrich_sizes_for_store(
             res = fut.result()
             if res:
                 patches.append(res)
-                if "available_sizes" in res and res["available_sizes"]:
+                if res.get("available_sizes"):
                     success_count += 1
+                if isinstance(res.get("gallery_images"), list) and len(res["gallery_images"]) >= 2:
+                    gallery_count += 1
+                if res.get("in_stock") is False:
+                    oos_count += 1
                 if len(patches) >= 20:
                     updated_count += _flush_patches(patches)
                     patches = []
-                    logger.info(f"Processed {success_count}/{len(offers)} offers so far...")
+                    logger.info(f"Processed {success_count} sizes / {gallery_count} galleries / {oos_count} OOS so far...")
 
     updated_count += _flush_patches(patches)
     if candidate_orphan_pids and not dry_run:
@@ -257,41 +347,55 @@ def enrich_sizes_for_store(
     duration = time.time() - start_time
     logger.info(
         f"Completed {store_id} in {duration:.1f}s: "
-        f"{success_count} offers with size updates, "
+        f"{success_count} size updates, "
+        f"{gallery_count} multi-image galleries, "
+        f"{oos_count} marked OOS, "
         f"{purged_count} dead offers purged, "
-        f"{updated_count} patched/cleaned in Supabase."
+        f"{updated_count} patched in Supabase."
     )
     return updated_count
 
 
-def run_enrichment_batch(limit_per_store: int = 50, max_workers: int = 5, refresh_stale_limit: int = 15) -> Dict[str, int]:
-    """Batch run missing-size enrichment plus stale-size refresh across stores."""
+def run_enrichment_batch(
+    limit_per_store: int = 50,
+    max_workers: int = 5,
+    refresh_stale_limit: int = 15,
+    gallery_limit_per_store: int = 0,
+) -> Dict[str, int]:
+    """Batch run missing-size enrichment, multi-angle gallery backfill, and stale-offer refresh across stores."""
     target_stores = [
-        "adidas",
-        "nencini",
-        "runningwarehouse",
         "alltricks",
-        "top4running",
+        "basketballstore",
+        "sportit",
+        "maxisport",
+        "nencini",
         "misterrunning",
+        "top4running",
         "df_sportspecialist",
         "cisalfa",
-        "maxisport",
+        "intersport",
+        "nonsolosport",
+        "tennis_point",
+        "bshopzone",
         "nike",
         "tradeinn",
-        "decathlon",
         "deporvillage",
+        "runningwarehouse",
+        "adidas",
+        "decathlon",
         "sportler",
-        "sportit",
-        "tennis_point",
-        "basketballstore",
-        "nonsolosport",
-        "intersport",
-        "bshopzone",
     ]
     results = {}
     for sid in target_stores:
         try:
             count = enrich_sizes_for_store(sid, limit=limit_per_store, max_workers=max_workers) or 0
+            if gallery_limit_per_store > 0 and sid not in _BLOCKED_PDP_STORES:
+                count += enrich_sizes_for_store(
+                    sid,
+                    limit=gallery_limit_per_store,
+                    max_workers=max_workers,
+                    galleries_only=True,
+                ) or 0
             if refresh_stale_limit > 0 and sid not in _BLOCKED_PDP_STORES:
                 count += enrich_sizes_for_store(sid, limit=refresh_stale_limit, max_workers=max_workers, refresh_stale=True) or 0
             results[sid] = count
@@ -356,6 +460,7 @@ def main():
     parser.add_argument("--workers", type=int, default=10, help="Concurrent workers")
     parser.add_argument("--dry-run", action="store_true", help="Fetch without saving to DB")
     parser.add_argument("--refresh-stale", action="store_true", help="Re-check existing populated offers ordered by oldest last_checked_at")
+    parser.add_argument("--galleries", action="store_true", help="Backfill multi-angle gallery_images (and missing sizes) on active offers")
     args = parser.parse_args()
 
     if args.showcase:
@@ -396,6 +501,7 @@ def main():
                 max_workers=args.workers,
                 dry_run=args.dry_run,
                 refresh_stale=args.refresh_stale,
+                galleries_only=args.galleries,
             )
         except Exception as e:
             logger.error(f"Failed enriching store {sid}: {e}")

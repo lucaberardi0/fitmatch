@@ -65,6 +65,49 @@ struct StoreRatingHelper {
         if s.contains("adidas") { return "603" }
         return "1,2K"
     }
+
+    struct TrustDisplay {
+        let isOfficial: Bool
+        let badgeText: String
+        let ratingText: String?
+        let reviewsText: String?
+    }
+
+    /// Presents official brand stores / major trusted chains cleanly without misleading skewed Trustpilot scores (< 3.0).
+    static func trustDisplay(for storeName: String, storeId: String? = nil) -> TrustDisplay {
+        let low = "\(storeId ?? "") \(storeName)".lowercased()
+        let officialMonoBrands = ["nike", "adidas"]
+        if officialMonoBrands.contains(where: { low.contains($0) }) {
+            return TrustDisplay(isOfficial: true, badgeText: "Sito Ufficiale", ratingText: nil, reviewsText: nil)
+        }
+
+        let item = DynamicCatalogRegistry.shared.storeItem(for: storeId ?? storeName)
+            ?? DynamicCatalogRegistry.shared.storeItem(for: storeName)
+        let numericRating: Double = {
+            if let r = item?.rating, r > 0 { return r }
+            let fallbackStr = rating(for: storeName, storeId: storeId).replacingOccurrences(of: ",", with: ".")
+            return Double(fallbackStr) ?? 4.5
+        }()
+
+        let majorRetailers = ["decathlon", "cisalfa"]
+        if numericRating < 3.0 || majorRetailers.contains(where: { low.contains($0) }) {
+            return TrustDisplay(isOfficial: true, badgeText: "Rivenditore Ufficiale", ratingText: nil, reviewsText: nil)
+        }
+
+        return TrustDisplay(
+            isOfficial: false,
+            badgeText: "Store Partner Verificato",
+            ratingText: rating(for: storeName, storeId: storeId),
+            reviewsText: reviewCount(for: storeName, storeId: storeId)
+        )
+    }
+}
+
+private struct PrimaryCTAMaxYKey: PreferenceKey {
+    static var defaultValue: CGFloat = .infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }
 
 // MARK: - Main Product Detail View
@@ -73,6 +116,7 @@ struct ProductDetailView: View {
     @State private var product: MatchedProduct
     var openedFromSearch: Bool = false
     private let userPreferredSize: String?
+    private let initialTappedOffer: Offer?
     private let initialTappedOfferURL: String?
     private let initialTappedStoreId: String?
 
@@ -86,13 +130,14 @@ struct ProductDetailView: View {
     @State private var showingFullScreenGallery: Bool = false
     @State private var inlineZoomScale: CGFloat = 1.0
     @State private var inlineZoomAnchor: UnitPoint = .center
-    @State private var showDoubleTapHeart: Bool = false
     @Namespace private var galleryThumbNamespace
 
-    // Collapsible Accordion States (Shopify Shop Style)
+    // Collapsible Accordion & Offer List States (Comparator-First Layout)
     @State private var isExpandedSizes: Bool = false
-    @State private var isDescriptionExpanded: Bool = true
-    @State private var isDeliveryExpanded: Bool = true
+    @State private var isExpandedOffers: Bool = false
+    @State private var isDescriptionExpanded: Bool = false
+    @State private var isDeliveryExpanded: Bool = false
+    @State private var showStickyCTA: Bool = false
 
     // Sheets & Navigation
     @State private var showingAlertSheet: Bool = false
@@ -119,52 +164,84 @@ struct ProductDetailView: View {
     init(product: MatchedProduct, initialSize: String? = nil, openedFromSearch: Bool = false) {
         self._product = State(initialValue: product)
         self.openedFromSearch = openedFromSearch
-        self.initialTappedOfferURL = product.offers.first?.url
-        self.initialTappedStoreId = product.offers.first?.store_id
+        let firstOffer = product.offers.first
+        self.initialTappedOffer = firstOffer
+        self.initialTappedOfferURL = firstOffer?.url
+        self.initialTappedStoreId = firstOffer?.store_id
+        self._selectedVariant = State(initialValue: firstOffer?.displayVariant)
+
         let prefs = UserPreferencesManager.shared.preferences
         let prefSize = product.isComparable ? prefs.preferredShoeSize : prefs.preferredApparelSize
         let normPref = prefSize.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
         self.userPreferredSize = normPref.isEmpty ? nil : normPref
 
+        var initialIdx = 0
         if let explicit = initialSize, !explicit.isEmpty {
             self._selectedSize = State(initialValue: explicit)
-        } else if !normPref.isEmpty && product.allAvailableSizes.contains(where: {
-            $0.replacingOccurrences(of: ",", with: ".") == normPref
-        }) {
+            if firstOffer?.hasSize(explicit) != true,
+               let bestForExplicit = product.bestOffer(for: explicit),
+               bestForExplicit.hasSize(explicit),
+               let idx = product.offers.firstIndex(where: { $0.id == bestForExplicit.id }) {
+                initialIdx = idx
+            }
+        } else if !normPref.isEmpty, firstOffer?.hasSize(normPref) == true {
+            // Only auto-select preferred size if the tapped/initial offer itself has it,
+            // so opening a card never hijacks the user to a different store or colorway.
             self._selectedSize = State(initialValue: normPref)
         } else {
             self._selectedSize = State(initialValue: nil)
         }
+        self._selectedOfferIndex = State(initialValue: initialIdx)
     }
 
     // MARK: - Computed Properties
 
+    /// Always bind the hero gallery strictly to `currentOffer` so the displayed photo
+    /// always matches the exact product/colorway opened by the outbound store link.
     private var displayedImages: [String] {
-        let imgs = product.allImages
-        if imgs.isEmpty, let img = product.image_url {
-            return [img]
+        if let offer = currentOffer {
+            let offerImgs = offer.allImages
+            if !offerImgs.isEmpty {
+                return offerImgs
+            }
         }
-        return imgs
+        if let primary = product.image_url?.trimmingCharacters(in: .whitespacesAndNewlines), !primary.isEmpty {
+            return [primary]
+        }
+        return product.allImages
     }
 
     var currentOffer: Offer? {
-        if let sz = selectedSize {
-            // If the user's selected store currently has this size in stock, keep that store
-            if product.offers.indices.contains(selectedOfferIndex) {
-                let off = product.offers[selectedOfferIndex]
-                if off.hasSize(sz) {
-                    return off
-                }
-            }
-            // Otherwise, dynamically auto-select the best store offer that actually HAS the size
-            if let bestForSize = product.bestOffer(for: sz), bestForSize.hasSize(sz) {
-                return bestForSize
-            }
-        }
         if product.offers.indices.contains(selectedOfferIndex) {
             return product.offers[selectedOfferIndex]
         }
+        if let sz = selectedSize, let bestForSize = product.bestOffer(for: sz) {
+            return bestForSize
+        }
         return product.bestOffer
+    }
+
+    private var wishlistProductSnapshot: MatchedProduct {
+        guard let active = currentOffer else { return product }
+        let activeImg = active.allImages.first ?? product.image_url
+        var reorderedOffers = product.offers
+        if let idx = reorderedOffers.firstIndex(where: { $0.id == active.id }), idx != 0 {
+            let chosen = reorderedOffers.remove(at: idx)
+            reorderedOffers.insert(chosen, at: 0)
+        }
+        return MatchedProduct(
+            id_val: product.id_val,
+            canonical_name: product.canonical_name,
+            brand: product.brand,
+            category: product.category,
+            image_url: activeImg,
+            gallery_images: active.allImages.isEmpty ? product.gallery_images : active.allImages,
+            gender: product.gender,
+            offers: reorderedOffers,
+            best_price: active.price,
+            highest_price: product.highest_price,
+            cross_store_savings: product.cross_store_savings
+        )
     }
 
     private var wishlistItem: WishlistItem? {
@@ -173,6 +250,10 @@ struct ProductDetailView: View {
 
     private var isWishlisted: Bool {
         wishlist.isFavorite(product.canonical_name)
+    }
+
+    private var distinctStoreCount: Int {
+        max(1, Set(product.offers.map { $0.store_id.lowercased() }).count)
     }
 
     private var allSizes: [String] {
@@ -189,17 +270,108 @@ struct ProductDetailView: View {
         if isExpandedSizes || allSizes.count <= 6 {
             return allSizes
         }
-        return Array(allSizes.prefix(6))
+        var slice = Array(allSizes.prefix(6))
+        // Always surface the user's preferred size (or active selected size) so it is never hidden behind "+N"
+        let prioritySize = selectedSize ?? userPreferredSize
+        if let pref = prioritySize,
+           let matchedInAll = allSizes.first(where: { $0 == pref || currentOffer?.hasSize(pref) == true && $0 == pref }),
+           !slice.contains(matchedInAll) {
+            slice[slice.count - 1] = matchedInAll
+        }
+        return slice
     }
 
-    private var availableVariants: [String] {
-        var list: [String] = []
-        for off in product.offers {
-            if let v = off.displayVariant, !v.isEmpty && !list.contains(v) {
-                list.append(v)
+    private struct VariantOption: Identifiable {
+        let id: String
+        let label: String?
+        let previewImage: String?
+        let bestOfferIndex: Int
+        let minPrice: Double
+        let offerIndices: [Int]
+    }
+
+    /// Builds variant swatches from either parsed colorway names (`displayVariant`) or distinct offer images
+    /// so multi-colorway products always expose a visual switcher even when store titles omit color suffixes.
+    private var availableVariantOptions: [VariantOption] {
+        var order: [String] = []
+        var grouped: [String: (label: String?, previewImage: String?, indices: [Int])] = [:]
+
+        let hasAnyTextVariant = product.offers.contains {
+            ($0.displayVariant?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        }
+        let distinctImageCount = Set(
+            product.offers.compactMap { $0.image_url?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        ).count
+
+        // Need either named variants or >=2 distinct colorway photos
+        guard hasAnyTextVariant || distinctImageCount > 1 else { return [] }
+
+        for (idx, off) in product.offers.enumerated() {
+            let textVar = off.displayVariant?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let imgKey = off.image_url?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let groupKey: String
+            let label: String?
+            if let v = textVar, !v.isEmpty {
+                groupKey = "v:\(v.lowercased())"
+                label = v
+            } else if distinctImageCount > 1, let img = imgKey, !img.isEmpty {
+                groupKey = "img:\(img)"
+                label = nil
+            } else {
+                continue
+            }
+
+            if grouped[groupKey] == nil {
+                order.append(groupKey)
+                grouped[groupKey] = (label: label, previewImage: imgKey, indices: [idx])
+            } else {
+                grouped[groupKey]?.indices.append(idx)
+                if grouped[groupKey]?.previewImage == nil, let img = imgKey, !img.isEmpty {
+                    grouped[groupKey]?.previewImage = img
+                }
             }
         }
-        return list
+
+        let options: [VariantOption] = order.compactMap { key in
+            guard let entry = grouped[key] else { return nil }
+            let bestIdx: Int = {
+                if let sz = selectedSize {
+                    let matchingSize = entry.indices.filter { product.offers[$0].hasSize(sz) }
+                    if let cheapestWithSize = matchingSize.min(by: { product.offers[$0].calculatedTotalPrice < product.offers[$1].calculatedTotalPrice }) {
+                        return cheapestWithSize
+                    }
+                }
+                return entry.indices.min(by: { product.offers[$0].calculatedTotalPrice < product.offers[$1].calculatedTotalPrice }) ?? entry.indices[0]
+            }()
+            let previewImg = product.offers[bestIdx].image_url
+                ?? entry.previewImage
+                ?? entry.indices.compactMap({ product.offers[$0].image_url }).first
+            let minP = entry.indices.map { product.offers[$0].price }.min() ?? product.offers[bestIdx].price
+            return VariantOption(
+                id: key,
+                label: entry.label,
+                previewImage: previewImg,
+                bestOfferIndex: bestIdx,
+                minPrice: minP,
+                offerIndices: entry.indices
+            )
+        }
+
+        // Only hide a single unlabeled image swatch; keep named color or >=2 visual swatches
+        if options.count == 1 && options[0].label == nil {
+            return []
+        }
+        return options
+    }
+
+    private var hasMultipleDistinctOfferImages: Bool {
+        let distinct = Set(
+            product.offers.compactMap { $0.image_url?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+        return distinct.count > 1
     }
 
     private var sortedOffers: [(index: Int, offer: Offer, hasSize: Bool)] {
@@ -215,10 +387,55 @@ struct ProductDetailView: View {
                 if s0 != s1 {
                     return s0 > s1
                 }
+                if abs($0.offer.calculatedTotalPrice - $1.offer.calculatedTotalPrice) > 0.01 {
+                    return $0.offer.calculatedTotalPrice < $1.offer.calculatedTotalPrice
+                }
                 return $0.offer.price < $1.offer.price
             }
         }
-        return list.sorted { $0.offer.price < $1.offer.price }
+        return list.sorted {
+            if abs($0.offer.calculatedTotalPrice - $1.offer.calculatedTotalPrice) > 0.01 {
+                return $0.offer.calculatedTotalPrice < $1.offer.calculatedTotalPrice
+            }
+            return $0.offer.price < $1.offer.price
+        }
+    }
+
+    /// True lowest total-price offer (honoring selected size when active) — never confused with `currentOffer`.
+    private var bestMarketOffer: Offer? {
+        if selectedSize != nil {
+            if let firstWithSize = sortedOffers.first(where: { $0.hasSize })?.offer {
+                return firstWithSize
+            }
+        }
+        return sortedOffers.first?.offer
+    }
+
+    private var visibleSortedOffers: [(index: Int, offer: Offer, hasSize: Bool)] {
+        let all = sortedOffers
+        let collapseLimit = 5
+        if isExpandedOffers || all.count <= collapseLimit {
+            return all
+        }
+        var top = Array(all.prefix(collapseLimit))
+        // Keep the user's currently selected offer visible even if it ranks below position 5
+        if let activeEntry = all.first(where: { $0.index == selectedOfferIndex }),
+           !top.contains(where: { $0.offer.id == activeEntry.offer.id }) {
+            top.append(activeEntry)
+        }
+        return top
+    }
+
+    private var hasVerifiedPriceHistoryChart: Bool {
+        guard let h = priceHistory else { return false }
+        var days = Set<String>()
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = TimeZone(secondsFromGMT: 0)
+        for pt in h.history_points {
+            days.insert(df.string(from: pt.parsedDate))
+        }
+        return days.count >= 2
     }
 
     private var shareAffiliateURL: URL {
@@ -259,81 +476,110 @@ struct ProductDetailView: View {
                 Divider()
                     .background(Color.shopBorder)
 
-                // Main Scrollable Page
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        // 1. Store Header Profile Row (Screenshot 1)
-                        storeHeaderRow
-                            .padding(.horizontal, ShopLayout.screenPadding)
-                            .padding(.top, 14)
-                            .padding(.bottom, 12)
+                // Main Scrollable Page (Comparator-First Architecture)
+                ScrollViewReader { scrollProxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            // 1. Store Header Profile Row
+                            storeHeaderRow
+                                .padding(.horizontal, ShopLayout.screenPadding)
+                                .padding(.top, 14)
+                                .padding(.bottom, 12)
 
-                        // 2. Hero Product Image Showcase Card (Screenshot 1)
-                        heroImageCard
-                            .padding(.horizontal, ShopLayout.screenPadding)
-                            .padding(.bottom, displayedImages.count > 1 ? 10 : ShopLayout.cardSpacing)
+                            // 2. Hero Product Image Showcase Card
+                            heroImageCard
+                                .padding(.horizontal, ShopLayout.screenPadding)
+                                .padding(.bottom, displayedImages.count > 1 ? 10 : ShopLayout.cardSpacing)
 
-                        if displayedImages.count > 1 {
-                            galleryThumbnailStrip
-                                .padding(.bottom, ShopLayout.cardSpacing)
-                        }
+                            if displayedImages.count > 1 {
+                                galleryThumbnailStrip
+                                    .padding(.bottom, ShopLayout.cardSpacing)
+                            }
 
-                        // 3. Product Title, Heart & Share Actions (Screenshot 1)
-                        titleAndActionRow
-                            .padding(.horizontal, ShopLayout.screenPadding)
-                            .padding(.bottom, ShopLayout.tightSpacing)
+                            // 3. Product Title & Wishlist Heart
+                            titleAndActionRow
+                                .padding(.horizontal, ShopLayout.screenPadding)
+                                .padding(.bottom, ShopLayout.tightSpacing)
 
-                        // 4. Stock Badge (Screenshot 1)
-                        stockBadgeRow
-                            .padding(.horizontal, ShopLayout.screenPadding)
-                            .padding(.bottom, 10)
+                            // 4. Status / Verified All-Time-Low Badge (only when meaningful, zero duplication)
+                            stockBadgeRow
+                                .padding(.horizontal, ShopLayout.screenPadding)
 
-                        // 5. Price & Shipping Subtext (Screenshot 1 & 2)
-                        priceAndShippingSection
+                            // 5. Price, Real Shipping Summary & Quick Jump to Comparison
+                            priceAndShippingSection(onJumpToOffers: {
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                    scrollProxy.scrollTo("partner_offers_section", anchor: .top)
+                                }
+                            })
                             .padding(.horizontal, ShopLayout.screenPadding)
                             .padding(.bottom, ShopLayout.sectionSpacing)
 
-                        // 6. Size Selection Pills (Screenshot 1 & 2)
-                        if !allSizes.isEmpty {
-                            sizeSelectionSection
+                            // 6. Visual Colorway / Variant Selector (placed before sizes like Nike/Zalando)
+                            if !availableVariantOptions.isEmpty {
+                                colorSelectionSection
+                                    .padding(.horizontal, ShopLayout.screenPadding)
+                                    .padding(.bottom, ShopLayout.sectionSpacing)
+                            }
+
+                            // 7. Smart Size Selection Pills
+                            if !allSizes.isEmpty {
+                                sizeSelectionSection
+                                    .padding(.horizontal, ShopLayout.screenPadding)
+                                    .padding(.bottom, ShopLayout.sectionSpacing)
+                            }
+
+                            // 8. Primary CTA (Acquista) & Price Alert CTA (tracked for Sticky Bottom Bar)
+                            ctaButtonsSection
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear.preference(
+                                            key: PrimaryCTAMaxYKey.self,
+                                            value: geo.frame(in: .named("productDetailScroll")).maxY
+                                        )
+                                    }
+                                )
                                 .padding(.horizontal, ShopLayout.screenPadding)
-                                .padding(.bottom, ShopLayout.sectionSpacing)
-                        }
+                                .padding(.bottom, 22)
 
-                        // 7. Color Selection (only if real variants exist in database)
-                        if !availableVariants.isEmpty {
-                            colorSelectionSection
+                            Divider()
+                                .background(Color.shopBorder)
                                 .padding(.horizontal, ShopLayout.screenPadding)
-                                .padding(.bottom, ShopLayout.sectionSpacing)
+
+                            // 9. Core Value First: Andamento Prezzi e Offerte Partner
+                            partnerOffersSection
+                                .id("partner_offers_section")
+                                .padding(.horizontal, ShopLayout.screenPadding)
+
+                            // 10. Accordion: Consegna e resi (collapsed by default, real store policies)
+                            deliveryAccordion
+                                .padding(.horizontal, ShopLayout.screenPadding)
+
+                            // 11. Accordion: Dettagli prodotto (collapsed by default)
+                            descriptionAccordion
+                                .padding(.horizontal, ShopLayout.screenPadding)
+
+                            // 12. Section: Potrebbe piacerti anche (category + gender + price aligned)
+                            recommendationsSection
+                                .padding(.top, ShopLayout.sectionSpacing)
+                                .padding(.bottom, ShopLayout.bottomDetailClearance + 28)
                         }
-
-                        // 8. CTA Buttons: Acquista & Preferiti
-                        ctaButtonsSection
-                            .padding(.horizontal, ShopLayout.screenPadding)
-                            .padding(.bottom, 22)
-
-                        Divider()
-                            .background(Color.shopBorder)
-                            .padding(.horizontal, ShopLayout.screenPadding)
-
-                        // 10. Accordion: Descrizione (Screenshot 2 & 3)
-                        descriptionAccordion
-                            .padding(.horizontal, ShopLayout.screenPadding)
-
-                        // 11. Accordion: Consegna e resi (Screenshot 3)
-                        deliveryAccordion
-                            .padding(.horizontal, ShopLayout.screenPadding)
-
-                        // 12. Andamento Prezzi e Offerte Partner (Directly visible & non-collapsible)
-                        partnerOffersSection
-                            .padding(.horizontal, ShopLayout.screenPadding)
-
-                        // 13. Section: Potrebbe piacerti anche (Screenshot 3 & 4)
-                        recommendationsSection
-                            .padding(.top, ShopLayout.sectionSpacing)
-                            .padding(.bottom, ShopLayout.bottomDetailClearance)
+                    }
+                    .coordinateSpace(name: "productDetailScroll")
+                    .onPreferenceChange(PrimaryCTAMaxYKey.self) { maxY in
+                        let shouldShow = maxY < 10
+                        if shouldShow != showStickyCTA {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showStickyCTA = shouldShow
+                            }
+                        }
                     }
                 }
+            }
+
+            // Sticky Bottom CTA Bar (appears cleanly once primary CTA scrolls out of view)
+            if showStickyCTA, let offer = currentOffer {
+                stickyBottomBar(offer: offer)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             // Floating Cart Success Toast
@@ -357,7 +603,7 @@ struct ProductDetailView: View {
                     .clipShape(Capsule())
                     .shadow(color: Color.black.opacity(0.20), radius: 10, x: 0, y: 4)
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 100)
+                    .padding(.bottom, showStickyCTA ? 92 : 34)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -367,7 +613,7 @@ struct ProductDetailView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showingAlertSheet) {
-            PriceAlertSheet(product: product)
+            PriceAlertSheet(product: wishlistProductSnapshot)
         }
         .sheet(isPresented: $showingMoveToCollection) {
             if let item = wishlistItem {
@@ -386,10 +632,14 @@ struct ProductDetailView: View {
             ])
         }
         .sheet(isPresented: $showingReturnPolicySheet) {
-            ReturnPolicySheetView(storeName: currentOffer?.store_name ?? "Partner Store")
+            ReturnPolicySheetView(
+                storeId: currentOffer?.store_id,
+                storeName: currentOffer?.store_name ?? "Partner Store"
+            )
         }
         .sheet(isPresented: $showingShippingInfoSheet) {
             ShippingInfoSheetView(
+                storeId: currentOffer?.store_id,
                 storeName: currentOffer?.store_name ?? "Partner Store",
                 offer: currentOffer
             )
@@ -404,18 +654,26 @@ struct ProductDetailView: View {
         }
         .onAppear {
             TabBarVisibilityManager.shared.hide(for: "product_detail")
-            RecentActivityManager.shared.recordProductView(product)
+            RecentActivityManager.shared.recordProductView(wishlistProductSnapshot)
         }
         .onDisappear {
             TabBarVisibilityManager.shared.show(for: "product_detail")
         }
+        .onChange(of: currentOffer?.id) { _, _ in
+            selectedImageIndex = 0
+            scrolledImageIndex = 0
+            inlineZoomScale = 1.0
+            selectedVariant = currentOffer?.displayVariant
+            let urls = displayedImages.compactMap { URL(string: $0) }
+            ImageCacheManager.shared.prefetch(urls: urls, maxPixelSize: 1200)
+        }
         .task {
             let galleryUrls = displayedImages.compactMap { URL(string: $0) }
             ImageCacheManager.shared.prefetch(urls: galleryUrls, maxPixelSize: 1200)
-            async let hydrationTask: Void = hydrateMultiStoreOffersIfNeeded()
             async let historyTask: Void = loadPriceHistory()
-            async let relatedTask: Void = loadRelatedProducts()
-            _ = await (hydrationTask, historyTask, relatedTask)
+            await hydrateMultiStoreOffersIfNeeded()
+            await loadRelatedProducts()
+            _ = await historyTask
         }
     }
 
@@ -501,6 +759,7 @@ struct ProductDetailView: View {
 
     private var storeHeaderRow: some View {
         let storeName = currentOffer?.store_name ?? "Partner Store"
+        let trust = StoreRatingHelper.trustDisplay(for: storeName, storeId: currentOffer?.store_id)
 
         return HStack(spacing: 10) {
             // Store Avatar
@@ -527,9 +786,19 @@ struct ProductDetailView: View {
                                 .font(.system(size: 11))
                                 .foregroundColor(.shopPurple)
 
-                            Text("Store Partner Ufficiale")
+                            Text(trust.badgeText)
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(.secondary)
+
+                            if let freshness = currentOffer?.freshnessLabel {
+                                Text("·")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                Text(freshness)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(currentOffer?.isStaleOffer == true ? Color(red: 175/255, green: 105/255, blue: 15/255) : .secondary)
+                                    .lineLimit(1)
+                            }
                         }
                     }
                 }
@@ -623,6 +892,7 @@ struct ProductDetailView: View {
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $scrolledImageIndex)
                 .scrollDisabled(inlineZoomScale > 1.02)
+                .id(currentOffer?.id ?? product.id)
                 .onChange(of: scrolledImageIndex) { _, newValue in
                     if let idx = newValue, idx != selectedImageIndex {
                         withAnimation(ShopMotion.gallerySpring) {
@@ -740,16 +1010,6 @@ struct ProductDetailView: View {
                 .allowsHitTesting(false)
                 .transition(.opacity)
             }
-
-            if showDoubleTapHeart {
-                Image(systemName: wishlist.isFavorite(product.canonical_name) ? "heart.fill" : "heart.slash.fill")
-                    .font(.system(size: 64, weight: .bold))
-                    .foregroundColor(wishlist.isFavorite(product.canonical_name) ? .shopRed : .shopTextMuted)
-                    .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 4)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.scale(scale: 0.5).combined(with: .opacity))
-                    .allowsHitTesting(false)
-            }
         }
         .frame(height: 330)
         .cornerRadius(24)
@@ -773,20 +1033,7 @@ struct ProductDetailView: View {
                     }
                 }
         )
-        .onTapGesture(count: 2) {
-            let gen = UIImpactFeedbackGenerator(style: .medium)
-            gen.impactOccurred()
-            wishlist.toggleFavorite(product: product, selectedSize: selectedSize)
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.6)) {
-                showDoubleTapHeart = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
-                withAnimation(.easeOut(duration: 0.25)) {
-                    showDoubleTapHeart = false
-                }
-            }
-        }
-        .onTapGesture(count: 1) {
+        .onTapGesture {
             guard !displayedImages.isEmpty || product.image_url != nil else { return }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             showingFullScreenGallery = true
@@ -796,7 +1043,7 @@ struct ProductDetailView: View {
             Button(action: {
                 let gen = UIImpactFeedbackGenerator(style: .medium)
                 gen.impactOccurred()
-                wishlist.toggleFavorite(product: product, selectedSize: selectedSize)
+                wishlist.toggleFavorite(product: wishlistProductSnapshot, selectedSize: selectedSize)
             }) {
                 Label(
                     isSaved ? "Rimuovi dai preferiti" : "Salva nei preferiti",
@@ -881,7 +1128,7 @@ struct ProductDetailView: View {
         }
     }
 
-    // MARK: - 4. Title & Action Row (Screenshot 1: Title, Wishlist Heart, Share)
+    // MARK: - 4. Title & Wishlist Heart (Share lives cleanly in topNavigationBar without duplication)
 
     private var titleAndActionRow: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -892,85 +1139,76 @@ struct ProductDetailView: View {
                 .lineSpacing(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Right Action Buttons: Wishlist Heart & Share
-            HStack(spacing: 8) {
-                // Heart Wishlist Toggle Button
-                Button(action: {
-                    let impact = UIImpactFeedbackGenerator(style: .medium)
-                    impact.impactOccurred()
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) {
-                        wishlist.toggleFavorite(product: product, selectedSize: selectedSize)
-                    }
-                }) {
-                    Circle()
-                        .stroke(Color(red: 230/255, green: 231/255, blue: 235/255), lineWidth: 1)
-                        .background(Circle().fill(Color.white))
-                        .frame(width: 42, height: 42)
-                        .overlay(
-                            Image(systemName: isWishlisted ? "heart.fill" : "heart")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(isWishlisted ? Color(red: 235/255, green: 40/255, blue: 60/255) : Color.shopDark)
-                                .scaleEffect(isWishlisted ? 1.15 : 1.0)
-                        )
+            // Heart Wishlist Toggle Button
+            Button(action: {
+                let impact = UIImpactFeedbackGenerator(style: .medium)
+                impact.impactOccurred()
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) {
+                    wishlist.toggleFavorite(product: wishlistProductSnapshot, selectedSize: selectedSize)
                 }
-                .buttonStyle(.plain)
-
-                // Share Button
-                Button(action: {
-                    showingShareSheet = true
-                }) {
-                    Circle()
-                        .stroke(Color(red: 230/255, green: 231/255, blue: 235/255), lineWidth: 1)
-                        .background(Circle().fill(Color.white))
-                        .frame(width: 42, height: 42)
-                        .overlay(
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.shopDark)
-                        )
+                cartToastMessage = isWishlisted ? "Salvato nei tuoi preferiti" : "Rimosso dai preferiti"
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    showCartToast = true
                 }
-                .buttonStyle(.plain)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                    withAnimation { showCartToast = false }
+                }
+            }) {
+                Circle()
+                    .stroke(Color(red: 230/255, green: 231/255, blue: 235/255), lineWidth: 1)
+                    .background(Circle().fill(Color.white))
+                    .frame(width: 42, height: 42)
+                    .overlay(
+                        Image(systemName: isWishlisted ? "heart.fill" : "heart")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(isWishlisted ? Color(red: 235/255, green: 40/255, blue: 60/255) : Color.shopDark)
+                            .scaleEffect(isWishlisted ? 1.15 : 1.0)
+                    )
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isWishlisted ? "Rimuovi dai preferiti" : "Salva nei preferiti")
         }
     }
 
-    // MARK: - 5. Stock & Deal Badge Row
+    // MARK: - 5. Stock & Verified All-Time Low Badge (no duplicate discount badge)
 
     @ViewBuilder
     private var stockBadgeRow: some View {
-        if let current = currentOffer {
-            if current.in_stock == false {
-                HStack {
-                    Text("Non disponibile")
-                        .font(.system(size: 11.5, weight: .bold))
-                        .foregroundColor(Color(red: 220/255, green: 38/255, blue: 38/255))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(Color(red: 254/255, green: 242/255, blue: 242/255))
-                        .clipShape(Capsule())
-
-                    Spacer()
-                }
-            } else if let badge = current.discountBadge {
-                HStack {
-                    Text("In offerta \(badge)")
-                        .font(.system(size: 11.5, weight: .bold))
-                        .foregroundColor(Color(red: 220/255, green: 38/255, blue: 38/255))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(Color(red: 254/255, green: 242/255, blue: 242/255))
-                        .clipShape(Capsule())
-
-                    Spacer()
-                }
+        if let current = currentOffer, current.in_stock == false {
+            HStack {
+                Text("Non disponibile")
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundColor(Color(red: 220/255, green: 38/255, blue: 38/255))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Color(red: 254/255, green: 242/255, blue: 242/255))
+                    .clipShape(Capsule())
+                Spacer()
             }
+            .padding(.bottom, 8)
+        } else if hasVerifiedPriceHistoryChart, priceHistory?.is_all_time_low == true {
+            HStack {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("Minimo storico verificato")
+                        .font(.system(size: 11.5, weight: .bold))
+                }
+                .foregroundColor(.shopPurple)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.shopPurpleLight)
+                .clipShape(Capsule())
+                Spacer()
+            }
+            .padding(.bottom, 8)
         }
     }
 
-    // MARK: - 6. Price & Shipping (Screenshot 1 & 2)
+    // MARK: - 6. Price, Real Shipping Summary & Quick Multi-Store Comparison Pill
 
-    private var priceAndShippingSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func priceAndShippingSection(onJumpToOffers: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(currentOffer?.formattedPrice ?? product.formattedBestPrice)
                     .font(.system(size: 26, weight: .bold, design: .rounded))
@@ -992,16 +1230,74 @@ struct ProductDetailView: View {
             }
             .animation(ShopMotion.pillSlide, value: currentOffer?.id ?? "")
 
-            Text("Spedizione calcolata al check-out")
-                .font(.system(size: 13.5, weight: .regular))
-                .foregroundColor(.shopTextMuted)
+            // Real Shipping Summary (replaces hardcoded "Spedizione calcolata al check-out")
+            if let offer = currentOffer {
+                HStack(spacing: 6) {
+                    Image(systemName: offer.isFreeShipping ? "shippingbox.fill" : "box.truck")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(offer.isFreeShipping ? .shopGreen : .shopTextMuted)
+
+                    Text(offer.shippingSummaryLine)
+                        .font(.system(size: 13, weight: offer.isFreeShipping ? .semibold : .regular))
+                        .foregroundColor(offer.isFreeShipping ? .shopGreen : .shopTextMuted)
+                        .lineLimit(2)
+                }
+            }
+
+            // Quick Multi-Store Comparison Jump Pill
+            if distinctStoreCount > 1, let best = bestMarketOffer {
+                let savings = product.cross_store_savings ?? 0
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    onJumpToOffers()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.left.arrow.right.circle.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.shopPurple)
+
+                        if savings > 1.0 {
+                            Text("Confronta \(distinctStoreCount) negozi · da \(best.formattedPrice) (risparmi €\(String(format: "%.0f", savings)))")
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundColor(.shopDark)
+                                .lineLimit(1)
+                        } else {
+                            Text("Confronta \(distinctStoreCount) negozi · da \(best.formattedPrice)")
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundColor(.shopDark)
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 4)
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundColor(.shopPurple)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(Color.shopPurpleLight.opacity(0.55))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.shopPurple.opacity(0.18), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
         }
     }
 
-    // MARK: - 7. Size Selection Pills (Screenshot 1 & 2: Taglia)
+    // MARK: - 7. Smart Size Selection Pills
 
     private var sizeSelectionSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let storesWithSelectedSize: Int = {
+            guard let sz = selectedSize else { return 0 }
+            return Set(product.offers.filter { $0.hasSize(sz) }.map { $0.store_id.lowercased() }).count
+        }()
+
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Taglia")
                     .font(.system(size: 15, weight: .bold))
@@ -1009,62 +1305,77 @@ struct ProductDetailView: View {
 
                 Spacer()
 
-                if let pref = userPreferredSize {
-                    if selectedSize == pref {
-                        Text("Tua taglia (\(pref))")
-                            .font(.system(size: 11, weight: .bold))
+                if let sz = selectedSize {
+                    if let pref = userPreferredSize, sz == pref {
+                        Text("Tua taglia (\(pref))\(storesWithSelectedSize > 1 ? " · \(storesWithSelectedSize) negozi" : "")")
+                            .font(.system(size: 11.5, weight: .bold))
+                            .foregroundColor(.shopPurple)
+                    } else if storesWithSelectedSize > 0 {
+                        Text("\(storesWithSelectedSize) \(storesWithSelectedSize == 1 ? "negozio" : "negozi") con tg. \(sz)")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundColor(.shopGreen)
+                    }
+                } else if let pref = userPreferredSize, allSizes.contains(pref) {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        selectSize(pref)
+                    }) {
+                        Text("Seleziona tua tg. \(pref)")
+                            .font(.system(size: 11.5, weight: .bold))
                             .foregroundColor(.shopPurple)
                     }
+                    .buttonStyle(.plain)
                 }
             }
 
-            // Grid of Size Chips matching Screenshot 2 (e.g. 7 US, 7.5 US, 8 US, 8.5 US...)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 74, maximum: 92), spacing: 8)], spacing: 8) {
                 ForEach(visibleSizes, id: \.self) { sz in
                     let isSel = (selectedSize == sz)
+                    let onCurrentOffer = currentOffer?.hasSize(sz) ?? true
+                    let isOtherStoreOnly = !onCurrentOffer && (currentOffer?.hasKnownSizes == true)
+                    let isPref = (userPreferredSize == sz)
+
                     Button(action: {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
-                            if selectedSize == sz {
-                                selectedSize = nil
-                            } else {
-                                selectedSize = sz
-                                // Automatically switch selectedOfferIndex to the store that HAS this size in stock
-                                if let bestForSize = product.bestOffer(for: sz), bestForSize.hasSize(sz) {
-                                    if let idx = product.offers.firstIndex(where: { $0.id == bestForSize.id }) {
-                                        selectedOfferIndex = idx
-                                    }
-                                }
+                        selectSize(sz)
+                    }) {
+                        HStack(spacing: 3) {
+                            Text(sz)
+                                .font(.system(size: 14, weight: isSel ? .bold : .semibold))
+                            if isPref && !isSel {
+                                Circle()
+                                    .fill(Color.shopPurple)
+                                    .frame(width: 5, height: 5)
                             }
                         }
-                    }) {
-                        Text(sz)
-                            .font(.system(size: 14, weight: isSel ? .bold : .semibold))
-                            .foregroundColor(isSel ? .white : .shopDark)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 38)
-                            .background(isSel ? Color.shopDark : Color.white)
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule().stroke(isSel ? Color.shopDark : Color(red: 226/255, green: 227/255, blue: 231/255), lineWidth: 1)
+                        .foregroundColor(isSel ? .white : (isOtherStoreOnly ? .shopTextMuted : .shopDark))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(isSel ? Color.shopDark : (isOtherStoreOnly ? Color.shopSurface.opacity(0.65) : Color.white))
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule().stroke(
+                                isSel ? Color.shopDark : (isPref ? Color.shopPurple.opacity(0.55) : Color(red: 226/255, green: 227/255, blue: 231/255)),
+                                style: isOtherStoreOnly && !isSel ? StrokeStyle(lineWidth: 1, dash: [4, 3]) : StrokeStyle(lineWidth: 1)
                             )
+                        )
                     }
                     .buttonStyle(.plain)
                 }
 
-                // Expand / Collapse Pill Button: "Visualizza 5 in più" (Screenshot 2)
+                // Expand / Collapse Pill Button
                 if allSizes.count > 6 {
                     Button(action: {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
                             isExpandedSizes.toggle()
                         }
                     }) {
-                        Text(isExpandedSizes ? "Mostra meno" : "Visualizza \(allSizes.count - 6) in più")
+                        Text(isExpandedSizes ? "Mostra meno" : "+\(allSizes.count - 6) taglie")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.shopDark)
                             .frame(maxWidth: .infinity)
                             .frame(height: 38)
-                            .background(Color.white)
+                            .background(Color.shopSurface)
                             .clipShape(Capsule())
                             .overlay(
                                 Capsule().stroke(Color(red: 226/255, green: 227/255, blue: 231/255), lineWidth: 1)
@@ -1073,47 +1384,160 @@ struct ProductDetailView: View {
                     .buttonStyle(.plain)
                 }
             }
+
+            if currentOffer?.hasKnownSizes == true,
+               allSizes.contains(where: { currentOffer?.hasSize($0) == false }) {
+                Text("Le taglie tratteggiate sono disponibili su un altro negozio o colorazione partner.")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(.shopTextMuted)
+            }
         }
     }
 
-    // MARK: - 8. Color Selection (Screenshot 2: Colore)
-
-    private var colorSelectionSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Colore")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundColor(.shopDark)
-
-            HStack(spacing: 8) {
-                ForEach(availableVariants, id: \.self) { variant in
-                    let isSel = (selectedVariant == variant) || (selectedVariant == nil && variant == availableVariants.first)
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
-                            selectedVariant = variant
-                        }
-                    }) {
-                        Text(variant)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.shopDark)
-                            .padding(.horizontal, 18)
-                            .frame(height: 38)
-                            .background(Color.white)
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule().stroke(isSel ? Color.shopDark : Color(red: 226/255, green: 227/255, blue: 231/255), lineWidth: isSel ? 1.5 : 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
+    private func selectSize(_ sz: String) {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+            if selectedSize == sz {
+                selectedSize = nil
+            } else {
+                selectedSize = sz
+                // Keep current offer/colorway if it already has this size;
+                // otherwise switch to the best total-price store offer carrying it.
+                let currentHasSize = product.offers.indices.contains(selectedOfferIndex)
+                    && product.offers[selectedOfferIndex].hasSize(sz)
+                if !currentHasSize,
+                   let bestForSize = product.bestOffer(for: sz),
+                   bestForSize.hasSize(sz),
+                   let idx = product.offers.firstIndex(where: { $0.id == bestForSize.id }) {
+                    selectedOfferIndex = idx
                 }
             }
         }
     }
 
-    // MARK: - 8. CTA Buttons (Acquista su Store & Preferiti)
+    // MARK: - 8. Visual Color / Variant Selection (works with or without color text in titles)
+
+    private var colorSelectionSection: some View {
+        let options = availableVariantOptions
+        let activeOption = options.first(where: { $0.offerIndices.contains(selectedOfferIndex) })
+            ?? options.first(where: {
+                guard let lbl = $0.label?.lowercased(),
+                      let cur = (currentOffer?.displayVariant ?? selectedVariant)?.lowercased() else { return false }
+                return lbl == cur
+            })
+        let allVisualOnly = options.allSatisfy { $0.label == nil }
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(allVisualOnly ? "Colorazione" : "Colore")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.shopDark)
+
+                if let activeLabel = activeOption?.label {
+                    Text("· \(activeLabel)")
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundColor(.shopTextMuted)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                if options.count > 1 {
+                    Text("\(options.count) varianti")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundColor(.shopTextMuted)
+                }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(options) { opt in
+                        let isSel = (activeOption?.id == opt.id)
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                                selectedVariant = opt.label
+                                selectedOfferIndex = opt.bestOfferIndex
+                            }
+                        }) {
+                            if let label = opt.label {
+                                HStack(spacing: 7) {
+                                    if let imgStr = opt.previewImage, let url = URL(string: imgStr) {
+                                        ShopCachedAsyncImage(url: url, maxPixelSize: 120) { phase in
+                                            if let img = phase.image {
+                                                img
+                                                    .resizable()
+                                                    .scaledToFit()
+                                                    .padding(2)
+                                            } else {
+                                                Color.shopSurface
+                                            }
+                                        }
+                                        .frame(width: 26, height: 26)
+                                        .background(Color.shopSurface)
+                                        .clipShape(Circle())
+                                    }
+
+                                    Text(label)
+                                        .font(.system(size: 13.5, weight: isSel ? .bold : .semibold))
+                                        .foregroundColor(isSel ? .white : .shopDark)
+                                        .lineLimit(1)
+                                }
+                                .padding(.leading, opt.previewImage != nil ? 7 : 14)
+                                .padding(.trailing, 14)
+                                .frame(height: 40)
+                                .background(isSel ? Color.shopDark : Color.white)
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule().stroke(
+                                        isSel ? Color.shopDark : Color(red: 226/255, green: 227/255, blue: 231/255),
+                                        lineWidth: isSel ? 1.5 : 1
+                                    )
+                                )
+                            } else {
+                                // Visual swatch card when store titles do not include color names
+                                VStack(spacing: 4) {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(Color.shopSurface)
+
+                                        if let imgStr = opt.previewImage, let url = URL(string: imgStr) {
+                                            ShopCachedAsyncImage(url: url, maxPixelSize: 200) { phase in
+                                                if let img = phase.image {
+                                                    img
+                                                        .resizable()
+                                                        .scaledToFit()
+                                                        .padding(5)
+                                                } else {
+                                                    ShopSkeletonBlock(cornerRadius: 12)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .frame(width: 58, height: 58)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(isSel ? Color.shopPurple : Color.shopBorder, lineWidth: isSel ? 2 : 1)
+                                    )
+
+                                    Text(String(format: "€%.0f", opt.minPrice))
+                                        .font(.system(size: 11, weight: isSel ? .bold : .semibold, design: .rounded))
+                                        .foregroundColor(isSel ? .shopPurple : .shopTextMuted)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    // MARK: - 9. Primary CTA (Acquista) & Price Alert CTA (replaces duplicate Wishlist button)
 
     private var ctaButtonsSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             // 1. Primary Vibrant CTA Button: "Acquista su [Store]" with size verification
             if let offer = currentOffer, let _ = URL(string: offer.url) {
                 let hasSize = (selectedSize == nil) || offer.hasSize(selectedSize)
@@ -1132,20 +1556,25 @@ struct ProductDetailView: View {
                             if let sz = selectedSize {
                                 Text("Acquista tg. \(sz) su \(offer.store_name)")
                                     .font(.system(size: 16, weight: .bold, design: .rounded))
+                                    .lineLimit(1)
                             } else {
                                 Text("Acquista su \(offer.store_name)")
                                     .font(.system(size: 16, weight: .bold, design: .rounded))
+                                    .lineLimit(1)
                             }
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 12.5, weight: .bold))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)
+                        .padding(.horizontal, 14)
                         .background(Color.shopPurple)
                         .clipShape(Capsule())
                         .shadow(color: Color.shopPurple.opacity(0.28), radius: 8, x: 0, y: 4)
                     }
                     .buttonStyle(.plain)
-                } else if let sz = selectedSize, let altOffer = product.offers.first(where: { $0.hasSize(sz) }) {
+                } else if let sz = selectedSize, let altOffer = product.bestOffer(for: sz), altOffer.hasSize(sz) {
                     // Current store does not have size, but partner store has it!
                     Button(action: {
                         if let idx = product.offers.firstIndex(where: { $0.id == altOffer.id }) {
@@ -1159,17 +1588,18 @@ struct ProductDetailView: View {
                                 .font(.system(size: 14, weight: .bold))
                             Text("Tg. \(sz) disp. su \(altOffer.store_name) (\(altOffer.formattedPrice))")
                                 .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .lineLimit(1)
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)
+                        .padding(.horizontal, 14)
                         .background(Color.shopGreen)
                         .clipShape(Capsule())
                         .shadow(color: Color.shopGreen.opacity(0.28), radius: 8, x: 0, y: 4)
                     }
                     .buttonStyle(.plain)
                 } else if let sz = selectedSize {
-                    // Size is completely sold out across all stores
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.circle.fill")
                             .font(.system(size: 15))
@@ -1184,40 +1614,124 @@ struct ProductDetailView: View {
                 }
             }
 
-            // 2. Secondary Solid Black Button: "Salva nei preferiti"
+            // 2. Secondary High-Value Comparator CTA: "Avvisami quando il prezzo scende"
             Button(action: {
-                let impact = UIImpactFeedbackGenerator(style: .medium)
-                impact.impactOccurred()
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) {
-                    wishlist.toggleFavorite(product: product, selectedSize: selectedSize)
-                }
-                cartToastMessage = isWishlisted ? "Salvato nei tuoi preferiti" : "Rimosso dai preferiti"
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    showCartToast = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    withAnimation { showCartToast = false }
-                }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showingAlertSheet = true
             }) {
                 HStack(spacing: 8) {
-                    Image(systemName: isWishlisted ? "heart.fill" : "heart")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(isWishlisted ? Color(red: 235/255, green: 40/255, blue: 60/255) : .white)
-                    Text(isWishlisted ? "Salvato nei preferiti" : "Salva nei preferiti")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                    Image(systemName: "bell.badge.fill")
+                        .font(.system(size: 14.5, weight: .semibold))
+                        .foregroundColor(.shopPurple)
+                    Text("Avvisami quando il prezzo scende")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(Color.shopDark)
+                .frame(height: 48)
+                .background(Color.shopSurface)
                 .clipShape(Capsule())
-                .shadow(color: Color.black.opacity(0.15), radius: 6, x: 0, y: 3)
+                .overlay(
+                    Capsule().stroke(Color.shopBorder, lineWidth: 1)
+                )
             }
             .buttonStyle(.plain)
         }
     }
 
-    // MARK: - 9. Descrizione Accordion
+    // MARK: - Sticky Bottom Purchase Bar
+
+    private func stickyBottomBar(offer: Offer) -> some View {
+        let hasSize = (selectedSize == nil) || offer.hasSize(selectedSize)
+        let outboundUrl = APIService.shared.outboundRedirectURL(
+            targetUrl: offer.url,
+            storeId: offer.store_id,
+            offerId: offer.id,
+            source: "product_detail_sticky"
+        )
+
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(offer.formattedPrice)
+                        .font(.system(size: 18, weight: .heavy, design: .rounded))
+                        .foregroundColor(.shopDark)
+                        .contentTransition(.numericText())
+                    Text(offer.isFreeShipping ? "Sped. gratis" : offer.formattedShipping)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(offer.isFreeShipping ? .shopGreen : .shopTextMuted)
+                        .lineLimit(1)
+                }
+                Text(offer.store_name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.shopTextMuted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 6)
+
+            Button(action: {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showingAlertSheet = true
+            }) {
+                Image(systemName: "bell.badge")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.shopDark)
+                    .frame(width: 42, height: 42)
+                    .background(Color.shopSurface)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.shopBorder, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Avviso prezzo")
+
+            if hasSize {
+                Link(destination: outboundUrl) {
+                    HStack(spacing: 5) {
+                        Text(selectedSize != nil ? "Acquista tg. \(selectedSize!)" : "Acquista")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .lineLimit(1)
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 11.5, weight: .bold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .frame(height: 42)
+                    .background(Color.shopPurple)
+                    .clipShape(Capsule())
+                    .shadow(color: Color.shopPurple.opacity(0.25), radius: 6, x: 0, y: 2)
+                }
+                .buttonStyle(.plain)
+            } else if let sz = selectedSize, let altOffer = product.bestOffer(for: sz), altOffer.hasSize(sz) {
+                Button(action: {
+                    if let idx = product.offers.firstIndex(where: { $0.id == altOffer.id }) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                            selectedOfferIndex = idx
+                        }
+                    }
+                }) {
+                    Text("Vedi su \(altOffer.store_name)")
+                        .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .padding(.horizontal, 14)
+                        .frame(height: 42)
+                        .background(Color.shopGreen)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, ShopLayout.screenPadding)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Divider().background(Color.shopBorder)
+        }
+    }
+
+    // MARK: - 10. Dettagli prodotto Accordion
 
     private var descriptionAccordion: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1227,7 +1741,7 @@ struct ProductDetailView: View {
                 }
             }) {
                 HStack {
-                    Text("Descrizione")
+                    Text("Dettagli prodotto")
                         .font(.system(size: 17, weight: .bold))
                         .foregroundColor(.shopDark)
 
@@ -1254,6 +1768,17 @@ struct ProductDetailView: View {
                         }
                     }
 
+                    if let cat = product.category, !cat.isEmpty, cat.lowercased() != "gear" {
+                        HStack(spacing: 6) {
+                            Text("Categoria:")
+                                .font(.system(size: 13.5, weight: .bold))
+                                .foregroundColor(.shopDark)
+                            Text(cat.replacingOccurrences(of: "_", with: " ").capitalized)
+                                .font(.system(size: 13.5))
+                                .foregroundColor(.shopTextMuted)
+                        }
+                    }
+
                     if let gender = product.gender, !gender.isEmpty {
                         HStack(spacing: 6) {
                             Text("Genere:")
@@ -1267,12 +1792,23 @@ struct ProductDetailView: View {
 
                     if let current = currentOffer {
                         HStack(spacing: 6) {
-                            Text("Store di riferimento:")
+                            Text("Store attivo:")
                                 .font(.system(size: 13.5, weight: .bold))
                                 .foregroundColor(.shopDark)
                             Text(current.store_name)
                                 .font(.system(size: 13.5))
                                 .foregroundColor(.shopTextMuted)
+                        }
+
+                        if let freshness = current.freshnessLabel {
+                            HStack(spacing: 6) {
+                                Text("Ultimo controllo:")
+                                    .font(.system(size: 13.5, weight: .bold))
+                                    .foregroundColor(.shopDark)
+                                Text(freshness)
+                                    .font(.system(size: 13.5))
+                                    .foregroundColor(current.isStaleOffer ? Color(red: 175/255, green: 105/255, blue: 15/255) : .shopTextMuted)
+                            }
                         }
 
                         if !current.title.isEmpty && current.title.lowercased() != product.cleanTitle.lowercased() {
@@ -1289,7 +1825,7 @@ struct ProductDetailView: View {
 
                     if !allSizes.isEmpty {
                         HStack(alignment: .top, spacing: 6) {
-                            Text("Taglie a catalogo:")
+                            Text("Taglie rilevate:")
                                 .font(.system(size: 13.5, weight: .bold))
                                 .foregroundColor(.shopDark)
                             Text(allSizes.joined(separator: ", "))
@@ -1307,10 +1843,17 @@ struct ProductDetailView: View {
         }
     }
 
-    // MARK: - 10. Consegna e resi Accordion
+    // MARK: - 11. Consegna e resi Accordion (Real Store Policies from Supabase)
 
     private var deliveryAccordion: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let storeMeta = currentOffer.flatMap {
+            DynamicCatalogRegistry.shared.storeItem(for: $0.store_id)
+                ?? DynamicCatalogRegistry.shared.storeItem(for: $0.store_name)
+        }
+        let refundSummary = storeMeta?.refund_policy?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shippingPolicy = storeMeta?.shipping_policy?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return VStack(alignment: .leading, spacing: 0) {
             Button(action: {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                     isDeliveryExpanded.toggle()
@@ -1323,6 +1866,13 @@ struct ProductDetailView: View {
 
                     Spacer()
 
+                    if !isDeliveryExpanded, let offer = currentOffer {
+                        Text(offer.isFreeShipping ? "Sped. gratis" : offer.formattedShipping)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(offer.isFreeShipping ? .shopGreen : .shopTextMuted)
+                            .padding(.trailing, 4)
+                    }
+
                     Image(systemName: isDeliveryExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.shopDark)
@@ -1333,60 +1883,46 @@ struct ProductDetailView: View {
 
             if isDeliveryExpanded {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Location: Spedizione
-                    HStack(spacing: 12) {
-                        Image(systemName: "mappin.circle.fill")
-                            .font(.system(size: 18))
-                            .foregroundColor(.shopDark)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Destinazione:")
-                                .font(.system(size: 12))
-                                .foregroundColor(.shopTextMuted)
-                            Text("Consegna in tutta Italia")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.shopDark)
-                        }
-
-                        Spacer()
-                    }
-
-                    // Truck: Spedizione
+                    // Truck: Real Shipping Summary & Policy
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "box.truck.fill")
                             .font(.system(size: 16))
-                            .foregroundColor(.shopDark)
+                            .foregroundColor(currentOffer?.isFreeShipping == true ? .shopGreen : .shopDark)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(currentOffer?.isFreeShipping == true ? "Spedizione gratuita inclusa" : "Spedizione calcolata al check-out")
-                                .font(.system(size: 14, weight: .medium))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(currentOffer?.shippingSummaryLine ?? "Spedizione calcolata al check-out")
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(.shopDark)
 
-                            if let off = currentOffer, !off.isFreeShipping {
-                                Text("Costo verificato: \(off.formattedShipping)")
-                                    .font(.system(size: 12))
+                            if let policy = shippingPolicy, !policy.isEmpty {
+                                Text(policy)
+                                    .font(.system(size: 12.5))
                                     .foregroundColor(.shopTextMuted)
                             }
                         }
                     }
 
-                    // Return Box
+                    // Return Box: Real Store Refund Policy
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "arrow.uturn.backward.circle.fill")
                             .font(.system(size: 18))
                             .foregroundColor(.shopDark)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Diritto di recesso garantito")
-                                .font(.system(size: 14, weight: .medium))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Reso e rimborso")
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(.shopDark)
-                            Text("Gestito direttamente da \(currentOffer?.store_name ?? "store partner") secondo i termini del rivenditore.")
-                                .font(.system(size: 12))
-                                .foregroundColor(.shopTextMuted)
+                            Text(
+                                (refundSummary != nil && !refundSummary!.isEmpty)
+                                    ? refundSummary!
+                                    : "Gestito direttamente da \(currentOffer?.store_name ?? "store partner") secondo i termini del rivenditore."
+                            )
+                            .font(.system(size: 12.5))
+                            .foregroundColor(.shopTextMuted)
                         }
                     }
 
-                    // Action Pill Buttons: Politica di reso & Informativa sulle spedizioni
+                    // Action Pill Buttons (clean full labels, zero manual truncation)
                     HStack(spacing: 10) {
                         Button(action: { showingReturnPolicySheet = true }) {
                             Text("Politica di reso")
@@ -1400,7 +1936,7 @@ struct ProductDetailView: View {
                         .buttonStyle(.plain)
 
                         Button(action: { showingShippingInfoSheet = true }) {
-                            Text("Informativa sulle sp...")
+                            Text("Info spedizioni")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.shopDark)
                                 .padding(.horizontal, 16)
@@ -1417,9 +1953,9 @@ struct ProductDetailView: View {
                             navigateToStore = true
                         }) {
                             HStack(spacing: 6) {
-                                Image(systemName: "link")
+                                Image(systemName: "storefront")
                                     .font(.system(size: 13, weight: .semibold))
-                                Text("Visita \(offer.store_name)")
+                                Text("Visita vetrina \(offer.store_name)")
                                     .font(.system(size: 14, weight: .bold))
                             }
                             .foregroundColor(.shopDark)
@@ -1439,26 +1975,35 @@ struct ProductDetailView: View {
         }
     }
 
-    // MARK: - 12. Andamento Prezzi e Offerte Partner (Always Open & Directly Visible)
+    // MARK: - 12. Andamento Prezzi e Offerte Partner (Comparator Core Section)
 
     private var partnerOffersSection: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            // Section Header (Matching the app's clean, modern design)
+        let bestId = bestMarketOffer?.id
+        let totalOfferCount = sortedOffers.count
+        let displayedList = visibleSortedOffers
+
+        return VStack(alignment: .leading, spacing: 18) {
+            // Section Header
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text("Andamento prezzi e offerte partner")
+                    Text("Offerte e andamento prezzi")
                         .font(.system(size: 19, weight: .bold, design: .rounded))
                         .foregroundColor(.shopDark)
 
                     Spacer()
 
-                    Text("\(product.offers.count) \(product.offers.count == 1 ? "negozio" : "negozi")")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundColor(.shopPurple)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(Color.shopPurpleLight)
-                        .clipShape(Capsule())
+                    Text(
+                        product.offers.count > distinctStoreCount
+                            ? "\(distinctStoreCount) \(distinctStoreCount == 1 ? "negozio" : "negozi") · \(product.offers.count) off."
+                            : "\(distinctStoreCount) \(distinctStoreCount == 1 ? "negozio" : "negozi")"
+                    )
+                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                    .foregroundColor(.shopPurple)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Color.shopPurpleLight)
+                    .clipShape(Capsule())
+
                     if isHydratingOffers {
                         ProgressView()
                             .scaleEffect(0.7)
@@ -1466,48 +2011,26 @@ struct ProductDetailView: View {
                     }
                 }
 
-                if let savings = product.cross_store_savings, savings > 1.0 {
+                if distinctStoreCount > 1, let savings = product.cross_store_savings, savings > 1.0 {
                     HStack(spacing: 4) {
                         Image(systemName: "tag.fill")
                             .font(.system(size: 11, weight: .bold))
-                        Text("Risparmi fino a €\(String(format: "%.2f", savings)) confrontando i negozi partner")
+                        Text("Risparmi fino a €\(String(format: "%.2f", savings)) confrontando i negozi · ordinati per prezzo totale")
                             .font(.system(size: 12.5, weight: .semibold))
                     }
                     .foregroundColor(.shopGreen)
                 } else {
-                    Text("Confronto prezzi e storico in tempo reale tra rivenditori partner")
+                    Text("Ordinate per prezzo totale inclusa spedizione")
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundColor(.shopTextMuted)
                 }
             }
-            .padding(.top, 12)
+            .padding(.top, 16)
 
-            // 1. Redesigned Price History Chart Card (Static & Non-interactive)
-            if let history = priceHistory {
-                PriceHistorySectionView(history: history)
-            } else if isLoadingPriceHistory {
-                VStack(spacing: 12) {
-                    HStack(spacing: 10) {
-                        ProgressView().tint(.shopPurple)
-                        Text("Caricamento andamento prezzi...")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.shopTextMuted)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 140)
-                .background(Color.white)
-                .cornerRadius(20)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
-                )
-            }
-
-            // 2. All Available Partner Offers with Direct Purchase Action Buttons
+            // 1. Partner Offers List (shown immediately for fast comparison)
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Text("Tutte le offerte disponibili (\(product.offers.count))")
+                    Text(totalOfferCount > 1 ? "Tutte le offerte (\(totalOfferCount))" : "Offerta verificata")
                         .font(.system(size: 15.5, weight: .bold, design: .rounded))
                         .foregroundColor(.shopDark)
 
@@ -1530,14 +2053,13 @@ struct ProductDetailView: View {
                 }
                 .padding(.top, 2)
 
-                ForEach(sortedOffers, id: \.offer.id) { item in
+                ForEach(displayedList, id: \.offer.id) { item in
                     let index = item.index
                     let offer = item.offer
                     let hasSize = item.hasSize
                     let isSelected = (index == selectedOfferIndex)
-                    let isBest = (offer.price == (currentOffer?.price ?? product.best_price))
-                    let rating = StoreRatingHelper.rating(for: offer.store_name, storeId: offer.store_id)
-                    let reviews = StoreRatingHelper.reviewCount(for: offer.store_name, storeId: offer.store_id)
+                    let isBest = (offer.id == bestId)
+                    let trust = StoreRatingHelper.trustDisplay(for: offer.store_name, storeId: offer.store_id)
                     let outboundUrl = APIService.shared.outboundRedirectURL(
                         targetUrl: offer.url,
                         storeId: offer.store_id,
@@ -1546,12 +2068,34 @@ struct ProductDetailView: View {
                     )
 
                     VStack(alignment: .leading, spacing: 12) {
-                        // Header Row: Store Logo, Store Name, Rating & Pricing
-                        HStack(alignment: .top, spacing: 12) {
-                            ShopStoreLogo(storeName: offer.store_name, showVerified: false, showLabel: false, size: 38)
+                        // Header Row: Optional Offer Colorway Thumb, Store Logo, Store Name, Trust & Pricing
+                        HStack(alignment: .top, spacing: 11) {
+                            if hasMultipleDistinctOfferImages,
+                               let imgStr = offer.image_url?.trimmingCharacters(in: .whitespacesAndNewlines),
+                               let thumbUrl = URL(string: imgStr) {
+                                ShopCachedAsyncImage(url: thumbUrl, maxPixelSize: 220) { phase in
+                                    if let img = phase.image {
+                                        img
+                                            .resizable()
+                                            .scaledToFit()
+                                            .padding(4)
+                                    } else {
+                                        ShopSkeletonBlock(cornerRadius: 10)
+                                    }
+                                }
+                                .frame(width: 44, height: 44)
+                                .background(Color.shopSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(isSelected ? Color.shopPurple : Color.shopBorder, lineWidth: isSelected ? 1.5 : 0.8)
+                                )
+                            } else {
+                                ShopStoreLogo(storeName: offer.store_name, showVerified: false, showLabel: false, size: 38)
+                            }
 
                             VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 6) {
+                                HStack(spacing: 5) {
                                     Text(offer.store_name)
                                         .font(.system(size: 15, weight: .bold, design: .rounded))
                                         .foregroundColor(.shopDark)
@@ -1562,19 +2106,32 @@ struct ProductDetailView: View {
                                         .foregroundColor(.shopPurple)
                                 }
 
-                                // Store Rating & Reviews
+                                // Official Store Badge or Trustpilot Rating + Freshness
                                 HStack(spacing: 4) {
-                                    HStack(spacing: 2) {
-                                        Image(systemName: "star.fill")
-                                            .font(.system(size: 9.5))
-                                            .foregroundColor(.shopOrange)
-                                        Text(rating)
-                                            .font(.system(size: 11.5, weight: .bold))
-                                            .foregroundColor(.shopDark)
+                                    if let ratingText = trust.ratingText, let reviewsText = trust.reviewsText {
+                                        HStack(spacing: 2) {
+                                            Image(systemName: "star.fill")
+                                                .font(.system(size: 9.5))
+                                                .foregroundColor(.shopOrange)
+                                            Text(ratingText)
+                                                .font(.system(size: 11.5, weight: .bold))
+                                                .foregroundColor(.shopDark)
+                                        }
+                                        Text("(\(reviewsText))")
+                                            .font(.system(size: 10.5))
+                                            .foregroundColor(.shopTextMuted)
+                                    } else {
+                                        Text(trust.badgeText)
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundColor(.shopPurple)
                                     }
-                                    Text("(\(reviews) recensioni)")
-                                        .font(.system(size: 10.5))
-                                        .foregroundColor(.shopTextMuted)
+
+                                    if let freshness = offer.freshnessLabel {
+                                        Text("· \(freshness)")
+                                            .font(.system(size: 10.5, weight: .medium))
+                                            .foregroundColor(offer.isStaleOffer ? Color(red: 175/255, green: 105/255, blue: 15/255) : .shopTextMuted)
+                                            .lineLimit(1)
+                                    }
                                 }
                             }
 
@@ -1620,6 +2177,7 @@ struct ProductDetailView: View {
                                             .font(.system(size: 9))
                                         Text(v)
                                             .font(.system(size: 10.5, weight: .medium))
+                                            .lineLimit(1)
                                     }
                                     .foregroundColor(.shopTextMuted)
                                     .padding(.horizontal, 6)
@@ -1630,7 +2188,7 @@ struct ProductDetailView: View {
 
                                 Spacer()
 
-                                // Shipping badge / cost
+                                // Shipping badge / total cost
                                 HStack(spacing: 4) {
                                     if offer.isFreeShipping {
                                         HStack(spacing: 3) {
@@ -1721,19 +2279,22 @@ struct ProductDetailView: View {
                                     if ctaUnverifiedSizes {
                                         Text("Verifica tg. \(sz) su \(offer.store_name)")
                                             .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                            .lineLimit(1)
                                     } else {
                                         Text("Offerta \(offer.store_name) (tg. \(sz) esaurita)")
                                             .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                            .lineLimit(1)
                                     }
                                 } else {
                                     Text("Vedi offerta su \(offer.store_name)")
                                         .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                                        .lineLimit(1)
                                 }
 
                                 Spacer()
 
                                 HStack(spacing: 4) {
-                                    Text(offer.formattedPrice)
+                                    Text(offer.formattedTotalPrice)
                                         .font(.system(size: 13.5, weight: .heavy, design: .rounded))
                                     Image(systemName: "arrow.up.right")
                                         .font(.system(size: 11, weight: .bold))
@@ -1755,17 +2316,70 @@ struct ProductDetailView: View {
                     .cornerRadius(16)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(isSelected ? Color.shopPurple.opacity(0.4) : Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                            .stroke(isSelected ? Color.shopPurple.opacity(0.45) : Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: isSelected ? 1.5 : 1)
                     )
                     .shadow(color: Color.black.opacity(0.02), radius: 4, x: 0, y: 1)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        selectedOfferIndex = index
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.78)) {
+                            selectedOfferIndex = index
+                        }
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
                 }
+
+                // Expand / Collapse Button for large multi-variant clusters (> 5 offers)
+                if totalOfferCount > 5 {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            isExpandedOffers.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Text(
+                                isExpandedOffers
+                                    ? "Mostra meno offerte"
+                                    : "Mostra tutte le \(totalOfferCount) offerte (+\(totalOfferCount - displayedList.count))"
+                            )
+                            .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                            Image(systemName: isExpandedOffers ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 11.5, weight: .bold))
+                        }
+                        .foregroundColor(.shopPurple)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(Color.shopPurpleLight.opacity(0.5))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .padding(.bottom, 6)
+            .padding(.bottom, 4)
+
+            // 2. Honest Price History Card (renders chart only with >=2 real observations, else compact alert card)
+            if let history = priceHistory {
+                PriceHistorySectionView(history: history, onRequestPriceAlert: {
+                    showingAlertSheet = true
+                })
+            } else if isLoadingPriceHistory {
+                VStack(spacing: 12) {
+                    HStack(spacing: 10) {
+                        ProgressView().tint(.shopPurple)
+                        Text("Caricamento andamento prezzi...")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.shopTextMuted)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 110)
+                .background(Color.white)
+                .cornerRadius(20)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+                )
+            }
 
             Divider()
                 .background(Color(red: 235/255, green: 236/255, blue: 240/255))
@@ -1815,9 +2429,10 @@ struct ProductDetailView: View {
             hasHydratedOffers = true
             return
         }
-        // Only skip when we already have multiple distinct stores and gallery images
+        // Only skip when we already have multiple distinct stores, gallery, category, and freshness timestamps
         let currentDistinctStores = Set(product.offers.map { $0.store_id.lowercased() }).count
-        if currentDistinctStores > 1 && !(product.gallery_images ?? []).isEmpty {
+        let hasFreshness = product.offers.contains { ($0.last_checked_at ?? "").isEmpty == false }
+        if currentDistinctStores > 1 && !(product.gallery_images ?? []).isEmpty && product.category != nil && hasFreshness {
             hasHydratedOffers = true
             return
         }
@@ -1830,32 +2445,74 @@ struct ProductDetailView: View {
             }
         }
 
-        guard let hydrated = await SupabaseManager.shared.fetchHydratedProductDirect(productId: pid) else {
+        guard let hydrated = await SupabaseManager.shared.fetchHydratedProductDirect(
+            productId: pid,
+            preferredOfferUrl: initialTappedOfferURL
+        ) else {
             return
         }
 
         await MainActor.run {
-            // Preserve the user's tapped store/offer index when found in the hydrated list
+            // Ensure the exact offer tapped by the user is NEVER dropped (even if the cluster has >80 offers)
+            var mergedOffers = hydrated.offers
+            if let tapped = initialTappedOffer,
+               !tapped.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !mergedOffers.contains(where: { $0.url == tapped.url }) {
+                mergedOffers.append(tapped)
+                mergedOffers.sort { $0.price < $1.price }
+            }
+
+            // Preserve the user's tapped store/offer index so the hero image, price, and link never swap unexpectedly
             var targetIdx = 0
             if let tappedURL = initialTappedOfferURL,
-               let exactIdx = hydrated.offers.firstIndex(where: { $0.url == tappedURL }) {
+               let exactIdx = mergedOffers.firstIndex(where: { $0.url == tappedURL }) {
                 targetIdx = exactIdx
             } else if let tappedStore = initialTappedStoreId?.lowercased(),
-                      let storeIdx = hydrated.offers.firstIndex(where: { $0.store_id.lowercased() == tappedStore }) {
+                      let storeIdx = mergedOffers.firstIndex(where: { $0.store_id.lowercased() == tappedStore }) {
                 targetIdx = storeIdx
             }
 
+            let targetOffer = mergedOffers.indices.contains(targetIdx) ? mergedOffers[targetIdx] : mergedOffers.first
+            let minPrice = mergedOffers.map(\.price).min() ?? hydrated.best_price
+            let maxPrice = mergedOffers.map(\.price).max() ?? hydrated.highest_price
+            let distinctStoreCount = Set(mergedOffers.map { $0.store_id.lowercased() }).count
+            let crossSavings: Double? = {
+                if let mn = minPrice, let mx = maxPrice, distinctStoreCount > 1, mx - mn > 1.0 {
+                    return mx - mn
+                }
+                return hydrated.cross_store_savings
+            }()
+
+            let finalProduct = MatchedProduct(
+                id_val: hydrated.id_val,
+                canonical_name: hydrated.canonical_name,
+                brand: hydrated.brand,
+                category: hydrated.category ?? product.category,
+                image_url: targetOffer?.allImages.first ?? hydrated.image_url,
+                gallery_images: hydrated.gallery_images,
+                gender: hydrated.gender,
+                offers: mergedOffers,
+                best_price: minPrice,
+                highest_price: maxPrice,
+                cross_store_savings: crossSavings
+            )
+
             withAnimation(.easeInOut(duration: 0.22)) {
-                self.product = hydrated
+                self.product = finalProduct
                 self.selectedOfferIndex = targetIdx
+                self.selectedVariant = targetOffer?.displayVariant
+                // Only auto-select preferred size if the user's tapped offer actually has it,
+                // preventing hydration from jumping away from the clicked product/colorway.
                 if self.selectedSize == nil, let pref = self.userPreferredSize,
-                   hydrated.allAvailableSizes.contains(where: { $0.replacingOccurrences(of: ",", with: ".") == pref }) {
+                   targetOffer?.hasSize(pref) == true {
                     self.selectedSize = pref
                 }
             }
 
-            let extraUrls = hydrated.allImages.compactMap { URL(string: $0) }
-            ImageCacheManager.shared.prefetch(urls: extraUrls, maxPixelSize: 1200)
+            let activeUrls = (targetOffer?.allImages ?? []).compactMap { URL(string: $0) }
+            ImageCacheManager.shared.prefetch(urls: activeUrls, maxPixelSize: 1200)
+            let partnerThumbs = mergedOffers.prefix(15).compactMap { $0.image_url.flatMap(URL.init) }
+            ImageCacheManager.shared.prefetch(urls: partnerThumbs, maxPixelSize: 400)
         }
     }
 
@@ -1881,36 +2538,37 @@ struct ProductDetailView: View {
 
     private func loadRelatedProducts() async {
         guard relatedProducts.isEmpty else { return }
-        isLoadingRelated = true
-        let brand = product.effectiveBrand
-        var fetched: [MatchedProduct] = []
+        await MainActor.run { isLoadingRelated = true }
 
-        // 1. Fetch real related products for the same brand from Supabase
-        if !brand.isEmpty {
-            fetched = await SupabaseManager.shared.fetchSmartProductsDirect(
-                category: nil,
-                keywords: [brand],
-                limit: 12
-            )
-        }
+        let resolvedPid = product.offers.first?.product_id ?? product.id_val
+        let refPrice = currentOffer?.price ?? product.best_price
+        var fetched = await SupabaseManager.shared.fetchRelatedProductsDirect(
+            excludingProductId: resolvedPid,
+            excludingCanonicalName: product.canonical_name,
+            category: product.category,
+            brand: product.effectiveBrand,
+            gender: product.gender,
+            referencePrice: refPrice,
+            limit: 8
+        )
 
-        // 2. If fewer than 6 products, enrich with category products
-        if fetched.count < 6 {
+        // Fallback if category was unknown and returned few items
+        if fetched.count < 4 {
             let catKw = product.isComparable ? ["running"] : ["fitness"]
             let extra = await SupabaseManager.shared.fetchSmartProductsDirect(
-                category: nil,
+                category: product.category,
                 keywords: catKw,
+                gender: product.gender,
                 limit: 12
             )
-            for item in extra {
+            for item in extra where item.id != product.id && item.canonical_name != product.canonical_name {
                 if !fetched.contains(where: { $0.id == item.id || $0.canonical_name == item.canonical_name }) {
                     fetched.append(item)
                 }
             }
         }
 
-        let filtered = fetched.filter { $0.id != product.id && $0.canonical_name != product.canonical_name }
-        let limited = Array(filtered.prefix(8))
+        let limited = Array(fetched.prefix(8))
         let prefetchUrls = limited.compactMap { URL(string: $0.image_url ?? "") }
         ImageCacheManager.shared.prefetch(urls: prefetchUrls, maxPixelSize: 400)
         await MainActor.run {
@@ -2022,8 +2680,10 @@ struct ShopRelatedProductCard: View {
 
 struct PriceHistorySectionView: View {
     let history: PriceHistoryResponse
+    var onRequestPriceAlert: (() -> Void)? = nil
 
-    var dailyTrendPoints: [PriceHistoryPoint] {
+    /// Real distinct-day observations only (never fabricates a synthetic "Listino" drop point).
+    var realDailyTrendPoints: [PriceHistoryPoint] {
         var byDay: [String: PriceHistoryPoint] = [:]
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
@@ -2040,123 +2700,157 @@ struct PriceHistorySectionView: View {
             }
         }
 
-        let sorted = byDay.values.sorted(by: { $0.parsedDate < $1.parsedDate })
-        if sorted.count >= 2 {
-            return sorted
-        }
-        if let single = sorted.first {
-            let prevDate = Calendar.current.date(byAdding: .day, value: -7, to: single.parsedDate) ?? single.parsedDate
-            let basePrice = max(single.price, history.highest_price)
-            let basePoint = PriceHistoryPoint(
-                date: ISO8601DateFormatter().string(from: prevDate),
-                price: basePrice,
-                store_name: "Listino",
-                offer_id: nil
-            )
-            return [basePoint, single]
-        }
-        return sorted
+        return byDay.values.sorted(by: { $0.parsedDate < $1.parsedDate })
+    }
+
+    private var hasRealChartData: Bool {
+        realDailyTrendPoints.count >= 2
     }
 
     private var chartMinPrice: Double {
-        let prices = dailyTrendPoints.map(\.price)
+        let prices = realDailyTrendPoints.map(\.price)
         let minP = prices.min() ?? history.lowest_price
         return max(0, minP * 0.92)
     }
 
     private var chartMaxPrice: Double {
-        let prices = dailyTrendPoints.map(\.price)
+        let prices = realDailyTrendPoints.map(\.price)
         let maxP = prices.max() ?? history.highest_price
-        return maxP * 1.06
+        return max(maxP * 1.06, chartMinPrice + 1.0)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // 1. Top Header: Title, Lowest Price & Badges
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text("Andamento dei prezzi")
-                            .font(.system(size: 15.5, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopDark)
+        if !hasRealChartData {
+            // Honest compact monitoring card when fewer than 2 historical observations exist
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "chart.line.uptrend.xyaxis.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(.shopPurple)
 
-                        if history.is_all_time_low {
-                            HStack(spacing: 3) {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 9, weight: .bold))
-                                Text("Minimo storico")
-                                    .font(.system(size: 10, weight: .bold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Monitoraggio prezzi attivo")
+                            .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                            .foregroundColor(.shopDark)
+                        Text("Stiamo raccogliendo lo storico di questo modello. Attiva un avviso per non perdere il prossimo calo.")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(.shopTextMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                if let onAlert = onRequestPriceAlert {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onAlert()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "bell.badge.fill")
+                                .font(.system(size: 12.5, weight: .bold))
+                            Text("Imposta avviso di prezzo")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.shopPurple)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(Color.shopPurpleLight.opacity(0.65))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(14)
+            .background(Color.white)
+            .cornerRadius(18)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+            )
+        } else {
+            VStack(alignment: .leading, spacing: 16) {
+                // 1. Top Header: Title, Lowest Price & Badges
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text("Storico prezzi")
+                                .font(.system(size: 15.5, weight: .bold, design: .rounded))
+                                .foregroundColor(.shopDark)
+
+                            if history.is_all_time_low {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 9, weight: .bold))
+                                    Text("Minimo storico")
+                                        .font(.system(size: 10, weight: .bold))
+                                }
+                                .foregroundColor(.shopPurple)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Color.shopPurpleLight)
+                                .clipShape(Capsule())
                             }
-                            .foregroundColor(.shopPurple)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(Color.shopPurpleLight)
-                            .clipShape(Capsule())
+                        }
+
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(history.formattedLowestPrice)
+                                .font(.system(size: 24, weight: .heavy, design: .rounded))
+                                .foregroundColor(.shopDark)
+
+                            Text("\(realDailyTrendPoints.count) rilevazioni reali")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.shopTextMuted)
+                                .lineLimit(1)
                         }
                     }
 
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(history.formattedLowestPrice)
-                            .font(.system(size: 24, weight: .heavy, design: .rounded))
-                            .foregroundColor(.shopDark)
+                    Spacer()
 
-                        Text(history.is_all_time_low ? "Miglior prezzo registrato" : "Prezzo monitorato tra partner")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.shopTextMuted)
-                            .lineLimit(1)
+                    if let dropPct = history.price_drop_percentage, dropPct > 1 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("-\(Int(dropPct.rounded()))%")
+                                .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.shopGreen)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color.shopGreenLight)
+                        .clipShape(Capsule())
                     }
                 }
 
-                Spacer()
+                // 2. Metrics Bar: Minimo | Media | Massimo
+                HStack(spacing: 8) {
+                    metricPill(
+                        label: "Minimo",
+                        value: history.formattedLowestPrice,
+                        icon: "arrow.down.right",
+                        iconColor: .shopGreen,
+                        bgColor: Color.shopGreenLight.opacity(0.4)
+                    )
 
-                // Price drop percentage badge
-                if let dropPct = history.price_drop_percentage, dropPct > 1 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.down")
-                            .font(.system(size: 10, weight: .bold))
-                        Text("-\(Int(dropPct.rounded()))%")
-                            .font(.system(size: 11.5, weight: .bold, design: .rounded))
-                    }
-                    .foregroundColor(.shopGreen)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(Color.shopGreenLight)
-                    .clipShape(Capsule())
+                    metricPill(
+                        label: "Media",
+                        value: history.formattedAveragePrice,
+                        icon: "chart.bar.fill",
+                        iconColor: .shopPurple,
+                        bgColor: Color(red: 246/255, green: 247/255, blue: 250/255)
+                    )
+
+                    metricPill(
+                        label: "Massimo",
+                        value: history.formattedHighestPrice,
+                        icon: "arrow.up.right",
+                        iconColor: .shopTextMuted,
+                        bgColor: Color(red: 246/255, green: 247/255, blue: 250/255)
+                    )
                 }
-            }
 
-            // 2. Metrics Bar: Minimo | Media | Massimo
-            HStack(spacing: 8) {
-                metricPill(
-                    label: "Minimo",
-                    value: history.formattedLowestPrice,
-                    icon: "arrow.down.right",
-                    iconColor: .shopGreen,
-                    bgColor: Color.shopGreenLight.opacity(0.4)
-                )
-
-                metricPill(
-                    label: "Media",
-                    value: history.formattedAveragePrice,
-                    icon: "chart.bar.fill",
-                    iconColor: .shopPurple,
-                    bgColor: Color(red: 246/255, green: 247/255, blue: 250/255)
-                )
-
-                metricPill(
-                    label: "Massimo",
-                    value: history.formattedHighestPrice,
-                    icon: "arrow.up.right",
-                    iconColor: .shopTextMuted,
-                    bgColor: Color(red: 246/255, green: 247/255, blue: 250/255)
-                )
-            }
-
-            // 3. Swift Chart (Touch disabled / Static visual presentation)
-            if dailyTrendPoints.count >= 2 {
+                // 3. Swift Chart (real multi-day history)
                 VStack(spacing: 0) {
                     Chart {
-                        ForEach(dailyTrendPoints) { point in
+                        ForEach(realDailyTrendPoints) { point in
                             AreaMark(
                                 x: .value("Data", point.parsedDate),
                                 y: .value("Prezzo", point.price)
@@ -2190,7 +2884,6 @@ struct PriceHistorySectionView: View {
                             .symbolSize(CGSize(width: 5, height: 5))
                         }
 
-                        // Average reference line
                         RuleMark(y: .value("Media", history.average_price))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                             .foregroundStyle(Color.secondary.opacity(0.35))
@@ -2224,40 +2917,58 @@ struct PriceHistorySectionView: View {
                             }
                         }
                     }
-                    .frame(height: 160)
+                    .frame(height: 155)
                     .padding(.top, 4)
-                    .allowsHitTesting(false) // Touch disabled so scrolling parent view is silky smooth
+                    .allowsHitTesting(false)
                 }
-            }
 
-            // 4. Market Advice Insight Pill
-            HStack(spacing: 8) {
-                Image(systemName: history.is_all_time_low ? "sparkles" : "shield.checkmark.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(history.is_all_time_low ? .shopPurple : .shopGreen)
+                // 4. Market Advice Insight + Quick Price Alert Action
+                HStack(spacing: 8) {
+                    Image(systemName: history.is_all_time_low ? "sparkles" : "shield.checkmark.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(history.is_all_time_low ? .shopPurple : .shopGreen)
 
-                Text(history.is_all_time_low ?
-                     "Questo prodotto è al minimo storico registrato tra tutti i partner." :
-                     (history.formattedSavingsVsAverage != nil ? "Prezzo attuale \(history.formattedSavingsVsAverage!)." : "Prezzo monitorato e verificato in tempo reale tra i partner.")
-                )
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.shopDark.opacity(0.85))
-                .lineLimit(2)
+                    Text(history.is_all_time_low ?
+                         "Minimo storico registrato tra i partner monitorati." :
+                         (history.formattedSavingsVsAverage != nil ? "Prezzo attuale \(history.formattedSavingsVsAverage!)." : "Andamento monitorato tra i rivenditori partner.")
+                    )
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.shopDark.opacity(0.85))
+                    .lineLimit(2)
+
+                    Spacer(minLength: 4)
+
+                    if let onAlert = onRequestPriceAlert {
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            onAlert()
+                        }) {
+                            Image(systemName: "bell.badge.fill")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.shopPurple)
+                                .frame(width: 30, height: 30)
+                                .background(Color.white)
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Imposta avviso di prezzo")
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(history.is_all_time_low ? Color.shopPurpleLight.opacity(0.6) : Color(red: 246/255, green: 247/255, blue: 250/255))
+                .cornerRadius(12)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(history.is_all_time_low ? Color.shopPurpleLight.opacity(0.6) : Color(red: 246/255, green: 247/255, blue: 250/255))
-            .cornerRadius(12)
+            .padding(16)
+            .background(Color.white)
+            .cornerRadius(20)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
         }
-        .padding(16)
-        .background(Color.white)
-        .cornerRadius(20)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
     }
 
     private func metricPill(label: String, value: String, icon: String, iconColor: Color, bgColor: Color) -> some View {
@@ -2287,11 +2998,19 @@ struct PriceHistorySectionView: View {
 // MARK: - Helper Sheets
 
 struct ReturnPolicySheetView: View {
+    let storeId: String?
     let storeName: String
     @Environment(\.dismiss) private var dismiss
 
+    private var storeMeta: ActiveStoreItem? {
+        DynamicCatalogRegistry.shared.storeItem(for: storeId ?? storeName)
+            ?? DynamicCatalogRegistry.shared.storeItem(for: storeName)
+    }
+
     var body: some View {
-        NavigationStack {
+        let realPolicy = storeMeta?.refund_policy?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 12) {
@@ -2311,22 +3030,24 @@ struct ReturnPolicySheetView: View {
                     Divider()
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Condizioni generali")
+                        Text("Condizioni di \(storeName)")
                             .font(.system(size: 15, weight: .bold))
 
-                        Text("• Hai a disposizione 14 giorni lavorativi dalla data di ricezione per richiedere il reso.")
+                        if let policy = realPolicy, !policy.isEmpty {
+                            Text(policy)
+                                .font(.system(size: 14.5, weight: .medium))
+                                .foregroundColor(.shopDark)
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.shopSurface)
+                                .cornerRadius(14)
+                        }
+
+                        Text("• Il prodotto deve essere restituito integro, non utilizzato e con confezione e cartellini originali.")
                             .font(.system(size: 14))
                             .foregroundColor(.shopTextMuted)
 
-                        Text("• Il prodotto deve essere integro, con confezione e cartellini originali mai rimossi.")
-                            .font(.system(size: 14))
-                            .foregroundColor(.shopTextMuted)
-
-                        Text("• Spedizione di reso tramite corriere espresso convenzionato.")
-                            .font(.system(size: 14))
-                            .foregroundColor(.shopTextMuted)
-
-                        Text("• Il rimborso viene accreditato sullo stesso metodo di pagamento utilizzato.")
+                        Text("• Il reso e il rimborso vengono gestiti direttamente da \(storeName) secondo i termini indicati sul sito ufficiale.")
                             .font(.system(size: 14))
                             .foregroundColor(.shopTextMuted)
                     }
@@ -2348,12 +3069,22 @@ struct ReturnPolicySheetView: View {
 }
 
 struct ShippingInfoSheetView: View {
+    let storeId: String?
     let storeName: String
     let offer: Offer?
     @Environment(\.dismiss) private var dismiss
 
+    private var storeMeta: ActiveStoreItem? {
+        DynamicCatalogRegistry.shared.storeItem(for: storeId ?? offer?.store_id ?? storeName)
+            ?? DynamicCatalogRegistry.shared.storeItem(for: storeName)
+    }
+
     var body: some View {
-        NavigationStack {
+        let realPolicy = storeMeta?.shipping_policy?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let courier = offer?.effectiveCourier ?? storeMeta?.courier
+        let freeThreshold = offer?.effectiveFreeShippingThreshold ?? storeMeta?.free_shipping_threshold
+
+        return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 12) {
@@ -2375,29 +3106,63 @@ struct ShippingInfoSheetView: View {
                     VStack(alignment: .leading, spacing: 14) {
                         if let off = offer {
                             HStack {
-                                Text("Costo stimato:")
+                                Text("Per questa offerta:")
                                     .font(.system(size: 14, weight: .bold))
                                 Spacer()
                                 Text(off.isFreeShipping ? "Gratuita" : off.formattedShipping)
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundColor(off.isFreeShipping ? .shopGreen : .shopDark)
                             }
+
+                            HStack {
+                                Text("Totale stimato:")
+                                    .font(.system(size: 14, weight: .bold))
+                                Spacer()
+                                Text(off.formattedTotalPrice)
+                                    .font(.system(size: 14.5, weight: .heavy, design: .rounded))
+                                    .foregroundColor(.shopDark)
+                            }
                             Divider()
                         }
 
-                        Text("Tempi di consegna stimati")
-                            .font(.system(size: 15, weight: .bold))
+                        if let policy = realPolicy, !policy.isEmpty {
+                            Text("Condizioni di spedizione")
+                                .font(.system(size: 15, weight: .bold))
 
-                        Text("• Consegna espressa in Italia in 24-48 ore lavorative.")
-                            .font(.system(size: 14))
-                            .foregroundColor(.shopTextMuted)
+                            Text(policy)
+                                .font(.system(size: 14.5, weight: .medium))
+                                .foregroundColor(.shopDark)
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.shopSurface)
+                                .cornerRadius(14)
+                        }
 
-                        Text("• Spedizione tracciata con codice inviato all'email del cliente al momento della partenza.")
-                            .font(.system(size: 14))
-                            .foregroundColor(.shopTextMuted)
+                        if let courier, !courier.isEmpty {
+                            HStack(spacing: 8) {
+                                Image(systemName: "shippingbox.fill")
+                                    .foregroundColor(.shopPurple)
+                                Text("Corriere: \(courier)")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.shopDark)
+                            }
+                        }
 
-                        Text("• Partner logistici: GLS, BRT, DHL Express.")
-                            .font(.system(size: 14))
+                        if let thresh = freeThreshold, thresh > 0 {
+                            let tStr = thresh.truncatingRemainder(dividingBy: 1) == 0
+                                ? "€\(Int(thresh))"
+                                : String(format: "€%.2f", thresh)
+                            HStack(spacing: 8) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.shopGreen)
+                                Text("Spedizione gratuita per ordini da \(tStr)")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.shopDark)
+                            }
+                        }
+
+                        Text("Tempi e tariffe definitive vengono sempre confermati al checkout sul sito ufficiale di \(storeName).")
+                            .font(.system(size: 13))
                             .foregroundColor(.shopTextMuted)
                     }
 

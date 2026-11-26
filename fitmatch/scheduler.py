@@ -355,7 +355,12 @@ class SyncScheduler:
         try:
             from scripts.enrich_database_sizes import run_enrichment_batch
             from scripts.verify_and_purge_offers import verify_and_purge_offers
-            counts = run_enrichment_batch(limit_per_store=limit_per_store, max_workers=5, refresh_stale_limit=30)
+            counts = run_enrichment_batch(
+                limit_per_store=limit_per_store,
+                max_workers=5,
+                refresh_stale_limit=30,
+                gallery_limit_per_store=25,
+            )
             purge_stats = verify_and_purge_offers(batch_size=100, max_items=100, execute=True)
             total_enriched = sum(counts.values())
             elapsed = round(time.time() - start_time, 2)
@@ -389,6 +394,9 @@ class SyncScheduler:
                     error_message=str(e)
                 )
             return {"status": "error", "error": str(e)}
+        finally:
+            if standalone and self.current_task == "size_enrichment":
+                self.current_task = "idle"
 
     def run_embedding_task(
         self,

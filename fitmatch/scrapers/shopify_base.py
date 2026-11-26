@@ -8,7 +8,7 @@ from fitmatch.matcher.normalizer import ProductNormalizer
 
 logger = logging.getLogger("fitmatch.scraper.shopify")
 
-_SIZE_OPTION_KEYS = ("taglia", "size", "misura", "grip", "impugnatura", "manico", "numero", "shoe size")
+_SIZE_OPTION_KEYS = ("tagli", "size", "misur", "grip", "impugnatura", "manico", "numer", "shoe size")
 _COLOR_OPTION_KEYS = ("color", "colore", "colour", "variante", "variant", "fantasia", "modello")
 _KNOWN_QUERY_BRANDS = (
     "nike", "adidas", "hoka", "asics", "salomon", "brooks", "saucony",
@@ -125,13 +125,39 @@ class ShopifyBaseScraper(BaseScraper):
         )
         return normalize_sizes(raw_sizes, gender=gender_norm, category=category)
 
-    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
-        """Extract verified in-stock variant sizes from Shopify /products/<handle>.js."""
+    def _extract_gallery_from_js(self, pj: Dict[str, Any], primary_img: Optional[str] = None) -> List[str]:
+        raw_imgs: List[str] = []
+        if primary_img:
+            raw_imgs.append(primary_img)
+        feat = pj.get("featured_image")
+        if isinstance(feat, str):
+            raw_imgs.append(feat)
+        elif isinstance(feat, dict) and feat.get("url"):
+            raw_imgs.append(str(feat["url"]))
+        imgs = pj.get("images")
+        if isinstance(imgs, list):
+            for im in imgs:
+                if isinstance(im, str):
+                    raw_imgs.append(im)
+                elif isinstance(im, dict) and (im.get("src") or im.get("url")):
+                    raw_imgs.append(str(im.get("src") or im.get("url")))
+        return self.normalize_gallery_urls(raw_imgs, base_url=self.base_url, limit=8)
+
+    def fetch_pdp_details(self, product_url: str, title: Optional[str] = None) -> Dict[str, Any]:
+        """Extract verified in-stock sizes, multi-angle gallery, and stock state from Shopify /products/<handle>.js."""
         js_url = self._extract_js_url(product_url)
         pj = self._fetch_json(js_url)
         if not pj or not isinstance(pj, dict):
-            return []
-        return self._extract_sizes_from_js(pj, product_url=product_url, title=title or pj.get("title"))
+            return {"sizes": [], "gallery_images": [], "in_stock": None}
+        sizes = self._extract_sizes_from_js(pj, product_url=product_url, title=title or pj.get("title"))
+        gallery = self._extract_gallery_from_js(pj)
+        variants = [v for v in (pj.get("variants") or []) if isinstance(v, dict)]
+        in_stock = any(v.get("available") is True for v in variants) if variants else None
+        return {"sizes": sizes, "gallery_images": gallery, "in_stock": in_stock}
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Extract verified in-stock variant sizes from Shopify /products/<handle>.js."""
+        return self.fetch_pdp_details(product_url, title=title).get("sizes", [])
 
     def _hydrate_candidate_from_js(self, cand: Dict[str, Any]) -> Optional[Offer]:
         url = cand["url"]
@@ -194,6 +220,9 @@ class ShopifyBaseScraper(BaseScraper):
             img_url = pj["images"][0]
         if isinstance(img_url, str) and img_url.startswith("//"):
             img_url = f"https:{img_url}"
+        gallery = self._extract_gallery_from_js(pj, primary_img=img_url if isinstance(img_url, str) else None)
+        if not img_url and gallery:
+            img_url = gallery[0]
 
         sizes = self._extract_sizes_from_js(pj, product_url=url, title=title)
         any_available = any(v.get("available") is True for v in variants)
@@ -208,6 +237,7 @@ class ShopifyBaseScraper(BaseScraper):
             original_price=orig_price,
             url=url,
             image_url=img_url,
+            gallery_images=gallery,
             available_sizes=sizes,
             in_stock=bool(any_available),
         )

@@ -111,18 +111,21 @@ class NenciniSportScraper(BaseScraper):
         if not candidates:
             return []
 
-        def _get_sizes(cand: Dict[str, Any]) -> List[str]:
+        def _get_details(cand: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 time.sleep(0.15)
-                return self.fetch_sizes(cand["product_url"], title=cand["title"])
+                return self.fetch_pdp_details(cand["product_url"], title=cand["title"])
             except Exception:
-                return []
+                return {"sizes": [], "gallery_images": [], "in_stock": None}
 
         with ThreadPoolExecutor(max_workers=min(len(candidates), 2)) as ex:
-            sizes_results = list(ex.map(_get_sizes, candidates))
+            details_results = list(ex.map(_get_details, candidates))
 
         offers: List[Offer] = []
-        for cand, sizes in zip(candidates, sizes_results):
+        for cand, det in zip(candidates, details_results):
+            gallery = det.get("gallery_images") or ([cand["img_url"]] if cand["img_url"] else [])
+            if cand["img_url"] and cand["img_url"] not in gallery:
+                gallery.insert(0, cand["img_url"])
             offers.append(
                 Offer(
                     store_id=self.store_id,
@@ -133,16 +136,17 @@ class NenciniSportScraper(BaseScraper):
                     price=cand["price"],
                     original_price=cand["orig_price"],
                     url=cand["product_url"],
-                    image_url=cand["img_url"],
-                    available_sizes=sizes,
-                    in_stock=True
+                    image_url=cand["img_url"] or (gallery[0] if gallery else None),
+                    gallery_images=gallery[:8],
+                    available_sizes=det.get("sizes") or [],
+                    in_stock=True if det.get("in_stock") is None else bool(det["in_stock"]),
                 )
             )
 
         return offers
 
-    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
-        """Extract verified in-stock sizes from Nencini product detail page."""
+    def fetch_pdp_details(self, product_url: str, title: Optional[str] = None) -> Dict[str, Any]:
+        """Extract verified in-stock sizes and zoom gallery images from Nencini Sport PDP."""
         self._ensure_session()
         html = self._fetch_html(product_url)
         if not html:
@@ -153,8 +157,17 @@ class NenciniSportScraper(BaseScraper):
                 pass
             html = self._fetch_html(product_url)
         if not html:
-            return []
+            return {"sizes": [], "gallery_images": [], "in_stock": None}
         soup = BeautifulSoup(html, "html.parser")
+
+        raw_gallery: List[str] = []
+        for a in soup.select("a[data-fancybox]"):
+            href = (a.get("href") or "").strip()
+            if href and "/images/" in href:
+                raw_gallery.append(href)
+        if len(raw_gallery) < 2:
+            raw_gallery.extend(self.extract_jsonld_images(soup, base_url=self.base_url, limit=8))
+        gallery = self.normalize_gallery_urls(raw_gallery, base_url=self.base_url, limit=8)
 
         # 1. Parse window.tipiTaglia mapping if present
         m = re.search(r"window\.tipiTaglia\s*=\s*(\{.*?\});\s*(?:window|\n|<)", html, re.DOTALL)
@@ -174,8 +187,9 @@ class NenciniSportScraper(BaseScraper):
         active_switch = soup.select_one(".detail_switch_size_type_label.active")
         active_system = active_switch.get("data-size-key", "").upper() if active_switch else ""
 
+        all_size_els = soup.select(".gescat_detail_info_size a")
         in_stock_sizes = []
-        for a in soup.select(".gescat_detail_info_size a"):
+        for a in all_size_els:
             disp_str = a.get("data-disponibilita", "0")
             try:
                 disp = int(disp_str)
@@ -206,4 +220,10 @@ class NenciniSportScraper(BaseScraper):
                         txt = f"US {txt}"
                     in_stock_sizes.append(txt)
 
-        return self.normalize_sizes_for_product(in_stock_sizes, title=title, url=product_url, soup=soup)
+        norm_sizes = self.normalize_sizes_for_product(in_stock_sizes, title=title, url=product_url, soup=soup)
+        in_stock = (len(in_stock_sizes) > 0) if len(all_size_els) >= 2 else None
+        return {"sizes": norm_sizes, "gallery_images": gallery, "in_stock": in_stock}
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Extract verified in-stock sizes from Nencini product detail page."""
+        return self.fetch_pdp_details(product_url, title=title).get("sizes", [])

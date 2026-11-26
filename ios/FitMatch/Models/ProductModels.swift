@@ -279,6 +279,7 @@ struct Offer: Identifiable, Codable, Hashable {
     let shipping_label: String?
     let free_shipping_threshold: Double?
     let courier: String?
+    let last_checked_at: String?
 
     init(
         store_id: String,
@@ -301,7 +302,8 @@ struct Offer: Identifiable, Codable, Hashable {
         is_free_shipping: Bool? = nil,
         shipping_label: String? = nil,
         free_shipping_threshold: Double? = nil,
-        courier: String? = nil
+        courier: String? = nil,
+        last_checked_at: String? = nil
     ) {
         self.store_id = store_id
         self.store_name = store_name
@@ -324,18 +326,35 @@ struct Offer: Identifiable, Codable, Hashable {
         self.shipping_label = shipping_label
         self.free_shipping_threshold = free_shipping_threshold
         self.courier = courier
+        self.last_checked_at = last_checked_at
     }
 
     var displayVariant: String? {
-        if let v = variant_name, !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let v = variant_name?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty {
             return v
         }
         let parts = title.components(separatedBy: " - ")
-        if parts.count > 1 {
-            let col = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            if col.count >= 3 { return col }
+        guard parts.count > 1 else { return nil }
+        let candidate = parts.last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard candidate.count >= 3, candidate.count <= 48 else { return nil }
+        let low = candidate.lowercased()
+        let nonVariantPhrases = [
+            "scarpe da", "scarpa da", "scarpe running", "scarpe trail", "scarpe calcio",
+            "scarpe tennis", "scarpe basket", "da corsa", "da running", "da trail",
+            "su strada", "terreni compatti", "multiterreno", "erba artificiale"
+        ]
+        if nonVariantPhrases.contains(where: { low.contains($0) }) {
+            return nil
         }
-        return nil
+        let genericSingleWords: Set<String> = [
+            "uomo", "donna", "unisex", "bambino", "bambina", "junior", "kids",
+            "running", "trail", "corsa", "calcio", "tennis", "padel", "basket",
+            "nuoto", "ciclismo", "fitness", "outdoor", "scarpe", "scarpa"
+        ]
+        if genericSingleWords.contains(low) {
+            return nil
+        }
+        return candidate
     }
 
     var effectiveBrand: String {
@@ -423,7 +442,29 @@ struct Offer: Identifiable, Codable, Hashable {
         return hasSize(target) ? .available : .unavailable
     }
 
+    var effectiveFreeShippingThreshold: Double? {
+        if let t = free_shipping_threshold, t > 0 { return t }
+        if let ruleT = DynamicCatalogRegistry.shared.shippingRule(for: store_id)?.threshold, ruleT > 0 {
+            return ruleT
+        }
+        return nil
+    }
+
+    var effectiveCourier: String? {
+        if let c = courier?.trimmingCharacters(in: .whitespacesAndNewlines), !c.isEmpty {
+            return c
+        }
+        if let sc = DynamicCatalogRegistry.shared.storeItem(for: store_id)?.courier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !sc.isEmpty {
+            return sc
+        }
+        return nil
+    }
+
     var calculatedShippingCost: Double {
+        if let threshold = effectiveFreeShippingThreshold, price >= threshold {
+            return 0.0
+        }
         if let cost = shipping_cost { return cost }
         if let rule = DynamicCatalogRegistry.shared.shippingRule(for: store_id) {
             if let threshold = free_shipping_threshold ?? rule.threshold, price >= threshold {
@@ -461,11 +502,11 @@ struct Offer: Identifiable, Codable, Hashable {
     }
 
     var calculatedTotalPrice: Double {
-        total_price ?? (price + calculatedShippingCost)
+        price + calculatedShippingCost
     }
 
     var isFreeShipping: Bool {
-        is_free_shipping ?? (calculatedShippingCost == 0.0)
+        calculatedShippingCost <= 0.001
     }
 
     var formattedShipping: String {
@@ -473,6 +514,62 @@ struct Offer: Identifiable, Codable, Hashable {
             return "Sped. Gratis"
         }
         return String(format: "+ €%.2f sped.", calculatedShippingCost)
+    }
+
+    var shippingSummaryLine: String {
+        if isFreeShipping {
+            if let c = effectiveCourier {
+                return "Spedizione gratuita · \(c)"
+            }
+            return "Spedizione gratuita inclusa"
+        }
+        var parts = [String(format: "+ €%.2f spedizione (Tot. €%.2f)", calculatedShippingCost, calculatedTotalPrice)]
+        if let thresh = effectiveFreeShippingThreshold, thresh > price {
+            let tStr = thresh.truncatingRemainder(dividingBy: 1) == 0
+                ? "€\(Int(thresh))"
+                : String(format: "€%.2f", thresh)
+            parts.append("gratis da \(tStr)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    var parsedLastCheckedDate: Date? {
+        guard let raw = last_checked_at?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        let isoFrac = ISO8601DateFormatter()
+        isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = isoFrac.date(from: raw) { return d }
+        let isoPlain = ISO8601DateFormatter()
+        isoPlain.formatOptions = [.withInternetDateTime]
+        if let d = isoPlain.date(from: raw) { return d }
+        let normalized = raw.replacingOccurrences(of: " ", with: "T")
+        if let d = isoFrac.date(from: normalized) ?? isoPlain.date(from: normalized) { return d }
+        return nil
+    }
+
+    var freshnessDaysAgo: Int? {
+        guard let d = parsedLastCheckedDate else { return nil }
+        let seconds = max(0, Date().timeIntervalSince(d))
+        return Int(seconds / 86_400)
+    }
+
+    var isStaleOffer: Bool {
+        guard let days = freshnessDaysAgo else { return false }
+        return days >= 7
+    }
+
+    var freshnessLabel: String? {
+        guard let d = parsedLastCheckedDate else { return nil }
+        let seconds = max(0, Date().timeIntervalSince(d))
+        let hours = Int(seconds / 3600)
+        if hours < 1 { return "Verificato ora" }
+        if hours < 24 { return "Verificato \(hours)h fa" }
+        let days = hours / 24
+        if days == 1 { return "Verificato ieri" }
+        if days < 14 { return "Verificato \(days)gg fa" }
+        let weeks = days / 7
+        return "Verificato \(weeks) sett. fa"
     }
 
     var formattedTotalPrice: String {
@@ -511,6 +608,7 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
     let id_val: String?
     let canonical_name: String
     let brand: String?
+    let category: String?
     let image_url: String?
     let gallery_images: [String]?
     let gender: String?
@@ -523,6 +621,7 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
         id_val: String? = nil,
         canonical_name: String,
         brand: String? = nil,
+        category: String? = nil,
         image_url: String? = nil,
         gallery_images: [String]? = nil,
         gender: String? = nil,
@@ -534,6 +633,7 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
         self.id_val = id_val
         self.canonical_name = canonical_name
         self.brand = brand
+        self.category = category
         self.image_url = image_url
         self.gallery_images = gallery_images
         self.gender = gender
@@ -547,6 +647,7 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
         case id_val = "id"
         case canonical_name
         case brand
+        case category
         case image_url
         case gallery_images
         case gender
@@ -643,22 +744,33 @@ struct MatchedProduct: Identifiable, Codable, Hashable {
         if set.isEmpty {
             return []
         }
+        let apparelOrder: [String: Int] = [
+            "XXXS": 1, "XXS": 2, "2XS": 2, "XS": 3, "XS/S": 4,
+            "S": 5, "S/M": 6, "M": 7, "M/L": 8,
+            "L": 9, "L/XL": 10, "XL": 11, "XXL": 12, "2XL": 12,
+            "XXXL": 13, "3XL": 13, "4XL": 14, "OS": 99, "ONE SIZE": 99, "UNICA": 99
+        ]
         return set.sorted { s1, s2 in
             if let d1 = Double(s1), let d2 = Double(s2) {
                 return d1 < d2
             }
-            return s1 < s2
+            let r1 = apparelOrder[s1.uppercased()]
+            let r2 = apparelOrder[s2.uppercased()]
+            if let r1, let r2 { return r1 < r2 }
+            if r1 != nil { return true }
+            if r2 != nil { return false }
+            return s1.localizedStandardCompare(s2) == .orderedAscending
         }
     }
 
     func bestOffer(for size: String?) -> Offer? {
         guard let sz = size, !sz.isEmpty else { return bestOffer }
         let matching = offers.filter { $0.hasSize(sz) }
-        return matching.min(by: { $0.price < $1.price }) ?? bestOffer
+        return matching.min(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice }) ?? bestOffer
     }
 
     var bestOffer: Offer? {
-        offers.min(by: { $0.price < $1.price })
+        offers.min(by: { $0.calculatedTotalPrice < $1.calculatedTotalPrice })
     }
 
     var formattedBestPrice: String {

@@ -384,8 +384,8 @@ ARTICLE_PATTERNS: List[Tuple[str, List[str]]] = [
     ("shoes", [
         r"\bscarp[ae]\b", r"\bshoes?\b", r"\bsneakers?\b", r"\bcalzatur[ae]\b", r"\bfootwear\b",
         r"\bstival[ie]\b", r"\bstivalett[oi]\b", r"\bciabatt[ae]\b", r"\bchiodat[ae]\b",
-        r"\bscarpon[ie]\b", r"\bscarpett[ae]\b", r"\bslide\b", r"\binfradito\b", r"\bklapki\b",
-        r"\b(?:adistar|superstar|stan\s+smith|gazelle|samba|spezial|rs[\s-]*x|shox|air\s+max|air\s+force|vomero|pegasus|zoom\s+fly|rival\s+fly|winflo|ultraboost|supernova|adizero|boston|duramo|galaxy|hyperboost|hyperwarp|velociti|kype|morelia|chuck\s+taylor|all\s+star|slip[\s-]*ins|suola|gel[\s-]?(?:nimbus|kayano|cumulus|pulse|excite|contend|venture|sonoma|trabuco|resolution)|gt[\s-]?(?:1000|2000)|novablast|superblast|court\s*ff|solution\s+speed|barricade|madrix|wave\s+(?:rider|sky|inspire|horizon|rebellion|daichi)|clifton|bondi|rincon|arahi|speedgoat|mach\s*\d|ghost\s*\d+|glycerin|adrenaline|cascadia|endorphin|kinvara|peregrine|triumph|cloudmonster|cloudsurfer|cloudrunner|cloudboom|cloudstratus|cloudflow|rebel\s*v\d|1080|880|860|deviate\s+nitro|velocity\s+nitro|magnify\s+nitro|foreverrun|lone\s+peak|torin|olympus|bushido|ultra\s+raptor|speedcross|sense\s+ride|alphafly|vaporfly|metaspeed|zoom\s+victory|nike\s+victory)\b"
+        r"\bscarpon[ie]\b", r"\bscarpett[ae]\b", r"\bslide\b", r"\binfradito\b", r"\bklapki\b", r"\bmules?\b",
+        r"\b(?:adistar|superstar|stan\s+smith|gazelle|samba|spezial|rs[\s-]*x|shox|air\s+max|air\s+force|air\s+jordan\s+\d+|jordan\s+\d+|vomero|pegasus|structure\s+(?:\d{2}|plus)|mind\s*001|zoom\s+fly|rival\s+fly|winflo|ultraboost|supernova|adizero|boston|duramo|runfalcon|galaxy|hyperboost|hyperwarp|velociti|kype|morelia|chuck\s+taylor|all\s+star|slip[\s-]*ins|suola|gel[\s-]?(?:nimbus|kayano|cumulus|pulse|excite|contend|venture|sonoma|trabuco|resolution)|gt[\s-]?(?:1000|2000)|noosa\s+tri|novablast|superblast|court\s*ff|solution\s+speed|barricade|madrix|wave\s+(?:rider|sky|inspire|horizon|rebellion|daichi)|clifton|bondi|rincon|arahi|speedgoat|mach\s*\d|ghost\s*\d+|glycerin|adrenaline|cascadia|endorphin|kinvara|peregrine|triumph|cloudmonster|cloudsurfer|cloudrunner|cloudboom|cloudstratus|cloudflow|rebel\s*v\d|1080|880|860|hierro|deviate\s+nitro|velocity\s+nitro|magnify\s+nitro|foreverrun|lone\s+peak|torin|olympus|bushido|ultra\s+raptor|speedcross|sense\s+ride|supertrac|kinabalu|pursuit\s+ride|spectur|alphafly|vaporfly|metaspeed|zoom\s+victory|nike\s+victory)\b"
     ])
 ]
 
@@ -434,7 +434,11 @@ _TECH_FABRIC_PATTERNS: List[re.Pattern] = [
     if tf not in ("super comp", "supercomp")
 ]
 
-_GENDER_JUNIOR_RE = re.compile(r"\b(bambin[oi]|junior|jr|kids?|boy|girl)\b")
+_GENDER_JUNIOR_RE = re.compile(r"\b(bambin[oiae]|junior|jr|kids?|children|child|youth|boys?|girls?|ragazz[oiae])\b")
+_GENDER_GS_RE = re.compile(r"\bgs\b")
+_SKI_GS_CONTEXT_RE = re.compile(
+    r"\b(sci|ski|slalom|atomic|rossignol|fischer|nordica|volkl|völkl|head|blizzard|elan|dynastar|s/?race)\b"
+)
 _GENDER_FEMALE_RE = re.compile(
     r"(?:\b(?:donna|donne|woman|women|womens|wmns|femme|lady|ladies|damen|mujer|w)\b|/(?:donna|woman|women|womens|wmns|femme)/)"
 )
@@ -451,6 +455,10 @@ _HALF_ZIP_RE = re.compile(r"\b1\s*/\s*2\s*(?:di\s+)?zip\b", flags=re.IGNORECASE)
 _QUARTER_ZIP_RE = re.compile(r"\b1\s*/\s*4\s*(?:di\s+)?zip\b", flags=re.IGNORECASE)
 _LONG_SLEEVE_RE = re.compile(r"\ba\s+maniche\s+lunghe\b|\bmaniche\s+lunghe\b", flags=re.IGNORECASE)
 _SHORT_SLEEVE_RE = re.compile(r"\ba\s+maniche\s+corte\b|\bmaniche\s+corte\b", flags=re.IGNORECASE)
+_NUM_VERSION_JOIN_RE = re.compile(r"\b(860|880|1080)\s*(v\d{1,2})\b", flags=re.IGNORECASE)
+_MULTI_NUM_SHOE_BASE_RE = re.compile(r"^(?:1000|2000|1080|880|860|3d)$")
+_SECOND_GEN_NUM_RE = re.compile(r"^(?:v\d{1,2}|\d{1,2}|ii|iii|iv|vi|vii|viii|ix|x)$")
+_V_GEN_RE = re.compile(r"^v\d{1,2}$")
 _SKU_CODE_RE = re.compile(r"\b[A-Za-z0-9]{4,10}[-_][A-Za-z0-9]{2,6}\b")
 _ALNUM_WORD_RE = re.compile(r"\b[a-zA-Z0-9]+\b")
 _GORETEX_RE = re.compile(r"\bgore[\s-]*tex\b|\bgoretex\b")
@@ -461,6 +469,42 @@ _OPT_ZOOM_MODEL_RE = re.compile(r"\b(?:air\s+)?(?:zoom|zm)\s+(pegasus|vomero|str
 _PARENS_RE = re.compile(r"[()]")
 _PUNCT_RE = re.compile(r"[^\w\s]")
 _LONG_DIGITS_RE = re.compile(r"^\d{6,}$")
+_URL_GARMENT_HINTS: List[Tuple[str, re.Pattern]] = [
+    ("halfzip", re.compile(r"(?:half[\-_]?zip|1[\-_]2[\-_]z|quarter[\-_]?zip|1[\-_]4[\-_]z)")),
+    ("longsleeve", re.compile(r"(?:long[\-_]?sleeve|ls[\-_]tee|manica[\-_]lunga|[\-_]ls(?:[\-_]|$))")),
+    ("tank", re.compile(r"(?:^|[\-_])(?:tank|singlet|canotta)(?:[\-_]|$)")),
+    ("tshirt", re.compile(r"(?:t[\-_]?shirt|short[\-_]?sleeve|[\-_]tee(?:[\-_]|$)|[\-_]t[\-_][mw](?:[\-_]|$)|maglietta|[\-_]jsy(?:[\-_]|$))")),
+    ("hoodie", re.compile(r"(?:^|[\-_])(?:sweatshirt|hoodie|felpa|fleece)(?:[\-_]|$)")),
+    ("vest", re.compile(r"(?:^|[\-_])(?:vest|gilet|smanicato)(?:[\-_]|$)")),
+    ("jacket", re.compile(r"(?:^|[\-_])(?:rain[\-_]?jacket|windbreaker|jacket|giacca|anorak)(?:[\-_]|$)")),
+    ("leggings", re.compile(r"(?:^|[\-_])leggings?(?:[\-_]|$)")),
+    ("tights", re.compile(r"(?:^|[\-_])(?:tights?|tight[mw]|calzamaglia)(?:[\-_]|$)")),
+    ("shorts", re.compile(r"(?:^|[\-_])(?:shorts?|pantaloncini)(?:[\-_]|$)")),
+    ("pants", re.compile(r"(?:^|[\-_])(?:pants|pantalone|pantaloni|jogger)(?:[\-_]|$)")),
+    ("socks", re.compile(r"(?:^|[\-_])(?:socks?|calze|calzini)(?:[\-_]|$)")),
+    ("cap", re.compile(r"(?:^|[\-_])(?:cap|cappellino)(?:[\-_]|$)")),
+    ("beanie", re.compile(r"(?:^|[\-_])(?:beanie|berretto)(?:[\-_]|$)")),
+    ("gloves", re.compile(r"(?:^|[\-_])(?:gloves?|guanti)(?:[\-_]|$)")),
+    ("backpack", re.compile(r"(?:^|[\-_])(?:backpack|zaino)(?:[\-_]|$)")),
+]
+_GARMENT_NOUN_TOKENS = {
+    "halfzip", "longsleeve", "lunga", "corta", "sleeve", "tank", "singlet", "canotta",
+    "tshirt", "shirt", "tee", "maglia", "maglietta", "camicia", "hoodie", "sweatshirt",
+    "felpa", "fleece", "pile", "vest", "gilet", "smanicato", "jacket", "giacca", "anorak",
+    "leggings", "legging", "tights", "tight", "calzamaglia", "shorts", "short", "pantaloncini",
+    "pants", "pantalone", "pantaloni", "jogger", "joggers", "socks", "sock", "calze", "calzini",
+    "cap", "cappellino", "beanie", "berretto", "gloves", "guanti", "backpack", "zaino",
+    "bra", "reggiseno", "jsy", "jersey", "polo", "corsaro", "gonna", "skirt", "salopette", "bib",
+}
+_FOOTBALL_TIER_TOKENS = ("elite", "pro", "league", "academy", "club")
+_FOOTBALL_SOLE_TOKENS = ("fg", "ag", "tf", "sg", "mg", "ic", "in")
+_SHOE_CUT_TOKENS = ("low", "mid", "high")
+_GENERIC_SLUG_NOISE = {
+    "p", "it", "en", "products", "product", "mp", "scarpe", "scarpa", "da", "corsa", "running",
+    "trail", "uomo", "donna", "unisex", "men", "mens", "women", "womens", "wmns", "man", "woman",
+    "shoe", "shoes", "sneaker", "sneakers", "m", "w", "html", "htm", "www", "com", "eu", "net",
+    "f", "s", "a", "b", "c", "d", "e", "g", "h", "i", "j", "k", "l", "n", "o", "q", "r", "t", "u", "v", "x", "y", "z",
+}
 _APPAREL_NO_SHOE_RE = re.compile(
     r"\b(magli[ae]|magliett[ae]|camic(?:ia|ie)|t[\s-]*shirt|tshirt|pantaloncin[oi]|pantalon[ie]|shorts?|corsar[oi]|salopette|bib|2\s*inch|giacc(?:a|he)|smanicat[aoe]|canott[ae]|singlet|felp[ae]|hoodie|calz[ae]|calzin[oi]|gonn[ae]|berrett[oi]|cappellin[oi]|zain[oi]|scaldacollo)\b"
 )
@@ -508,6 +552,8 @@ class ProductNormalizer:
         """Detect gender category from text or URL."""
         combined = f"{title} {url}".lower()
         if _GENDER_JUNIOR_RE.search(combined):
+            return "Junior"
+        if _GENDER_GS_RE.search(combined) and not _SKI_GS_CONTEXT_RE.search(combined):
             return "Junior"
         has_female = bool(_GENDER_FEMALE_RE.search(combined))
         has_male = bool(_GENDER_MALE_RE.search(combined))
@@ -677,7 +723,81 @@ class ProductNormalizer:
                 return "nutrition"
             if re.match(r"^(borraccia-|flask-|thermos-)", item_slug):
                 return "hydration"
+
+        # 3. Descriptive product URL slugs (Top4Running, MaxiSport, MisterRunning, Shopify stores, etc.)
+        slug_m = (
+            re.search(r"top4running\.it/p/([a-z0-9\-_]+)", u)
+            or re.search(r"(?:maxisport\.com|deporvillage\.it)/([a-z0-9\-_]+)", u)
+            or re.search(r"(?:misterrunning\.com|nencinisport\.it)/it/([a-z0-9\-_]+)", u)
+            or re.search(r"/products/([a-z0-9\-_]+)", u)
+        )
+        if slug_m:
+            slug = slug_m.group(1)
+            if re.search(r"(?:^|[\-_])(?:running[\-_]shoe|trail[\-_]shoe|sneakers?|scarpe[\-_]da[\-_](?:running|corsa|trail)|scarpe[\-_]running|ciabatte|sandal[oi]|mules?)(?:[\-_]|$)", slug):
+                return "shoes"
+            if re.search(r"(?:^|[\-_])(?:football[\-_]boot|scarpe[\-_]calcio|scarpini)(?:[\-_]|$)", slug):
+                return "football_boots"
+            if re.search(r"(?:^|[\-_])(?:socks?|calze|calzini)(?:[\-_]|$)", slug):
+                return "socks"
+            if re.search(r"(?:^|[\-_])(?:jacket|rain[\-_]jacket|windbreaker|vest|gilet|giacca|smanicato|anorak)(?:[\-_]|$)", slug):
+                return "jacket"
+            if re.search(r"(?:^|[\-_])(?:leggings?|tights?|tight[mw]|shorts?|pants|pantalone|pantaloni|pantaloncini|calzamaglia|jogger)(?:[\-_]|$)", slug):
+                return "pants"
+            if re.search(r"(?:^|[\-_])(?:t[\-_]?shirt|ls[\-_]tee|tee|tank|singlet|sweatshirt|hoodie|half[\-_]?zip|1[\-_]2[\-_]z|polo|bra|jsy|jersey|maglia|maglietta|felpa|canotta)(?:[\-_]|$)", slug):
+                return "top"
+            if re.search(r"(?:^|[\-_])(?:backpack|zaino|borraccia|flask|hydration)(?:[\-_]|$)", slug):
+                return "hydration"
         return None
+
+    @classmethod
+    def _extract_url_garment_hint(cls, url: Optional[str]) -> Optional[str]:
+        """Extract specific garment/item subtype from descriptive store URL slugs when title omits it."""
+        if not url:
+            return None
+        u = url.strip().lower()
+        slug_m = (
+            re.search(r"top4running\.it/p/([a-z0-9\-_]+)", u)
+            or re.search(r"cisalfasport\.it/it-it/[^/]+/([a-z0-9\-_]+)\.html", u)
+            or re.search(r"/products/([a-z0-9\-_]+)", u)
+            or re.search(r"(?:misterrunning\.com|nencinisport\.it)/it/([a-z0-9\-_]+)", u)
+        )
+        if not slug_m:
+            return None
+        slug = slug_m.group(1)
+        for hint_label, pat in _URL_GARMENT_HINTS:
+            if pat.search(slug):
+                return hint_label
+        return None
+
+    @classmethod
+    def _extract_url_fallback_key(cls, url: Optional[str], brand: Optional[str] = None) -> Optional[str]:
+        """Derive a clean slug key from product URL when title cleaning yields no identifying model tokens."""
+        if not url:
+            return None
+        u = url.strip().lower().split("?")[0].rstrip("/")
+        path_parts = [seg for seg in u.split("/") if seg]
+        if not path_parts:
+            return None
+        slug = path_parts[-1]
+        if slug.endswith(".html") or slug.endswith(".htm"):
+            slug = slug.rsplit(".", 1)[0]
+        # Decathlon MP URLs end with a UUID; prefer the descriptive segment right before it
+        if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-", slug) and len(path_parts) >= 2:
+            slug = path_parts[-2]
+        raw_toks = re.split(r"[^a-z0-9]+", slug)
+        brand_toks = set(re.findall(r"[a-z0-9]+", (brand or "").lower()))
+        kept: List[str] = []
+        for tok in raw_toks:
+            if not tok or tok in _GENERIC_SLUG_NOISE or tok in brand_toks:
+                continue
+            # Skip store-specific SKU suffixes (e.g. 's5934311', '052654401', 'a000001036')
+            if re.match(r"^(?:\d{5,}|s\d{6,}|a\d{6,}|p\d{5,})$", tok):
+                continue
+            if tok not in kept:
+                kept.append(tok)
+            if len(kept) >= 4:
+                break
+        return " ".join(kept) if kept else None
 
     @classmethod
     def extract_brand(cls, title: str, existing_brand: Optional[str] = None, url: Optional[str] = None) -> Optional[str]:
@@ -915,25 +1035,32 @@ class ProductNormalizer:
         colorway = parts[-1].strip() if len(parts) > 1 else None
 
         # Check if parts[0] is an internal SKU/MPN code (e.g. Decathlon "NIKE FQ0912-400 — Scarpe da running uomo Nike Pegasus 41"),
-        # a store name, or a generic category breadcrumb
+        # a store name, or a generic brand/category prefix (e.g. "SCOTT Scarpe - Trail - Uomo - Supertrac 3 - Arancione")
         if len(parts) > 1:
             is_sku_code = bool(_SKU_CODE_RE.search(parts[0]))
             is_store_name = any(s in parts[0].lower() for s in ("decathlon", "cisalfa", "maxisport", "nencini", "top4running", "misterrunning"))
             tokens_0 = set(_ALNUM_WORD_RE.findall(parts[0].lower()))
-            if is_sku_code or is_store_name or tokens_0.issubset(_GENERIC_TITLE_WORDS):
+            brand_tokens = set(_ALNUM_WORD_RE.findall(brand.lower())) if brand else set()
+            non_brand_tokens_0 = tokens_0 - brand_tokens
+            if is_sku_code or is_store_name or not non_brand_tokens_0 or non_brand_tokens_0.issubset(_GENERIC_TITLE_WORDS):
                 best_part = None
+                fallback_part = None
                 for p in parts[1:]:
-                    p_toks = set(_ALNUM_WORD_RE.findall(p.lower()))
+                    p_toks = set(_ALNUM_WORD_RE.findall(p.lower())) - brand_tokens
                     non_stop = p_toks - STOPWORDS
                     if non_stop:
                         if _DIGIT_RE.search(p) or any(k in p.lower() for k in ICONIC_MODEL_BRANDS):
                             best_part = p
                             break
-                        elif best_part is None:
-                            best_part = p
-                if best_part:
-                    base = best_part
-                    colorway = parts[0].strip()
+                        elif not non_stop.issubset(_GENERIC_TITLE_WORDS | {"impermeabili", "impermeabile", "leggere", "ammortizzate", "strada"}):
+                            if best_part is None:
+                                best_part = p
+                        elif fallback_part is None:
+                            fallback_part = p
+                chosen = best_part or fallback_part
+                if chosen:
+                    base = chosen
+                    colorway = parts[-1].strip() if chosen != parts[-1] else parts[0].strip()
 
         text = base.lower()
         text = _PARENS_RE.sub(" ", text)
@@ -961,8 +1088,18 @@ class ProductNormalizer:
         text = _OPT_ZOOM_MODEL_RE.sub(r"\1", text)
         text = _GORETEX_RE.sub("gtx", text)
         text = _SUPERCOMP_RE.sub("supercomp", text)
+        text = _NUM_VERSION_JOIN_RE.sub(r"\1 \2", text)
+
+        # Strip tech fabrics ONLY when other identifying model tokens remain (prevents 'Under Armour ColdGear' -> '')
+        text_no_tf = text
         for tf_pat in _TECH_FABRIC_PATTERNS:
-            text = tf_pat.sub(" ", text)
+            text_no_tf = tf_pat.sub(" ", text_no_tf)
+        remaining_after_tf = [
+            t for t in text_no_tf.split()
+            if t not in STOPWORDS and not _LONG_DIGITS_RE.match(t) and t != "s"
+        ]
+        if remaining_after_tf:
+            text = text_no_tf
 
         tokens = text.split()
         cleaned_tokens = []
@@ -1024,8 +1161,8 @@ class ProductNormalizer:
         i = 0
 
         important_qualifiers = {
-            "pro", "music", "elite", "plus", "s", "x", "max", "tr", "gtx", "trail",
-            "hyrox", "solar", "amp", "se", "power", "pwr", "warm", "winter"
+            "pro", "music", "elite", "plus", "s", "x", "max", "tr", "atr", "gtx", "wp", "trail",
+            "wide", "hyrox", "solar", "amp", "se", "power", "pwr", "warm", "winter",
         }
 
         while i < len(tokens):
@@ -1040,7 +1177,14 @@ class ProductNormalizer:
             # NEVER treat single 'x', 'i', 'v' as Roman numerals (fixes 'Puma x Hyrox', 'X-Bionic', etc.)
             is_num = bool(re.search(r"\d", t) or re.match(r"^(v\d+|ii|iii|iv|vi|vii|viii|ix|xi|xii|xiii|xiv|xv)$", t))
             if is_num:
-                # Retain model qualifiers following a number (e.g. 'deviate nitro 4 hyrox', '1080 v15', 'adios pro 4')
+                # Preserve second-stage generation numbers on known numeric shoe series
+                # (e.g. 'gt 2000 14' vs 'gt 2000 15', 'gt 1000 14/15', '1080 v15', '880 v13/v15', 'xa pro 3d v9')
+                if art_type == "shoes" and i + 1 < len(tokens):
+                    nxt_num = tokens[i + 1]
+                    if (_MULTI_NUM_SHOE_BASE_RE.match(t) and _SECOND_GEN_NUM_RE.match(nxt_num)) or _V_GEN_RE.match(nxt_num):
+                        model_parts.append(nxt_num)
+                        i += 1
+                # Retain model qualifiers following the version number (e.g. 'deviate nitro 4 hyrox', 'adios pro 4', 'gt 2000 14 tr')
                 while i + 1 < len(tokens) and tokens[i + 1] in important_qualifiers:
                     if tokens[i + 1] != "hyrox":
                         model_parts.append(tokens[i + 1])
@@ -1055,7 +1199,7 @@ class ProductNormalizer:
                     break
             elif specific_count >= 4:
                 for rem_t in tokens[i + 1:]:
-                    if (rem_t in ("gtx", "lunga", "corta", "sleeve", "warm", "merino", "zip") or bool(re.search(r"\d", rem_t))) and rem_t not in model_parts:
+                    if (rem_t in ("gtx", "wp", "lunga", "corta", "sleeve", "warm", "merino", "zip") or bool(re.search(r"\d", rem_t))) and rem_t not in model_parts:
                         model_parts.append(rem_t)
                 break
             i += 1
@@ -1063,7 +1207,65 @@ class ProductNormalizer:
         if "hyrox" in tokens and "hyrox" not in model_parts:
             model_parts.append("hyrox")
 
-        model_key = " ".join(model_parts).strip() if model_parts else "general"
+        # Preserve structural footwear variants even when separated by extra words in the title
+        token_set = set(tokens)
+        full_title_low = (offer.title or "").lower()
+        if art_type in ("shoes", "football_boots"):
+            if ("gtx" in token_set or _GORETEX_RE.search(full_title_low)) and "gtx" not in model_parts:
+                model_parts.append("gtx")
+            elif (
+                ("wp" in token_set or "waterproof" in token_set or "impermeabile" in token_set or "impermeabili" in token_set)
+                and "gtx" not in model_parts
+                and "wp" not in model_parts
+                and "waterproof" not in model_parts
+                and "impermeabile" not in model_parts
+                and "impermeabili" not in model_parts
+            ):
+                model_parts.append("wp")
+            if ("wide" in token_set or "2e" in token_set or "4e" in token_set) and "wide" not in model_parts:
+                model_parts.append("wide")
+            if "tr" in token_set and "tr" not in model_parts:
+                model_parts.append("tr")
+            if "atr" in token_set and "atr" not in model_parts:
+                model_parts.append("atr")
+            # Preserve cut (low/mid/high) on lifestyle/basketball silhouettes like Jordan 1, Air Force 1, Dunk
+            if any(k in model_parts for k in ("force", "dunk")) or (brand.lower() == "jordan" and "1" in model_parts):
+                for cut in _SHOE_CUT_TOKENS:
+                    if cut in token_set and cut not in model_parts:
+                        model_parts.append(cut)
+                        break
+
+        if art_type == "football_boots":
+            existing_tier = any(tr in model_parts for tr in _FOOTBALL_TIER_TOKENS)
+            if not existing_tier:
+                # Ignore 'pro' in soleplate combos like 'SG-Pro' / 'FG-Pro'
+                non_sole_pro = bool(re.search(r"(?<!sg[\s\-])(?<!fg[\s\-])(?<!ag[\s\-])\bpro\b", full_title_low))
+                for tier in _FOOTBALL_TIER_TOKENS:
+                    if tier == "pro" and not non_sole_pro:
+                        continue
+                    if tier in token_set:
+                        model_parts.append(tier)
+                        break
+            if "laceless" in token_set and "laceless" not in model_parts:
+                model_parts.append("laceless")
+            for sole in _FOOTBALL_SOLE_TOKENS:
+                if sole in token_set and sole not in model_parts:
+                    model_parts.append(sole)
+                    break
+
+        # Disambiguate collection-only apparel/gear titles using URL garment subtype when title omits garment noun
+        # (e.g. Top4Running "adidas BMW Berlin Marathon 2026" -> socks vs tank vs t-shirt vs cap vs tights)
+        if art_type in ("top", "jacket", "pants", "socks", "gear", "hydration", "pack"):
+            if not (set(model_parts) & _GARMENT_NOUN_TOKENS):
+                url_hint = cls._extract_url_garment_hint(offer.url)
+                if url_hint and url_hint not in model_parts:
+                    model_parts.append(url_hint)
+
+        if model_parts:
+            model_key = " ".join(model_parts).strip()
+        else:
+            url_fallback = cls._extract_url_fallback_key(offer.url, brand=brand)
+            model_key = url_fallback if url_fallback else "general"
 
         # Devices, electronics, eyewear, cycling trainers, rackets & gear are genderless
         if art_type in ("gps_watch", "cycling", "gear", "eyewear", "racket", "trainer", "sensor", "mount", "case", "strap", "pack", "nutrition", "hydration"):

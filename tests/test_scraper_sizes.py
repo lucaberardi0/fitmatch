@@ -640,3 +640,150 @@ def test_normalize_us_unisex_and_shopify_brand_and_relevance_guards():
         res = df.search("garmin 265", limit=5)
     assert len(res) == 1
     assert res[0].in_stock is True
+
+
+def test_sprint2_gallery_and_size_extraction_upgrades():
+    import json
+    from fitmatch.scrapers.shopify_stores import BasketballStoreScraper
+    from fitmatch.scrapers.df_sport import DFSportScraper
+    from fitmatch.scrapers.cisalfa import CisalfaScraper
+    from fitmatch.scrapers.maxisport import MaxiSportScraper
+
+    # 1. Apparel sizes with parenthetical cm/anni + Italian junior age codes
+    assert normalize_sizes(["S (8 anni - 128/135 cm)", "M (10/12 anni - 135/150 cm)", "XXL - (58/60 IT)"]) == ["S", "M", "XXL"]
+    assert normalize_sizes(["ANNI 7A/8A", "ANNI 11/12A", "10A", "12A"]) == ["10A", "12A", "11-12A", "7-8A"] or set(normalize_sizes(["ANNI 7A/8A", "ANNI 11/12A", "10A", "12A"])) == {"7-8A", "11-12A", "10A", "12A"}
+
+    # 2. Shopify plural option name 'Taglie Uomo' + multi-angle images extraction
+    bball = BasketballStoreScraper()
+    bball_js = {
+        "id": 777001,
+        "title": "Under Armour Baseline Knee Tights",
+        "vendor": "Under Armour",
+        "options": [
+            {"name": "Stile", "position": 1, "values": ["Black"]},
+            {"name": "Taglie Uomo", "position": 2, "values": ["M (46/48 IT)", "XXL - (58/60 IT)"]},
+        ],
+        "variants": [
+            {"id": 1, "options": ["Black", "M (46/48 IT)"], "available": False, "price": 3500},
+            {"id": 2, "options": ["Black", "XXL - (58/60 IT)"], "available": True, "price": 3500},
+        ],
+        "images": [
+            "//cdn.shopify.com/s/files/1/a.jpg",
+            "//cdn.shopify.com/s/files/1/b.jpg",
+            "//cdn.shopify.com/s/files/1/c.jpg",
+        ],
+    }
+    with patch.object(bball, "_fetch_json", return_value=bball_js):
+        det = bball.fetch_pdp_details("https://www.basketballstore.net/products/baseline-knee-tights")
+    assert det["sizes"] == ["XXL"]
+    assert len(det["gallery_images"]) == 3
+    assert det["gallery_images"][0].startswith("https://")
+    assert det["in_stock"] is True
+
+    # 3. Adidas hi-res w_800,h_800 sorted gallery (excluding marketing banners)
+    ad_item = {
+        "image": {"src": "https://assets.adidas.com/images/w_280,h_280,f_auto/a.jpg"},
+        "images": [
+            {"src": "https://assets.adidas.com/images/w_280,h_280,f_auto/c.jpg", "metadata": {"sortOrder": "2", "imageStyle": "Standard"}},
+            {"src": "https://assets.adidas.com/images/w_280,h_280,f_auto/mkt.jpg", "metadata": {"sortOrder": "1", "imageStyle": "Marketing"}},
+            {"src": "https://assets.adidas.com/images/w_280,h_280,f_auto/a.jpg", "metadata": {"sortOrder": "0", "imageStyle": "Standard"}},
+        ],
+    }
+    ad_gallery = AdidasScraper.extract_gallery_from_item(ad_item)
+    assert ad_gallery == [
+        "https://assets.adidas.com/images/w_800,h_800,f_auto/a.jpg",
+        "https://assets.adidas.com/images/w_800,h_800,f_auto/c.jpg",
+    ]
+
+    # 4. MisterRunning div.gallery excludes sibling colorway swatches in ul.varianti
+    mr = MisterRunningScraper()
+    mr_html = """
+    <h1>Asics Novablast 6</h1>
+    <ul class="varianti"><li><a href="/other.html"><img src="/media/products/other-color.jpg" /></a></li></ul>
+    <div class="gallery">
+        <a href="https://www.misterrunning.com/images/a.jpg"><img src="https://www.misterrunning.com/images/a.jpg" /></a>
+        <a href="/media/products/b-600x600.jpg"><img src="/media/products/b-600x600.jpg" /></a>
+    </div>
+    <button class="opt opt_on" data-eu="42">42</button>
+    <div class="opt opt_off" data-eu="43">43</div>
+    """
+    with patch.object(mr, "_fetch_html", return_value=mr_html):
+        mr_det = mr.fetch_pdp_details("https://www.misterrunning.com/it/novablast.html")
+    assert mr_det["sizes"] == ["42"]
+    assert mr_det["gallery_images"] == [
+        "https://www.misterrunning.com/images/a.jpg",
+        "https://www.misterrunning.com/media/products/b-600x600.jpg",
+    ]
+
+    # 5. Top4Running JSON-LD full-res gallery
+    t4 = Top4RunningScraper()
+    t4_html = """
+    <script type="application/ld+json">
+    {"@type":"Product","image":["https://i1.t4s.cz/p/a.png","https://i1.t4s.cz/p/b.png","https://i1.t4s.cz/p/c.png"]}
+    </script>
+    <select id="js-detail-select-size"><option value="1">42½ EU | 9 US</option></select>
+    """
+    with patch.object(t4, "_fetch_html", return_value=t4_html):
+        t4_det = t4.fetch_pdp_details("https://top4running.it/p/shoe")
+    assert t4_det["sizes"] == ["42.5"]
+    assert len(t4_det["gallery_images"]) == 3
+
+    # 6. Cisalfa gallery ignores sw=180 color swatch and detects sold-out
+    ci = CisalfaScraper()
+    ci_html = """
+    <div class="js-pdp-slider-img">
+      <div class="cc-product-image"><img src="/on/demandware.static/a.jpg" /></div>
+      <div class="cc-product-image"><img data-src="/on/demandware.static/b.jpg" /></div>
+    </div>
+    <div class="cc-pdp__swatch-wrap--color"><img src="https://www.cisalfasport.it/swatch.jpg?sw=180&sh=225" /></div>
+    <button class="size-attribute cc-unavailable" data-display-value="42"></button>
+    <button class="size-attribute cc-unavailable" data-display-value="43"></button>
+    """
+    with patch.object(ci, "_fetch_html", return_value=ci_html):
+        ci_det = ci.fetch_pdp_details("https://www.cisalfasport.it/it-it/p.html")
+    assert ci_det["gallery_images"] == [
+        "https://www.cisalfasport.it/on/demandware.static/a.jpg",
+        "https://www.cisalfasport.it/on/demandware.static/b.jpg",
+    ]
+    assert ci_det["sizes"] == []
+    assert ci_det["in_stock"] is False
+
+    # 7. Alltricks swiper gallery + explicit OOS detection when all sizes are sold out
+    at = AlltricksScraper()
+    at_html = """
+    <div class="swiper"><div class="swiper-zoom-container">
+      <img src="https://product-cdn.alltricks.com/large/1/a.jpg" />
+      <img data-src="https://product-cdn.alltricks.com/large/1/b.jpg" />
+    </div></div>
+    <select name="product_id">
+      <option value="">Taglia</option>
+      <option value="1" data-label="S" data-stock-label="Stock esaurito">S</option>
+      <option value="2" data-label="M" data-stock-label="Stock esaurito">M</option>
+    </select>
+    """
+    with patch.object(at, "_fetch_html", return_value=at_html):
+        at_det = at.fetch_pdp_details("https://www.alltricks.it/p")
+    assert len(at_det["gallery_images"]) == 2
+    assert at_det["sizes"] == []
+    assert at_det["in_stock"] is False
+
+    # 8. MaxiSport Magento Fotorama gallery
+    ms = MaxiSportScraper()
+    fotorama = [{"thumb": "https://maxi.gumlet.io/t1.jpg", "full": "https://maxi.gumlet.io/f1.jpg"}, {"thumb": "https://maxi.gumlet.io/t2.jpg", "img": "https://maxi.gumlet.io/f2.jpg"}]
+    ms_html = f'<script type="text/x-magento-init">{{"[data-gallery-role=gallery-placeholder]": {{"mage/gallery/gallery": {{"data": {json.dumps(fotorama)}}}}}}}</script>'
+    with patch.object(ms, "_fetch_html", return_value=ms_html):
+        ms_det = ms.fetch_pdp_details("https://www.maxisport.com/p")
+    assert ms_det["gallery_images"] == ["https://maxi.gumlet.io/f1.jpg", "https://maxi.gumlet.io/f2.jpg"]
+
+    # 9. DF Sport .js gallery extraction
+    df = DFSportScraper()
+    df_js = {
+        "title": "Asics Novablast 6",
+        "options": [{"name": "Taglia"}],
+        "variants": [{"options": ["42"], "available": True}],
+        "images": ["//cdn.shopify.com/1.jpg", "//cdn.shopify.com/2.jpg"],
+    }
+    with patch.object(df, "_fetch_json", return_value=df_js):
+        df_det = df.fetch_pdp_details("https://www.df-sportspecialist.it/products/novablast-6")
+    assert df_det["sizes"] == ["42"]
+    assert df_det["gallery_images"] == ["https://cdn.shopify.com/1.jpg", "https://cdn.shopify.com/2.jpg"]

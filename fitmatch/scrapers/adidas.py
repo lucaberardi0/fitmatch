@@ -41,6 +41,50 @@ class AdidasScraper(BaseScraper):
         "babolat", "wilson", "head", "yonex", "new balance", "on running",
     )
 
+    @classmethod
+    def extract_gallery_from_item(cls, item: Dict[str, Any], limit: int = 8) -> List[str]:
+        """Extract ordered hi-res (800x800) product angle URLs from Adidas taxonomy API item."""
+        def _upgrade(u: Optional[str]) -> Optional[str]:
+            if not u or not isinstance(u, str):
+                return None
+            return u.replace("/w_280,h_280,", "/w_800,h_800,").replace("/w_383,h_383,", "/w_800,h_800,")
+
+        ordered_imgs: List[str] = []
+        raw_list = item.get("images")
+        if isinstance(raw_list, list) and raw_list:
+            def _sort_key(entry: Any) -> int:
+                if isinstance(entry, dict):
+                    meta = entry.get("metadata") or {}
+                    try:
+                        return int(meta.get("sortOrder", 999))
+                    except Exception:
+                        return 999
+                return 999
+
+            for entry in sorted(raw_list, key=_sort_key):
+                if isinstance(entry, dict):
+                    meta = entry.get("metadata") or {}
+                    style = str(meta.get("imageStyle") or "").lower()
+                    # Prefer clean Standard studio product angles first
+                    if style == "marketing":
+                        continue
+                    u = _upgrade(entry.get("src"))
+                    if u:
+                        ordered_imgs.append(u)
+                elif isinstance(entry, str):
+                    u = _upgrade(entry)
+                    if u:
+                        ordered_imgs.append(u)
+
+        for key in ("image", "secondImage"):
+            obj = item.get(key)
+            src = obj.get("src") if isinstance(obj, dict) else (obj if isinstance(obj, str) else None)
+            u = _upgrade(src)
+            if u:
+                ordered_imgs.append(u)
+
+        return cls.normalize_gallery_urls(ordered_imgs, base_url=cls.base_url, limit=limit)
+
     def search(self, query: str, limit: int = 10) -> List[Offer]:
         """Search Adidas Italy catalog via official taxonomy/search API."""
         clean_query = query.strip()
@@ -82,11 +126,8 @@ class AdidasScraper(BaseScraper):
                     continue
                 url = urllib.parse.urljoin(self.base_url, link)
 
-                img_obj = p.get("image")
-                img_url = img_obj.get("src") if isinstance(img_obj, dict) else (img_obj if isinstance(img_obj, str) else None)
-                if not img_url:
-                    sec_img = p.get("secondImage")
-                    img_url = sec_img.get("src") if isinstance(sec_img, dict) else sec_img
+                gallery = self.extract_gallery_from_item(p, limit=8)
+                img_url = gallery[0] if gallery else None
 
                 pid = str(p.get("productId") or p.get("modelId") or "")
                 raw_sizes = p.get("availableSizes", [])
@@ -104,6 +145,7 @@ class AdidasScraper(BaseScraper):
                         original_price=orig_price,
                         url=url,
                         image_url=img_url,
+                        gallery_images=gallery,
                         available_sizes=sizes,
                         in_stock=in_stock
                     )

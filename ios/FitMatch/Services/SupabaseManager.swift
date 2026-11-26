@@ -2640,7 +2640,7 @@ class SupabaseManager: ObservableObject {
 
     // MARK: - Multi-Store Offer Hydration for ProductDetailView
 
-    func fetchHydratedProductDirect(productId: String) async -> MatchedProduct? {
+    func fetchHydratedProductDirect(productId: String, preferredOfferUrl: String? = nil) async -> MatchedProduct? {
         let trimmed = productId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
@@ -2648,6 +2648,7 @@ class SupabaseManager: ObservableObject {
             let id: String
             let canonical_name: String
             let brand: String?
+            let category: String?
             let gender: String?
             let image_url: String?
             let gallery_images: [String]?
@@ -2669,13 +2670,14 @@ class SupabaseManager: ObservableObject {
             let shipping_cost: Double?
             let free_shipping_threshold: Double?
             let courier: String?
+            let last_checked_at: String?
         }
 
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&=+#")
         guard let encPid = trimmed.addingPercentEncoding(withAllowedCharacters: allowed),
-              let offersUrl = URL(string: "\(restURL)/store_offers?product_id=eq.\(encPid)&in_stock=neq.false&current_price=gt.0&order=current_price.asc&limit=35&select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,available_sizes,in_stock,shipping_cost,free_shipping_threshold,courier"),
-              let prodUrl = URL(string: "\(restURL)/products?id=eq.\(encPid)&select=id,canonical_name,brand,gender,image_url,gallery_images&limit=1") else {
+              let offersUrl = URL(string: "\(restURL)/store_offers?product_id=eq.\(encPid)&in_stock=neq.false&current_price=gt.0&order=current_price.asc&limit=80&select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,available_sizes,in_stock,shipping_cost,free_shipping_threshold,courier,last_checked_at"),
+              let prodUrl = URL(string: "\(restURL)/products?id=eq.\(encPid)&select=id,canonical_name,brand,category,gender,image_url,gallery_images&limit=1") else {
             return nil
         }
 
@@ -2713,13 +2715,14 @@ class SupabaseManager: ObservableObject {
 
             let effBrand = prodMeta?.brand ?? ProductBrandHelper.extractBrand(from: row.raw_title, fallback: row.store_name)
             let cleanTitle = DealTitleSanitizer.clean(row.raw_title, brand: effBrand, canonicalName: prodMeta?.canonical_name)
-            let effShip: Double = {
+            let effShip: Double? = {
+                if let t = row.free_shipping_threshold, t > 0, row.current_price >= t { return 0.0 }
                 if let s = row.shipping_cost { return s }
                 if let rule = DynamicCatalogRegistry.shared.shippingRule(for: row.store_id) {
                     if let t = row.free_shipping_threshold ?? rule.threshold, row.current_price >= t { return 0.0 }
                     return rule.standard
                 }
-                return 0.0
+                return nil
             }()
             let effDiscount: Double? = {
                 if let d = row.discount_pct, d > 0 { return d }
@@ -2745,31 +2748,48 @@ class SupabaseManager: ObservableObject {
                 available_sizes: row.available_sizes ?? [],
                 in_stock: row.in_stock ?? true,
                 shipping_cost: effShip,
-                total_price: row.current_price + effShip,
-                is_free_shipping: effShip == 0.0,
-                shipping_label: effShip == 0.0 ? "Sped. Gratis" : String(format: "+ €%.2f sped.", effShip),
+                total_price: effShip.map { row.current_price + $0 },
+                is_free_shipping: effShip.map { $0 <= 0.001 },
+                shipping_label: effShip.map { $0 <= 0.001 ? "Sped. Gratis" : String(format: "+ €%.2f sped.", $0) },
                 free_shipping_threshold: row.free_shipping_threshold,
-                courier: row.courier
+                courier: row.courier,
+                last_checked_at: row.last_checked_at
             ))
         }
 
         guard !mappedOffers.isEmpty else { return nil }
-        mappedOffers.sort { $0.price < $1.price }
+        mappedOffers.sort { $0.calculatedTotalPrice < $1.calculatedTotalPrice }
 
-        let minPrice = mappedOffers.first!.price
-        let maxPrice = mappedOffers.last!.price
+        let minPrice = mappedOffers.map(\.price).min() ?? mappedOffers.first!.price
+        let maxPrice = mappedOffers.map(\.price).max() ?? mappedOffers.last!.price
         let distinctStoreCount = Set(mappedOffers.map { $0.store_id.lowercased() }).count
         let crossSavings: Double? = (distinctStoreCount > 1 && maxPrice - minPrice > 1.0) ? (maxPrice - minPrice) : nil
 
+        // Prioritize the tapped/preferred offer's own images first so the product hero never swaps to a mismatched colorway
+        let preferredOffer: Offer? = {
+            if let prefUrl = preferredOfferUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !prefUrl.isEmpty,
+               let matched = mappedOffers.first(where: { $0.url.trimmingCharacters(in: .whitespacesAndNewlines) == prefUrl }) {
+                return matched
+            }
+            return mappedOffers.first
+        }()
+
         var allGallery: [String] = []
-        if let pImg = prodMeta?.image_url, !pImg.isEmpty { allGallery.append(pImg) }
-        for g in prodMeta?.gallery_images ?? [] where !g.isEmpty && !allGallery.contains(g) {
-            allGallery.append(g)
+        if let pref = preferredOffer {
+            for img in pref.allImages where !allGallery.contains(img) {
+                allGallery.append(img)
+            }
         }
         for off in mappedOffers {
             for img in off.allImages where !allGallery.contains(img) {
                 allGallery.append(img)
             }
+        }
+        if let pImg = prodMeta?.image_url, !pImg.isEmpty, !allGallery.contains(pImg) {
+            allGallery.append(pImg)
+        }
+        for g in prodMeta?.gallery_images ?? [] where !g.isEmpty && !allGallery.contains(g) {
+            allGallery.append(g)
         }
 
         let canonical = DealTitleSanitizer.clean(
@@ -2780,7 +2800,8 @@ class SupabaseManager: ObservableObject {
             id_val: prodMeta?.id ?? trimmed,
             canonical_name: canonical,
             brand: prodMeta?.brand ?? mappedOffers.first?.effectiveBrand,
-            image_url: allGallery.first ?? mappedOffers.first?.image_url,
+            category: prodMeta?.category,
+            image_url: preferredOffer?.allImages.first ?? allGallery.first ?? prodMeta?.image_url,
             gallery_images: allGallery.isEmpty ? nil : allGallery,
             gender: prodMeta?.gender,
             offers: mappedOffers,
@@ -2788,6 +2809,92 @@ class SupabaseManager: ObservableObject {
             highest_price: maxPrice,
             cross_store_savings: crossSavings
         )
+    }
+
+    /// Fetches category-, gender-, and price-aligned related products directly from Supabase
+    /// so "Potrebbe piacerti anche" recommends genuine alternatives rather than unrelated brand items.
+    func fetchRelatedProductsDirect(
+        excludingProductId: String?,
+        excludingCanonicalName: String,
+        category: String?,
+        brand: String?,
+        gender: String?,
+        referencePrice: Double?,
+        limit: Int = 8
+    ) async -> [MatchedProduct] {
+        let cleanCat = category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasSpecificCategory = (cleanCat != nil && !cleanCat!.isEmpty && cleanCat != "gear" && cleanCat != "non_sport" && cleanCat != "all")
+
+        var candidates: [MatchedProduct] = []
+        if hasSpecificCategory, let cat = cleanCat {
+            // 1. Same category + gender (mix of brands for true alternatives)
+            let catMatches = await fetchSmartProductsDirect(
+                category: cat,
+                keywords: [],
+                brand: nil,
+                gender: gender,
+                maxPrice: referencePrice.map { max($0 * 1.85, $0 + 60) },
+                limit: 28
+            )
+            candidates.append(contentsOf: catMatches)
+
+            // 2. Also pull same-brand items inside the SAME category (e.g. sibling running shoes)
+            if let b = brand?.trimmingCharacters(in: .whitespacesAndNewlines), !b.isEmpty {
+                let sameBrandSameCat = await fetchSmartProductsDirect(
+                    category: cat,
+                    keywords: [b],
+                    brand: b,
+                    gender: gender,
+                    limit: 12
+                )
+                for item in sameBrandSameCat where !candidates.contains(where: { $0.id == item.id }) {
+                    candidates.append(item)
+                }
+            }
+        } else if let b = brand?.trimmingCharacters(in: .whitespacesAndNewlines), !b.isEmpty {
+            candidates = await fetchSmartProductsDirect(
+                category: nil,
+                keywords: [b],
+                brand: b,
+                gender: gender,
+                limit: 20
+            )
+        }
+
+        let normExclName = excludingCanonicalName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filtered = candidates.filter { item in
+            if let pid = excludingProductId, !pid.isEmpty, item.id_val == pid { return false }
+            if item.canonical_name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normExclName { return false }
+            guard let img = item.image_url?.trimmingCharacters(in: .whitespacesAndNewlines), !img.isEmpty else { return false }
+            return (item.best_price ?? 0) > 0
+        }
+
+        // Rank by price proximity + balanced brand diversity (at most 3 from the same brand in the top 8)
+        let refP = max(referencePrice ?? 80.0, 15.0)
+        let scored = filtered.sorted { lhs, rhs in
+            let lp = lhs.best_price ?? refP
+            let rp = rhs.best_price ?? refP
+            let lDist = abs(lp - refP) / refP
+            let rDist = abs(rp - refP) / refP
+            let lMulti = lhs.offers.count > 1 ? -0.18 : 0.0
+            let rMulti = rhs.offers.count > 1 ? -0.18 : 0.0
+            let lDisc = (lhs.bestOffer?.discount_pct ?? 0) >= 15 ? -0.10 : 0.0
+            let rDisc = (rhs.bestOffer?.discount_pct ?? 0) >= 15 ? -0.10 : 0.0
+            return (lDist + lMulti + lDisc) < (rDist + rMulti + rDisc)
+        }
+
+        var selected: [MatchedProduct] = []
+        var brandCounts: [String: Int] = [:]
+        for item in scored {
+            let bKey = item.effectiveBrand.lowercased()
+            if !bKey.isEmpty && (brandCounts[bKey] ?? 0) >= 3 && scored.count > limit {
+                continue
+            }
+            selected.append(item)
+            if !bKey.isEmpty { brandCounts[bKey, default: 0] += 1 }
+            if selected.count >= limit { break }
+        }
+        return selected
     }
 
     // MARK: - Health Check
@@ -3143,15 +3250,16 @@ class SupabaseManager: ObservableObject {
                 let low = s.lowercased()
                 return !low.contains("no-image") && !low.contains("no_image") && !low.contains("placeholder")
             }
-            let primaryImg = (isValidImg(p.image_url) ? p.image_url : nil)
-                ?? formattedOffers.first(where: { isValidImg($0.image_url) })?.image_url
-                ?? p.image_url
+            let primaryImg = formattedOffers.first(where: { isValidImg($0.image_url) })?.image_url
+                ?? (isValidImg(p.image_url) ? p.image_url : nil)
                 ?? formattedOffers.first?.image_url
+                ?? p.image_url
 
             results.append(MatchedProduct(
                 id_val: p.id,
                 canonical_name: p.canonical_name,
                 brand: p.brand,
+                category: p.category,
                 image_url: primaryImg,
                 gallery_images: primaryImg != nil ? [primaryImg!] : nil,
                 gender: p.gender ?? "Unisex",
@@ -3457,9 +3565,12 @@ class SupabaseManager: ObservableObject {
             let standard_shipping_cost: Double?
             let courier: String?
             let logo_url: String?
+            let refund_policy: String?
+            let shipping_policy: String?
+            let is_verified: Bool?
         }
 
-        let select = "id,name,base_url,rating,review_count,formatted_review_count,accent_color,card_theme,free_shipping_threshold,standard_shipping_cost,courier,logo_url"
+        let select = "id,name,base_url,rating,review_count,formatted_review_count,accent_color,card_theme,free_shipping_threshold,standard_shipping_cost,courier,logo_url,refund_policy,shipping_policy,is_verified"
         guard let url = URL(string: "\(restURL)/stores?select=\(select)&order=name.asc") else {
             return []
         }
@@ -3507,7 +3618,10 @@ class SupabaseManager: ObservableObject {
                 country: country,
                 logo_url: row.logo_url,
                 is_new: nil,
-                subtitle: subtitle
+                subtitle: subtitle,
+                refund_policy: row.refund_policy,
+                shipping_policy: row.shipping_policy,
+                is_verified: row.is_verified
             )
         }
     }

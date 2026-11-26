@@ -1,6 +1,6 @@
 import urllib.parse
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from bs4 import BeautifulSoup
 from fitmatch.scrapers.base import BaseScraper
 from fitmatch.models import Offer, normalize_sizes, is_female_context
@@ -108,32 +108,53 @@ class Top4RunningScraper(BaseScraper):
 
         return offers
 
-    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
-        """Extract in-stock sizes from Top4Running PDP size selector."""
+    def fetch_pdp_details(self, product_url: str, title: Optional[str] = None) -> Dict[str, Any]:
+        """Extract in-stock sizes and full-resolution JSON-LD gallery from Top4Running PDP."""
         try:
             html = self._fetch_html(product_url)
             if not html:
-                return []
+                return {"sizes": [], "gallery_images": [], "in_stock": None}
             soup = BeautifulSoup(html, "html.parser")
+
+            # Full-res product angle photos live cleanly in Product JSON-LD
+            gallery = self.extract_jsonld_images(soup, base_url=self.base_url, limit=8)
+            if len(gallery) < 2:
+                dom_imgs = [
+                    (img.get("data-src") or img.get("src") or "").strip()
+                    for img in soup.select("[class*='gallery'] img, [class*='slider'] img")
+                    if "-120." not in (img.get("data-src") or img.get("src") or "")
+                ]
+                gallery = self.normalize_gallery_urls(gallery + dom_imgs, base_url=self.base_url, limit=8)
+
             sel = soup.select_one("select#js-detail-select-size, select[name='detail_size']")
             if not sel:
-                return []
+                return {"sizes": [], "gallery_images": gallery, "in_stock": None}
+
             raw_sizes: List[str] = []
+            total_real_opts = 0
             for opt in sel.select("option"):
                 val = (opt.get("value") or "").strip()
-                if not val or opt.has_attr("disabled"):
+                if not val:
+                    continue
+                total_real_opts += 1
+                if opt.has_attr("disabled"):
                     continue
                 txt = opt.get_text(" ", strip=True)
                 if not txt:
                     continue
-                # Format: '42½ EU | 8 UK | 9 US | 27 CM' -> take primary EU/apparel part
                 primary = txt.split("|")[0].strip()
                 if primary:
                     raw_sizes.append(primary)
             pdp_title = title or (soup.find("h1").get_text(strip=True) if soup.find("h1") else "")
             gender = "women" if is_female_context(title=pdp_title) or is_female_context(title=product_url) else self.normalizer.extract_gender(pdp_title, product_url)
             category = self.normalizer.detect_article_type(pdp_title) if pdp_title else None
-            return normalize_sizes(raw_sizes, gender=gender, category=category)
+            sizes = normalize_sizes(raw_sizes, gender=gender, category=category)
+            in_stock = (len(raw_sizes) > 0) if total_real_opts >= 1 else None
+            return {"sizes": sizes, "gallery_images": gallery, "in_stock": in_stock}
         except Exception as e:
-            logger.debug(f"[Top4Running] fetch_sizes error on {product_url}: {e}")
-            return []
+            logger.debug(f"[Top4Running] fetch_pdp_details error on {product_url}: {e}")
+            return {"sizes": [], "gallery_images": [], "in_stock": None}
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Extract in-stock sizes from Top4Running PDP size selector."""
+        return self.fetch_pdp_details(product_url, title=title).get("sizes", [])

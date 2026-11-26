@@ -101,10 +101,14 @@ class DFSportScraper(BaseScraper):
             return []
 
         with ThreadPoolExecutor(max_workers=min(len(candidates), 6)) as executor:
-            sizes_list = list(executor.map(lambda c: self.fetch_sizes(c["clean_url"], title=c["full_title"]), candidates))
+            details_list = list(executor.map(lambda c: self.fetch_pdp_details(c["clean_url"], title=c["full_title"]), candidates))
 
         offers: List[Offer] = []
-        for c, sizes in zip(candidates, sizes_list):
+        for c, det in zip(candidates, details_list):
+            gallery = det.get("gallery_images") or ([c["img_url"]] if c["img_url"] else [])
+            if c["img_url"] and c["img_url"] not in gallery:
+                gallery.insert(0, c["img_url"])
+            in_stock = det["in_stock"] if det.get("in_stock") is not None else c["in_stock"]
             offers.append(
                 Offer(
                     store_id=self.store_id,
@@ -115,10 +119,10 @@ class DFSportScraper(BaseScraper):
                     price=c["price"],
                     original_price=c["orig_price"],
                     url=c["clean_url"],
-                    image_url=c["img_url"],
-                    gallery_images=[c["img_url"]] if c["img_url"] else [],
-                    available_sizes=sizes,
-                    in_stock=c["in_stock"],
+                    image_url=c["img_url"] or (gallery[0] if gallery else None),
+                    gallery_images=gallery[:8],
+                    available_sizes=det.get("sizes") or [],
+                    in_stock=in_stock,
                 )
             )
 
@@ -137,31 +141,44 @@ class DFSportScraper(BaseScraper):
             return str(v_title).strip()
         return None
 
-    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
-        """Fetch real-time in-stock sizes via Shopify .js endpoint (which includes per-variant availability)."""
+    def fetch_pdp_details(self, product_url: str, title: Optional[str] = None) -> Dict[str, Any]:
+        """Fetch real-time in-stock sizes and multi-angle gallery via Shopify .js endpoint."""
         try:
             clean_url = product_url.split("?")[0]
             js_url = f"{clean_url}.js"
             data = self._fetch_json(js_url)
             if not data or not isinstance(data, dict):
-                return []
+                return {"sizes": [], "gallery_images": [], "in_stock": None}
+
+            raw_imgs: List[str] = []
+            feat = data.get("featured_image")
+            if isinstance(feat, str):
+                raw_imgs.append(feat)
+            for im in (data.get("images") or []):
+                if isinstance(im, str):
+                    raw_imgs.append(im)
+                elif isinstance(im, dict) and (im.get("src") or im.get("url")):
+                    raw_imgs.append(str(im.get("src") or im.get("url")))
+            gallery = self.normalize_gallery_urls(raw_imgs, base_url=self.base_url, limit=8)
 
             variants = data.get("variants") or []
             if not isinstance(variants, list):
-                return []
+                return {"sizes": [], "gallery_images": gallery, "in_stock": None}
 
             options_meta = data.get("options") or []
             size_idx: Optional[int] = None
             for idx, opt in enumerate(options_meta):
                 opt_name = (opt.get("name") if isinstance(opt, dict) else str(opt)).lower()
-                if any(k in opt_name for k in ("tagli", "size", "misur", "numero")):
+                if any(k in opt_name for k in ("tagli", "size", "misur", "numer")):
                     size_idx = idx
                     break
 
             sizes: List[str] = []
+            any_avail = False
             for v in variants:
                 if not isinstance(v, dict) or v.get("available") is not True:
                     continue
+                any_avail = True
                 sz = self._extract_variant_size(v, size_idx)
                 if sz and sz not in sizes:
                     sizes.append(sz)
@@ -170,7 +187,16 @@ class DFSportScraper(BaseScraper):
             gender = "women" if is_female_context(title=pdp_title) else None
             ptype = str(data.get("type") or "").lower()
             category = "apparel" if any(k in ptype for k in ("abbigliamento", "apparel", "t-shirt", "magli", "pantalon", "giacc")) else None
-            return normalize_sizes(sizes, gender=gender, category=category)
+            norm_sizes = normalize_sizes(sizes, gender=gender, category=category)
+            return {
+                "sizes": norm_sizes,
+                "gallery_images": gallery,
+                "in_stock": any_avail if variants else None,
+            }
         except Exception as e:
-            logger.debug(f"[DFSport] fetch_sizes error on {product_url}: {e}")
-            return []
+            logger.debug(f"[DFSport] fetch_pdp_details error on {product_url}: {e}")
+            return {"sizes": [], "gallery_images": [], "in_stock": None}
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Fetch real-time in-stock sizes via Shopify .js endpoint (which includes per-variant availability)."""
+        return self.fetch_pdp_details(product_url, title=title).get("sizes", [])

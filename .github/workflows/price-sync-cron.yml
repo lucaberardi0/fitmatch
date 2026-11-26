@@ -7,13 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "Task to trigger: 'refresh' (price check) or 'discovery' (new catalog crawl)"
+        description: "Task to trigger: 'refresh' (price check), 'discovery' (new catalog crawl), or 'enrich' (sizes & galleries)"
         required: true
         default: "refresh"
         type: choice
         options:
           - refresh
           - discovery
+          - enrich
 
 jobs:
   price-sync:
@@ -41,9 +42,12 @@ jobs:
           if [ "$ACTION" = "discovery" ] || { [ -z "$ACTION" ] && [ "$CURRENT_HOUR" = "04" ]; }; then
             echo "Triggering full catalog discovery (limit 40 per store)..."
             RESPONSE=$(curl -s -X POST "https://fitmatch-backend-klhv.onrender.com/api/scheduler/run-discovery?limit_per_store=40" --max-time 30)
+          elif [ "$ACTION" = "enrich" ]; then
+            echo "Triggering size & gallery enrichment (limit 40 per store)..."
+            RESPONSE=$(curl -s -X POST "https://fitmatch-backend-klhv.onrender.com/api/scheduler/run-enrichment?limit_per_store=40" --max-time 30)
           else
-            echo "Triggering background price refresh for 25 products..."
-            RESPONSE=$(curl -s -X POST "https://fitmatch-backend-klhv.onrender.com/api/scheduler/run-refresh?limit=25" --max-time 30)
+            echo "Triggering background price refresh for 50 priority products..."
+            RESPONSE=$(curl -s -X POST "https://fitmatch-backend-klhv.onrender.com/api/scheduler/run-refresh?limit=50" --max-time 30)
           fi
           echo "Trigger Response: $RESPONSE"
 

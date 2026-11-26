@@ -62,3 +62,53 @@ def test_price_history_synthetic_baseline():
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+def test_supabase_record_price_history_batch_dedup_and_no_synthetic_baseline():
+    from unittest.mock import MagicMock
+    from fitmatch.supabase_client import SupabaseClient
+
+    sb = SupabaseClient.__new__(SupabaseClient)
+    posted_batches = []
+
+    def fake_request(endpoint, method="GET", data=None, **kwargs):
+        if method == "GET" and endpoint.startswith("price_history?offer_id=in."):
+            return {
+                "status": 200,
+                "data": [
+                    {"offer_id": "o_same", "price": 100.0, "recorded_at": "2026-11-26T10:00:00Z"},
+                    {"offer_id": "o_drop", "price": 120.0, "recorded_at": "2026-11-26T10:00:00Z"},
+                ],
+            }
+        if method == "POST" and endpoint == "price_history":
+            posted_batches.append(data)
+            return {"status": 201, "data": data}
+        if method == "GET" and endpoint.startswith("products?id=eq."):
+            return {"status": 200, "data": [{"id": "p1", "canonical_name": "Nike Pegasus 42", "brand": "Nike"}]}
+        if method == "GET" and endpoint.startswith("store_offers?product_id=eq."):
+            return {
+                "status": 200,
+                "data": [{
+                    "id": "o_new",
+                    "store_id": "misterrunning",
+                    "store_name": "Mister Running",
+                    "current_price": 110.0,
+                    "original_price": 150.0,
+                    "discount_pct": 27,
+                    "last_checked_at": "2026-11-26T12:00:00Z",
+                }],
+            }
+        return {"status": 200, "data": []}
+
+    sb._request = MagicMock(side_effect=fake_request)
+
+    # Batch should skip unchanged recent o_same, insert changed o_drop and brand-new o_new
+    count = sb.record_price_history_batch({"o_same": 100.0, "o_drop": 99.0, "o_new": 110.0})
+    assert count == 2
+    inserted_ids = {r["offer_id"] for batch in posted_batches for r in batch}
+    assert inserted_ids == {"o_drop", "o_new"}
+
+    # Supabase get_price_history must NOT fabricate a fake 30-day 'Listino Ufficiale' point
+    hist = sb.get_price_history(product_id="p1")
+    assert all(pt["store_name"] != "Listino Ufficiale" for pt in hist["history_points"])
+    assert hist["current_price"] == 110.0

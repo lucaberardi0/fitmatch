@@ -106,17 +106,20 @@ class CisalfaScraper(BaseScraper):
         if not candidates:
             return []
 
-        def _get_sizes(cand: Dict[str, Any]) -> List[str]:
+        def _get_details(cand: Dict[str, Any]) -> Dict[str, Any]:
             try:
-                return self.fetch_sizes(cand["product_url"], title=cand["title"])
+                return self.fetch_pdp_details(cand["product_url"], title=cand["title"])
             except Exception:
-                return []
+                return {"sizes": [], "gallery_images": [], "in_stock": None}
 
         with ThreadPoolExecutor(max_workers=min(len(candidates), 6)) as ex:
-            sizes_results = list(ex.map(_get_sizes, candidates))
+            details_results = list(ex.map(_get_details, candidates))
 
         offers: List[Offer] = []
-        for cand, sizes in zip(candidates, sizes_results):
+        for cand, det in zip(candidates, details_results):
+            gallery = det.get("gallery_images") or ([cand["img_url"]] if cand["img_url"] else [])
+            if cand["img_url"] and cand["img_url"] not in gallery:
+                gallery.insert(0, cand["img_url"])
             offers.append(
                 Offer(
                     store_id=self.store_id,
@@ -127,23 +130,39 @@ class CisalfaScraper(BaseScraper):
                     price=cand["price"],
                     original_price=cand["orig_price"],
                     url=cand["product_url"],
-                    image_url=cand["img_url"],
-                    available_sizes=sizes,
-                    in_stock=True
+                    image_url=cand["img_url"] or (gallery[0] if gallery else None),
+                    gallery_images=gallery[:8],
+                    available_sizes=det.get("sizes") or [],
+                    in_stock=True if det.get("in_stock") is None else bool(det["in_stock"]),
                 )
             )
 
         return offers
 
-    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
-        """Extract available sizes from Cisalfa product detail page."""
+    def fetch_pdp_details(self, product_url: str, title: Optional[str] = None) -> Dict[str, Any]:
+        """Extract available sizes, PDP slider gallery angles, and stock state from Cisalfa PDP."""
         html = self._fetch_html(product_url)
         if not html:
-            return []
+            return {"sizes": [], "gallery_images": [], "in_stock": None}
         soup = BeautifulSoup(html, "html.parser")
+
+        raw_gallery: List[str] = []
+        for img in soup.select(".js-pdp-slider-img .cc-product-image img, .cc-pdp__image-wrp img"):
+            src = (img.get("data-src") or img.get("src") or "").strip()
+            if src and "sw=180" not in src:
+                raw_gallery.append(src)
+        gallery = self.normalize_gallery_urls(raw_gallery, base_url=self.base_url, limit=8)
+
+        all_size_els = soup.select(".size-attribute")
         sizes = []
         for el in soup.select(".size-attribute.cc-available"):
             val = el.get("data-display-value")
             if val:
                 sizes.append(val.strip().replace(",", "."))
-        return self.normalize_sizes_for_product(sizes, title=title, url=product_url, soup=soup)
+        norm_sizes = self.normalize_sizes_for_product(sizes, title=title, url=product_url, soup=soup)
+        in_stock = (len(sizes) > 0) if len(all_size_els) >= 2 else None
+        return {"sizes": norm_sizes, "gallery_images": gallery, "in_stock": in_stock}
+
+    def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
+        """Extract available sizes from Cisalfa product detail page."""
+        return self.fetch_pdp_details(product_url, title=title).get("sizes", [])

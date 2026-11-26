@@ -1,9 +1,11 @@
 import re
+import json
+import urllib.parse
 import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Dict
 from curl_cffi import requests
-from fitmatch.models import Offer, normalize_sizes, is_female_context
+from fitmatch.models import Offer, clean_image_url, normalize_sizes, is_female_context
 from fitmatch.matcher.normalizer import ProductNormalizer
 
 logger = logging.getLogger("fitmatch.scraper")
@@ -44,6 +46,79 @@ class BaseScraper(ABC):
     def fetch_sizes(self, product_url: str, title: Optional[str] = None) -> List[str]:
         """Fetch available in-stock sizes from the product detail page."""
         return []
+
+    def fetch_pdp_details(self, product_url: str, title: Optional[str] = None) -> Dict[str, Any]:
+        """Fetch sizes, gallery_images, and optional in_stock status from a PDP in a single HTTP request."""
+        return {
+            "sizes": self.fetch_sizes(product_url, title=title),
+            "gallery_images": [],
+            "in_stock": None,
+        }
+
+    @staticmethod
+    def normalize_gallery_urls(urls: List[Any], base_url: Optional[str] = None, limit: int = 8) -> List[str]:
+        """Resolve relative/protocol-relative image URLs, sanitize placeholders, and deduplicate preserving order."""
+        out: List[str] = []
+        seen = set()
+        for raw in urls:
+            if not raw or not isinstance(raw, str):
+                continue
+            u = raw.strip()
+            if not u or u.startswith("data:"):
+                continue
+            if u.startswith("//"):
+                u = f"https:{u}"
+            elif u.startswith("/") and base_url:
+                u = urllib.parse.urljoin(base_url, u)
+            cleaned = clean_image_url(u)
+            if not cleaned:
+                continue
+            low = cleaned.lower()
+            if any(bad in low for bad in ("pixel.png", "svg", "rating.", "icon", "logo", "sprite")):
+                continue
+            if cleaned not in seen:
+                seen.add(cleaned)
+                out.append(cleaned)
+                if len(out) >= limit:
+                    break
+        return out
+
+    @classmethod
+    def extract_jsonld_images(cls, soup: Any, base_url: Optional[str] = None, limit: int = 8) -> List[str]:
+        """Extract product gallery image URLs from schema.org Product JSON-LD blocks."""
+        if soup is None:
+            return []
+        collected: List[str] = []
+        for sc in soup.find_all("script", type="application/ld+json"):
+            raw = sc.string or sc.get_text() or ""
+            if not raw.strip():
+                continue
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                continue
+            stack = parsed if isinstance(parsed, list) else [parsed]
+            while stack:
+                node = stack.pop(0)
+                if not isinstance(node, dict):
+                    continue
+                if isinstance(node.get("@graph"), list):
+                    stack.extend(node["@graph"])
+                ntype = node.get("@type")
+                types = ntype if isinstance(ntype, list) else [ntype]
+                if any(str(t).lower() == "product" for t in types if t):
+                    imgs = node.get("image")
+                    if isinstance(imgs, str):
+                        collected.append(imgs)
+                    elif isinstance(imgs, dict) and imgs.get("url"):
+                        collected.append(str(imgs["url"]))
+                    elif isinstance(imgs, list):
+                        for item in imgs:
+                            if isinstance(item, str):
+                                collected.append(item)
+                            elif isinstance(item, dict) and item.get("url"):
+                                collected.append(str(item["url"]))
+        return cls.normalize_gallery_urls(collected, base_url=base_url, limit=limit)
 
     def _fetch_html(self, url: str, params: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Fetch HTML content with Chrome impersonation."""

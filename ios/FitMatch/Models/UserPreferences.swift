@@ -100,6 +100,49 @@ struct ActiveStoreItem: Codable, Identifiable, Hashable {
     let logo_url: String?
     let is_new: Bool?
     let subtitle: String?
+    let refund_policy: String?
+    let shipping_policy: String?
+    let is_verified: Bool?
+
+    init(
+        id: String,
+        name: String,
+        base_url: String,
+        rating: Double? = nil,
+        review_count: Int? = nil,
+        formatted_review_count: String? = nil,
+        accent_color: String? = nil,
+        card_theme: String? = nil,
+        free_shipping_threshold: Double? = nil,
+        standard_shipping_cost: Double? = nil,
+        courier: String? = nil,
+        country: String? = nil,
+        logo_url: String? = nil,
+        is_new: Bool? = nil,
+        subtitle: String? = nil,
+        refund_policy: String? = nil,
+        shipping_policy: String? = nil,
+        is_verified: Bool? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.base_url = base_url
+        self.rating = rating
+        self.review_count = review_count
+        self.formatted_review_count = formatted_review_count
+        self.accent_color = accent_color
+        self.card_theme = card_theme
+        self.free_shipping_threshold = free_shipping_threshold
+        self.standard_shipping_cost = standard_shipping_cost
+        self.courier = courier
+        self.country = country
+        self.logo_url = logo_url
+        self.is_new = is_new
+        self.subtitle = subtitle
+        self.refund_policy = refund_policy
+        self.shipping_policy = shipping_policy
+        self.is_verified = is_verified
+    }
 
     var computedInitials: String {
         let lower = name.lowercased()

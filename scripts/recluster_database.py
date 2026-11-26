@@ -26,41 +26,45 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
     print(f" Mode: {'EXECUTE (Writing to Supabase)' if execute else 'DRY RUN (Read-only analysis)'}")
     print("=" * 60)
 
-    # 1. Fetch existing master products so we can diff in-place (preserving embeddings & avoiding redundant writes)
+    # 1. Fetch existing master products using fast keyset pagination (immune to OFFSET timeouts)
     print("\n[1/4] Fetching existing products and store offers from Supabase...")
     t0 = time.time()
     existing_products: Dict[str, Dict[str, Any]] = {}
     page_size = 1000
-    offset = 0
-    while offset < limit:
-        ep = f"products?select=id,canonical_name,brand,category,gender,image_url&order=id.asc&limit={page_size}&offset={offset}"
-        resp = sb._request(ep)
+    last_prod_id = None
+    while len(existing_products) < limit:
+        ep = f"products?select=id,canonical_name,brand,category,gender,image_url&order=id.asc&limit={page_size}"
+        if last_prod_id is not None:
+            ep += f"&id=gt.{urllib.parse.quote(last_prod_id, safe='')}"
+        resp = sb._request(ep, timeout=30)
         batch = resp.get("data") or []
         if not batch:
             break
         for p in batch:
             existing_products[p["id"]] = p
+        last_prod_id = batch[-1]["id"]
         if len(batch) < page_size:
             break
-        offset += page_size
     print(f"  Fetched {len(existing_products)} existing master products in {time.time() - t0:.2f}s.")
 
-    # 2. Page through all store offers
+    # 2. Keyset-page through all store offers
     t1 = time.time()
     all_offers: List[Dict[str, Any]] = []
-    offset = 0
+    last_offer_id = None
 
-    while offset < limit:
-        endpoint = f"store_offers?select=id,product_id,raw_title,store_name,store_id,current_price,original_price,discount_pct,product_url,image_url,available_sizes&order=id.asc&limit={page_size}&offset={offset}"
-        resp = sb._request(endpoint)
+    while len(all_offers) < limit:
+        endpoint = f"store_offers?select=id,product_id,raw_title,store_name,store_id,current_price,original_price,discount_pct,product_url,image_url,available_sizes,in_stock&order=id.asc&limit={page_size}"
+        if last_offer_id is not None:
+            endpoint += f"&id=gt.{urllib.parse.quote(last_offer_id, safe='')}"
+        resp = sb._request(endpoint, timeout=30)
         batch = resp.get("data") or []
         if not batch:
             break
         all_offers.extend(batch)
+        last_offer_id = batch[-1]["id"]
         print(f"  Fetched {len(all_offers)} offers...", end="\r", flush=True)
         if len(batch) < page_size:
             break
-        offset += page_size
 
     print(f"\n  Fetched {len(all_offers)} total offers in {time.time() - t1:.2f}s.")
 
@@ -79,7 +83,8 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
             discount_pct=float(row.get("discount_pct")) if row.get("discount_pct") else None,
             url=row.get("product_url") or "https://example.com",
             image_url=clean_image_url(row.get("image_url")),
-            available_sizes=row.get("available_sizes") or []
+            available_sizes=row.get("available_sizes") or [],
+            in_stock=row.get("in_stock") is not False,
         )
 
         cluster_key = ProductNormalizer.extract_cluster_key(off)
@@ -141,6 +146,23 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
 
                 clusters[eff_key]["offers"].append((row, off))
 
+    # Align each cluster's master image_url with the cheapest active in-stock offer that has a valid image
+    for ck, c in clusters.items():
+        active_with_img = [
+            off for _, off in c["offers"]
+            if off.in_stock and off.price > 0 and off.image_url
+        ]
+        if active_with_img:
+            active_with_img.sort(key=lambda o: o.price)
+            c["image_url"] = active_with_img[0].image_url
+            c["active_offer_images"] = {o.image_url for o in active_with_img}
+        else:
+            all_with_img = [off for _, off in c["offers"] if off.image_url]
+            if all_with_img:
+                all_with_img.sort(key=lambda o: o.price if o.price > 0 else 999999)
+                c["image_url"] = all_with_img[0].image_url
+            c["active_offer_images"] = {o.image_url for o in all_with_img}
+
     print(f"  Collapsed {len(all_offers)} offers into {len(clusters)} distinct master products!")
 
     # 4. Multi-store statistics & cross-store savings
@@ -177,12 +199,15 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
             })
         else:
             eff_brand = c["brand"] or ex.get("brand")
+            ex_img = ex.get("image_url")
+            active_imgs = c.get("active_offer_images") or set()
+            img_needs_heal = bool(c["image_url"] and (not ex_img or (active_imgs and ex_img not in active_imgs)))
             needs_update = (
                 (ex.get("canonical_name") or "") != (c["canonical_name"] or "")
                 or (ex.get("brand") or "") != (eff_brand or "")
                 or (ex.get("category") or "") != (c["category"] or "")
                 or (ex.get("gender") or "Unisex") != eff_gender
-                or (c["image_url"] and not ex.get("image_url"))
+                or img_needs_heal
             )
             if needs_update:
                 updated_meta_count += 1
@@ -192,7 +217,7 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
                     "brand": eff_brand,
                     "category": c["category"],
                     "gender": eff_gender,
-                    "image_url": c["image_url"] or ex.get("image_url"),
+                    "image_url": c["image_url"] if img_needs_heal else (ex_img or c["image_url"]),
                     "updated_at": now_iso,
                 })
         relinked_offer_count += sum(1 for row, _ in c["offers"] if row.get("product_id") != ck)
@@ -261,11 +286,36 @@ def analyze_and_recluster(execute: bool = False, limit: int = 100000):
         id_list_str = ",".join(f'"{x}"' for x in ids)
         q_in = urllib.parse.quote(f"({id_list_str})")
         endpoint = f"store_offers?id=in.{q_in}"
-        sb._request(endpoint, method="PATCH", data={"product_id": ck})
-        return len(ids)
+        for attempt in range(3):
+            res = sb._request(endpoint, method="PATCH", data={"product_id": ck}, timeout=45)
+            status = res.get("status")
+            if status in (200, 204):
+                return len(ids)
+            if status == 409 and ck in clusters:
+                # Ensure target master product exists (in case an earlier upsert timed out)
+                c = clusters[ck]
+                sb.upsert_products([{
+                    "id": ck,
+                    "canonical_name": c["canonical_name"],
+                    "brand": c["brand"],
+                    "category": c["category"],
+                    "gender": c["gender"] or "Unisex",
+                    "image_url": c["image_url"],
+                    "updated_at": now_iso,
+                }])
+                continue
+            time.sleep(0.5 * (attempt + 1))
+        # Fallback: patch offers individually if a batch timed out
+        done = 0
+        for single_id in ids:
+            q_one = urllib.parse.quote(f'("{single_id}")')
+            r1 = sb._request(f"store_offers?id=in.{q_one}", method="PATCH", data={"product_id": ck}, timeout=45)
+            if r1.get("status") in (200, 204):
+                done += 1
+        return done
 
     updated_offers = 0
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         for count in executor.map(_execute_patch, patch_tasks):
             updated_offers += count
             print(f"    Re-linked {updated_offers}/{relinked_offer_count} offers...", end="\r", flush=True)
