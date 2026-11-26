@@ -1329,7 +1329,184 @@ class SupabaseManager: ObservableObject {
     // MARK: - Direct Store Showcases from Supabase Cloud Database
 
     func fetchStoreShowcasesDirect() async throws -> [StoreShowcase] {
-        // 1. Ultra-fast single-roundtrip RPC backed by mv_home_showcases + live store_offers PK join (~8ms DB time)
+        // 1. Primary path: upgraded single-roundtrip RPC `get_home_showcases_v2`
+        //    (quality-ranked, deduplicated, adult sport only, multi-store + all-time-low signals)
+        struct FastShowcaseRowV2: Codable {
+            let id: String
+            let product_id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String
+            let product_canonical_name: String?
+            let product_brand: String?
+            let product_category: String?
+            let product_gender: String?
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+            let gallery_images: [String]?
+            let available_sizes: [String]?
+            let size_count: Int?
+            let multi_store_count: Int?
+            let market_min_price: Double?
+            let market_max_price: Double?
+            let is_best_market_price: Bool?
+            let is_all_time_low: Bool?
+            let price_drop_eur: Double?
+            let has_free_shipping: Bool?
+            let shipping_cost: Double?
+            let free_shipping_threshold: Double?
+            let courier: String?
+            let last_checked_at: String?
+            let store_rating: Double?
+            let store_review_count: Int?
+            let store_formatted_review_count: String?
+            let store_card_theme: String?
+            let store_accent_color: String?
+            let store_logo_url: String?
+            let store_total_offers: Int?
+            let store_avg_discount: Double?
+            let home_score: Double?
+        }
+
+        if let rpcV2Url = URL(string: "\(restURL)/rpc/get_home_showcases_v2") {
+            var rpcReq = URLRequest(url: rpcV2Url)
+            rpcReq.httpMethod = "POST"
+            rpcReq.httpBody = Data("{\"p_per_store\":12}".utf8)
+            for (k, v) in makeHeaders(isPublic: true) { rpcReq.setValue(v, forHTTPHeaderField: k) }
+            if let (rpcData, rpcResp) = try? await session.data(for: rpcReq),
+               let http = rpcResp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+               let rowsV2 = try? JSONDecoder().decode([FastShowcaseRowV2].self, from: rpcData),
+               !rowsV2.isEmpty {
+                var grouped: [String: (
+                    name: String,
+                    products: [StoreShowcaseProduct],
+                    rating: Double?,
+                    reviewCount: Int?,
+                    formattedReviews: String?,
+                    theme: String?,
+                    accent: String?,
+                    logo: String?,
+                    totalOffers: Int,
+                    avgDiscount: Double
+                )] = [:]
+
+                for r in rowsV2 {
+                    let sId = r.store_id.lowercased()
+                    let extractedBrand = ProductBrandHelper.extractBrand(
+                        from: r.product_canonical_name ?? r.raw_title,
+                        fallback: r.product_brand ?? r.store_name
+                    )
+                    let isFreeShip: Bool = {
+                        if let free = r.has_free_shipping { return free }
+                        if let cost = r.shipping_cost { return cost == 0.0 }
+                        if let thresh = r.free_shipping_threshold, thresh > 0 { return r.current_price >= thresh }
+                        return false
+                    }()
+                    let resolvedShipCost: Double? = isFreeShip ? 0.0 : r.shipping_cost
+                    let shippingLabel: String? = {
+                        if isFreeShip { return "Sped. Gratis" }
+                        if let cost = resolvedShipCost, cost > 0 { return "+ \(String(format: "%.2f", cost)) €" }
+                        return nil
+                    }()
+                    let crossSavings: Double? = {
+                        guard (r.multi_store_count ?? 1) >= 2,
+                              let mx = r.market_max_price,
+                              mx > r.current_price + 1.0,
+                              mx <= r.current_price * 2.35 else { return nil }
+                        return mx - r.current_price
+                    }()
+                    let canonical = (r.product_canonical_name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                        ? r.product_canonical_name!
+                        : r.raw_title
+
+                    let p = StoreShowcaseProduct(
+                        id: r.id,
+                        title: r.raw_title,
+                        brand: extractedBrand,
+                        image_url: r.image_url,
+                        gallery_images: r.gallery_images,
+                        available_sizes: r.available_sizes,
+                        current_price: r.current_price,
+                        original_price: r.original_price,
+                        discount_pct: r.discount_pct,
+                        product_url: r.product_url,
+                        canonical_name: canonical,
+                        product_id: r.product_id,
+                        shipping_cost: resolvedShipCost,
+                        total_price: resolvedShipCost.map { r.current_price + $0 },
+                        is_free_shipping: isFreeShip,
+                        shipping_label: shippingLabel,
+                        free_shipping_threshold: r.free_shipping_threshold,
+                        courier: r.courier,
+                        store_id: sId,
+                        store_name: r.store_name,
+                        store_rating: r.store_rating.map { String(format: "%.1f", $0) },
+                        store_review_count: r.store_formatted_review_count,
+                        store_logo_url: r.store_logo_url,
+                        product_category: r.product_category,
+                        product_gender: r.product_gender,
+                        size_count: r.size_count,
+                        multi_store_count: r.multi_store_count,
+                        market_min_price: r.market_min_price,
+                        market_max_price: r.market_max_price,
+                        cross_store_savings: crossSavings,
+                        is_best_market_price: r.is_best_market_price,
+                        is_all_time_low: r.is_all_time_low,
+                        price_drop_eur: r.price_drop_eur,
+                        deal_score: r.home_score,
+                        last_checked_at: r.last_checked_at
+                    )
+                    if grouped[sId] == nil {
+                        grouped[sId] = (
+                            name: r.store_name,
+                            products: [],
+                            rating: r.store_rating,
+                            reviewCount: r.store_review_count,
+                            formattedReviews: r.store_formatted_review_count,
+                            theme: r.store_card_theme,
+                            accent: r.store_accent_color,
+                            logo: r.store_logo_url,
+                            totalOffers: r.store_total_offers ?? 0,
+                            avgDiscount: r.store_avg_discount ?? 0.0
+                        )
+                    }
+                    if (grouped[sId]?.products.count ?? 0) < 12 {
+                        grouped[sId]?.products.append(p)
+                    }
+                }
+
+                let v2Showcases: [StoreShowcase] = grouped.compactMap { (sId, info) in
+                    guard !info.products.isEmpty else { return nil }
+                    let ratingStr = info.rating.map { String(format: "%.1f", $0) } ?? "4.8"
+                    let revStr = info.formattedReviews ?? (info.reviewCount != nil ? "\(info.reviewCount!)" : nil)
+                    return StoreShowcase(
+                        store_id: sId,
+                        store_name: info.name,
+                        total_offers: max(info.totalOffers, info.products.count),
+                        avg_discount: info.avgDiscount,
+                        rating: ratingStr,
+                        review_count: revStr,
+                        card_theme: info.theme ?? "white",
+                        accent_color: info.accent,
+                        logo_url: info.logo,
+                        products: info.products
+                    )
+                }
+
+                return v2Showcases.sorted {
+                    let s0IsBrand = $0.store_id == "nike" || $0.store_id == "adidas"
+                    let s1IsBrand = $1.store_id == "nike" || $1.store_id == "adidas"
+                    if s0IsBrand && !s1IsBrand { return true }
+                    if !s0IsBrand && s1IsBrand { return false }
+                    return $0.total_offers > $1.total_offers
+                }
+            }
+        }
+
+        // 1b. Legacy fallback RPC `get_home_showcases_fast`
         struct FastShowcaseRow: Codable {
             let id: String
             let product_id: String?
@@ -1380,7 +1557,9 @@ class SupabaseManager: ObservableObject {
                 for r in fastRows {
                     let sId = r.store_id.lowercased()
                     let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.store_name)
-                    let ship = r.shipping_cost ?? 0.0
+                    let isFreeShip = (r.shipping_cost != nil && r.shipping_cost == 0.0)
+                        || (r.free_shipping_threshold != nil && r.free_shipping_threshold! > 0 && r.current_price >= r.free_shipping_threshold!)
+                    let resolvedShip = isFreeShip ? 0.0 : r.shipping_cost
                     let p = StoreShowcaseProduct(
                         id: r.id,
                         title: r.raw_title,
@@ -1393,12 +1572,14 @@ class SupabaseManager: ObservableObject {
                         product_url: r.product_url,
                         canonical_name: r.raw_title,
                         product_id: r.product_id,
-                        shipping_cost: r.shipping_cost,
-                        total_price: r.current_price + ship,
-                        is_free_shipping: ship == 0.0,
-                        shipping_label: ship == 0.0 ? "Sped. Gratis" : "+ \(String(format: "%.2f", ship)) €",
+                        shipping_cost: resolvedShip,
+                        total_price: resolvedShip.map { r.current_price + $0 },
+                        is_free_shipping: isFreeShip,
+                        shipping_label: isFreeShip ? "Sped. Gratis" : resolvedShip.map { "+ \(String(format: "%.2f", $0)) €" },
                         free_shipping_threshold: r.free_shipping_threshold,
-                        courier: r.courier
+                        courier: r.courier,
+                        store_id: sId,
+                        store_name: r.store_name
                     )
                     if grouped[sId] == nil {
                         grouped[sId] = (
@@ -1546,7 +1727,9 @@ class SupabaseManager: ObservableObject {
         var storeMap: [String: (name: String, products: [StoreShowcaseProduct], discounts: [Double], totalCount: Int)] = [:]
         for r in fetchedOffers {
             let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.store_name)
-            let ship = r.shipping_cost ?? 0.0
+            let isFreeShip = (r.shipping_cost != nil && r.shipping_cost == 0.0)
+                || (r.free_shipping_threshold != nil && r.free_shipping_threshold! > 0 && r.current_price >= r.free_shipping_threshold!)
+            let resolvedShip = isFreeShip ? 0.0 : r.shipping_cost
             let p = StoreShowcaseProduct(
                 id: r.id,
                 title: r.raw_title,
@@ -1559,12 +1742,14 @@ class SupabaseManager: ObservableObject {
                 product_url: r.product_url,
                 canonical_name: r.raw_title,
                 product_id: r.product_id,
-                shipping_cost: r.shipping_cost,
-                total_price: r.current_price + ship,
-                is_free_shipping: ship == 0.0,
-                shipping_label: ship == 0.0 ? "Sped. Gratis" : "+ \(String(format: "%.2f", ship)) €",
+                shipping_cost: resolvedShip,
+                total_price: resolvedShip.map { r.current_price + $0 },
+                is_free_shipping: isFreeShip,
+                shipping_label: isFreeShip ? "Sped. Gratis" : resolvedShip.map { "+ \(String(format: "%.2f", $0)) €" },
                 free_shipping_threshold: r.free_shipping_threshold,
-                courier: r.courier
+                courier: r.courier,
+                store_id: r.store_id.lowercased(),
+                store_name: r.store_name
             )
             let sId = r.store_id.lowercased()
             if storeMap[sId] == nil {
@@ -1611,6 +1796,148 @@ class SupabaseManager: ObservableObject {
             if !s0IsBrand && s1IsBrand { return false }
             return $0.total_offers > $1.total_offers
         }
+    }
+
+    // MARK: - Direct Home Personalized & Comparator Highlights (`get_home_highlights_v2`)
+
+    func fetchHomeHighlightsDirect(
+        shoeSize: String?,
+        apparelSize: String?,
+        sports: [String],
+        brands: [String],
+        hiddenStores: [String],
+        limitPerSection: Int = 10
+    ) async throws -> HomeHighlightsBundle {
+        struct HighlightRow: Codable {
+            let section_key: String
+            let id: String
+            let product_id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String
+            let product_canonical_name: String?
+            let product_brand: String?
+            let product_category: String?
+            let product_gender: String?
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+            let gallery_images: [String]?
+            let available_sizes: [String]?
+            let size_count: Int?
+            let multi_store_count: Int?
+            let market_min_price: Double?
+            let market_max_price: Double?
+            let cross_store_savings: Double?
+            let is_best_market_price: Bool?
+            let is_all_time_low: Bool?
+            let price_drop_eur: Double?
+            let has_free_shipping: Bool?
+            let shipping_cost: Double?
+            let free_shipping_threshold: Double?
+            let courier: String?
+            let deal_score: Double?
+            let last_checked_at: String?
+            let section_rank: Int?
+        }
+
+        guard let rpcUrl = URL(string: "\(restURL)/rpc/get_home_highlights_v2") else {
+            return .empty
+        }
+
+        var payload: [String: Any] = [
+            "p_limit_per_section": limitPerSection
+        ]
+        let cleanShoe = shoeSize?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanApparel = apparelSize?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !cleanShoe.isEmpty { payload["p_shoe_size"] = cleanShoe }
+        if !cleanApparel.isEmpty { payload["p_apparel_size"] = cleanApparel }
+        if !sports.isEmpty { payload["p_sports"] = sports }
+        if !brands.isEmpty { payload["p_brands"] = brands }
+        if !hiddenStores.isEmpty { payload["p_hidden_stores"] = hiddenStores }
+
+        var req = URLRequest(url: rpcUrl)
+        req.httpMethod = "POST"
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+
+        let rows = try JSONDecoder().decode([HighlightRow].self, from: data)
+        var personalizedKey = (!cleanShoe.isEmpty || !cleanApparel.isEmpty) ? "for_your_size" : "for_you"
+        var personalized: [StoreShowcaseProduct] = []
+        var compareSave: [StoreShowcaseProduct] = []
+        var priceDrops: [StoreShowcaseProduct] = []
+
+        for r in rows {
+            let sId = r.store_id.lowercased()
+            let canonical = (r.product_canonical_name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                ? r.product_canonical_name!
+                : r.raw_title
+            let extractedBrand = ProductBrandHelper.extractBrand(from: canonical, fallback: r.product_brand ?? r.store_name)
+            let isFree = r.has_free_shipping
+                ?? ((r.shipping_cost != nil && r.shipping_cost == 0.0)
+                    || (r.free_shipping_threshold != nil && r.free_shipping_threshold! > 0 && r.current_price >= r.free_shipping_threshold!))
+            let resolvedShip = isFree ? 0.0 : r.shipping_cost
+            let prod = StoreShowcaseProduct(
+                id: r.id,
+                title: r.raw_title,
+                brand: extractedBrand,
+                image_url: r.image_url,
+                gallery_images: r.gallery_images,
+                available_sizes: r.available_sizes,
+                current_price: r.current_price,
+                original_price: r.original_price,
+                discount_pct: r.discount_pct,
+                product_url: r.product_url,
+                canonical_name: canonical,
+                product_id: r.product_id,
+                shipping_cost: resolvedShip,
+                total_price: resolvedShip.map { r.current_price + $0 },
+                is_free_shipping: isFree,
+                shipping_label: isFree ? "Sped. Gratis" : resolvedShip.map { "+ \(String(format: "%.2f", $0)) €" },
+                free_shipping_threshold: r.free_shipping_threshold,
+                courier: r.courier,
+                store_id: sId,
+                store_name: r.store_name,
+                product_category: r.product_category,
+                product_gender: r.product_gender,
+                size_count: r.size_count,
+                multi_store_count: r.multi_store_count,
+                market_min_price: r.market_min_price,
+                market_max_price: r.market_max_price,
+                cross_store_savings: r.cross_store_savings,
+                is_best_market_price: r.is_best_market_price,
+                is_all_time_low: r.is_all_time_low,
+                price_drop_eur: r.price_drop_eur,
+                deal_score: r.deal_score,
+                last_checked_at: r.last_checked_at
+            )
+
+            switch r.section_key {
+            case "for_your_size", "for_you":
+                personalizedKey = r.section_key
+                personalized.append(prod)
+            case "compare_save":
+                compareSave.append(prod)
+            case "price_drops":
+                priceDrops.append(prod)
+            default:
+                break
+            }
+        }
+
+        return HomeHighlightsBundle(
+            personalizedSectionKey: personalizedKey,
+            personalizedDeals: personalized,
+            compareSaveDeals: compareSave,
+            priceDropDeals: priceDrops
+        )
     }
 
     // MARK: - Direct Size Deals Fetcher (Cross-Store In-Stock Deals)
@@ -1953,14 +2280,41 @@ class SupabaseManager: ObservableObject {
     func fetchTopDealsCrossStoreDirect(
         category: String? = nil,
         filters: DealsFilterOptions = DealsFilterOptions(),
-        limit: Int = 40
+        limit: Int = 40,
+        offset: Int = 0
     ) async throws -> (deals: [StoreShowcaseProduct], totalMatching: Int) {
         let normalizedCategory = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
             $0.isEmpty ? nil : $0
         } ?? "tutti"
 
-        guard let rpcUrl = URL(string: "\(restURL)/rpc/get_top_deals_cross_store") else {
-            throw URLError(.badURL)
+        // 1. Primary path: paged v2 RPC (`get_top_deals_cross_store_v2`) supporting true infinite scroll via `p_offset`
+        if let v2Url = URL(string: "\(restURL)/rpc/get_top_deals_cross_store_v2") {
+            var rpcReq = URLRequest(url: v2Url)
+            rpcReq.httpMethod = "POST"
+            for (k, v) in makeHeaders(isPublic: true) {
+                rpcReq.setValue(v, forHTTPHeaderField: k)
+            }
+            var payload = buildDealsRpcPayload(
+                category: normalizedCategory,
+                perStoreOrLimitKey: "p_limit",
+                perStoreOrLimitValue: limit,
+                filters: filters
+            )
+            payload["p_offset"] = max(0, offset)
+            rpcReq.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+            if let (data, resp) = try? await session.data(for: rpcReq),
+               let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+               let rows = try? JSONDecoder().decode([RpcDealRowV2].self, from: data) {
+                let mapped = rows.map { mapRpcDealRow($0) }
+                let total = rows.first?.store_total_category_deals ?? (offset + mapped.count)
+                return (mapped, total)
+            }
+        }
+
+        // 2. Legacy fallback (first page only)
+        guard offset == 0, let rpcUrl = URL(string: "\(restURL)/rpc/get_top_deals_cross_store") else {
+            return ([], offset)
         }
         var rpcReq = URLRequest(url: rpcUrl)
         rpcReq.httpMethod = "POST"
@@ -3158,19 +3512,134 @@ class SupabaseManager: ObservableObject {
         }
     }
 
-    // MARK: - Direct Store Details (Catalog, Metadata & Reviews)
+    // MARK: - Direct Store Details & Paginated Catalog (RPC v2)
+
+    func fetchStoreCatalogPageDirect(
+        storeId: String,
+        query: String = "",
+        category: String = "tutti",
+        brand: String? = nil,
+        size: String? = nil,
+        onlyDiscounted: Bool = false,
+        maxPrice: Double? = nil,
+        sort: String = "recommended",
+        preferredSize: String? = nil,
+        limit: Int = 40,
+        offset: Int = 0
+    ) async throws -> StoreCatalogPageResponse {
+        struct RawStoreCatalogRow: Codable {
+            let id: String
+            let product_id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String
+            let product_canonical_name: String?
+            let product_brand: String?
+            let product_category: String?
+            let product_gender: String?
+            let current_price: Double
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String
+            let image_url: String?
+            let available_sizes: [String]?
+            let size_count: Int?
+            let has_free_shipping: Bool?
+            let shipping_cost: Double?
+            let free_shipping_threshold: Double?
+            let courier: String?
+            let matches_preferred_size: Bool?
+            let last_checked_at: String?
+            let total_matching: Int?
+        }
+
+        let sid = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: "\(restURL)/rpc/get_store_catalog_v2") else {
+            throw URLError(.badURL)
+        }
+
+        var payload: [String: Any] = [
+            "p_store_id": sid,
+            "p_category": category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            "p_only_discounted": onlyDiscounted,
+            "p_sort": sort,
+            "p_limit": limit,
+            "p_offset": offset
+        ]
+        let cleanQ = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanQ.isEmpty { payload["p_query"] = cleanQ }
+        if let br = brand?.trimmingCharacters(in: .whitespacesAndNewlines), !br.isEmpty {
+            payload["p_brand"] = br
+        }
+        if let sz = size?.trimmingCharacters(in: .whitespacesAndNewlines), !sz.isEmpty {
+            payload["p_size"] = sz
+        }
+        if let mp = maxPrice, mp > 0 {
+            payload["p_max_price"] = mp
+        }
+        if let pref = preferredSize?.trimmingCharacters(in: .whitespacesAndNewlines), !pref.isEmpty {
+            payload["p_preferred_size"] = pref
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+
+        let rows = try JSONDecoder().decode([RawStoreCatalogRow].self, from: data)
+        let total = rows.first?.total_matching ?? (offset + rows.count)
+        let products: [StoreShowcaseProduct] = rows.map { r in
+            let shipCost = r.shipping_cost ?? 0.0
+            let isFree = r.has_free_shipping ?? (shipCost == 0.0)
+            let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.product_brand ?? r.store_name)
+            return StoreShowcaseProduct(
+                id: r.id,
+                title: r.raw_title,
+                brand: extractedBrand,
+                image_url: r.image_url,
+                gallery_images: nil,
+                available_sizes: r.available_sizes,
+                current_price: r.current_price,
+                original_price: r.original_price,
+                discount_pct: r.discount_pct,
+                product_url: r.product_url,
+                canonical_name: r.product_canonical_name ?? r.raw_title,
+                product_id: r.product_id,
+                shipping_cost: shipCost,
+                total_price: r.current_price + shipCost,
+                is_free_shipping: isFree,
+                shipping_label: isFree ? "Spedizione gratuita" : String(format: "+%.2f € sped.", shipCost),
+                free_shipping_threshold: r.free_shipping_threshold,
+                courier: r.courier,
+                store_id: r.store_id,
+                store_name: r.store_name,
+                product_category: r.product_category,
+                product_gender: r.product_gender,
+                size_count: r.size_count,
+                last_checked_at: r.last_checked_at
+            )
+        }
+        return StoreCatalogPageResponse(products: products, totalMatching: total)
+    }
 
     func fetchStoreDetailsDirect(
         storeId: String,
         query: String = "",
-        sort: String = "discount",
-        limit: Int = 100
+        sort: String = "recommended",
+        preferredSize: String? = nil,
+        limit: Int = 40
     ) async throws -> StoreDetailResponse {
-        struct RawStoreRow: Codable {
-            let id: String
-            let name: String
+        struct RawStoreOverviewRow: Codable {
+            let store_id: String
+            let store_name: String
             let base_url: String?
             let rating: Double?
+            let review_count: Int?
             let formatted_review_count: String?
             let description: String?
             let full_description: String?
@@ -3185,229 +3654,89 @@ class SupabaseManager: ObservableObject {
             let free_shipping_threshold: Double?
             let standard_shipping_cost: Double?
             let courier: String?
-        }
-
-        struct StoreProductJoin: Codable {
-            let id: String?
-            let canonical_name: String?
-            let brand: String?
-            let category: String?
-            let gallery_images: [String]?
-        }
-
-        struct RawOfferRow: Codable {
-            let id: String
-            let product_id: String?
-            let store_id: String
-            let store_name: String
-            let raw_title: String
-            let current_price: Double
-            let original_price: Double?
-            let discount_pct: Double?
-            let product_url: String
-            let image_url: String?
-            let gallery_images: [String]?
-            let available_sizes: [String]?
-            let shipping_cost: Double?
-            let free_shipping_threshold: Double?
-            let courier: String?
-            let products: StoreProductJoin?
-        }
-
-        struct StatRow: Codable {
-            let total_offers: Int
+            let distinct_products: Int?
+            let discounted_products: Int?
             let avg_discount: Double?
+            let min_price: Double?
+            let categories: [StoreCategoryFacet]?
+            let top_brands: [StoreBrandFacet]?
         }
 
         let sid = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let encodedSid = sid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            throw URLError(.badURL)
-        }
-
-        let orderClause: String
-        switch sort {
-        case "price_asc":
-            orderClause = "current_price.asc"
-        case "price_desc":
-            orderClause = "current_price.desc"
-        case "name":
-            orderClause = "raw_title.asc"
-        default:
-            orderClause = "discount_pct.desc.nullslast,current_price.desc"
-        }
-
         let publicHeaders = makeHeaders(isPublic: true)
         let urlSession = session
         let baseRest = restURL
 
-        async let storeTask: RawStoreRow? = {
-            guard let url = URL(string: "\(baseRest)/stores?id=eq.\(encodedSid)&limit=1") else { return nil }
+        async let overviewTask: RawStoreOverviewRow? = {
+            guard let url = URL(string: "\(baseRest)/rpc/get_store_overview_v2") else { return nil }
             var req = URLRequest(url: url)
+            req.httpMethod = "POST"
             for (k, v) in publicHeaders { req.setValue(v, forHTTPHeaderField: k) }
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["p_store_id": sid])
             guard let (data, resp) = try? await urlSession.data(for: req),
-                  let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                  let rows = try? JSONDecoder().decode([RawStoreRow].self, from: data) else {
+                  let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let rows = try? JSONDecoder().decode([RawStoreOverviewRow].self, from: data) else {
                 return nil
             }
             return rows.first
         }()
 
-        async let statTask: StatRow? = {
-            guard let url = URL(string: "\(baseRest)/store_catalog_stats?store_id=eq.\(encodedSid)&select=total_offers,avg_discount") else { return nil }
-            var req = URLRequest(url: url)
-            for (k, v) in publicHeaders { req.setValue(v, forHTTPHeaderField: k) }
-            guard let (data, resp) = try? await urlSession.data(for: req),
-                  let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                  let rows = try? JSONDecoder().decode([StatRow].self, from: data) else {
-                return nil
-            }
-            return rows.first
-        }()
+        async let catalogTask: StoreCatalogPageResponse = fetchStoreCatalogPageDirect(
+            storeId: sid,
+            query: query,
+            sort: sort,
+            preferredSize: preferredSize,
+            limit: limit,
+            offset: 0
+        )
 
         async let reviewsTask: [StoreCustomerReview] = fetchStoreReviews(storeId: sid, limit: 20)
 
-        let selectCols = "id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,gallery_images,available_sizes,shipping_cost,free_shipping_threshold,courier,products(id,canonical_name,brand,category,gallery_images)"
+        let catalogPage = try await catalogTask
+        let (overview, reviews) = await (overviewTask, reviewsTask)
 
-        func fetchOffers(keywords: [String]) async throws -> (rows: [RawOfferRow], exactTotal: Int?) {
-            var params = [
-                "store_id=eq.\(encodedSid)",
-                "select=\(selectCols)",
-                "order=\(orderClause)",
-                "limit=\(limit)"
-            ]
-            for kw in keywords {
-                let cleaned = kw.replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !cleaned.isEmpty,
-                      let encKw = cleaned.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { continue }
-                params.append("raw_title=ilike.*\(encKw)*")
-            }
-            guard let url = URL(string: "\(baseRest)/store_offers?\(params.joined(separator: "&"))") else {
-                throw URLError(.badURL)
-            }
-            var req = URLRequest(url: url)
-            for (k, v) in publicHeaders { req.setValue(v, forHTTPHeaderField: k) }
-            req.setValue("count=exact", forHTTPHeaderField: "Prefer")
-
-            let (data, response) = try await urlSession.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                throw URLError(.badServerResponse)
-            }
-            let rows = try JSONDecoder().decode([RawOfferRow].self, from: data)
-
-            var exactCount: Int? = nil
-            if let rangeHeader = http.value(forHTTPHeaderField: "Content-Range") ?? http.value(forHTTPHeaderField: "content-range"),
-               let totalPart = rangeHeader.split(separator: "/").last,
-               let parsedTotal = Int(totalPart) {
-                exactCount = parsedTotal
-            }
-            return (rows, exactCount)
-        }
-
-        let cleanWords = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { $0.count > 1 }
-
-        var offersResult = try await fetchOffers(keywords: cleanWords)
-        if offersResult.rows.isEmpty && cleanWords.count > 1 {
-            let primary = cleanWords.filter { $0.count > 2 }.first ?? cleanWords[0]
-            offersResult = try await fetchOffers(keywords: [primary])
-        }
-
-        let (storeRow, statRow, reviews) = await (storeTask, statTask, reviewsTask)
-        if storeRow == nil && offersResult.rows.isEmpty {
+        if overview == nil && catalogPage.products.isEmpty {
             throw URLError(.resourceUnavailable)
         }
 
-        let storeName = storeRow?.name ?? offersResult.rows.first?.store_name ?? sid.capitalized
-        let baseUrl = storeRow?.base_url ?? ""
-        let ratingStr = storeRow?.rating.map { String(format: "%.1f", $0) } ?? "4.8"
-        let reviewCountStr = storeRow?.formatted_review_count ?? "1,2K"
-        let desc = storeRow?.description ?? "Rivenditore autorizzato con offerte esclusive per lo sport e running."
-        let fullDesc = storeRow?.full_description ?? desc
-        let refundPolicy = storeRow?.refund_policy ?? "Reso garantito entro 30 giorni."
-        let shippingPolicy: String = {
-            if let sp = storeRow?.shipping_policy, !sp.isEmpty { return sp }
-            if let thresh = storeRow?.free_shipping_threshold {
-                let std = storeRow?.standard_shipping_cost ?? 4.90
-                return String(format: "Spedizione standard %.2f € • Gratuita da %.2f €", std, thresh)
+        let storeName = overview?.store_name ?? catalogPage.products.first?.store_name ?? sid.capitalized
+        let baseUrl = overview?.base_url ?? ""
+        let ratingScore = overview?.rating ?? 0
+        let ratingStr = ratingScore > 0 ? String(format: "%.1f", ratingScore) : ""
+        let reviewCountStr = overview?.formatted_review_count ?? (overview?.review_count.map { "\($0)" } ?? "")
+        let desc = overview?.description ?? "Rivenditore partner per attrezzatura e abbigliamento sportivo."
+        let fullDesc = overview?.full_description ?? desc
+        let refundPolicy = overview?.refund_policy
+        let shippingPolicy: String? = {
+            if let sp = overview?.shipping_policy, !sp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return sp
             }
-            return "Spedizione rapida con corriere espresso."
+            if let thresh = overview?.free_shipping_threshold, thresh > 0 {
+                let std = overview?.standard_shipping_cost ?? 4.90
+                return String(format: "Spedizione standard %.2f € · Gratuita da %.0f €", std, thresh)
+            }
+            if let std = overview?.standard_shipping_cost, std > 0 {
+                return String(format: "Spedizione standard %.2f €", std)
+            }
+            return nil
         }()
 
-        let products: [StoreShowcaseProduct] = offersResult.rows.map { r in
-            let stdCost = storeRow?.standard_shipping_cost ?? r.shipping_cost ?? 0.0
-            let freeThresh = r.free_shipping_threshold ?? storeRow?.free_shipping_threshold
-            let computedShipping: Double
-            if let th = freeThresh, th > 0 {
-                computedShipping = r.current_price >= th ? 0.0 : stdCost
-            } else {
-                computedShipping = r.shipping_cost ?? 0.0
-            }
-            let isFree = computedShipping == 0.0
-            let courier = r.courier ?? storeRow?.courier
-            let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.products?.brand ?? storeName)
+        let totalOffers = overview?.distinct_products ?? catalogPage.totalMatching
+        let avgDiscount = overview?.avg_discount ?? 0.0
+        let minPrice = overview?.min_price ?? catalogPage.products.map(\.current_price).min() ?? 0.0
 
-            var mergedGallery: [String] = []
-            if let img = r.image_url, !img.isEmpty { mergedGallery.append(img) }
-            for g in (r.gallery_images ?? []) where !g.isEmpty && !mergedGallery.contains(g) {
-                mergedGallery.append(g)
-            }
-            for g in (r.products?.gallery_images ?? []) where !g.isEmpty && !mergedGallery.contains(g) {
-                mergedGallery.append(g)
-            }
-
-            return StoreShowcaseProduct(
-                id: r.id,
-                title: r.raw_title,
-                brand: extractedBrand,
-                image_url: r.image_url ?? mergedGallery.first,
-                gallery_images: mergedGallery.isEmpty ? nil : mergedGallery,
-                available_sizes: r.available_sizes,
-                current_price: r.current_price,
-                original_price: r.original_price,
-                discount_pct: r.discount_pct,
-                product_url: r.product_url,
-                canonical_name: r.products?.canonical_name ?? r.raw_title,
-                product_id: r.product_id,
-                shipping_cost: computedShipping,
-                total_price: (r.current_price + computedShipping),
-                is_free_shipping: isFree,
-                shipping_label: isFree ? "Spedizione Gratuita" : String(format: "+%.2f € sped.", computedShipping),
-                free_shipping_threshold: freeThresh,
-                courier: courier
-            )
-        }
-
-        let prices = products.map(\.current_price).filter { $0 > 0 }
-        let discounts = products.compactMap(\.discount_pct).filter { $0 > 0 }
-        let avgDiscount = statRow?.avg_discount ?? (discounts.isEmpty ? 0.0 : (discounts.reduce(0, +) / Double(discounts.count)))
-        let totalOffers = offersResult.exactTotal ?? statRow?.total_offers ?? products.count
-
-        var customerPhotos: [String] = []
-        for p in products {
-            if let img = p.image_url, !img.isEmpty, !customerPhotos.contains(img) {
-                customerPhotos.append(img)
-            }
-            for g in (p.gallery_images ?? []) where !g.isEmpty && !customerPhotos.contains(g) {
-                customerPhotos.append(g)
-            }
-            if customerPhotos.count >= 8 { break }
-        }
-
-        let ratingScore = storeRow?.rating ?? 4.8
-        let ratingBreakdown = StoreRatingBreakdown(
+        let ratingBreakdown: StoreRatingBreakdown? = ratingScore > 0 ? StoreRatingBreakdown(
             score: ratingScore,
-            positive_pct: ratingScore >= 4.8 ? "96%" : "92%",
+            positive_pct: ratingScore >= 4.5 ? "95%" : (ratingScore >= 4.0 ? "88%" : "75%"),
             review_count: reviewCountStr,
-            platform: "Recensioni Verificate"
-        )
+            platform: "Valutazione negozio"
+        ) : nil
 
-        var badges = ["Rivenditore Verificato", "100% Originale"]
-        if let thresh = storeRow?.free_shipping_threshold {
-            badges.append("Sped. Gratis da \(Int(thresh)) €")
+        var badges = ["Rivenditore Partner"]
+        if let thresh = overview?.free_shipping_threshold, thresh > 0 {
+            badges.append("Gratis da \(Int(thresh)) €")
         }
-        if let c = storeRow?.courier, !c.isEmpty {
+        if let c = overview?.courier, !c.isEmpty {
             badges.append(c)
         }
 
@@ -3421,24 +3750,31 @@ class SupabaseManager: ObservableObject {
             full_description: fullDesc,
             badges: badges,
             highlights: nil,
-            location: storeRow?.city_or_location,
+            location: overview?.city_or_location,
             shipping_info: shippingPolicy,
             return_policy: refundPolicy,
             rating_breakdown: ratingBreakdown,
             total_offers: totalOffers,
             avg_discount: (avgDiscount * 10).rounded() / 10,
-            min_price: prices.min() ?? 0.0,
-            products: products,
-            contact_email: storeRow?.contact_email ?? "supporto@\(sid).com",
-            contact_phone: storeRow?.contact_phone,
-            social_instagram: storeRow?.social_instagram ?? "@\(sid)",
-            privacy_policy_url: storeRow?.privacy_policy_url ?? baseUrl,
-            terms_url: storeRow?.terms_url ?? baseUrl,
+            min_price: minPrice,
+            products: catalogPage.products,
+            contact_email: overview?.contact_email,
+            contact_phone: overview?.contact_phone,
+            social_instagram: overview?.social_instagram,
+            privacy_policy_url: overview?.privacy_policy_url,
+            terms_url: overview?.terms_url,
             refund_policy: refundPolicy,
             shipping_policy: shippingPolicy,
-            city_or_location: storeRow?.city_or_location,
+            city_or_location: overview?.city_or_location,
             customer_reviews: reviews.isEmpty ? nil : reviews,
-            customer_photos: customerPhotos.isEmpty ? nil : customerPhotos
+            customer_photos: nil,
+            free_shipping_threshold: overview?.free_shipping_threshold,
+            standard_shipping_cost: overview?.standard_shipping_cost,
+            courier: overview?.courier,
+            discounted_products: overview?.discounted_products,
+            categories: overview?.categories,
+            top_brands: overview?.top_brands,
+            total_matching: catalogPage.totalMatching
         )
     }
 

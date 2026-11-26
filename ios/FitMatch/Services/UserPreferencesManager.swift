@@ -197,6 +197,28 @@ class UserPreferencesManager: ObservableObject {
         return matchesUserShoeSize(availableSizes: sizes) || matchesUserApparelSize(availableSizes: sizes)
     }
 
+    /// Returns a clean user-facing size label ("EU 42" or "M") if the product is in stock in either preferred size.
+    func matchedPreferredSizeBadge(for product: StoreShowcaseProduct) -> String? {
+        guard let sizes = product.available_sizes, !sizes.isEmpty else { return nil }
+        let cat = (product.product_category ?? "").lowercased()
+        let isApparelCat = ["top", "pants", "jacket", "apparel", "swim"].contains(cat)
+
+        if isApparelCat {
+            if matchesUserApparelSize(availableSizes: sizes) {
+                return "Tg. \(preferences.preferredApparelSize)"
+            }
+            return nil
+        }
+
+        if matchesUserShoeSize(availableSizes: sizes) {
+            return "EU \(preferences.preferredShoeSize)"
+        }
+        if matchesUserApparelSize(availableSizes: sizes) {
+            return "Tg. \(preferences.preferredApparelSize)"
+        }
+        return nil
+    }
+
     func matchesFavoriteBrand(_ brand: String?, title: String? = nil) -> Bool {
         guard !preferences.favoriteBrands.isEmpty else { return false }
         let targetBrand = (brand ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -280,31 +302,42 @@ class UserPreferencesManager: ObservableObject {
     // MARK: - Relevance Scoring & Re-Ranking
 
     func productRelevanceScore(_ product: StoreShowcaseProduct) -> Double {
-        var score: Double = 0.0
+        var score: Double = (product.deal_score ?? 0.0) * 0.25
 
-        // 1. Size availability in user's size (+80 pts)
+        // 1. Size availability in user's preferred shoe or apparel size (+80 / +65 pts)
         if matchesUserShoeSize(availableSizes: product.available_sizes) {
             score += 80.0
         } else if matchesUserApparelSize(availableSizes: product.available_sizes) {
-            score += 60.0
+            score += 65.0
         }
 
         // 2. Favorite brand match (+50 pts)
-        if matchesFavoriteBrand(product.brand, title: product.title) {
+        if matchesFavoriteBrand(product.brand, title: product.canonical_name) {
             score += 50.0
         }
 
         // 3. Sport match (+35 pts)
-        if matchesSelectedSports(title: product.title) {
+        if matchesSelectedSports(title: product.canonical_name, category: product.product_category) {
             score += 35.0
         }
 
-        // 4. Discount weighting (+discount% * 0.6)
+        // 4. Verified comparator signals (All-Time Low, Best Market Price, Multi-store)
+        if product.isVerifiedAllTimeLow {
+            score += 18.0
+        }
+        if product.isVerifiedBestMarketPrice {
+            score += 14.0
+        }
+        if let stores = product.multi_store_count, stores >= 2 {
+            score += min(Double(stores) * 3.0, 15.0)
+        }
+
+        // 5. Discount weighting (capped at 55% so clearance junk doesn't beat real flagship deals)
         if let disc = product.discount_pct, disc > 0 {
             if disc >= Double(preferences.minDiscountThreshold) {
-                score += 20.0
+                score += 16.0
             }
-            score += disc * 0.6
+            score += min(disc, 55.0) * 0.45
         }
 
         return score
@@ -341,17 +374,30 @@ class UserPreferencesManager: ObservableObject {
             score += 30.0
         }
 
-        // 4. Store product matches
+        // 4. Store product relevance & comparator quality
         let productsWithSize = showcase.products.filter { hasUserPreferredSize(availableSizes: $0.available_sizes) }.count
         score += Double(productsWithSize) * 8.0
 
-        let productsWithFavBrand = showcase.products.filter { matchesFavoriteBrand($0.brand, title: $0.title) }.count
+        let productsWithFavBrand = showcase.products.filter { matchesFavoriteBrand($0.brand, title: $0.canonical_name) }.count
         score += Double(productsWithFavBrand) * 10.0
 
-        // 5. Store quality baseline (rating & avg discount)
-        let ratingVal = Double(showcase.rating.replacingOccurrences(of: ",", with: ".")) ?? 4.8
-        score += ratingVal * 5.0
-        score += min(showcase.avg_discount, 50.0) * 0.4
+        let bestMarketCount = showcase.products.filter { $0.isVerifiedBestMarketPrice }.count
+        score += Double(bestMarketCount) * 4.5
+
+        let atlCount = showcase.products.filter { $0.isVerifiedAllTimeLow }.count
+        score += Double(atlCount) * 3.5
+
+        // 5. Store quality baseline (avoid unfairly penalizing official brands with skewed Trustpilot scores)
+        let isOfficialFlagship = (sid == "nike" || sid == "adidas" || sid == "decathlon")
+        let rawRating = Double(showcase.rating.replacingOccurrences(of: ",", with: ".")) ?? 4.5
+        let effectiveRating = isOfficialFlagship ? max(rawRating, 4.4) : max(rawRating, 3.5)
+        score += effectiveRating * 4.0
+        score += min(showcase.avg_discount, 45.0) * 0.35
+
+        // Deprioritize tiny catalogs (<100 offers) gently below major multi-category partners
+        if showcase.total_offers < 100 {
+            score -= 25.0
+        }
 
         return score
     }

@@ -387,6 +387,21 @@ struct SearchView: View {
                     isSearchFieldFocused = true
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FitMatchOpenVisualSearch"))) { _ in
+                hideAllKeyboards()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    showVisualSearch = true
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FitMatchRunQuickSearch"))) { notif in
+                guard let query = notif.userInfo?["query"] as? String,
+                      !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                hideAllKeyboards()
+                searchText = query
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    executeSearch(isFollowUp: false, ignorePriorContext: true)
+                }
+            }
             .onDisappear {
                 hideAllKeyboards()
             }
@@ -495,15 +510,13 @@ struct SearchView: View {
 
     private var emptyHistoryPlaceholder: some View {
         FitMatchEmptyStateView(
-            icon: "sparkle.magnifyingglass",
-            illustrationName: "empty_search",
-            accentColor: .shopPurple,
-            badgeText: "CERCA & CONFRONTA",
-            title: "Cosa vorresti cercare?",
-            subtitle: "Digita un prodotto, una marca o una categoria per confrontare i prezzi dei migliori negozi di sport."
+            icon: "magnifyingglass",
+            title: "Cerca un prodotto",
+            subtitle: "Digita un modello, un brand o uno sport per confrontare i prezzi.",
+            showsCardBackground: false
         )
         .padding(.horizontal, ShopLayout.screenPadding)
-        .padding(.top, 16)
+        .padding(.top, 36)
         .contentShape(Rectangle())
         .onTapGesture {
             hideAllKeyboards()
@@ -1128,57 +1141,86 @@ struct SearchView: View {
     private var aiDeepDiveContentView: some View {
         Group {
             if isLoading && conversationTurns.isEmpty {
+                let activeQueryText = (rootQuery.isEmpty ? searchText : rootQuery)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let initialPromptBubbleText: String = {
+                    if pendingVisualImagePreview != nil {
+                        if let desc = pendingVisualDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !desc.isEmpty {
+                            return desc
+                        }
+                        if activeQueryText != "Ricerca dalla foto" {
+                            return activeQueryText
+                        }
+                        return ""
+                    }
+                    return activeQueryText
+                }()
+
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .trailing, spacing: 10) {
-                        if let localPreview = pendingVisualImagePreview {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if pendingVisualImagePreview != nil || pendingVisualImageURL != nil || !initialPromptBubbleText.isEmpty {
                             VStack(alignment: .trailing, spacing: 8) {
-                                HStack {
-                                    Spacer()
-                                    Image(uiImage: localPreview)
-                                        .resizable()
-                                        .scaledToFill()
+                                if let localPreview = pendingVisualImagePreview {
+                                    HStack {
+                                        Spacer()
+                                        Image(uiImage: localPreview)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 112, height: 112)
+                                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                                            )
+                                            .shadow(color: Color.black.opacity(0.06), radius: 6, y: 2)
+                                    }
+                                } else if let imgStr = pendingVisualImageURL, let imgURL = URL(string: imgStr) {
+                                    HStack {
+                                        Spacer()
+                                        ShopCachedAsyncImage(url: imgURL, maxPixelSize: 320) { phase in
+                                            if let image = phase.image {
+                                                image.resizable().scaledToFill()
+                                            } else {
+                                                ShopSkeletonBlock(cornerRadius: 16)
+                                            }
+                                        }
                                         .frame(width: 112, height: 112)
                                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                                .stroke(Color.shopPurple.opacity(0.22), lineWidth: 1)
+                                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
                                         )
-                                        .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
+                                        .shadow(color: Color.black.opacity(0.06), radius: 6, y: 2)
+                                    }
                                 }
 
-                                if let desc = pendingVisualDescription, !desc.isEmpty {
+                                if !initialPromptBubbleText.isEmpty {
                                     HStack {
-                                        Spacer()
-                                        Text(desc)
-                                            .font(.system(size: 14.5, weight: .semibold))
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal, 15)
-                                            .padding(.vertical, 9)
-                                            .background(
-                                                LinearGradient(
-                                                    colors: [Color.shopPurple, Color(red: 100/255, green: 55/255, blue: 235/255)],
-                                                    startPoint: .topLeading,
-                                                    endPoint: .bottomTrailing
-                                                )
-                                            )
-                                            .cornerRadius(18)
+                                        Spacer(minLength: 48)
+                                        Text(initialPromptBubbleText)
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundColor(.shopDark)
+                                            .multilineTextAlignment(.trailing)
+                                            .padding(.horizontal, 18)
+                                            .padding(.vertical, 11)
+                                            .background(Color(red: 243/255, green: 243/255, blue: 245/255))
+                                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                                     }
                                 }
                             }
                             .padding(.horizontal, ShopLayout.screenPadding)
-                            .padding(.top, 10)
+                            .padding(.top, 2)
                         }
 
                         if !partialStreamResults.isEmpty {
                             VStack(alignment: .leading, spacing: 14) {
                                 ShopAgentThinkingCardView(
-                                    query: rootQuery.isEmpty ? searchText : rootQuery,
+                                    query: activeQueryText,
                                     isFollowUp: false,
                                     steps: thinkingSteps,
                                     startedAt: thinkingStartedAt
                                 )
                                 .padding(.horizontal, ShopLayout.screenPadding)
-                                .padding(.top, 10)
 
                                 partialStreamPreviewSection
 
@@ -1195,7 +1237,7 @@ struct SearchView: View {
                             .transition(.opacity)
                         } else {
                             ShopSearchDeepDiveSkeletonView(
-                                query: rootQuery.isEmpty ? searchText : rootQuery,
+                                query: activeQueryText,
                                 thinkingSteps: thinkingSteps,
                                 thinkingStartedAt: thinkingStartedAt
                             )
@@ -1342,7 +1384,7 @@ struct SearchView: View {
                                 .padding(.horizontal, 18)
                                 .padding(.vertical, 11)
                                 .background(Color(red: 243/255, green: 243/255, blue: 245/255))
-                                .clipShape(Capsule())
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
@@ -1783,7 +1825,7 @@ struct SearchView: View {
                                 .padding(.horizontal, 18)
                                 .padding(.vertical, 11)
                                 .background(Color(red: 243/255, green: 243/255, blue: 245/255))
-                                .clipShape(Capsule())
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                         }
                     }
                 }
@@ -2127,13 +2169,11 @@ struct SearchView: View {
             Spacer()
             FitMatchEmptyStateView(
                 icon: "wifi.exclamationmark",
-                accentColor: .shopPurple,
-                badgeText: "RICERCA IA FITMATCH",
-                title: "Analisi momentaneamente non disponibile",
+                accentColor: .shopRed,
+                title: "Ricerca non disponibile",
                 subtitle: error,
-                primaryTitle: "Riprova analisi IA",
+                primaryTitle: "Riprova",
                 primaryIcon: "arrow.clockwise",
-                primaryColor: .shopDark,
                 onPrimaryTap: {
                     executeSearch()
                 }
@@ -2154,14 +2194,11 @@ struct SearchView: View {
         return VStack {
             Spacer()
             FitMatchEmptyStateView(
-                icon: hasActiveFilters ? "line.3.horizontal.decrease.circle" : "sparkles",
-                illustrationName: "empty_search",
-                accentColor: .shopPurple,
-                badgeText: hasActiveFilters ? "FILTRI TROPPO RESTRITTIVI" : "MOTORE SPORTIVO IA",
-                title: hasActiveFilters ? "Nessuna offerta con questi filtri" : "Nessuna corrispondenza per questa ricerca",
+                icon: hasActiveFilters ? "line.3.horizontal.decrease.circle" : "magnifyingglass",
+                title: hasActiveFilters ? "Nessun risultato con questi filtri" : "Nessun risultato trovato",
                 subtitle: hasActiveFilters
-                    ? "Non ho trovato offerte attive per «\(displayQuery)» con i filtri selezionati. Prova a rimuovere un filtro o amplia la ricerca."
-                    : "L'assistente FitMatch non ha trovato attrezzatura per «\(displayQuery)» tra i negozi partner. Prova uno dei suggerimenti qui sotto.",
+                    ? "Nessuna offerta per «\(displayQuery)» con i filtri selezionati."
+                    : "Nessun articolo trovato per «\(displayQuery)». Prova uno dei suggerimenti qui sotto.",
                 suggestions: emptySuggestions,
                 onSuggestionTap: { term in
                     if hasActiveFilters {
@@ -2174,9 +2211,8 @@ struct SearchView: View {
                         executeSearch()
                     }
                 },
-                primaryTitle: hasActiveFilters ? "Rimuovi tutti i filtri" : "Ricarica ricerca IA",
+                primaryTitle: hasActiveFilters ? "Rimuovi filtri" : "Riprova",
                 primaryIcon: hasActiveFilters ? "arrow.uturn.backward" : "arrow.clockwise",
-                primaryColor: hasActiveFilters ? .shopPurple : .shopDark,
                 onPrimaryTap: {
                     if hasActiveFilters {
                         overrideMaxPrice = nil
@@ -2435,33 +2471,21 @@ struct SearchView: View {
                 ShopSearchGridSkeletonView()
                     .transition(.opacity)
             } else if let error = errorMessage {
-                VStack(spacing: 14) {
-                    Image(systemName: "wifi.exclamationmark")
-                        .font(.system(size: 44))
-                        .foregroundColor(.shopPurple)
-                    Text("Impossibile caricare i risultati")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.shopDark)
-                    Text(error)
-                        .font(.system(size: 13))
-                        .foregroundColor(.shopTextMuted)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                    Button(action: {
-                        executeSearch()
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.clockwise")
-                            Text("Riprova")
+                VStack {
+                    Spacer()
+                    FitMatchEmptyStateView(
+                        icon: "wifi.exclamationmark",
+                        accentColor: .shopRed,
+                        title: "Impossibile caricare i risultati",
+                        subtitle: error,
+                        primaryTitle: "Riprova",
+                        primaryIcon: "arrow.clockwise",
+                        onPrimaryTap: {
+                            executeSearch()
                         }
-                        .font(.system(size: 13.5, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 10)
-                        .background(Color.shopDark)
-                        .cornerRadius(20)
-                    }
-                    .padding(.top, 8)
+                    )
+                    .padding(.horizontal, 16)
+                    Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !filteredAndSortedResults.isEmpty {
@@ -2551,11 +2575,8 @@ struct SearchView: View {
                     Spacer()
                     FitMatchEmptyStateView(
                         icon: "magnifyingglass",
-                        illustrationName: "empty_search",
-                        accentColor: .shopPurple,
-                        badgeText: "CATALOGO FITMATCH",
                         title: "Nessun prodotto trovato",
-                        subtitle: "Nessun articolo corrisponde a «\(searchText)». Prova a cercare per modello o disciplina sportiva tra i nostri negozi partner.",
+                        subtitle: "Nessun articolo corrisponde a «\(searchText)».",
                         suggestions: ["Hoka Clifton", "Garmin 265", "Asics Novablast"],
                         onSuggestionTap: { term in
                             searchText = term
@@ -3237,6 +3258,9 @@ struct SearchView: View {
             conversationTurns = []
             if currentSessionId == nil || initialThinkingSteps.isEmpty {
                 currentSessionId = UUID().uuidString.lowercased()
+            }
+            if !keepClassicMode && !userForcedClassicMode {
+                isDeepDiveMode = true
             }
             isLoading = true
             isFollowUpLoading = false

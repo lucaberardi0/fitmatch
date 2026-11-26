@@ -1069,6 +1069,8 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
     let size_count: Int?
     let multi_store_count: Int?
     let market_min_price: Double?
+    let market_max_price: Double?
+    let cross_store_savings: Double?
     let is_best_market_price: Bool?
     let is_all_time_low: Bool?
     let price_drop_eur: Double?
@@ -1104,6 +1106,8 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         size_count: Int? = nil,
         multi_store_count: Int? = nil,
         market_min_price: Double? = nil,
+        market_max_price: Double? = nil,
+        cross_store_savings: Double? = nil,
         is_best_market_price: Bool? = nil,
         is_all_time_low: Bool? = nil,
         price_drop_eur: Double? = nil,
@@ -1138,6 +1142,8 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         self.size_count = size_count
         self.multi_store_count = multi_store_count
         self.market_min_price = market_min_price
+        self.market_max_price = market_max_price
+        self.cross_store_savings = cross_store_savings
         self.is_best_market_price = is_best_market_price
         self.is_all_time_low = is_all_time_low
         self.price_drop_eur = price_drop_eur
@@ -1250,6 +1256,13 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         let resolvedCanonical = canonical_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? cleanTitle
             : DealTitleSanitizer.clean(canonical_name, brand: effBrand)
+        let resolvedSavings: Double? = {
+            if let cs = cross_store_savings, cs > 1.0 { return cs }
+            if let mx = market_max_price, mx > current_price + 1.0, (multi_store_count ?? 1) >= 2 {
+                return mx - current_price
+            }
+            return nil
+        }()
         return MatchedProduct(
             id_val: resolvedProductId,
             canonical_name: resolvedCanonical,
@@ -1259,9 +1272,27 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
             gender: product_gender,
             offers: [offer],
             best_price: current_price,
-            highest_price: original_price ?? current_price,
-            cross_store_savings: nil
+            highest_price: original_price ?? market_max_price ?? current_price,
+            cross_store_savings: resolvedSavings
         )
+    }
+}
+
+struct HomeHighlightsBundle: Codable, Equatable {
+    let personalizedSectionKey: String
+    let personalizedDeals: [StoreShowcaseProduct]
+    let compareSaveDeals: [StoreShowcaseProduct]
+    let priceDropDeals: [StoreShowcaseProduct]
+
+    static let empty = HomeHighlightsBundle(
+        personalizedSectionKey: "for_you",
+        personalizedDeals: [],
+        compareSaveDeals: [],
+        priceDropDeals: []
+    )
+
+    var isEmpty: Bool {
+        personalizedDeals.isEmpty && compareSaveDeals.isEmpty && priceDropDeals.isEmpty
     }
 }
 
@@ -1359,6 +1390,23 @@ struct StoreCustomerReview: Identifiable, Codable, Hashable {
     }
 }
 
+struct StoreCategoryFacet: Identifiable, Codable, Hashable {
+    let id: String
+    let label: String
+    let count: Int
+}
+
+struct StoreBrandFacet: Identifiable, Codable, Hashable {
+    var id: String { name.lowercased() }
+    let name: String
+    let count: Int
+}
+
+struct StoreCatalogPageResponse {
+    let products: [StoreShowcaseProduct]
+    let totalMatching: Int
+}
+
 struct StoreDetailResponse: Codable {
     let store_id: String
     let store_name: String
@@ -1385,8 +1433,15 @@ struct StoreDetailResponse: Codable {
     let refund_policy: String?
     let shipping_policy: String?
     let city_or_location: String?
-    let customer_reviews: [StoreCustomerReview]?
+    var customer_reviews: [StoreCustomerReview]?
     let customer_photos: [String]?
+    let free_shipping_threshold: Double?
+    let standard_shipping_cost: Double?
+    let courier: String?
+    let discounted_products: Int?
+    let categories: [StoreCategoryFacet]?
+    let top_brands: [StoreBrandFacet]?
+    var total_matching: Int?
 }
 
 // MARK: - Smart Search (Shopify Shop Style)

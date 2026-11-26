@@ -1,5 +1,35 @@
 import SwiftUI
 
+private enum StoreSortOption: String, CaseIterable, Identifiable {
+    case recommended = "recommended"
+    case discount = "discount"
+    case priceAsc = "price_asc"
+    case priceDesc = "price_desc"
+    case name = "name"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .recommended: return "Consigliati"
+        case .discount: return "Miglior sconto"
+        case .priceAsc: return "Prezzo crescente"
+        case .priceDesc: return "Prezzo decrescente"
+        case .name: return "Nome A–Z"
+        }
+    }
+
+    var compactLabel: String {
+        switch self {
+        case .recommended: return "Ordina"
+        case .discount: return "Sconto"
+        case .priceAsc: return "Prezzo ↑"
+        case .priceDesc: return "Prezzo ↓"
+        case .name: return "A–Z"
+        }
+    }
+}
+
 struct StoreDetailView: View {
     let storeId: String
     let initialStoreName: String
@@ -7,86 +37,128 @@ struct StoreDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var followedManager = FollowedStoresManager.shared
     @ObservedObject private var wishlistManager = WishlistManager.shared
+    @ObservedObject private var prefsManager = UserPreferencesManager.shared
 
     @State private var storeDetails: StoreDetailResponse?
+    @State private var products: [StoreShowcaseProduct] = []
+    @State private var totalMatching: Int = 0
+
     @State private var isLoading: Bool = true
+    @State private var isFilteringCatalog: Bool = false
+    @State private var isLoadingMore: Bool = false
     @State private var errorMessage: String?
+
+    // Filters & Query
     @State private var searchQuery: String = ""
-    @State private var selectedSort: String = "discount"
+    @State private var selectedCategory: String = "tutti"
+    @State private var selectedBrand: String? = nil
+    @State private var onlyMySize: Bool = false
+    @State private var onlyDiscounted: Bool = false
+    @State private var selectedSort: StoreSortOption = .recommended
+
+    // Sheets & Feedback
     @State private var showStoreInfoSheet: Bool = false
     @State private var showWriteReviewSheet: Bool = false
     @State private var showReportAlert: Bool = false
     @State private var showToastMessage: String? = nil
-    @State private var searchTask: Task<Void, Never>? = nil
-    @State private var isRemoteSearching: Bool = false
+
+    // Async Tasks
+    @State private var catalogTask: Task<Void, Never>? = nil
+    @State private var paginationTask: Task<Void, Never>? = nil
 
     private let api = APIService.shared
+    private let pageSize = 40
     private let columns = [
         GridItem(.flexible(), spacing: 14),
         GridItem(.flexible(), spacing: 14)
     ]
 
-    var detectedCorrection: String? {
+    private static let italianNumberFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.locale = Locale(identifier: "it_IT")
+        return f
+    }()
+
+    // MARK: - Computed Helpers
+
+    private var storeDisplayName: String {
+        storeDetails?.store_name ?? initialStoreName
+    }
+
+    private var activePreferredSize: String? {
+        let p = prefsManager.preferences
+        if selectedCategory == "abbigliamento" {
+            let app = p.preferredApparelSize.trimmingCharacters(in: .whitespacesAndNewlines)
+            return app.isEmpty ? nil : app
+        }
+        let shoe = p.preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !shoe.isEmpty { return shoe }
+        let app = p.preferredApparelSize.trimmingCharacters(in: .whitespacesAndNewlines)
+        return app.isEmpty ? nil : app
+    }
+
+    private var hasActiveFilters: Bool {
+        selectedCategory != "tutti"
+            || selectedBrand != nil
+            || onlyMySize
+            || onlyDiscounted
+            || selectedSort != .recommended
+    }
+
+    private var hasActiveSearch: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var detectedCorrection: String? {
         StoreSearchMatcher.detectCorrection(for: searchQuery)
     }
 
-    var filteredProducts: [StoreShowcaseProduct] {
-        guard let prods = storeDetails?.products else { return [] }
-        let cleanQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        if cleanQuery.isEmpty {
-            return sortedProducts(prods)
-        }
-
-        // Score all products with the intelligent matcher
-        let scored: [(product: StoreShowcaseProduct, score: Int)] = prods.compactMap { p in
-            let score = StoreSearchMatcher.matchScore(product: p, query: cleanQuery)
-            return score > 0 ? (p, score) : nil
-        }
-
-        // Sort by user preference, breaking ties by match relevance score
-        let sorted = scored.sorted { a, b in
-            switch selectedSort {
-            case "price_asc":
-                if a.product.current_price != b.product.current_price {
-                    return a.product.current_price < b.product.current_price
-                }
-                return a.score > b.score
-            case "price_desc":
-                if a.product.current_price != b.product.current_price {
-                    return a.product.current_price > b.product.current_price
-                }
-                return a.score > b.score
-            case "name":
-                return a.product.title.lowercased() < b.product.title.lowercased()
-            default: // "discount"
-                let discA = a.product.discount_pct ?? 0
-                let discB = b.product.discount_pct ?? 0
-                if discA != discB {
-                    return discA > discB
-                }
-                return a.score > b.score
-            }
-        }.map(\.product)
-
-        return sorted
+    private var effectiveRemoteQuery: String {
+        let clean = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return "" }
+        return detectedCorrection ?? clean
     }
 
-    private func sortedProducts(_ prods: [StoreShowcaseProduct]) -> [StoreShowcaseProduct] {
-        switch selectedSort {
-        case "price_asc":
-            return prods.sorted { $0.current_price < $1.current_price }
-        case "price_desc":
-            return prods.sorted { $0.current_price > $1.current_price }
-        case "name":
-            return prods.sorted { $0.title.lowercased() < $1.title.lowercased() }
-        default:
-            return prods.sorted { ($0.discount_pct ?? 0) > ($1.discount_pct ?? 0) }
-        }
+    private var dynamicCategories: [StoreCategoryFacet] {
+        storeDetails?.categories ?? []
     }
+
+    private var dynamicBrands: [StoreBrandFacet] {
+        storeDetails?.top_brands ?? []
+    }
+
+    private var isMultiBrandStore: Bool {
+        dynamicBrands.count >= 3
+    }
+
+    private var hasDiscountsInStore: Bool {
+        (storeDetails?.discounted_products ?? 0) > 0
+    }
+
+    private var hasMoreProducts: Bool {
+        products.count < totalMatching
+    }
+
+    private var shippingSummaryLine: String? {
+        guard let details = storeDetails else { return nil }
+        if let thresh = details.free_shipping_threshold, thresh > 0 {
+            return "Spedizione gratis da \(Int(thresh.rounded())) €"
+        }
+        if let std = details.standard_shipping_cost, std > 0 {
+            return String(format: "Spedizione da %.2f €", std).replacingOccurrences(of: ".", with: ",")
+        }
+        return nil
+    }
+
+    private func formattedCount(_ value: Int) -> String {
+        Self.italianNumberFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    // MARK: - Body
 
     var body: some View {
         VStack(spacing: 0) {
-            // MARK: - Top Navigation Bar (Screenshot 1: Back, Search, Hamburger)
             topNavigationBar
                 .shopHeaderBarPadding()
                 .background(Color.white)
@@ -94,13 +166,11 @@ struct StoreDetailView: View {
             Divider()
                 .background(Color.shopBorder)
 
-            // MARK: - Main Scroll Content
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // Store Hero Header (Screenshot 1: Store Name, Star + Rating, Follow Button)
                     storeHeroHeader
-                        .padding(.top, 20)
-                        .padding(.bottom, 20)
+                        .padding(.top, 18)
+                        .padding(.bottom, 16)
 
                     if isLoading {
                         ShopStoreDetailSkeletonView()
@@ -108,12 +178,20 @@ struct StoreDetailView: View {
                     } else if let error = errorMessage {
                         errorStateView(error: error)
                     } else {
-                        // Section Header: "Tutti i prodotti" + Circular Filter Button
-                        catalogHeaderSection
-                            .padding(.horizontal, ShopLayout.screenPadding)
-                            .padding(.bottom, ShopLayout.cardSpacing)
+                        VStack(spacing: 12) {
+                            if dynamicCategories.count >= 2 {
+                                categoryPillsStrip
+                            }
 
-                        // 2-Column Product Grid (Screenshot 1)
+                            filterAndSortStrip
+
+                            if hasActiveSearch || hasActiveFilters {
+                                activeResultsStatusRow
+                                    .padding(.horizontal, ShopLayout.screenPadding)
+                            }
+                        }
+                        .padding(.bottom, 14)
+
                         productCatalogGrid
                             .padding(.horizontal, ShopLayout.screenPadding)
                             .padding(.bottom, ShopLayout.bottomDetailClearance)
@@ -127,6 +205,8 @@ struct StoreDetailView: View {
         }
         .background(Color.white.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $showStoreInfoSheet) {
             Group {
                 if let details = storeDetails {
@@ -134,6 +214,9 @@ struct StoreDetailView: View {
                         details: details,
                         storeId: storeId,
                         initialStoreName: initialStoreName,
+                        onReviewAdded: { newRev in
+                            prependReviewLocally(newRev)
+                        },
                         onReportTapped: {
                             showStoreInfoSheet = false
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -142,94 +225,93 @@ struct StoreDetailView: View {
                         }
                     )
                 } else {
-                    VStack(spacing: 16) {
-                        ProgressView().scaleEffect(1.2)
-                        Text("Caricamento informazioni del negozio...")
-                            .font(.system(size: 13, weight: .medium))
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .tint(.shopDark)
+                        Text("Caricamento informazioni...")
+                            .font(.system(size: 13.5, weight: .medium))
                             .foregroundColor(.shopTextMuted)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(red: 247/255, green: 248/255, blue: 250/255))
+                    .background(Color.shopSurface)
                 }
             }
         }
         .sheet(isPresented: $showWriteReviewSheet) {
             WriteReviewSheetView(
                 storeId: storeId,
-                storeName: storeDetails?.store_name ?? initialStoreName,
+                storeName: storeDisplayName,
                 onReviewSubmitted: { newRev in
-                    withAnimation {
-                        showToastMessage = "Recensione pubblicata con successo! Grazie."
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                        withAnimation {
-                            showToastMessage = nil
-                        }
-                    }
+                    prependReviewLocally(newRev)
+                    showToast("Recensione pubblicata. Grazie!")
                 }
             )
         }
-        .alert("Segnala \(storeDetails?.store_name ?? initialStoreName)", isPresented: $showReportAlert) {
+        .alert("Segnala \(storeDisplayName)", isPresented: $showReportAlert) {
             Button("Annulla", role: .cancel) {}
-            Button("Invia Segnalazione", role: .destructive) {
+            Button("Invia segnalazione", role: .destructive) {
                 Task {
                     _ = await followedManager.reportStore(
                         storeId: storeId,
-                        storeName: storeDetails?.store_name ?? initialStoreName,
+                        storeName: storeDisplayName,
                         reason: "Segnalato dall'utente per contenuti o prezzi errati"
                     )
-                    withAnimation {
-                        showToastMessage = "Segnalazione inviata. Grazie per il tuo feedback."
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                        withAnimation {
-                            showToastMessage = nil
-                        }
-                    }
+                    showToast("Segnalazione inviata. Grazie.")
                 }
             }
         } message: {
-            Text("Vuoi segnalare questo negozio al team di FitMatch? Esamineremo attentamente il catalogo e le informazioni.")
+            Text("Vuoi segnalare questo negozio al team di FitMatch? Verificheremo catalogo e informazioni.")
         }
         .overlay(alignment: .bottom) {
             if let msg = showToastMessage {
                 Text(msg)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundColor(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.black.opacity(0.85))
+                    .background(Color.shopDark.opacity(0.92))
                     .clipShape(Capsule())
-                    .padding(.bottom, 100)
+                    .padding(.bottom, 36)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
         .onAppear {
             TabBarVisibilityManager.shared.hide(for: "store_detail")
         }
         .onDisappear {
+            catalogTask?.cancel()
+            paginationTask?.cancel()
             TabBarVisibilityManager.shared.show(for: "store_detail")
         }
         .task {
-            loadStoreData()
-        }
-        .onChange(of: searchQuery) { newQuery in
-            searchTask?.cancel()
-            searchTask = Task {
-                try? await Task.sleep(nanoseconds: 350_000_000)
-                guard !Task.isCancelled else { return }
-                await performRemoteSearch(query: newQuery)
+            if storeDetails == nil {
+                loadStoreData()
             }
+        }
+        .onChange(of: searchQuery) { _ in
+            scheduleCatalogReload(debounceMs: 320)
+        }
+        .onChange(of: selectedCategory) { _ in
+            scheduleCatalogReload(debounceMs: 0)
+        }
+        .onChange(of: selectedBrand) { _ in
+            scheduleCatalogReload(debounceMs: 0)
+        }
+        .onChange(of: onlyMySize) { _ in
+            scheduleCatalogReload(debounceMs: 0)
+        }
+        .onChange(of: onlyDiscounted) { _ in
+            scheduleCatalogReload(debounceMs: 0)
+        }
+        .onChange(of: selectedSort) { _ in
+            scheduleCatalogReload(debounceMs: 0)
         }
     }
 
-    // MARK: - 1. Top Navigation Bar (Screenshot 1)
+    // MARK: - 1. Top Navigation Bar
+
     private var topNavigationBar: some View {
-        HStack(spacing: 12) {
-            // Circle Back Button
+        HStack(spacing: 10) {
             Button(action: {
                 dismiss()
             }) {
@@ -245,22 +327,27 @@ struct StoreDetailView: View {
             }
             .buttonStyle(.plain)
 
-            // Capsule Search Bar: "Cerca in questo negozio"
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 15))
+                    .font(.system(size: 14.5, weight: .medium))
                     .foregroundColor(.shopTextMuted)
 
-                TextField("Cerca in questo negozio", text: $searchQuery)
-                    .font(.system(size: 14))
+                TextField("Cerca in \(storeDisplayName)", text: $searchQuery)
+                    .font(.system(size: 14.5))
                     .foregroundColor(.shopDark)
+                    .submitLabel(.search)
 
-                if !searchQuery.isEmpty {
+                if isFilteringCatalog {
+                    ProgressView()
+                        .scaleEffect(0.72)
+                        .tint(.shopTextMuted)
+                } else if !searchQuery.isEmpty {
                     Button(action: { searchQuery = "" }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
+                            .font(.system(size: 15))
                             .foregroundColor(.shopTextMuted)
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 14)
@@ -271,12 +358,11 @@ struct StoreDetailView: View {
                 Capsule().stroke(Color.shopBorder, lineWidth: 1)
             )
 
-            // Circle Hamburger Menu Button (Opens Store Info Sheet)
             Button(action: {
                 showStoreInfoSheet = true
             }) {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 15, weight: .semibold))
+                Image(systemName: "info.circle")
+                    .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.shopDark)
                     .frame(width: ShopLayout.navButtonSize, height: ShopLayout.navButtonSize)
                     .background(Color.shopSurface)
@@ -289,204 +375,400 @@ struct StoreDetailView: View {
         }
     }
 
-    // MARK: - 2. Store Hero Header (Screenshot 1: Name, Rating, Segui Button)
-    private var storeHeroHeader: some View {
-        let name = storeDetails?.store_name ?? initialStoreName
-        let ratingStr = storeDetails?.rating.replacingOccurrences(of: ".", with: ",") ?? "4,8"
-        let reviewsStr = storeDetails?.review_count ?? "1,2K"
+    // MARK: - 2. Store Hero Header
 
-        return VStack(spacing: 12) {
-            // Big Store Title
+    private var storeHeroHeader: some View {
+        let name = storeDisplayName
+        let isFollowed = followedManager.isFollowing(storeId: storeId)
+
+        return VStack(spacing: 10) {
+            ShopStoreLogo(storeName: name, showVerified: false, showLabel: false, size: 58)
+                .overlay(
+                    Circle()
+                        .stroke(Color.shopBorder.opacity(0.8), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 3)
+
             Text(name)
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .font(.system(size: 26, weight: .bold, design: .rounded))
                 .foregroundColor(.shopDark)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
 
-            // Rating & Review Count (e.g. ★ 4,9 (3K))
-            HStack(spacing: 4) {
-                Image(systemName: "star.fill")
-                    .font(.system(size: 12.5))
-                    .foregroundColor(Color(red: 24/255, green: 24/255, blue: 27/255))
+            if let details = storeDetails {
+                VStack(spacing: 4) {
+                    Button(action: {
+                        showStoreInfoSheet = true
+                    }) {
+                        HStack(spacing: 6) {
+                            if !details.rating.isEmpty {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "star.fill")
+                                        .font(.system(size: 11.5))
+                                        .foregroundColor(.shopDark)
+                                    Text(details.rating.replacingOccurrences(of: ".", with: ","))
+                                        .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.shopDark)
+                                    if !details.review_count.isEmpty {
+                                        Text("(\(details.review_count))")
+                                            .font(.system(size: 13, weight: .regular))
+                                            .foregroundColor(.shopTextMuted)
+                                    }
+                                }
+                            }
 
-                Text("\(ratingStr) (\(reviewsStr))")
-                    .font(.system(size: 13.5, weight: .semibold, design: .rounded))
-                    .foregroundColor(.shopDark)
+                            if !details.rating.isEmpty && details.total_offers > 0 {
+                                Text("·")
+                                    .foregroundColor(.shopTextMuted)
+                            }
+
+                            if details.total_offers > 0 {
+                                Text("\(formattedCount(details.total_offers)) prodotti")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.shopTextMuted)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    if let shipLine = shippingSummaryLine {
+                        Text(shipLine)
+                            .font(.system(size: 12.5, weight: .regular))
+                            .foregroundColor(.shopTextMuted)
+                    }
+                }
+            } else {
+                ShopSkeletonTextLine(width: 150, height: 14, cornerRadius: 6)
+                    .padding(.vertical, 2)
             }
 
-            // Action Buttons: Segui + Valuta
             HStack(spacing: 10) {
-                // Segui / Seguito Pill Button
                 Button(action: {
-                    let haptic = UIImpactFeedbackGenerator(style: .medium)
-                    haptic.impactOccurred()
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     followedManager.toggleFollow(storeId: storeId, storeName: name)
                 }) {
-                    let isFollowed = followedManager.isFollowing(storeId: storeId)
                     HStack(spacing: 6) {
                         if isFollowed {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 12, weight: .bold))
                         }
                         Text(isFollowed ? "Seguito" : "Segui")
-                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
                     }
                     .foregroundColor(isFollowed ? .shopDark : .white)
                     .padding(.horizontal, 22)
-                    .padding(.vertical, 10)
-                    .background(isFollowed ? Color(red: 236/255, green: 237/255, blue: 241/255) : Color(red: 24/255, green: 24/255, blue: 27/255))
+                    .frame(height: 38)
+                    .background(isFollowed ? Color.shopSurface : Color.shopDark)
                     .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(isFollowed ? Color.shopBorder : Color.clear, lineWidth: 1)
+                    )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ShopCardPressStyle(scale: 0.97, pressedOpacity: 0.92))
 
-                // Valuta Button
                 Button(action: {
                     showWriteReviewSheet = true
                 }) {
                     HStack(spacing: 5) {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(red: 24/255, green: 24/255, blue: 27/255))
+                        Image(systemName: "star")
+                            .font(.system(size: 12, weight: .semibold))
                         Text("Valuta")
-                            .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
                     }
                     .foregroundColor(.shopDark)
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-                    .background(Color(red: 244/255, green: 245/255, blue: 248/255))
+                    .frame(height: 38)
+                    .background(Color.shopSurface)
                     .clipShape(Capsule())
                     .overlay(
-                        Capsule().stroke(Color(red: 228/255, green: 229/255, blue: 234/255), lineWidth: 0.8)
+                        Capsule().stroke(Color.shopBorder, lineWidth: 1)
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ShopCardPressStyle(scale: 0.97, pressedOpacity: 0.92))
             }
             .padding(.top, 4)
         }
     }
 
-    // MARK: - 3. Catalog Section Header: "Tutti i prodotti" + Circular Filter Button
-    private var catalogHeaderSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Tutti i prodotti" : "Risultati (\(filteredProducts.count))")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundColor(.shopDark)
+    // MARK: - 3. Dynamic Category Pills
 
-                    if !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text("Ricerca intelligente nel catalogo")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundColor(.shopTextMuted)
-                    }
-                }
+    private var categoryPillsStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                categoryPill(id: "tutti", label: "Tutti")
 
-                Spacer()
-
-                if isRemoteSearching {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                        .padding(.trailing, 4)
-                }
-
-                Menu {
-                    Button(action: { selectedSort = "discount" }) {
-                        Label("Miglior Sconto", systemImage: selectedSort == "discount" ? "checkmark" : "")
-                    }
-                    Button(action: { selectedSort = "price_asc" }) {
-                        Label("Prezzo: Min", systemImage: selectedSort == "price_asc" ? "checkmark" : "")
-                    }
-                    Button(action: { selectedSort = "price_desc" }) {
-                        Label("Prezzo: Max", systemImage: selectedSort == "price_desc" ? "checkmark" : "")
-                    }
-                    Button(action: { selectedSort = "name" }) {
-                        Label("Nome A-Z", systemImage: selectedSort == "name" ? "checkmark" : "")
-                    }
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 40, height: 40)
-                        .background(Color(red: 24/255, green: 24/255, blue: 27/255))
-                        .clipShape(Circle())
+                ForEach(dynamicCategories) { cat in
+                    categoryPill(id: cat.id, label: cat.label)
                 }
             }
-
-            // Auto-correction "Did you mean / Risultati per" badge
-            if let corrected = detectedCorrection {
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.indigo)
-                    Text("Risultati intelligenti per ")
-                        .font(.system(size: 12))
-                        .foregroundColor(.shopTextMuted)
-                    + Text("\"\(corrected.capitalized)\"")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.shopDark)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.indigo.opacity(0.08))
-                .cornerRadius(20)
-                .padding(.top, 2)
-            }
+            .padding(.horizontal, ShopLayout.screenPadding)
         }
     }
 
-    // MARK: - 4. 2-Column Product Grid (Screenshot 1)
+    private func categoryPill(id: String, label: String) -> some View {
+        let isSelected = selectedCategory == id
+        return Button(action: {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(.easeOut(duration: 0.18)) {
+                selectedCategory = id
+            }
+        }) {
+            Text(label)
+                .font(.system(size: 13.5, weight: isSelected ? .bold : .semibold, design: .rounded))
+                .foregroundColor(isSelected ? .white : .shopDark)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(isSelected ? Color.shopDark : Color.shopSurface)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(isSelected ? Color.clear : Color.shopBorder, lineWidth: 1)
+                )
+        }
+        .buttonStyle(ShopCardPressStyle(scale: 0.97, pressedOpacity: 0.92))
+    }
+
+    // MARK: - 4. Compact Filter & Sort Strip
+
+    private var filterAndSortStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // Sort Menu Chip
+                Menu {
+                    ForEach(StoreSortOption.allCases) { option in
+                        if option != .discount || hasDiscountsInStore {
+                            Button(action: {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                selectedSort = option
+                            }) {
+                                Label(
+                                    option.label,
+                                    systemImage: selectedSort == option ? "checkmark" : ""
+                                )
+                            }
+                        }
+                    }
+                } label: {
+                    let active = selectedSort != .recommended
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 11.5, weight: .semibold))
+                        Text(selectedSort.compactLabel)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundColor(active ? .white : .shopDark)
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .background(active ? Color.shopDark : Color.white)
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule().stroke(active ? Color.clear : Color.shopBorder, lineWidth: 1)
+                    )
+                }
+
+                // Preferred Size Quick Filter
+                if let prefSize = activePreferredSize {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onlyMySize.toggle()
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "ruler")
+                                .font(.system(size: 11.5, weight: .semibold))
+                            Text("Taglia \(prefSize)")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundColor(onlyMySize ? .white : .shopDark)
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .background(onlyMySize ? Color.shopDark : Color.white)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule().stroke(onlyMySize ? Color.clear : Color.shopBorder, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(ShopCardPressStyle(scale: 0.97, pressedOpacity: 0.92))
+                }
+
+                // On Sale Quick Toggle (only if store has discounts)
+                if hasDiscountsInStore {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onlyDiscounted.toggle()
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "tag")
+                                .font(.system(size: 11.5, weight: .semibold))
+                            Text("In sconto")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundColor(onlyDiscounted ? .white : .shopDark)
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .background(onlyDiscounted ? Color.shopDark : Color.white)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule().stroke(onlyDiscounted ? Color.clear : Color.shopBorder, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(ShopCardPressStyle(scale: 0.97, pressedOpacity: 0.92))
+                }
+
+                // Brand Picker Menu (only for multi-brand stores)
+                if isMultiBrandStore {
+                    Menu {
+                        Button(action: { selectedBrand = nil }) {
+                            Label("Tutti i brand", systemImage: selectedBrand == nil ? "checkmark" : "")
+                        }
+                        Divider()
+                        ForEach(dynamicBrands) { brand in
+                            Button(action: {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                selectedBrand = brand.name
+                            }) {
+                                Label(
+                                    "\(brand.name) (\(brand.count))",
+                                    systemImage: selectedBrand?.caseInsensitiveCompare(brand.name) == .orderedSame ? "checkmark" : ""
+                                )
+                            }
+                        }
+                    } label: {
+                        let active = selectedBrand != nil
+                        HStack(spacing: 5) {
+                            Text(selectedBrand ?? "Brand")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .foregroundColor(active ? .white : .shopDark)
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .background(active ? Color.shopDark : Color.white)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule().stroke(active ? Color.clear : Color.shopBorder, lineWidth: 1)
+                        )
+                    }
+                }
+
+                // Quick Reset Chip when any filter is active
+                if hasActiveFilters {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        resetFilters()
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("Azzera")
+                                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundColor(.shopTextMuted)
+                        .padding(.horizontal, 10)
+                        .frame(height: 32)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, ShopLayout.screenPadding)
+        }
+    }
+
+    private var activeResultsStatusRow: some View {
+        HStack(spacing: 6) {
+            Text(totalMatching == 1 ? "1 prodotto" : "\(formattedCount(totalMatching)) prodotti")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundColor(.shopTextMuted)
+
+            if let corrected = detectedCorrection, hasActiveSearch {
+                Text("·")
+                    .foregroundColor(.shopTextMuted)
+                Text("Risultati per «\(corrected.capitalized)»")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(.shopDark)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+    }
+
+    // MARK: - 5. 2-Column Product Grid + Automatic Infinite Scroll
+
     private var productCatalogGrid: some View {
         Group {
-            if filteredProducts.isEmpty {
-                let storeDisplay = storeDetails?.store_name ?? initialStoreName
-                let hasQuery = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if products.isEmpty && !isFilteringCatalog {
                 FitMatchEmptyStateView(
-                    icon: "magnifyingglass",
-                    illustrationName: "empty_search",
-                    accentColor: .shopPurple,
-                    badgeText: "CATALOGO NEGOZIO",
-                    title: hasQuery ? "Nessun risultato su \(storeDisplay)" : "Nessun articolo in questa selezione",
-                    subtitle: hasQuery
-                        ? "Nessun modello dello store corrisponde a «\(searchQuery)». Prova con una scarpa (es. Novablast, Pegasus) o uno sport (es. trail, padel, bici)."
-                        : "Prova a rimuovere o modificare i filtri attivi per vedere tutte le offerte di \(storeDisplay).",
-                    primaryTitle: hasQuery ? "Azzera ricerca" : nil,
-                    primaryIcon: hasQuery ? "arrow.counterclockwise" : nil,
-                    primaryColor: .shopDark,
-                    onPrimaryTap: hasQuery ? { searchQuery = "" } : nil
+                    icon: hasActiveSearch ? "magnifyingglass" : "line.3.horizontal.decrease.circle",
+                    title: hasActiveSearch
+                        ? "Nessun risultato su \(storeDisplayName)"
+                        : "Nessun prodotto con questi filtri",
+                    subtitle: hasActiveSearch
+                        ? "Nessun articolo corrisponde a «\(searchQuery)»."
+                        : "Prova a rimuovere o modificare uno dei filtri attivi.",
+                    primaryTitle: hasActiveSearch && !hasActiveFilters
+                        ? "Azzera ricerca"
+                        : "Rimuovi filtri",
+                    primaryIcon: "arrow.counterclockwise",
+                    onPrimaryTap: {
+                        if hasActiveSearch && !hasActiveFilters {
+                            searchQuery = ""
+                        } else {
+                            searchQuery = ""
+                            resetFilters()
+                        }
+                    }
                 )
                 .padding(.vertical, 20)
             } else {
-                LazyVGrid(columns: columns, spacing: 18) {
-                    ForEach(filteredProducts) { item in
-                        let matched = item.toMatchedProduct(
-                            storeId: storeDetails?.store_id ?? storeId,
-                            storeName: storeDetails?.store_name ?? initialStoreName
-                        )
-                        NavigationLink(destination: ProductDetailView(product: matched)) {
-                            productCardView(item: item, matched: matched)
+                VStack(spacing: 18) {
+                    LazyVGrid(columns: columns, spacing: 18) {
+                        ForEach(Array(products.enumerated()), id: \.element.id) { index, item in
+                            let matched = item.toMatchedProduct(
+                                storeId: storeDetails?.store_id ?? storeId,
+                                storeName: storeDisplayName
+                            )
+                            NavigationLink(destination: ProductDetailView(product: matched)) {
+                                productCardView(item: item, matched: matched)
+                            }
+                            .buttonStyle(ShopCardPressStyle())
+                            .onAppear {
+                                if hasMoreProducts && !isLoadingMore && !isFilteringCatalog && index >= max(0, products.count - 6) {
+                                    loadMoreProducts()
+                                }
+                            }
                         }
-                        .buttonStyle(ShopCardPressStyle())
+                    }
+                    .opacity(isFilteringCatalog ? 0.55 : 1.0)
+                    .animation(.easeOut(duration: 0.18), value: isFilteringCatalog)
+
+                    if isLoadingMore {
+                        ProgressView()
+                            .tint(.shopTextMuted)
+                            .padding(.vertical, 12)
                     }
                 }
-                .animation(ShopMotion.gridReflow, value: filteredProducts.map(\.id))
             }
         }
     }
 
-    // Single Product Card matching Screenshot 1
     private func productCardView(item: StoreShowcaseProduct, matched: MatchedProduct) -> some View {
         let isSaved = wishlistManager.isFavorite(matched.canonical_name)
+        let brandLabel = item.effectiveBrand
+        let showBrandCaption = isMultiBrandStore
+            && !brandLabel.isEmpty
+            && brandLabel.caseInsensitiveCompare(storeDisplayName) != .orderedSame
+        let displayTitle = showBrandCaption ? item.titleWithoutLeadingBrand : item.cleanDisplayTitle
 
         return VStack(alignment: .leading, spacing: 8) {
-            // Image Container with Soft Off-White Background and Heart Button
-            ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color(red: 246/255, green: 247/255, blue: 249/255))
-                    .frame(height: 185)
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.shopSurface)
+                    .frame(height: 182)
                     .overlay(
                         Group {
                             if let urlStr = item.image_url, let url = URL(string: urlStr) {
-                                ShopCachedAsyncImage(url: url) { phase in
+                                ShopCachedAsyncImage(url: url, maxPixelSize: 420) { phase in
                                     switch phase {
                                     case .success(let image):
                                         image
@@ -495,9 +777,9 @@ struct StoreDetailView: View {
                                             .padding(14)
                                             .transition(.opacity)
                                     case .failure:
-                                        Image(systemName: "shoe")
-                                            .font(.system(size: 36))
-                                            .foregroundColor(.shopTextMuted.opacity(0.3))
+                                        Image(systemName: "bag")
+                                            .font(.system(size: 28, weight: .light))
+                                            .foregroundColor(.shopTextMuted.opacity(0.35))
                                     case .empty:
                                         ShopSkeletonBlock(cornerRadius: 14)
                                     @unknown default:
@@ -505,42 +787,69 @@ struct StoreDetailView: View {
                                     }
                                 }
                             } else {
-                                Image(systemName: "shoe")
-                                    .font(.system(size: 36))
-                                    .foregroundColor(.shopTextMuted.opacity(0.3))
+                                Image(systemName: "bag")
+                                    .font(.system(size: 28, weight: .light))
+                                    .foregroundColor(.shopTextMuted.opacity(0.35))
                             }
                         }
                     )
 
-                // Translucent Circular Heart Button (Screenshot 1)
-                Button(action: {
-                    let haptic = UIImpactFeedbackGenerator(style: .light)
-                    haptic.impactOccurred()
-                    wishlistManager.toggleFavorite(product: matched)
-                }) {
-                    Image(systemName: isSaved ? "heart.fill" : "heart")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(isSaved ? .red : Color(red: 55/255, green: 65/255, blue: 81/255))
-                        .frame(width: 36, height: 36)
-                        .background(Color.white.opacity(0.92))
-                        .clipShape(Circle())
-                        .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+                // Top-left discount badge
+                if let badge = item.discountBadge {
+                    VStack {
+                        HStack {
+                            Text(badge)
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.shopDark)
+                                .clipShape(Capsule())
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+                    .padding(10)
                 }
-                .buttonStyle(.plain)
+
+                // Bottom-right favorite button
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            wishlistManager.toggleFavorite(product: matched)
+                        }) {
+                            Image(systemName: isSaved ? "heart.fill" : "heart")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(isSaved ? .shopRed : .shopDark)
+                                .frame(width: 34, height: 34)
+                                .background(Color.white.opacity(0.94))
+                                .clipShape(Circle())
+                                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
                 .padding(10)
             }
 
-            // Product Information Underneath Image
-            VStack(alignment: .leading, spacing: 4) {
-                // Product Title (2 lines max)
-                Text(item.title)
+            VStack(alignment: .leading, spacing: 3) {
+                if showBrandCaption {
+                    Text(brandLabel)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.shopTextMuted)
+                        .lineLimit(1)
+                }
+
+                Text(displayTitle)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.shopDark)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .frame(height: 34, alignment: .topLeading)
 
-                // Price Row: Bold current price + Strikethrough original if discounted
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(item.formattedPrice)
                         .font(.system(size: 14.5, weight: .bold, design: .rounded))
@@ -558,31 +867,32 @@ struct StoreDetailView: View {
         }
     }
 
-    // MARK: - Error State View
+    // MARK: - Error State
+
     private func errorStateView(error: String) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 38))
-                .foregroundColor(.orange)
-            Text("Impossibile caricare il negozio")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.shopDark)
-            Text(error)
-                .font(.system(size: 13))
-                .foregroundColor(.shopTextMuted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            Button("Riprova") {
+        FitMatchEmptyStateView(
+            icon: "wifi.exclamationmark",
+            accentColor: .shopRed,
+            title: "Impossibile caricare il negozio",
+            subtitle: error,
+            primaryTitle: "Riprova",
+            primaryIcon: "arrow.clockwise",
+            onPrimaryTap: {
                 loadStoreData()
             }
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 22)
-            .padding(.vertical, 10)
-            .background(Color(red: 24/255, green: 24/255, blue: 27/255))
-            .clipShape(Capsule())
-        }
-        .padding(.vertical, 60)
+        )
+        .padding(.horizontal, ShopLayout.screenPadding)
+        .padding(.vertical, 24)
+    }
+
+    // MARK: - Data Loading, Filtering & Pagination
+
+    private func resetFilters() {
+        selectedCategory = "tutti"
+        selectedBrand = nil
+        onlyMySize = false
+        onlyDiscounted = false
+        selectedSort = .recommended
     }
 
     private func loadStoreData() {
@@ -597,11 +907,15 @@ struct StoreDetailView: View {
         do {
             let details = try await api.getStoreDetails(
                 storeId: storeId,
-                query: searchQuery,
-                sort: selectedSort
+                query: effectiveRemoteQuery,
+                sort: selectedSort.rawValue,
+                preferredSize: activePreferredSize
             )
             await MainActor.run {
                 self.storeDetails = details
+                self.products = details.products
+                self.totalMatching = details.total_matching ?? details.products.count
+                self.errorMessage = nil
                 self.isLoading = false
                 RecentActivityManager.shared.recordStoreView(
                     storeId: storeId,
@@ -617,49 +931,134 @@ struct StoreDetailView: View {
         }
     }
 
-    private func performRemoteSearch(query: String) async {
-        let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return }
+    private func scheduleCatalogReload(debounceMs: UInt64) {
+        guard !isLoading else { return }
+        catalogTask?.cancel()
+        paginationTask?.cancel()
+        isLoadingMore = false
 
-        await MainActor.run { isRemoteSearching = true }
-        defer { Task { @MainActor in isRemoteSearching = false } }
+        let queryCopy = effectiveRemoteQuery
+        let categoryCopy = selectedCategory
+        let brandCopy = selectedBrand
+        let sizeFilterCopy = onlyMySize ? activePreferredSize : nil
+        let prefSizeCopy = activePreferredSize
+        let onlyDiscCopy = onlyDiscounted
+        let sortCopy = selectedSort.rawValue
 
-        do {
-            let remote = try await api.getStoreDetails(
-                storeId: storeId,
-                query: clean,
-                sort: selectedSort
-            )
-            await MainActor.run {
-                guard let existing = storeDetails?.products else { return }
-                var merged = existing
-                let existingIds = Set(existing.map(\.id))
-                for item in remote.products {
-                    if !existingIds.contains(item.id) {
-                        merged.append(item)
-                    }
-                }
-                self.storeDetails?.products = merged
+        catalogTask = Task {
+            if debounceMs > 0 {
+                try? await Task.sleep(nanoseconds: debounceMs * 1_000_000)
+                guard !Task.isCancelled else { return }
             }
-        } catch {
-            // Silently fall back to in-memory smart filtered items
+
+            await MainActor.run { isFilteringCatalog = true }
+
+            do {
+                let page = try await api.getStoreCatalogPage(
+                    storeId: storeId,
+                    query: queryCopy,
+                    category: categoryCopy,
+                    brand: brandCopy,
+                    size: sizeFilterCopy,
+                    onlyDiscounted: onlyDiscCopy,
+                    sort: sortCopy,
+                    preferredSize: prefSizeCopy,
+                    limit: pageSize,
+                    offset: 0
+                )
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.products = page.products
+                    self.totalMatching = page.totalMatching
+                    self.isFilteringCatalog = false
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.isFilteringCatalog = false
+                }
+            }
+        }
+    }
+
+    private func loadMoreProducts() {
+        guard hasMoreProducts, !isLoadingMore, !isFilteringCatalog else { return }
+        isLoadingMore = true
+
+        let nextOffset = products.count
+        let queryCopy = effectiveRemoteQuery
+        let categoryCopy = selectedCategory
+        let brandCopy = selectedBrand
+        let sizeFilterCopy = onlyMySize ? activePreferredSize : nil
+        let prefSizeCopy = activePreferredSize
+        let onlyDiscCopy = onlyDiscounted
+        let sortCopy = selectedSort.rawValue
+
+        paginationTask?.cancel()
+        paginationTask = Task {
+            do {
+                let page = try await api.getStoreCatalogPage(
+                    storeId: storeId,
+                    query: queryCopy,
+                    category: categoryCopy,
+                    brand: brandCopy,
+                    size: sizeFilterCopy,
+                    onlyDiscounted: onlyDiscCopy,
+                    sort: sortCopy,
+                    preferredSize: prefSizeCopy,
+                    limit: pageSize,
+                    offset: nextOffset
+                )
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    let existingIds = Set(self.products.map(\.id))
+                    let uniqueNew = page.products.filter { !existingIds.contains($0.id) }
+                    if uniqueNew.isEmpty {
+                        self.totalMatching = self.products.count
+                    } else {
+                        self.products.append(contentsOf: uniqueNew)
+                        self.totalMatching = max(page.totalMatching, self.products.count)
+                    }
+                    self.isLoadingMore = false
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.isLoadingMore = false
+                }
+            }
+        }
+    }
+
+    private func prependReviewLocally(_ review: StoreCustomerReview) {
+        var existing = storeDetails?.customer_reviews ?? []
+        existing.insert(review, at: 0)
+        storeDetails?.customer_reviews = existing
+    }
+
+    private func showToast(_ message: String) {
+        withAnimation(.easeOut(duration: 0.2)) {
+            showToastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                if showToastMessage == message {
+                    showToastMessage = nil
+                }
+            }
         }
     }
 }
 
-// MARK: - Store Intelligent Search Matcher
+// MARK: - Store Intelligent Search Matcher (Typo Correction)
+
 struct StoreSearchMatcher {
     static let knownAthleticModels: [String] = [
         "alphafly", "vaporfly", "ultrafly", "streakfly", "pegasus", "vomero",
         "invincible", "infinity", "metaspeed", "adizero", "boston", "adios",
         "supercomp", "endorphin", "speedgoat", "forerunner", "nimbus", "kayano",
         "cumulus", "novablast", "clifton", "bondi", "mach", "glycerin", "ghost",
-        "tempo", "terrakiger", "wildhorse", "zegama", "gt-2000"
-    ]
-
-    static let carbonModels: [String] = [
-        "alphafly", "vaporfly", "ultrafly", "metaspeed", "adizero pro",
-        "adios pro", "endorphin pro", "cielo x1", "rocket x", "fast-r", "sc elite"
+        "tempo", "terrakiger", "wildhorse", "zegama", "gt-2000", "garmin", "fenix"
     ]
 
     static func levenshtein(_ s1: String, _ s2: String) -> Int {
@@ -681,11 +1080,9 @@ struct StoreSearchMatcher {
 
     static func normalizeWord(_ w: String) -> String {
         var word = w.lowercased()
-        // 1. Collapse repeating characters at the end: alphaflyy -> alphafly, pegasuss -> pegasus
         while word.count > 4, let last = word.last, word.dropLast().last == last {
             word.removeLast()
         }
-        // 2. Fuzzy match against known athletic models
         for m in knownAthleticModels {
             let maxDist = m.count >= 7 ? 2 : 1
             if levenshtein(word, m) <= maxDist {
@@ -707,100 +1104,42 @@ struct StoreSearchMatcher {
         }
         return changed ? normalizedTokens.joined(separator: " ") : nil
     }
+}
 
-    static func matchScore(product: StoreShowcaseProduct, query: String) -> Int {
-        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if cleanQuery.isEmpty { return 100 }
+// MARK: - Accurate 5-Star Renderer
 
-        let titleLower = product.title.lowercased()
-        let canonLower = product.canonical_name.lowercased()
-        let brandLower = product.brand?.lowercased() ?? ""
-        let combined = "\(titleLower) \(canonLower) \(brandLower)"
+private struct StoreStarRatingRow: View {
+    let rating: Double
+    var size: CGFloat = 12
 
-        // Exact full phrase containment
-        if combined.contains(cleanQuery) {
-            return 250
-        }
-
-        let rawTokens = cleanQuery.components(separatedBy: CharacterSet.whitespacesAndNewlines).filter { !$0.isEmpty }
-        if rawTokens.isEmpty { return 100 }
-
-        let targetWords = combined.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
-        var totalScore = 0
-
-        for rawToken in rawTokens {
-            let normToken = normalizeWord(rawToken)
-            var tokenScore = 0
-
-            // Semantic synonyms
-            if normToken == "carbonio" || normToken == "carbon" || normToken == "piastra" {
-                if carbonModels.contains(where: { combined.contains($0) }) || combined.contains("carbon") {
-                    tokenScore = max(tokenScore, 70)
-                }
-            } else if normToken == "trail" || normToken == "sterrato" || normToken == "montagna" {
-                if combined.contains("trail") || combined.contains("acg") || combined.contains("gore-tex") || combined.contains("gtx") {
-                    tokenScore = max(tokenScore, 65)
-                }
-            } else if normToken == "donna" || normToken == "women" || normToken == "femminile" {
-                if combined.contains("donna") || combined.contains("wmns") || combined.contains("women") {
-                    tokenScore = max(tokenScore, 60)
-                }
-            } else if normToken == "uomo" || normToken == "men" || normToken == "maschile" {
-                if combined.contains("uomo") || combined.contains("mens") || combined.contains("men") {
-                    tokenScore = max(tokenScore, 60)
-                }
-            } else if normToken == "gara" || normToken == "maratona" || normToken == "racing" {
-                if combined.contains("gara") || combined.contains("racing") || carbonModels.contains(where: { combined.contains($0) }) {
-                    tokenScore = max(tokenScore, 60)
-                }
-            } else if normToken == "ammortizzata" || normToken == "ammortizzazione" || normToken == "comoda" {
-                let cushionModels = ["invincible", "vomero", "infinity", "nimbus", "bondi", "more", "cumulus", "clifton"]
-                if cushionModels.contains(where: { combined.contains($0) }) {
-                    tokenScore = max(tokenScore, 60)
-                }
-            }
-
-            // Word-by-word token matching
-            for tWord in targetWords {
-                if tWord == rawToken || tWord == normToken {
-                    tokenScore = max(tokenScore, 90) // Exact word match
-                } else if tWord.hasPrefix(rawToken) || tWord.hasPrefix(normToken) || (normToken.count >= 4 && rawToken.hasPrefix(tWord)) {
-                    tokenScore = max(tokenScore, 70) // Prefix match
-                } else if tWord.contains(rawToken) || tWord.contains(normToken) {
-                    tokenScore = max(tokenScore, 50) // Substring
-                } else {
-                    let maxD = normToken.count >= 7 ? 2 : (normToken.count >= 4 ? 1 : 0)
-                    if maxD > 0 {
-                        let d1 = levenshtein(rawToken, tWord)
-                        let d2 = levenshtein(normToken, tWord)
-                        let d = min(d1, d2)
-                        if d <= maxD {
-                            tokenScore = max(tokenScore, 55 - (d * 12)) // Typo fuzzy match
-                        }
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<5, id: \.self) { index in
+                let threshold = Double(index) + 1.0
+                let symbol: String = {
+                    if rating >= threshold - 0.2 {
+                        return "star.fill"
+                    } else if rating >= threshold - 0.7 {
+                        return "star.leadinghalf.filled"
+                    } else {
+                        return "star"
                     }
-                }
+                }()
+                Image(systemName: symbol)
+                    .font(.system(size: size))
+                    .foregroundColor(symbol == "star" ? Color.shopBorder : .shopDark)
             }
-
-            // If token didn't match anywhere, this product doesn't match
-            if tokenScore == 0 {
-                return 0
-            }
-
-            totalScore += tokenScore
         }
-
-        return totalScore
     }
 }
 
-// MARK: - =========================================================================
-// MARK: - Store Info Sheet (Screenshots 2 & 3: Shopify Shop Merchant Details Sheet)
-// MARK: - =========================================================================
+// MARK: - Store Info Sheet (Verified Data Only)
 
 struct StoreInfoSheetView: View {
     let details: StoreDetailResponse
     let storeId: String
     let initialStoreName: String
+    var onReviewAdded: ((StoreCustomerReview) -> Void)? = nil
     let onReportTapped: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -809,51 +1148,84 @@ struct StoreInfoSheetView: View {
     @State private var selectedPolicyTitle: String? = nil
     @State private var selectedPolicyText: String? = nil
     @State private var showWriteReviewSheet: Bool = false
-    @State private var liveReviews: [StoreCustomerReview] = []
+    @State private var liveReviews: [StoreCustomerReview]
 
-    var customerPhotos: [String] {
-        if let p = details.customer_photos, !p.isEmpty { return p }
-        return Array(details.products.compactMap { $0.image_url }.prefix(8))
+    init(
+        details: StoreDetailResponse,
+        storeId: String,
+        initialStoreName: String,
+        onReviewAdded: ((StoreCustomerReview) -> Void)? = nil,
+        onReportTapped: @escaping () -> Void
+    ) {
+        self.details = details
+        self.storeId = storeId
+        self.initialStoreName = initialStoreName
+        self.onReviewAdded = onReviewAdded
+        self.onReportTapped = onReportTapped
+        self._liveReviews = State(initialValue: details.customer_reviews ?? [])
     }
 
-    var customerReviews: [StoreCustomerReview] {
-        if let r = details.customer_reviews, !r.isEmpty { return r }
-        return [
-            StoreCustomerReview(author: "Marco B.", rating: 5.0, text: "Scarpe perfette, spedizione rapidissima e taglia precisa. Ottima esperienza d'acquisto!", date: "2 settimane fa"),
-            StoreCustomerReview(author: "Elena R.", rating: 5.0, text: "Prezzo imbattibile e prodotto 100% originale con imballaggio curato.", date: "3 settimane fa"),
-            StoreCustomerReview(author: "Davide M.", rating: 4.9, text: "Servizio clienti gentile e tracciamento puntuale del corriere.", date: "1 mese fa")
-        ]
+    private var numericRating: Double {
+        Double(details.rating.replacingOccurrences(of: ",", with: ".")) ?? 0
     }
 
-    var effectiveReviews: [StoreCustomerReview] {
-        if !liveReviews.isEmpty { return liveReviews }
-        return customerReviews
+    private var formattedCatalogCount: String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.locale = Locale(identifier: "it_IT")
+        return f.string(from: NSNumber(value: details.total_offers)) ?? "\(details.total_offers)"
+    }
+
+    private var contactEntries: [(id: String, title: String, value: String?, icon: String, url: URL)] {
+        var entries: [(String, String, String?, String, URL)] = []
+
+        if let siteUrl = URL(string: details.base_url), !details.base_url.isEmpty {
+            entries.append(("site", "Sito web", cleanDomain(details.base_url), "globe", siteUrl))
+        }
+        if let email = details.contact_email?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !email.isEmpty,
+           let mailUrl = URL(string: "mailto:\(email)") {
+            entries.append(("email", email, nil, "envelope", mailUrl))
+        }
+        if let phone = details.contact_phone?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !phone.isEmpty {
+            let cleaned = phone.replacingOccurrences(of: " ", with: "")
+            if let telUrl = URL(string: "tel:\(cleaned)") {
+                entries.append(("phone", phone, nil, "phone", telUrl))
+            }
+        }
+        if let insta = details.social_instagram?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !insta.isEmpty {
+            let handle = insta.replacingOccurrences(of: "@", with: "")
+            if let igUrl = URL(string: "https://instagram.com/\(handle)") {
+                entries.append(("ig", "Instagram", insta, "camera", igUrl))
+            }
+        }
+        return entries
     }
 
     var body: some View {
         NavigationView {
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 20) {
-                    // MARK: - Top Store Info Card (Screenshot 2: Logo + Name + Bio)
+                VStack(spacing: 16) {
                     storeProfileHeaderCard
 
-                    // MARK: - Section "Recensioni" (Screenshot 2: Rating, Stars, Photo Gallery, Review Carousel)
+                    shippingAndCatalogCard
+
                     reviewsSection
 
-                    // MARK: - Section "Sedi" (Screenshot 2: Physical stores / Hub)
                     if let location = details.city_or_location ?? details.location, !location.isEmpty {
                         storeLocationSection(location: location)
                     }
 
-                    // MARK: - Section "Informative" (Screenshot 3: Rimborsi, Spedizioni, Privacy, Termini)
                     policiesSection
 
-                    // MARK: - Section "Contatti" (Screenshot 3: Sito web, Email, Telefono, Instagram)
-                    contactsSection
+                    if !contactEntries.isEmpty {
+                        contactsSection
+                    }
 
-                    // MARK: - Action Buttons (Screenshot 3: Visita Negozio Online, Segnala)
                     actionButtonsSection
-                        .padding(.bottom, 40)
+                        .padding(.bottom, 32)
                 }
                 .padding(.horizontal, ShopLayout.screenPadding)
                 .padding(.top, ShopLayout.screenPadding)
@@ -869,43 +1241,39 @@ struct StoreInfoSheetView: View {
                             .frame(width: 36, height: 36)
                             .background(Color.white)
                             .clipShape(Circle())
-                            .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 1)
+                            .overlay(Circle().stroke(Color.shopBorder, lineWidth: 1))
                     }
                 }
 
-                ToolbarItem(placement: .principal) {
-                    EmptyView()
-                }
-
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 10) {
-                        // Segui / Seguito Pill Button
+                    HStack(spacing: 8) {
                         Button(action: {
-                            let haptic = UIImpactFeedbackGenerator(style: .medium)
-                            haptic.impactOccurred()
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             followedManager.toggleFollow(storeId: storeId, storeName: details.store_name)
                         }) {
                             let isFollowed = followedManager.isFollowing(storeId: storeId)
                             Text(isFollowed ? "Seguito" : "Segui")
-                                .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                                .font(.system(size: 13.5, weight: .semibold, design: .rounded))
                                 .foregroundColor(isFollowed ? .shopDark : .white)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 7)
-                                .background(isFollowed ? Color(red: 236/255, green: 237/255, blue: 241/255) : Color(red: 24/255, green: 24/255, blue: 27/255))
+                                .background(isFollowed ? Color.white : Color.shopDark)
                                 .clipShape(Capsule())
+                                .overlay(
+                                    Capsule().stroke(isFollowed ? Color.shopBorder : Color.clear, lineWidth: 1)
+                                )
                         }
                         .buttonStyle(.plain)
 
-                        // Circle Share Button
-                        if let url = URL(string: details.base_url) {
+                        if let url = URL(string: details.base_url), !details.base_url.isEmpty {
                             ShareLink(item: url) {
                                 Image(systemName: "square.and.arrow.up")
-                                    .font(.system(size: 13, weight: .bold))
+                                    .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.shopDark)
                                     .frame(width: 36, height: 36)
                                     .background(Color.white)
                                     .clipShape(Circle())
-                                    .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 1)
+                                    .overlay(Circle().stroke(Color.shopBorder, lineWidth: 1))
                             }
                         }
                     }
@@ -919,12 +1287,6 @@ struct StoreInfoSheetView: View {
             } message: {
                 Text(selectedPolicyText ?? "")
             }
-            .task {
-                let dbReviews = await SupabaseManager.shared.fetchStoreReviews(storeId: storeId)
-                if !dbReviews.isEmpty {
-                    self.liveReviews = dbReviews
-                }
-            }
             .sheet(isPresented: $showWriteReviewSheet) {
                 WriteReviewSheetView(
                     storeId: storeId,
@@ -933,248 +1295,274 @@ struct StoreInfoSheetView: View {
                         withAnimation {
                             liveReviews.insert(newRev, at: 0)
                         }
+                        onReviewAdded?(newRev)
                     }
                 )
             }
         }
     }
 
-    // MARK: - 1. Store Profile Header Card (Screenshot 2)
+    // MARK: - 1. Store Profile Header Card
+
     private var storeProfileHeaderCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let desc = details.full_description ?? details.description
+
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                // Store Logo Avatar
-                ShopStoreLogo(storeName: details.store_name, showVerified: false, showLabel: false, size: 52)
-                    .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
+                ShopStoreLogo(storeName: details.store_name, showVerified: false, showLabel: false, size: 50)
+                    .overlay(Circle().stroke(Color.shopBorder.opacity(0.8), lineWidth: 1))
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(details.store_name)
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundColor(.shopDark)
 
-                    let r = details.rating.replacingOccurrences(of: ".", with: ",")
-                    Text("\(r) ★ (\(details.review_count))")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundColor(.shopTextMuted)
+                    if !details.rating.isEmpty {
+                        let r = details.rating.replacingOccurrences(of: ".", with: ",")
+                        let rev = details.review_count.isEmpty ? "" : " (\(details.review_count))"
+                        Text("\(r) ★\(rev)")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundColor(.shopTextMuted)
+                    }
                 }
 
                 Spacer()
             }
 
-            // Store Description / Bio
-            let desc = details.full_description ?? details.description
-            VStack(alignment: .leading, spacing: 6) {
-                Text(desc)
-                    .font(.system(size: 13.5))
-                    .foregroundColor(Color(red: 75/255, green: 85/255, blue: 99/255))
-                    .lineSpacing(2.5)
-                    .lineLimit(isDescriptionExpanded ? nil : 3)
+            if !desc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(desc)
+                        .font(.system(size: 13.5))
+                        .foregroundColor(.shopTextMuted)
+                        .lineSpacing(2.5)
+                        .lineLimit(isDescriptionExpanded ? nil : 3)
 
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isDescriptionExpanded.toggle()
+                    if desc.count > 130 {
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isDescriptionExpanded.toggle()
+                            }
+                        }) {
+                            Text(isDescriptionExpanded ? "Mostra meno" : "Altro")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.shopDark)
+                        }
+                        .buttonStyle(.plain)
                     }
-                }) {
-                    Text(isDescriptionExpanded ? "Mostra meno" : "Altro")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.shopDark)
                 }
             }
         }
-        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.025, shadowRadius: 8, shadowY: 2)
     }
 
-    // MARK: - 2. Section "Recensioni" (Screenshot 2)
+    // MARK: - 2. Shipping & Catalog Card
+
+    private var shippingAndCatalogCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Catalogo e spedizioni")
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundColor(.shopDark)
+
+            VStack(spacing: 0) {
+                infoRow(
+                    icon: "bag",
+                    label: "Catalogo attivo",
+                    value: "\(formattedCatalogCount) prodotti"
+                )
+
+                if details.avg_discount > 0 {
+                    Divider().padding(.leading, 40)
+                    infoRow(
+                        icon: "tag",
+                        label: "Sconto medio",
+                        value: String(format: "-%.0f%%", details.avg_discount)
+                    )
+                }
+
+                if let thresh = details.free_shipping_threshold, thresh > 0 {
+                    Divider().padding(.leading, 40)
+                    infoRow(
+                        icon: "shippingbox",
+                        label: "Spedizione gratuita",
+                        value: "da \(Int(thresh.rounded())) €"
+                    )
+                }
+
+                if let std = details.standard_shipping_cost, std > 0 {
+                    Divider().padding(.leading, 40)
+                    infoRow(
+                        icon: "truck.box",
+                        label: "Spedizione standard",
+                        value: String(format: "%.2f €", std).replacingOccurrences(of: ".", with: ",")
+                    )
+                }
+
+                if let courier = details.courier, !courier.isEmpty {
+                    Divider().padding(.leading, 40)
+                    infoRow(
+                        icon: "box.truck",
+                        label: "Corriere",
+                        value: courier
+                    )
+                }
+            }
+            .background(Color.shopSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.025, shadowRadius: 8, shadowY: 2)
+    }
+
+    private func infoRow(icon: String, label: String, value: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.shopDark)
+                .frame(width: 20)
+
+            Text(label)
+                .font(.system(size: 13.5, weight: .medium))
+                .foregroundColor(.shopTextMuted)
+
+            Spacer()
+
+            Text(value)
+                .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                .foregroundColor(.shopDark)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: - 3. Reviews Section (Real Reviews Only)
+
     private var reviewsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Header: Recensioni + Valuta Button + Arrow Button
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("Recensioni")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
                     .foregroundColor(.shopDark)
 
                 Spacer()
 
-                HStack(spacing: 8) {
-                    Button(action: {
-                        showWriteReviewSheet = true
-                    }) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "square.and.pencil")
-                                .font(.system(size: 11, weight: .bold))
-                            Text("Valuta")
-                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
-                        }
-                        .foregroundColor(.shopDark)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color(red: 244/255, green: 245/255, blue: 248/255))
-                        .clipShape(Capsule())
+                Button(action: {
+                    showWriteReviewSheet = true
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 11.5, weight: .semibold))
+                        Text("Valuta")
+                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                     }
-                    .buttonStyle(.plain)
-
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.shopDark)
-                        .frame(width: 32, height: 32)
-                        .background(Color(red: 246/255, green: 247/255, blue: 249/255))
-                        .clipShape(Circle())
-                }
-            }
-
-            // Score Row: Big 4,9 + 5 Stars + 3,1K valutazioni
-            HStack(spacing: 12) {
-                let r = details.rating.replacingOccurrences(of: ".", with: ",")
-                Text(r)
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
                     .foregroundColor(.shopDark)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.shopSurface)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color.shopBorder, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 2) {
-                        ForEach(0..<5) { _ in
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(.shopDark)
+            if numericRating > 0 {
+                HStack(spacing: 12) {
+                    Text(details.rating.replacingOccurrences(of: ".", with: ","))
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopDark)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        StoreStarRatingRow(rating: numericRating, size: 12.5)
+
+                        if !details.review_count.isEmpty {
+                            let cleanRev = details.review_count
+                                .replacingOccurrences(of: "recensioni", with: "", options: .caseInsensitive)
+                                .trimmingCharacters(in: .whitespaces)
+                            Text("\(cleanRev) valutazioni")
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundColor(.shopTextMuted)
                         }
                     }
 
-                    let cleanRev = details.review_count.replacingOccurrences(of: "recensioni", with: "", options: .caseInsensitive).trimmingCharacters(in: .whitespaces)
-                    Text("\(cleanRev) valutazioni")
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundColor(.shopTextMuted)
-                }
-
-                Spacer()
-            }
-
-            // Real Store Gallery Photos Carousel (Screenshot 2)
-            if !customerPhotos.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(customerPhotos, id: \.self) { photoUrl in
-                            if let url = URL(string: photoUrl) {
-                                ShopCachedAsyncImage(url: url, maxPixelSize: 200) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 72, height: 72)
-                                            .clipped()
-                                            .cornerRadius(12)
-                                    case .failure:
-                                        Color(red: 240/255, green: 241/255, blue: 245/255)
-                                            .frame(width: 72, height: 72)
-                                            .cornerRadius(12)
-                                    case .empty:
-                                        ShopSkeletonBlock(cornerRadius: 12, width: 72, height: 72)
-                                    @unknown default:
-                                        EmptyView()
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    Spacer()
                 }
             }
 
-            // Customer Review Cards Horizontal Carousel (Screenshot 2)
-            if !effectiveReviews.isEmpty {
+            if liveReviews.isEmpty {
+                Button(action: {
+                    showWriteReviewSheet = true
+                }) {
+                    FitMatchInlineEmptyRow(
+                        icon: "star",
+                        title: "Nessuna recensione su FitMatch",
+                        subtitle: "Hai acquistato qui? Scrivi la prima recensione",
+                        showsChevron: true
+                    )
+                }
+                .buttonStyle(.plain)
+            } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(effectiveReviews) { rev in
+                        ForEach(liveReviews) { rev in
                             VStack(alignment: .leading, spacing: 10) {
-                                // 5 Stars
-                                HStack(spacing: 2) {
-                                    ForEach(0..<Int(rev.rating.rounded())) { _ in
-                                        Image(systemName: "star.fill")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.shopDark)
-                                    }
-                                }
+                                StoreStarRatingRow(rating: rev.rating, size: 10.5)
 
-                                // Text (if provided)
                                 if !rev.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                     Text(rev.text)
-                                        .font(.system(size: 12.5))
+                                        .font(.system(size: 13))
                                         .foregroundColor(.shopDark)
                                         .lineSpacing(2)
                                         .lineLimit(4)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 } else {
                                     Text("Valutazione a stelle")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.shopTextMuted.opacity(0.8))
-                                        .italic()
+                                        .font(.system(size: 12.5, weight: .regular))
+                                        .foregroundColor(.shopTextMuted)
                                 }
 
                                 Spacer()
 
-                                // Author Avatar Initial + Date
                                 HStack(spacing: 8) {
                                     let initial = String(rev.author.prefix(1)).uppercased()
                                     Text(initial)
                                         .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(Color(red: 75/255, green: 85/255, blue: 99/255))
+                                        .foregroundColor(.shopDark)
                                         .frame(width: 24, height: 24)
-                                        .background(Color(red: 236/255, green: 237/255, blue: 241/255))
+                                        .background(Color.white)
                                         .clipShape(Circle())
+                                        .overlay(Circle().stroke(Color.shopBorder, lineWidth: 1))
 
-                                    Text("\(rev.author) • \(rev.date)")
+                                    Text("\(rev.author) · \(rev.date)")
                                         .font(.system(size: 11.5, weight: .medium))
                                         .foregroundColor(.shopTextMuted)
                                 }
                             }
                             .padding(14)
-                            .frame(width: 280, height: 145, alignment: .topLeading)
-                            .background(Color(red: 246/255, green: 247/255, blue: 249/255))
-                            .cornerRadius(16)
+                            .frame(width: 268, height: 142, alignment: .topLeading)
+                            .background(Color.shopSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                     }
                 }
             }
-
-            // Prompt Card to Leave a Review
-            Button(action: {
-                showWriteReviewSheet = true
-            }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "star.bubble.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(Color(red: 24/255, green: 24/255, blue: 27/255))
-                    Text("Hai acquistato qui? Condividi la tua recensione")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundColor(.shopDark)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.shopTextMuted)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(Color(red: 246/255, green: 247/255, blue: 249/255))
-                .cornerRadius(14)
-            }
-            .buttonStyle(.plain)
         }
-        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.025, shadowRadius: 8, shadowY: 2)
     }
 
-    // MARK: - 3. Section "Sedi" (Screenshot 2)
+    // MARK: - 4. Location Section
+
     private func storeLocationSection(location: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Sedi")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .font(.system(size: 17, weight: .bold, design: .rounded))
                 .foregroundColor(.shopDark)
 
             HStack(spacing: 12) {
                 Image(systemName: "mappin.circle.fill")
                     .font(.system(size: 20))
-                    .foregroundColor(Color(red: 24/255, green: 24/255, blue: 27/255))
+                    .foregroundColor(.shopDark)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(details.store_name)
-                        .font(.system(size: 13.5, weight: .bold))
+                        .font(.system(size: 13.5, weight: .semibold))
                         .foregroundColor(.shopDark)
                     Text(location)
                         .font(.system(size: 12.5))
@@ -1184,77 +1572,68 @@ struct StoreInfoSheetView: View {
                 Spacer()
             }
             .padding(14)
-            .background(Color(red: 246/255, green: 247/255, blue: 249/255))
-            .cornerRadius(14)
+            .background(Color.shopSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
-        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.025, shadowRadius: 8, shadowY: 2)
     }
 
-    // MARK: - 4. Section "Informative" (Screenshot 3)
+    // MARK: - 5. Policies Section
+
     private var policiesSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Informative")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .font(.system(size: 17, weight: .bold, design: .rounded))
                 .foregroundColor(.shopDark)
 
             VStack(spacing: 0) {
                 policyRow(
-                    title: "Informativa sui rimborsi",
+                    title: "Resi e rimborsi",
                     systemIcon: "arrow.uturn.backward.circle",
                     action: {
-                        selectedPolicyTitle = "Informativa sui rimborsi"
-                        selectedPolicyText = details.refund_policy ?? details.return_policy ?? "Reso garantito entro 30 giorni dalla consegna del prodotto."
+                        selectedPolicyTitle = "Resi e rimborsi"
+                        selectedPolicyText = details.refund_policy ?? details.return_policy ?? "Consulta le condizioni di reso direttamente sul sito ufficiale del negozio."
                     }
                 )
 
                 Divider().padding(.leading, 40)
 
                 policyRow(
-                    title: "Informativa sulle spedizioni",
+                    title: "Spedizioni",
                     systemIcon: "shippingbox",
                     action: {
-                        selectedPolicyTitle = "Informativa sulle spedizioni"
-                        selectedPolicyText = details.shipping_policy ?? details.shipping_info ?? "Spedizione con corriere espresso tracciato."
+                        selectedPolicyTitle = "Spedizioni"
+                        selectedPolicyText = details.shipping_policy ?? details.shipping_info ?? "Consulta i tempi e costi di spedizione direttamente sul sito del negozio."
                     }
                 )
 
-                Divider().padding(.leading, 40)
+                if let privStr = details.privacy_policy_url, !privStr.isEmpty, let privUrl = URL(string: privStr) {
+                    Divider().padding(.leading, 40)
+                    policyRow(
+                        title: "Privacy",
+                        systemIcon: "shield",
+                        isExternal: true,
+                        action: { UIApplication.shared.open(privUrl) }
+                    )
+                }
 
-                policyRow(
-                    title: "Informativa sulla privacy",
-                    systemIcon: "shield",
-                    action: {
-                        if let urlStr = details.privacy_policy_url, let url = URL(string: urlStr) {
-                            UIApplication.shared.open(url)
-                        } else {
-                            selectedPolicyTitle = "Informativa sulla privacy"
-                            selectedPolicyText = "I tuoi dati sono protetti in conformità al GDPR e trattati con la massima riservatezza."
-                        }
-                    }
-                )
-
-                Divider().padding(.leading, 40)
-
-                policyRow(
-                    title: "Termini e condizioni",
-                    systemIcon: "info.circle",
-                    action: {
-                        if let urlStr = details.terms_url, let url = URL(string: urlStr) {
-                            UIApplication.shared.open(url)
-                        } else {
-                            selectedPolicyTitle = "Termini e condizioni"
-                            selectedPolicyText = "Condizioni generali di vendita e garanzia ufficiale sui prodotti originali del negozio."
-                        }
-                    }
-                )
+                if let termsStr = details.terms_url, !termsStr.isEmpty, let termsUrl = URL(string: termsStr) {
+                    Divider().padding(.leading, 40)
+                    policyRow(
+                        title: "Termini e condizioni",
+                        systemIcon: "doc.text",
+                        isExternal: true,
+                        action: { UIApplication.shared.open(termsUrl) }
+                    )
+                }
             }
-            .background(Color(red: 246/255, green: 247/255, blue: 249/255))
-            .cornerRadius(16)
+            .background(Color.shopSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.025, shadowRadius: 8, shadowY: 2)
     }
 
-    private func policyRow(title: String, systemIcon: String, action: @escaping () -> Void) -> some View {
+    private func policyRow(title: String, systemIcon: String, isExternal: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: systemIcon)
@@ -1268,87 +1647,41 @@ struct StoreInfoSheetView: View {
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                Image(systemName: isExternal ? "arrow.up.right" : "chevron.right")
+                    .font(.system(size: 11.5, weight: .semibold))
                     .foregroundColor(.shopTextMuted)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: - 5. Section "Contatti" (Screenshot 3)
+    // MARK: - 6. Contacts Section (Real Contacts Only)
+
     private var contactsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Contatti")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .font(.system(size: 17, weight: .bold, design: .rounded))
                 .foregroundColor(.shopDark)
 
             VStack(spacing: 0) {
-                // Sito Web
-                contactRow(
-                    title: "Sito web",
-                    value: cleanDomain(details.base_url),
-                    systemIcon: "globe",
-                    action: {
-                        if let url = URL(string: details.base_url) {
-                            UIApplication.shared.open(url)
-                        }
+                ForEach(Array(contactEntries.enumerated()), id: \.element.id) { idx, entry in
+                    if idx > 0 {
+                        Divider().padding(.leading, 40)
                     }
-                )
-
-                Divider().padding(.leading, 40)
-
-                // Email
-                let email = details.contact_email ?? "supporto@\(storeId).com"
-                contactRow(
-                    title: email,
-                    value: nil,
-                    systemIcon: "envelope",
-                    action: {
-                        if let url = URL(string: "mailto:\(email)") {
-                            UIApplication.shared.open(url)
-                        }
-                    }
-                )
-
-                Divider().padding(.leading, 40)
-
-                // Telefono
-                let phone = details.contact_phone ?? "+39 02 8295 1860"
-                contactRow(
-                    title: phone,
-                    value: nil,
-                    systemIcon: "phone",
-                    action: {
-                        let cleaned = phone.replacingOccurrences(of: " ", with: "")
-                        if let url = URL(string: "tel:\(cleaned)") {
-                            UIApplication.shared.open(url)
-                        }
-                    }
-                )
-
-                Divider().padding(.leading, 40)
-
-                // Instagram
-                let insta = details.social_instagram ?? "@\(storeId)"
-                contactRow(
-                    title: "Instagram",
-                    value: insta,
-                    systemIcon: "camera",
-                    action: {
-                        let handle = insta.replacingOccurrences(of: "@", with: "")
-                        if let url = URL(string: "https://instagram.com/\(handle)") {
-                            UIApplication.shared.open(url)
-                        }
-                    }
-                )
+                    contactRow(
+                        title: entry.title,
+                        value: entry.value,
+                        systemIcon: entry.icon,
+                        action: { UIApplication.shared.open(entry.url) }
+                    )
+                }
             }
-            .background(Color(red: 246/255, green: 247/255, blue: 249/255))
-            .cornerRadius(16)
+            .background(Color.shopSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.03, shadowRadius: 8, shadowY: 2)
+        .shopCard(padding: ShopLayout.cardPadding, cornerRadius: ShopLayout.cardRadius, shadowOpacity: 0.025, shadowRadius: 8, shadowY: 2)
     }
 
     private func contactRow(title: String, value: String?, systemIcon: String, action: @escaping () -> Void) -> some View {
@@ -1362,6 +1695,7 @@ struct StoreInfoSheetView: View {
                 Text(title)
                     .font(.system(size: 13.5, weight: .medium))
                     .foregroundColor(.shopDark)
+                    .lineLimit(1)
 
                 Spacer()
 
@@ -1369,14 +1703,15 @@ struct StoreInfoSheetView: View {
                     Text(val)
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundColor(.shopTextMuted)
+                        .lineLimit(1)
                 }
 
                 Image(systemName: "arrow.up.right")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(.shopTextMuted)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
         }
         .buttonStyle(.plain)
     }
@@ -1386,63 +1721,62 @@ struct StoreInfoSheetView: View {
         return host.replacingOccurrences(of: "www.", with: "")
     }
 
-    // MARK: - 6. Action Buttons (Screenshot 3: Visita Negozio Online, Segnala)
+    // MARK: - 7. Action Buttons
+
     private var actionButtonsSection: some View {
-        VStack(spacing: 12) {
-            // "Visita Negozio online" Button
-            if let url = URL(string: details.base_url) {
+        VStack(spacing: 10) {
+            if let url = URL(string: details.base_url), !details.base_url.isEmpty {
                 Button(action: {
                     UIApplication.shared.open(url)
                 }) {
                     HStack {
-                        Text("Visita Negozio online")
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopDark)
+                        Text("Visita negozio online")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
 
                         Spacer()
 
                         Image(systemName: "arrow.up.right")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.shopDark)
+                            .font(.system(size: 13.5, weight: .bold))
+                            .foregroundColor(.white)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 16)
-                    .background(Color.white)
-                    .cornerRadius(18)
-                    .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 15)
+                    .background(Color.shopDark)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ShopCardPressStyle(scale: 0.98, pressedOpacity: 0.92))
             }
 
-            // "Segnala" Button
             Button(action: {
                 onReportTapped()
             }) {
                 HStack {
-                    Text("Segnala")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                    Text("Segnala un problema")
+                        .font(.system(size: 14.5, weight: .semibold, design: .rounded))
                         .foregroundColor(.shopDark)
 
                     Spacer()
 
                     Image(systemName: "exclamationmark.circle")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.shopDark)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.shopTextMuted)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
                 .background(Color.white)
-                .cornerRadius(18)
-                .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.shopBorder, lineWidth: 1)
+                )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ShopCardPressStyle(scale: 0.98, pressedOpacity: 0.92))
         }
     }
 }
 
-// MARK: - =========================================================================
-// MARK: - Write Review Sheet (Real User Reviews & Ratings directly on Supabase)
-// MARK: - =========================================================================
+// MARK: - Write Review Sheet (Real User Reviews & Ratings on Supabase)
 
 struct WriteReviewSheetView: View {
     let storeId: String
@@ -1457,94 +1791,88 @@ struct WriteReviewSheetView: View {
     @State private var errorMessage: String? = nil
 
     private let ratingLabels = [
-        1: "Pessimo ★",
-        2: "Migliorabile ★★",
-        3: "Nella media ★★★",
-        4: "Molto buono ★★★★",
-        5: "Eccellente ★★★★★"
+        1: "Pessimo",
+        2: "Migliorabile",
+        3: "Nella media",
+        4: "Molto buono",
+        5: "Eccellente"
     ]
 
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 24) {
-                    // Store Avatar + Title
+                VStack(spacing: 22) {
                     VStack(spacing: 8) {
-                        ShopStoreLogo(storeName: storeName, showVerified: false, showLabel: false, size: 56)
-                            .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
+                        ShopStoreLogo(storeName: storeName, showVerified: false, showLabel: false, size: 54)
+                            .overlay(Circle().stroke(Color.shopBorder.opacity(0.8), lineWidth: 1))
 
                         Text("Valuta \(storeName)")
                             .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(.shopDark)
 
-                        Text("Aiuta gli altri atleti e acquirenti condividendo la tua esperienza autentica su spedizioni, prezzi e servizio.")
-                            .font(.system(size: 12.5))
+                        Text("Condividi la tua esperienza su spedizioni, prezzi e servizio.")
+                            .font(.system(size: 13))
                             .foregroundColor(.shopTextMuted)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 16)
                     }
-                    .padding(.top, 10)
+                    .padding(.top, 8)
 
-                    // Interactive Star Rating Picker
                     VStack(spacing: 10) {
                         HStack(spacing: 12) {
                             ForEach(1...5, id: \.self) { star in
                                 Button(action: {
-                                    let haptic = UIImpactFeedbackGenerator(style: .light)
-                                    haptic.impactOccurred()
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) {
                                         rating = star
                                     }
                                 }) {
                                     Image(systemName: star <= rating ? "star.fill" : "star")
-                                        .font(.system(size: 34))
-                                        .foregroundColor(star <= rating ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(red: 215/255, green: 218/255, blue: 224/255))
-                                        .scaleEffect(star == rating ? 1.15 : 1.0)
+                                        .font(.system(size: 32))
+                                        .foregroundColor(star <= rating ? .shopDark : Color.shopBorder)
+                                        .scaleEffect(star == rating ? 1.12 : 1.0)
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
 
                         Text(ratingLabels[rating] ?? "Eccellente")
-                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundColor(.shopDark)
                     }
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity)
-                    .background(Color(red: 248/255, green: 249/255, blue: 251/255))
-                    .cornerRadius(18)
+                    .background(Color.shopSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                    // Form Fields (Both Name and Review are optional: user can submit with just star rating)
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Author Name (Optional)
+                    VStack(alignment: .leading, spacing: 14) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("IL TUO NOME O NICKNAME (FACOLTATIVO)")
-                                .font(.system(size: 11, weight: .bold))
+                            Text("Nome (facoltativo)")
+                                .font(.system(size: 12.5, weight: .semibold))
                                 .foregroundColor(.shopTextMuted)
 
-                            TextField("Es. Marco B. (facoltativo)", text: $authorName)
-                                .font(.system(size: 14))
+                            TextField("Es. Marco B.", text: $authorName)
+                                .font(.system(size: 14.5))
                                 .foregroundColor(.shopDark)
                                 .padding(12)
-                                .background(Color(red: 248/255, green: 249/255, blue: 251/255))
-                                .cornerRadius(12)
+                                .background(Color.shopSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 0.8)
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(Color.shopBorder, lineWidth: 1)
                                 )
                         }
 
-                        // Review Text (Optional)
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("LA TUA RECENSIONE (FACOLTATIVO)")
-                                .font(.system(size: 11, weight: .bold))
+                            Text("Recensione (facoltativa)")
+                                .font(.system(size: 12.5, weight: .semibold))
                                 .foregroundColor(.shopTextMuted)
 
                             ZStack(alignment: .topLeading) {
                                 if reviewText.isEmpty {
-                                    Text("Condividi la tua esperienza con le spedizioni, i prezzi o il servizio (facoltativo)...")
+                                    Text("Scrivi come ti sei trovato con spedizione, taglie o prezzi...")
                                         .font(.system(size: 13.5))
-                                        .foregroundColor(.shopTextMuted.opacity(0.7))
+                                        .foregroundColor(.shopTextMuted.opacity(0.75))
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 14)
                                 }
@@ -1554,13 +1882,13 @@ struct WriteReviewSheetView: View {
                                     .foregroundColor(.shopDark)
                                     .scrollContentBackground(.hidden)
                                     .padding(8)
-                                    .frame(minHeight: 110)
+                                    .frame(minHeight: 104)
                             }
-                            .background(Color(red: 248/255, green: 249/255, blue: 251/255))
-                            .cornerRadius(12)
+                            .background(Color.shopSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color(red: 232/255, green: 233/255, blue: 238/255), lineWidth: 0.8)
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color.shopBorder, lineWidth: 1)
                             )
                         }
                     }
@@ -1568,11 +1896,10 @@ struct WriteReviewSheetView: View {
                     if let err = errorMessage {
                         Text(err)
                             .font(.system(size: 12.5, weight: .medium))
-                            .foregroundColor(.red)
+                            .foregroundColor(.shopRed)
                             .multilineTextAlignment(.center)
                     }
 
-                    // Submit Button (Always enabled: ratings can be submitted with or without text/name)
                     Button(action: submitReview) {
                         HStack(spacing: 8) {
                             if isSubmitting {
@@ -1580,16 +1907,16 @@ struct WriteReviewSheetView: View {
                                     .tint(.white)
                             }
                             Text(isSubmitting ? "Invio in corso..." : "Pubblica recensione")
-                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 15)
-                        .background(isSubmitting ? Color(red: 160/255, green: 165/255, blue: 175/255) : Color(red: 24/255, green: 24/255, blue: 27/255))
+                        .frame(height: 48)
+                        .background(isSubmitting ? Color.shopTextMuted : Color.shopDark)
                         .clipShape(Capsule())
                     }
                     .disabled(isSubmitting)
-                    .buttonStyle(.plain)
+                    .buttonStyle(ShopCardPressStyle(scale: 0.98, pressedOpacity: 0.92))
                 }
                 .padding(20)
             }
@@ -1614,7 +1941,7 @@ struct WriteReviewSheetView: View {
 
         let text = reviewText.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanName = authorName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = cleanName.isEmpty ? "Cliente Verificato" : cleanName
+        let name = cleanName.isEmpty ? "Utente FitMatch" : cleanName
 
         Task {
             let ok = await SupabaseManager.shared.submitStoreReview(
@@ -1633,8 +1960,7 @@ struct WriteReviewSheetView: View {
                         text: text,
                         date: "Oggi"
                     )
-                    let haptic = UINotificationFeedbackGenerator()
-                    haptic.notificationOccurred(.success)
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
                     onReviewSubmitted(newRev)
                     dismiss()
                 } else {

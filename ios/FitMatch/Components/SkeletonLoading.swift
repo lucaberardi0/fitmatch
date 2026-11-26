@@ -115,12 +115,12 @@ struct ShopSkeletonTextLine: View {
 struct ShopHomeSkeletonView: View {
     var body: some View {
         VStack(spacing: 0) {
-            // Horizontal Skeleton Pills Bar (Matching Per te, Saldi, Segui già, Salvati)
+            // Horizontal Skeleton Pills Bar (Matching Per te, Offerte, Segui già, Salvati)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ShopSkeletonCapsule(width: 74, height: 36)
-                    ShopSkeletonCapsule(width: 145, height: 36)
-                    ShopSkeletonCapsule(width: 90, height: 36)
+                    ShopSkeletonCapsule(width: 96, height: 36)
+                    ShopSkeletonCapsule(width: 92, height: 36)
                     ShopSkeletonCapsule(width: 80, height: 36)
                 }
                 .padding(.horizontal, 16)
@@ -617,42 +617,39 @@ struct ShopSearchDeepDiveSkeletonView: View {
     var thinkingStartedAt: Date = Date()
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 20) {
-                // 1. Minimal ChatGPT-style Thinking Line
-                ShopAgentThinkingCardView(
-                    query: query,
-                    isFollowUp: false,
-                    steps: thinkingSteps,
-                    startedAt: thinkingStartedAt
-                )
-                .padding(.horizontal, ShopLayout.screenPadding)
-                .padding(.top, 10)
+        VStack(alignment: .leading, spacing: 20) {
+            // 1. Minimal ChatGPT-style Thinking Line
+            ShopAgentThinkingCardView(
+                query: query,
+                isFollowUp: false,
+                steps: thinkingSteps,
+                startedAt: thinkingStartedAt
+            )
+            .padding(.horizontal, ShopLayout.screenPadding)
 
-                // 2. Quiet Editorial Narrative Preview
-                VStack(alignment: .leading, spacing: 8) {
-                    ShopSkeletonTextLine(height: 12, cornerRadius: 5)
-                        .frame(maxWidth: .infinity)
-                    ShopSkeletonTextLine(width: 260, height: 12, cornerRadius: 5)
-                    ShopSkeletonTextLine(width: 175, height: 12, cornerRadius: 5)
-                }
-                .padding(.horizontal, ShopLayout.screenPadding)
-                .opacity(0.65)
-
-                // 3. Soft Horizontal Product Placeholder Row
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
-                        ShopThemedCarouselSkeletonCard()
-                        ShopThemedCarouselSkeletonCard()
-                        ShopThemedCarouselSkeletonCard()
-                    }
-                    .padding(.horizontal, ShopLayout.screenPadding)
-                }
-                .disabled(true)
-                .opacity(0.65)
-
-                Spacer(minLength: ShopLayout.bottomFilterDockClearance)
+            // 2. Quiet Editorial Narrative Preview
+            VStack(alignment: .leading, spacing: 8) {
+                ShopSkeletonTextLine(height: 12, cornerRadius: 5)
+                    .frame(maxWidth: .infinity)
+                ShopSkeletonTextLine(width: 260, height: 12, cornerRadius: 5)
+                ShopSkeletonTextLine(width: 175, height: 12, cornerRadius: 5)
             }
+            .padding(.horizontal, ShopLayout.screenPadding)
+            .opacity(0.65)
+
+            // 3. Soft Horizontal Product Placeholder Row
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ShopThemedCarouselSkeletonCard()
+                    ShopThemedCarouselSkeletonCard()
+                    ShopThemedCarouselSkeletonCard()
+                }
+                .padding(.horizontal, ShopLayout.screenPadding)
+            }
+            .disabled(true)
+            .opacity(0.65)
+
+            Spacer(minLength: ShopLayout.bottomFilterDockClearance)
         }
     }
 }
@@ -775,44 +772,34 @@ struct ShopSearchGridSkeletonView: View {
 
 struct ShopStoreDetailSkeletonView: View {
     private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14)
     ]
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
-                // Store Banner Placeholder
-                ShopSkeletonBlock(cornerRadius: 0, height: 190)
-
-                // Store Avatar + Name + Follow button
-                VStack(spacing: 10) {
-                    ShopSkeletonCircle(size: 64)
-                        .offset(y: -32)
-                        .padding(.bottom, -28)
-
-                    ShopSkeletonTextLine(width: 180, height: 20, cornerRadius: 7)
-                    ShopSkeletonTextLine(width: 120, height: 13, cornerRadius: 5)
-
-                    HStack(spacing: 12) {
-                        ShopSkeletonCapsule(width: 130, height: 40)
-                        ShopSkeletonCapsule(width: 50, height: 40)
-                    }
-                    .padding(.top, 4)
+        VStack(alignment: .leading, spacing: 16) {
+            // Category pills skeleton
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ShopSkeletonCapsule(width: 62, height: 34)
+                    ShopSkeletonCapsule(width: 86, height: 34)
+                    ShopSkeletonCapsule(width: 108, height: 34)
+                    ShopSkeletonCapsule(width: 94, height: 34)
                 }
-                .padding(.horizontal, 16)
-
-                // Product Grid Skeleton
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(0..<6, id: \.self) { _ in
-                        ShopProductCardSkeleton()
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-
-                Spacer(minLength: 80)
+                .padding(.horizontal, ShopLayout.screenPadding)
             }
+            .disabled(true)
+
+            // Product Grid Skeleton
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(0..<6, id: \.self) { _ in
+                    ShopProductCardSkeleton()
+                }
+            }
+            .padding(.horizontal, ShopLayout.screenPadding)
+            .padding(.top, 4)
+
+            Spacer(minLength: 60)
         }
     }
 }

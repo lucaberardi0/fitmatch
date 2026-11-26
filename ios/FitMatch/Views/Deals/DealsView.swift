@@ -35,8 +35,9 @@ struct DealsView: View {
     @State private var showcases: [StoreShowcase] = []
     @State private var topDeals: [StoreShowcaseProduct] = []
     @State private var totalTopDealsMatching: Int = 0
-    @State private var topDealsLimit: Int = 40
     @State private var isLoadingMoreTopDeals = false
+    @State private var hasReachedEndOfTopDeals = false
+    private let topDealsPageSize: Int = 40
 
     @State private var isLoading = false
     @State private var loadError: String? = nil
@@ -454,7 +455,8 @@ struct DealsView: View {
     private var topDealsGridSection: some View {
         let deals = displayedTopDeals
         let total = max(totalTopDealsMatching, deals.count)
-        let hasMore = deals.count < total && topDealsLimit < 80 && deals.count < 80
+        let hasMore = !hasReachedEndOfTopDeals && topDeals.count < total && topDeals.count < 400
+        let triggerIndex = max(0, deals.count - 6)
 
         return VStack(alignment: .leading, spacing: 14) {
             LazyVGrid(
@@ -464,7 +466,7 @@ struct DealsView: View {
                 ],
                 spacing: 16
             ) {
-                ForEach(deals) { prod in
+                ForEach(Array(deals.enumerated()), id: \.element.id) { idx, prod in
                     let matched = prod.toMatchedProduct(
                         storeId: prod.store_id ?? "",
                         storeName: prod.store_name ?? "Store Partner"
@@ -475,39 +477,29 @@ struct DealsView: View {
                         showStorePill: true,
                         highlightedSize: filters.size
                     )
+                    .onAppear {
+                        if hasMore && !isLoadingMoreTopDeals && idx >= triggerIndex {
+                            loadMoreTopDeals()
+                        }
+                    }
                 }
             }
             .padding(.horizontal, ShopLayout.screenPadding)
             .padding(.top, 2)
 
-            if hasMore {
+            if hasMore || isLoadingMoreTopDeals {
                 HStack {
                     Spacer()
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        loadMoreTopDeals()
-                    }) {
-                        HStack(spacing: 8) {
-                            if isLoadingMoreTopDeals {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                    .tint(.shopDark)
-                            }
-                            Text(isLoadingMoreTopDeals ? "Caricamento..." : "Mostra altre offerte")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .foregroundColor(.shopDark)
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 10)
-                        .background(Color.white)
-                        .clipShape(Capsule())
-                        .overlay(Capsule().stroke(Color.shopBorder, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isLoadingMoreTopDeals)
+                    ProgressView()
+                        .tint(.shopTextMuted)
+                        .padding(.vertical, 12)
                     Spacer()
                 }
-                .padding(.top, 4)
+                .onAppear {
+                    if hasMore && !isLoadingMoreTopDeals {
+                        loadMoreTopDeals()
+                    }
+                }
             }
         }
     }
@@ -691,12 +683,10 @@ struct DealsView: View {
         FitMatchEmptyStateView(
             icon: "wifi.exclamationmark",
             accentColor: .shopRed,
-            badgeText: "CONNESSIONE",
             title: "Impossibile caricare le offerte",
             subtitle: message,
             primaryTitle: "Riprova",
             primaryIcon: "arrow.clockwise",
-            primaryColor: .shopDark,
             onPrimaryTap: {
                 Task {
                     await loadCurrentMode(category: selectedCategory, filters: filters, mode: viewMode, forceRefresh: true)
@@ -711,13 +701,10 @@ struct DealsView: View {
         if !filters.isDefault {
             return FitMatchEmptyStateView(
                 icon: "line.3.horizontal.decrease.circle",
-                accentColor: .shopDark,
-                badgeText: "FILTRI ATTIVI",
                 title: "Nessuna offerta con questi filtri",
-                subtitle: "Prova ad allargare il budget, cambiare taglia o rimuovere uno dei filtri selezionati.",
+                subtitle: "Prova a rimuovere o modificare uno dei filtri attivi.",
                 primaryTitle: "Rimuovi filtri",
                 primaryIcon: "arrow.counterclockwise",
-                primaryColor: .shopDark,
                 onPrimaryTap: {
                     applyQuery(category: selectedCategory, filters: DealsFilterOptions())
                 }
@@ -726,14 +713,11 @@ struct DealsView: View {
             .padding(.vertical, 12)
         }
         return FitMatchEmptyStateView(
-            icon: "tag.slash",
-            accentColor: .shopDark,
-            badgeText: "OFFERTE",
-            title: "Nessuno sconto in \(categoryTitle(for: selectedCategory))",
-            subtitle: "Al momento non ci sono ribassi verificati in questa categoria.",
-            primaryTitle: "Vedi tutte le offerte",
+            icon: "tag",
+            title: "Nessuna offerta in \(categoryTitle(for: selectedCategory))",
+            subtitle: "Al momento non ci sono ribassi in questa categoria.",
+            primaryTitle: "Tutte le offerte",
             primaryIcon: "arrow.uturn.backward",
-            primaryColor: .shopDark,
             onPrimaryTap: {
                 applyQuery(category: "tutti", filters: DealsFilterOptions())
             }
@@ -789,7 +773,8 @@ struct DealsView: View {
     private func applyQuery(category newCategory: String, filters newFilters: DealsFilterOptions) {
         activeLoadTask?.cancel()
         loadError = nil
-        topDealsLimit = 40
+        hasReachedEndOfTopDeals = false
+        isLoadingMoreTopDeals = false
 
         var normalizedFilters = newFilters
         if newCategory == "uomo" || newCategory == "donna" {
@@ -855,7 +840,8 @@ struct DealsView: View {
                 let result = try await api.getTopDealsCrossStore(
                     category: catParam,
                     filters: filters,
-                    limit: topDealsLimit,
+                    limit: topDealsPageSize,
+                    offset: 0,
                     forceRefresh: forceRefresh
                 )
                 if Task.isCancelled { return }
@@ -864,6 +850,7 @@ struct DealsView: View {
                 await MainActor.run {
                     guard self.selectedCategory == category, self.filters == filters, self.viewMode == mode else { return }
                     self.loadError = nil
+                    self.hasReachedEndOfTopDeals = result.deals.count < topDealsPageSize
                     withAnimation(ShopMotion.gridReflow) {
                         self.topDeals = result.deals
                         self.totalTopDealsMatching = result.totalMatching
@@ -899,9 +886,9 @@ struct DealsView: View {
     }
 
     private func loadMoreTopDeals() {
-        guard !isLoadingMoreTopDeals else { return }
+        guard !isLoadingMoreTopDeals, !hasReachedEndOfTopDeals else { return }
         isLoadingMoreTopDeals = true
-        let nextLimit = min(80, topDealsLimit + 40)
+        let nextOffset = topDeals.count
         let targetCat = selectedCategory
         let targetFilters = filters
         let catParam: String? = targetCat == "tutti" ? nil : targetCat
@@ -916,16 +903,23 @@ struct DealsView: View {
                 let res = try await api.getTopDealsCrossStore(
                     category: catParam,
                     filters: targetFilters,
-                    limit: nextLimit,
+                    limit: topDealsPageSize,
+                    offset: nextOffset,
                     forceRefresh: true
                 )
+                let newUrls = res.deals.prefix(16).compactMap { URL(string: $0.image_url ?? "") }
+                ImageCacheManager.shared.prefetch(urls: newUrls)
                 await MainActor.run {
                     guard self.selectedCategory == targetCat, self.filters == targetFilters, self.viewMode == .topDeals else { return }
-                    self.topDealsLimit = nextLimit
-                    withAnimation(ShopMotion.gridReflow) {
-                        self.topDeals = res.deals
-                        self.totalTopDealsMatching = res.totalMatching
+                    var seenIds = Set(self.topDeals.map(\.id))
+                    let uniqueNew = res.deals.filter { seenIds.insert($0.id).inserted }
+                    if uniqueNew.isEmpty || res.deals.count < topDealsPageSize {
+                        self.hasReachedEndOfTopDeals = true
                     }
+                    if !uniqueNew.isEmpty {
+                        self.topDeals.append(contentsOf: uniqueNew)
+                    }
+                    self.totalTopDealsMatching = max(self.totalTopDealsMatching, res.totalMatching)
                 }
             } catch {
                 print("DealsView loadMoreTopDeals error: \(error)")

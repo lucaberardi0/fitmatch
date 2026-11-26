@@ -126,9 +126,7 @@ struct WishlistButton: View {
 
 struct FitMatchEmptyStateView: View {
     let icon: String
-    var illustrationName: String? = nil
-    var accentColor: Color = .shopPurple
-    var badgeText: String? = nil
+    var accentColor: Color = .shopDark
     let title: String
     let subtitle: String
     var suggestions: [String] = []
@@ -142,58 +140,45 @@ struct FitMatchEmptyStateView: View {
     var onSecondaryTap: (() -> Void)? = nil
     var showsCardBackground: Bool = true
 
+    private var isErrorAccent: Bool {
+        accentColor == .shopRed
+    }
+
     var body: some View {
+        let iconForeground: Color = isErrorAccent ? .shopRed : .shopDark
+        let iconBackground: Color = isErrorAccent
+            ? Color.shopRed.opacity(0.08)
+            : (showsCardBackground ? Color.shopSurface : Color.white)
+        let iconStroke: Color = isErrorAccent
+            ? Color.shopRed.opacity(0.18)
+            : Color.shopBorder
+        let medallionSize: CGFloat = showsCardBackground ? 56 : 64
+        let iconSize: CGFloat = showsCardBackground ? 22 : 24
+
         let content = VStack(spacing: 16) {
-            if let imgName = illustrationName, UIImage(named: imgName) != nil {
-                Image(imgName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 124, height: 124)
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            ZStack {
+                Circle()
+                    .fill(iconBackground)
+                    .frame(width: medallionSize, height: medallionSize)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(showsCardBackground ? Color.clear : Color.shopBorder, lineWidth: 1)
+                        Circle()
+                            .stroke(iconStroke, lineWidth: 1)
                     )
-            } else {
-                ZStack {
-                    Circle()
-                        .fill(accentColor.opacity(0.08))
-                        .frame(width: 84, height: 84)
+                    .shadow(
+                        color: showsCardBackground || isErrorAccent ? .clear : Color.black.opacity(0.04),
+                        radius: 10,
+                        x: 0,
+                        y: 3
+                    )
 
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [accentColor.opacity(0.16), accentColor.opacity(0.07)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 60, height: 60)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .stroke(accentColor.opacity(0.18), lineWidth: 1)
-                        )
-
-                    Image(systemName: icon)
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundColor(accentColor)
-                }
+                Image(systemName: icon)
+                    .font(.system(size: iconSize, weight: .medium))
+                    .foregroundColor(iconForeground)
             }
 
-            VStack(spacing: 8) {
-                if let badge = badgeText, !badge.isEmpty {
-                    Text(badge)
-                        .font(.system(size: 10.5, weight: .heavy, design: .rounded))
-                        .tracking(0.8)
-                        .foregroundColor(accentColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(accentColor.opacity(0.10))
-                        .clipShape(Capsule())
-                }
-
+            VStack(spacing: 6) {
                 Text(title)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .font(.system(size: 17.5, weight: .bold, design: .rounded))
                     .foregroundColor(.shopDark)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -202,32 +187,31 @@ struct FitMatchEmptyStateView: View {
                     .font(.system(size: 13.5, weight: .regular))
                     .foregroundColor(.shopTextMuted)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(3)
+                    .lineSpacing(2.5)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 6)
             }
 
             if !suggestions.isEmpty, let onSuggestionTap {
-                HStack(spacing: 8) {
+                EmptyStateCenteredFlowLayout(spacing: 8) {
                     ForEach(suggestions, id: \.self) { item in
                         Button(action: {
-                            let gen = UIImpactFeedbackGenerator(style: .light)
-                            gen.impactOccurred()
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             onSuggestionTap(item)
                         }) {
                             Text(item)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                                 .foregroundColor(.shopDark)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(Color.shopCardBg)
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 7.5)
+                                .background(showsCardBackground ? Color.shopSurface : Color.white)
                                 .clipShape(Capsule())
                                 .overlay(
                                     Capsule()
                                         .stroke(Color.shopBorder, lineWidth: 1)
                                 )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ShopCardPressStyle(scale: 0.96, pressedOpacity: 0.9))
                     }
                 }
                 .padding(.top, 2)
@@ -237,44 +221,41 @@ struct FitMatchEmptyStateView: View {
                 VStack(spacing: 10) {
                     if let pTitle = primaryTitle, let pAction = onPrimaryTap {
                         Button(action: {
-                            let gen = UIImpactFeedbackGenerator(style: .medium)
-                            gen.impactOccurred()
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             pAction()
                         }) {
                             HStack(spacing: 7) {
                                 if let pIcon = primaryIcon {
                                     Image(systemName: pIcon)
-                                        .font(.system(size: 13.5, weight: .bold))
+                                        .font(.system(size: 13, weight: .semibold))
                                 }
                                 Text(pTitle)
-                                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                             }
                             .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
+                            .padding(.horizontal, 22)
+                            .frame(height: 44)
                             .background(primaryColor)
                             .clipShape(Capsule())
-                            .shadow(color: primaryColor.opacity(0.22), radius: 8, x: 0, y: 4)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ShopCardPressStyle(scale: 0.97, pressedOpacity: 0.92))
                     }
 
                     if let sTitle = secondaryTitle, let sAction = onSecondaryTap {
                         Button(action: {
-                            let gen = UIImpactFeedbackGenerator(style: .light)
-                            gen.impactOccurred()
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             sAction()
                         }) {
                             HStack(spacing: 5) {
                                 if let sIcon = secondaryIcon {
                                     Image(systemName: sIcon)
-                                        .font(.system(size: 12.5, weight: .semibold))
+                                        .font(.system(size: 12, weight: .semibold))
                                 }
                                 Text(sTitle)
-                                    .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                             }
-                            .foregroundColor(accentColor)
-                            .padding(.vertical, 6)
+                            .foregroundColor(.shopTextMuted)
+                            .padding(.vertical, 4)
                         }
                         .buttonStyle(.plain)
                     }
@@ -282,19 +263,19 @@ struct FitMatchEmptyStateView: View {
                 .padding(.top, 4)
             }
         }
-        .padding(.horizontal, showsCardBackground ? 20 : 12)
-        .padding(.vertical, showsCardBackground ? 26 : 16)
+        .padding(.horizontal, showsCardBackground ? 20 : 24)
+        .padding(.vertical, showsCardBackground ? 24 : 20)
         .frame(maxWidth: .infinity)
 
         if showsCardBackground {
             content
                 .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    RoundedRectangle(cornerRadius: ShopLayout.largeCardRadius, style: .continuous)
                         .stroke(Color.shopBorder, lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.03), radius: 10, x: 0, y: 4)
+                .shadow(color: Color.black.opacity(0.025), radius: 10, x: 0, y: 3)
         } else {
             content
         }
@@ -303,43 +284,30 @@ struct FitMatchEmptyStateView: View {
 
 struct FitMatchInlineEmptyRow: View {
     let icon: String
-    var illustrationName: String? = nil
-    var accentColor: Color = .shopPurple
     let title: String
     let subtitle: String
     var showsChevron: Bool = false
+    var isOnSurfaceCanvas: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
-            if let imgName = illustrationName {
-                Image(imgName)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            ZStack {
+                Circle()
+                    .fill(isOnSurfaceCanvas ? Color.shopSurface : Color.white)
+                    .frame(width: 38, height: 38)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.shopBorder, lineWidth: 1)
+                        Circle()
+                            .stroke(Color.shopBorder.opacity(0.9), lineWidth: 1)
                     )
-            } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(accentColor.opacity(0.10))
-                        .frame(width: 48, height: 48)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(accentColor.opacity(0.14), lineWidth: 1)
-                        )
 
-                    Image(systemName: icon)
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundColor(accentColor)
-                }
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.shopDark)
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                    .font(.system(size: 13.5, weight: .semibold, design: .rounded))
                     .foregroundColor(.shopDark)
                     .lineLimit(1)
 
@@ -353,17 +321,76 @@ struct FitMatchInlineEmptyRow: View {
 
             if showsChevron {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.shopTextMuted)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(.shopTextMuted.opacity(0.8))
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color.shopCardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(isOnSurfaceCanvas ? Color.white : Color.shopSurface)
+        .clipShape(RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.shopBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
+                .stroke(Color.shopBorder.opacity(isOnSurfaceCanvas ? 1.0 : 0.75), lineWidth: 1)
         )
+    }
+}
+
+private struct EmptyStateCenteredFlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = computeRows(maxWidth: proposal.width ?? .infinity, subviews: subviews)
+        let height = rows.reduce(CGFloat(0)) { $0 + $1.height }
+            + max(0, CGFloat(rows.count - 1)) * spacing
+        let width = proposal.width ?? rows.map(\.width).max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = computeRows(maxWidth: bounds.width, subviews: subviews)
+        var y = bounds.minY
+        for row in rows {
+            var x = bounds.minX + max(0, (bounds.width - row.width) / 2)
+            for item in row.items {
+                subviews[item.index].place(
+                    at: CGPoint(x: x, y: y + (row.height - item.size.height) / 2),
+                    proposal: ProposedViewSize(item.size)
+                )
+                x += item.size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct RowItem {
+        let index: Int
+        let size: CGSize
+    }
+
+    private struct Row {
+        var items: [RowItem] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func computeRows(maxWidth: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(.unspecified)
+            let needed = current.items.isEmpty ? size.width : current.width + spacing + size.width
+            if !current.items.isEmpty && needed > maxWidth {
+                rows.append(current)
+                current = Row()
+            }
+            current.items.append(RowItem(index: index, size: size))
+            current.width = current.items.count == 1 ? size.width : current.width + spacing + size.width
+            current.height = max(current.height, size.height)
+        }
+        if !current.items.isEmpty {
+            rows.append(current)
+        }
+        return rows
     }
 }

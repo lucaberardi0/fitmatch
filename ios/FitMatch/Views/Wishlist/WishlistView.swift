@@ -173,102 +173,16 @@ struct WishlistView: View {
         }
     }
 
-    // MARK: - Screen 1: Empty Saved State (Matching Reference Image 1)
+    // MARK: - Screen 1: Empty Saved State
 
     private var emptySavedState: some View {
-        VStack(spacing: 20) {
-            // FitMatch Sport Gear Card Illustration
-            ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.shopPurple.opacity(0.08))
-                    .frame(width: 172, height: 182)
-                    .rotationEffect(.degrees(5))
-                    .offset(x: 8, y: -4)
-
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.white)
-                    .frame(width: 172, height: 182)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(Color.shopBorder, lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.06), radius: 14, x: 0, y: 6)
-
-                VStack(spacing: 10) {
-                    Image("empty_wishlist")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 110, height: 110)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-
-                    HStack(spacing: 6) {
-                        Text("42 EU")
-                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                            .foregroundColor(.shopDark)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3.5)
-                            .background(Color.shopCardBg)
-                            .clipShape(Capsule())
-
-                        Text("-30%")
-                            .font(.system(size: 10.5, weight: .heavy, design: .rounded))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3.5)
-                            .background(Color.shopRed)
-                            .clipShape(Capsule())
-                    }
-                }
-                .frame(width: 172, height: 182)
-
-                // Floating Heart Badge
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        Circle()
-                            .fill(Color.white)
-                            .frame(width: 38, height: 38)
-                            .shadow(color: Color.black.opacity(0.10), radius: 6, x: 0, y: 3)
-                            .overlay(
-                                Image(systemName: "heart.fill")
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(.shopRed)
-                            )
-                            .offset(x: 8, y: 8)
-                    }
-                }
-                .frame(width: 172, height: 182)
-            }
-            .padding(.top, 20)
-
-            VStack(spacing: 8) {
-                Text("CONFRONTO & AVVISI PREZZO")
-                    .font(.system(size: 10.5, weight: .heavy, design: .rounded))
-                    .tracking(0.8)
-                    .foregroundColor(.shopPurple)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.shopPurpleLight)
-                    .clipShape(Capsule())
-
-                Text("La tua lista desideri sportiva è vuota")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(.shopDark)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-
-                Text("Salva scarpe da running, smartwatch GPS o attrezzatura da padel e ciclismo per monitorare taglie e ribassi tra i negozi partner.")
-                    .font(.system(size: 13.5, weight: .regular))
-                    .foregroundColor(.shopTextMuted)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 30)
-                    .lineSpacing(3)
-            }
-
-            Button(action: {
-                let gen = UIImpactFeedbackGenerator(style: .medium)
-                gen.impactOccurred()
+        FitMatchEmptyStateView(
+            icon: "heart",
+            title: "Nessun articolo salvato",
+            subtitle: "Salva i prodotti che ti interessano per seguire taglie e cali di prezzo.",
+            primaryTitle: "Esplora prodotti",
+            primaryIcon: "magnifyingglass",
+            onPrimaryTap: {
                 if let onPerTe = onSelectPerTe {
                     onPerTe()
                 } else {
@@ -276,25 +190,11 @@ struct WishlistView: View {
                         selectedTab = 0
                     }
                 }
-            }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14, weight: .bold))
-                    Text("Esplora l'attrezzatura")
-                        .font(.system(size: 15.5, weight: .bold, design: .rounded))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(Color.shopPurple)
-                .clipShape(Capsule())
-                .shadow(color: Color.shopPurple.opacity(0.28), radius: 8, x: 0, y: 4)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 20)
-            .padding(.top, 6)
-        }
-        .frame(maxWidth: .infinity)
+            },
+            showsCardBackground: false
+        )
+        .padding(.horizontal, ShopLayout.screenPadding)
+        .padding(.top, 24)
     }
 
     // MARK: - Collections Carousel
@@ -495,21 +395,16 @@ struct WishlistView: View {
 
     private var emptyFilteredState: some View {
         FitMatchEmptyStateView(
-            icon: "folder.badge.plus",
-            illustrationName: "empty_collection",
-            accentColor: .shopPurple,
-            badgeText: "COLLEZIONE VUOTA",
-            title: "Nessun modello in «\(selectedCollectionFilter)»",
-            subtitle: "Organizza qui i prodotti che stai confrontando (es. Scarpe Maratona, Kit Trail o Padel). I tuoi \(wishlist.items.count) articoli salvati restano sempre in «Tutti i salvati».",
-            primaryTitle: "Aggiungi dai preferiti",
+            icon: "folder",
+            title: "Collezione «\(selectedCollectionFilter)» vuota",
+            subtitle: "Aggiungi qui i modelli salvati per tenerli ordinati.",
+            primaryTitle: "Aggiungi dai salvati",
             primaryIcon: "plus",
-            primaryColor: .shopPurple,
             onPrimaryTap: {
                 collectionForAddSheet = selectedCollectionFilter
                 showingAddToCollectionSheet = true
             },
-            secondaryTitle: "Vedi tutti i salvati (\(wishlist.items.count))",
-            secondaryIcon: "square.grid.2x2",
+            secondaryTitle: "Vedi tutti (\(wishlist.items.count))",
             onSecondaryTap: {
                 withAnimation(.spring(response: 0.25)) {
                     selectedCollectionFilter = "Tutti"
@@ -1251,12 +1146,9 @@ struct AddToCollectionSheet: View {
             Group {
                 if wishlist.items.isEmpty {
                     FitMatchEmptyStateView(
-                        icon: "heart.text.square",
-                        illustrationName: "empty_wishlist",
-                        accentColor: .shopPurple,
-                        badgeText: "NESSUN PREFERITO",
-                        title: "Salva prima qualche modello",
-                        subtitle: "Tocca il cuore su scarpe, orologi GPS o abbigliamento sportivo per aggiungerli ai preferiti e organizzarli nella collezione «\(collectionName)».",
+                        icon: "heart",
+                        title: "Nessun articolo salvato",
+                        subtitle: "Salva prima qualche prodotto per aggiungerlo a «\(collectionName)».",
                         showsCardBackground: false
                     )
                     .padding(.horizontal, 16)

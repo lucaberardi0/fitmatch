@@ -375,18 +375,15 @@ struct RecentlyViewedView: View {
             Spacer()
 
             FitMatchEmptyStateView(
-                icon: "clock.arrow.circlepath",
-                illustrationName: "empty_recently_viewed",
-                accentColor: .shopPurple,
-                badgeText: "CRONOLOGIA FITMATCH",
-                title: "Nessun prodotto consultato di recente",
-                subtitle: "Esplora scarpe da running, orologi GPS, ciclismo e padel: ogni modello aperto viene salvato qui per confrontare subito taglie e negozi.",
-                primaryTitle: "Esplora attrezzatura sportiva",
+                icon: "clock",
+                title: "Nessun prodotto visto di recente",
+                subtitle: "Ogni articolo aperto apparirà qui per ritrovarlo subito.",
+                primaryTitle: "Esplora prodotti",
                 primaryIcon: "magnifyingglass",
-                primaryColor: .shopDark,
                 onPrimaryTap: {
                     dismiss()
-                }
+                },
+                showsCardBackground: false
             )
             .padding(.horizontal, 16)
 

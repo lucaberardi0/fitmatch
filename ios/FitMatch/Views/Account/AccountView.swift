@@ -712,27 +712,11 @@ private struct AccountFollowedStoresDestinationView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     if followedManager.followedStores.isEmpty {
-                        VStack(spacing: 10) {
-                            Image(systemName: "storefront")
-                                .font(.system(size: 32))
-                                .foregroundColor(.shopPurple)
-                                .padding(14)
-                                .background(Color.shopPurpleLight)
-                                .clipShape(Circle())
-
-                            Text("Nessuno store seguito")
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
-                                .foregroundColor(.shopDark)
-
-                            Text("Segui i tuoi negozi sportivi preferiti per ricevere aggiornamenti su arrivi e sconti.")
-                                .font(.system(size: 13.5))
-                                .foregroundColor(.shopTextMuted)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 16)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 24)
-                        .shopCard()
+                        FitMatchEmptyStateView(
+                            icon: "storefront",
+                            title: "Nessun negozio seguito",
+                            subtitle: "Segui i tuoi store preferiti per vedere qui arrivi e ribassi."
+                        )
                     } else {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Negozi che segui (\(followedManager.followedStores.count))")
@@ -964,10 +948,11 @@ private struct AccountPriceMonitorView: View {
                             .foregroundColor(.shopDark)
 
                         if monitoredItems.isEmpty {
-                            Text("Attiva la campanella su qualsiasi prodotto salvato nella wishlist per monitorarne il prezzo.")
-                                .font(.system(size: 13))
-                                .foregroundColor(.shopTextMuted)
-                                .padding(.vertical, 8)
+                            FitMatchInlineEmptyRow(
+                                icon: "bell",
+                                title: "Nessun avviso attivo",
+                                subtitle: "Attiva la campanella sui salvati per monitorare i prezzi"
+                            )
                         } else {
                             ForEach(monitoredItems) { item in
                                 HStack(spacing: 12) {

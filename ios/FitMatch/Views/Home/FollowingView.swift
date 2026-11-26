@@ -229,12 +229,11 @@ struct FollowingView: View {
                         .padding(.horizontal, 16)
                     } else if products.isEmpty {
                         FitMatchInlineEmptyRow(
-                            icon: "bag.badge.questionmark",
-                            illustrationName: "empty_following_stores",
-                            accentColor: .shopPurple,
-                            title: "Vetrina negozio in aggiornamento",
-                            subtitle: "Apri la scheda di \(store.store_name) per vedere tutte le offerte e le taglie disponibili",
-                            showsChevron: true
+                            icon: "bag",
+                            title: "Vetrina in aggiornamento",
+                            subtitle: "Apri \(store.store_name) per vedere tutte le offerte",
+                            showsChevron: true,
+                            isOnSurfaceCanvas: true
                         )
                         .padding(.horizontal, 16)
                     } else {
@@ -277,15 +276,10 @@ struct FollowingView: View {
 
     private var emptyFollowedBanner: some View {
         FitMatchEmptyStateView(
-            icon: "storefront.fill",
-            illustrationName: "empty_following_stores",
-            accentColor: .shopPurple,
-            badgeText: "NEGOZI PARTNER",
-            title: "Non segui ancora nessun negozio sportivo",
-            subtitle: "Segui store specializzati come Mister Running, Maxi Sport, Cisalfa o Deporvillage per avere subito nella tua bacheca nuovi arrivi e ribassi esclusivi.",
-            primaryTitle: "Esplora i negozi e i prodotti",
-            primaryIcon: "sparkles",
-            primaryColor: .shopDark,
+            icon: "storefront",
+            title: "Nessun negozio seguito",
+            subtitle: "Segui i tuoi store preferiti per vedere qui nuovi arrivi e ribassi.",
+            primaryTitle: "Esplora negozi",
             onPrimaryTap: {
                 onGoShopping?()
             }

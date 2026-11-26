@@ -79,6 +79,29 @@ final class TabCoordinator: ObservableObject {
         }
     }
 
+    func openVisualSearch(fromSource: String = "home") {
+        selectTab(1, focusSearch: false, fromSource: fromSource)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            NotificationCenter.default.post(name: NSNotification.Name("FitMatchOpenVisualSearch"), object: nil)
+        }
+    }
+
+    func openSearchWithQuery(_ query: String, fromSource: String = "home") {
+        let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else {
+            selectTab(1, focusSearch: true, fromSource: fromSource)
+            return
+        }
+        selectTab(1, focusSearch: false, fromSource: fromSource)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            NotificationCenter.default.post(
+                name: NSNotification.Name("FitMatchRunQuickSearch"),
+                object: nil,
+                userInfo: ["query": clean]
+            )
+        }
+    }
+
     func returnToPreviousTab() {
         let target = previousTab ?? 0
         let gen = UIImpactFeedbackGenerator(style: .light)

@@ -38,10 +38,8 @@ struct MoveToCollectionSheet: View {
                             if wishlist.getAvailableCollections().isEmpty {
                                 FitMatchInlineEmptyRow(
                                     icon: "folder.badge.plus",
-                                    illustrationName: "empty_collection",
-                                    accentColor: .shopPurple,
-                                    title: "Nessuna collezione ancora creata",
-                                    subtitle: "Raggruppa i tuoi prodotti per sport o obiettivo (es. «Gara 10K», «Padel») qui sotto."
+                                    title: "Nessuna collezione",
+                                    subtitle: "Creane una qui sotto per organizzare i salvati"
                                 )
                                 .padding(.vertical, 4)
                             } else {

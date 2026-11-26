@@ -23,7 +23,14 @@ class APIService: ObservableObject {
     private var inFlightHomeShowcasesTask: Task<[StoreShowcase], Error>? = nil
     private let homeCacheFileURL: URL = {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        return caches.appendingPathComponent("fitmatch_home_showcases_v1.json")
+        return caches.appendingPathComponent("fitmatch_home_showcases_v2.json")
+    }()
+    // Client-side home comparator & personalized highlights cache (memory + disk SWR)
+    private var homeHighlightsCache: [String: (bundle: HomeHighlightsBundle, expiry: Date)] = [:]
+    private var inFlightHomeHighlightsTasks: [String: Task<HomeHighlightsBundle, Error>] = [:]
+    private let homeHighlightsCacheFileURL: URL = {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return caches.appendingPathComponent("fitmatch_home_highlights_v2.json")
     }()
 
     init() {
@@ -1769,6 +1776,104 @@ class APIService: ObservableObject {
         return result
     }
 
+    // MARK: - Home Personalized & Comparator Highlights Cache (Memory + Disk SWR)
+
+    private struct DiskHomeHighlightsEnvelope: Codable {
+        let key: String
+        let bundle: HomeHighlightsBundle
+    }
+
+    func homeHighlightsCacheKey(
+        shoeSize: String?,
+        apparelSize: String?,
+        sports: [String],
+        brands: [String],
+        hiddenStores: [String]
+    ) -> String {
+        let s = (shoeSize ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let a = (apparelSize ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let sp = sports.map { $0.lowercased() }.sorted().joined(separator: ",")
+        let br = brands.map { $0.lowercased() }.sorted().joined(separator: ",")
+        let hd = hiddenStores.map { $0.lowercased() }.sorted().joined(separator: ",")
+        return "\(s)|\(a)|\(sp)|\(br)|\(hd)"
+    }
+
+    func cachedHomeHighlights(for key: String) -> HomeHighlightsBundle? {
+        if let mem = homeHighlightsCache[key], !mem.bundle.isEmpty {
+            return mem.bundle
+        }
+        guard let data = try? Data(contentsOf: homeHighlightsCacheFileURL),
+              let envelope = try? JSONDecoder().decode(DiskHomeHighlightsEnvelope.self, from: data),
+              envelope.key == key,
+              !envelope.bundle.isEmpty else {
+            return nil
+        }
+        homeHighlightsCache[key] = (envelope.bundle, Date().addingTimeInterval(120))
+        return envelope.bundle
+    }
+
+    func isHomeHighlightsCacheFresh(for key: String) -> Bool {
+        if let mem = homeHighlightsCache[key], !mem.bundle.isEmpty {
+            return Date() < mem.expiry
+        }
+        return false
+    }
+
+    private func persistHomeHighlightsToDisk(key: String, bundle: HomeHighlightsBundle) {
+        guard !bundle.isEmpty else { return }
+        let targetURL = homeHighlightsCacheFileURL
+        let envelope = DiskHomeHighlightsEnvelope(key: key, bundle: bundle)
+        Task.detached(priority: .utility) {
+            if let data = try? JSONEncoder().encode(envelope) {
+                try? data.write(to: targetURL, options: .atomic)
+            }
+        }
+    }
+
+    func getHomeHighlights(
+        shoeSize: String?,
+        apparelSize: String?,
+        sports: [String],
+        brands: [String],
+        hiddenStores: [String],
+        limitPerSection: Int = 10,
+        forceRefresh: Bool = false
+    ) async throws -> HomeHighlightsBundle {
+        let key = homeHighlightsCacheKey(
+            shoeSize: shoeSize,
+            apparelSize: apparelSize,
+            sports: sports,
+            brands: brands,
+            hiddenStores: hiddenStores
+        )
+        if !forceRefresh, let mem = homeHighlightsCache[key], !mem.bundle.isEmpty, Date() < mem.expiry {
+            return mem.bundle
+        }
+        if !forceRefresh, let existing = inFlightHomeHighlightsTasks[key] {
+            return try await existing.value
+        }
+
+        let task = Task<HomeHighlightsBundle, Error> {
+            try await SupabaseManager.shared.fetchHomeHighlightsDirect(
+                shoeSize: shoeSize,
+                apparelSize: apparelSize,
+                sports: sports,
+                brands: brands,
+                hiddenStores: hiddenStores,
+                limitPerSection: limitPerSection
+            )
+        }
+        inFlightHomeHighlightsTasks[key] = task
+        defer { inFlightHomeHighlightsTasks[key] = nil }
+
+        let result = try await task.value
+        if !result.isEmpty {
+            homeHighlightsCache[key] = (result, Date().addingTimeInterval(300))
+            persistHomeHighlightsToDisk(key: key, bundle: result)
+        }
+        return result
+    }
+
     func getSizeDeals(size: String, minDiscount: Double = 15, limit: Int = 12) async -> [StoreShowcaseProduct] {
         // 1. Direct Supabase query
         let direct = await SupabaseManager.shared.fetchSizeDealsDirect(size: size, minDiscount: minDiscount, limit: limit)
@@ -1835,12 +1940,32 @@ class APIService: ObservableObject {
         category: String? = nil,
         filters: DealsFilterOptions = DealsFilterOptions(),
         limit: Int = 40,
+        offset: Int = 0,
         forceRefresh: Bool = false
     ) async throws -> (deals: [StoreShowcaseProduct], totalMatching: Int) {
         let catKey = (category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).flatMap {
             $0.isEmpty ? nil : $0
         } ?? "tutti"
         let cacheKey = "\(catKey)_\(filters.cacheKeySuffix)"
+
+        // Paginated subsequent pages bypass first-page cache and fetch directly by offset
+        if offset > 0 {
+            let page = try await SupabaseManager.shared.fetchTopDealsCrossStoreDirect(
+                category: category,
+                filters: filters,
+                limit: limit,
+                offset: offset
+            )
+            if let existing = topDealsCrossStoreCache[cacheKey], !page.deals.isEmpty {
+                var existingIds = Set(existing.deals.map(\.id))
+                let appended = page.deals.filter { existingIds.insert($0.id).inserted }
+                if !appended.isEmpty {
+                    let merged = existing.deals + appended
+                    topDealsCrossStoreCache[cacheKey] = (merged, max(existing.total, page.totalMatching), Date().addingTimeInterval(300))
+                }
+            }
+            return page
+        }
 
         if !forceRefresh, let cached = topDealsCrossStoreCache[cacheKey], Date() < cached.expiry {
             return (cached.deals, cached.total)
@@ -1853,7 +1978,8 @@ class APIService: ObservableObject {
             try await SupabaseManager.shared.fetchTopDealsCrossStoreDirect(
                 category: category,
                 filters: filters,
-                limit: limit
+                limit: limit,
+                offset: 0
             )
         }
         inFlightTopDealsTasks[cacheKey] = task
@@ -1944,12 +2070,46 @@ class APIService: ObservableObject {
         return filtered
     }
 
-    func getStoreDetails(storeId: String, query: String = "", sort: String = "discount") async throws -> StoreDetailResponse {
+    func getStoreDetails(
+        storeId: String,
+        query: String = "",
+        sort: String = "recommended",
+        preferredSize: String? = nil
+    ) async throws -> StoreDetailResponse {
         return try await SupabaseManager.shared.fetchStoreDetailsDirect(
             storeId: storeId,
             query: query,
             sort: sort,
-            limit: 100
+            preferredSize: preferredSize,
+            limit: 40
+        )
+    }
+
+    func getStoreCatalogPage(
+        storeId: String,
+        query: String = "",
+        category: String = "tutti",
+        brand: String? = nil,
+        size: String? = nil,
+        onlyDiscounted: Bool = false,
+        maxPrice: Double? = nil,
+        sort: String = "recommended",
+        preferredSize: String? = nil,
+        limit: Int = 40,
+        offset: Int = 0
+    ) async throws -> StoreCatalogPageResponse {
+        return try await SupabaseManager.shared.fetchStoreCatalogPageDirect(
+            storeId: storeId,
+            query: query,
+            category: category,
+            brand: brand,
+            size: size,
+            onlyDiscounted: onlyDiscounted,
+            maxPrice: maxPrice,
+            sort: sort,
+            preferredSize: preferredSize,
+            limit: limit,
+            offset: offset
         )
     }
 

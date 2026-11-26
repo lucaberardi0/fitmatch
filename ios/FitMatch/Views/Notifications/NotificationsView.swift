@@ -320,33 +320,24 @@ struct NotificationsView: View {
     private var emptyStateView: some View {
         let titleText: String
         let subtitleText: String
-        let iconColor: Color
 
         switch selectedFilter {
         case .all:
-            titleText = "Nessun avviso al momento"
-            subtitleText = "Quando un prodotto nei tuoi preferiti scende di prezzo o torna disponibile nella tua taglia su uno degli store partner, lo troverai subito qui."
-            iconColor = .shopPurple
+            titleText = "Nessun avviso"
+            subtitleText = "I cali di prezzo e gli aggiornamenti sui tuoi salvati appariranno qui."
         case .priceDrop:
-            titleText = "Nessun calo di prezzo rilevato"
-            subtitleText = "Salva scarpe da running, smartwatch GPS o attrezzatura tra i preferiti: monitoriamo i listini di tutti i negozi per avvisarti al primo ribasso."
-            iconColor = .shopRed
+            titleText = "Nessun calo di prezzo"
+            subtitleText = "Salva un prodotto per ricevere un avviso appena scende di prezzo."
         case .promo:
-            titleText = "Nessuna promo negozio attiva"
-            subtitleText = "Segui i tuoi store sportivi preferiti per ricevere notifiche su codici sconto, saldi stagionali e nuovi arrivi."
-            iconColor = .shopGreen
+            titleText = "Nessuna promo attiva"
+            subtitleText = "Segui i tuoi negozi preferiti per ricevere avvisi su sconti e saldi."
         }
 
         return FitMatchEmptyStateView(
             icon: selectedFilter.icon,
-            illustrationName: "empty_notifications",
-            accentColor: iconColor,
-            badgeText: "AVVISI IN TEMPO REALE",
             title: titleText,
             subtitle: subtitleText,
-            primaryTitle: "Esplora prodotti e offerte",
-            primaryIcon: "flame.fill",
-            primaryColor: .shopDark,
+            primaryTitle: "Esplora offerte",
             onPrimaryTap: {
                 dismiss()
             }
