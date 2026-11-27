@@ -140,6 +140,26 @@ struct FitMatchApp: App {
                     ]
                 }()
                 NotificationsView()
+            } else if ProcessInfo.processInfo.arguments.contains("-testFollowing") {
+                let _ = {
+                    if FollowedStoresManager.shared.followedStores.isEmpty {
+                        FollowedStoresManager.shared.followedStores = [
+                            FollowedStoreItem(store_id: "misterrunning", store_name: "Mister Running", store_logo: nil, created_at: nil),
+                            FollowedStoreItem(store_id: "nike", store_name: "Nike", store_logo: nil, created_at: nil),
+                            FollowedStoreItem(store_id: "cisalfa", store_name: "Cisalfa Sport", store_logo: nil, created_at: nil),
+                            FollowedStoreItem(store_id: "maxisport", store_name: "Maxi Sport", store_logo: nil, created_at: nil)
+                        ]
+                    }
+                    if UserPreferencesManager.shared.preferences.preferredShoeSize.isEmpty {
+                        UserPreferencesManager.shared.preferences.preferredShoeSize = "42"
+                    }
+                }()
+                HomeView(selectedTab: .constant(0), initialSubTab: .seguiGia)
+            } else if ProcessInfo.processInfo.arguments.contains("-testFollowingEmpty") {
+                let _ = {
+                    FollowedStoresManager.shared.followedStores = []
+                }()
+                HomeView(selectedTab: .constant(0), initialSubTab: .seguiGia)
             } else if ProcessInfo.processInfo.arguments.contains("-testWishlist") {
                 MainTabView(initialTab: 2, skipOnboarding: true)
             } else if ProcessInfo.processInfo.arguments.contains("-testOnboarding") {

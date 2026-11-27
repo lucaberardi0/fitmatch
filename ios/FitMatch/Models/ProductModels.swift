@@ -1188,6 +1188,8 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
     let price_drop_eur: Double?
     let deal_score: Double?
     let last_checked_at: String?
+    let product_created_at: String?
+    let is_new_arrival: Bool?
 
     init(
         id: String,
@@ -1224,7 +1226,9 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         is_all_time_low: Bool? = nil,
         price_drop_eur: Double? = nil,
         deal_score: Double? = nil,
-        last_checked_at: String? = nil
+        last_checked_at: String? = nil,
+        product_created_at: String? = nil,
+        is_new_arrival: Bool? = nil
     ) {
         self.id = id
         self.title = title
@@ -1261,6 +1265,8 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
         self.price_drop_eur = price_drop_eur
         self.deal_score = deal_score
         self.last_checked_at = last_checked_at
+        self.product_created_at = product_created_at
+        self.is_new_arrival = is_new_arrival
     }
 
     var effectiveBrand: String {
@@ -1298,6 +1304,10 @@ struct StoreShowcaseProduct: Identifiable, Codable, Hashable {
 
     var isVerifiedBestMarketPrice: Bool {
         is_best_market_price == true
+    }
+
+    var isVerifiedNewArrival: Bool {
+        is_new_arrival == true
     }
 
     var formattedPrice: String {
@@ -1405,6 +1415,68 @@ struct HomeHighlightsBundle: Codable, Equatable {
 
     var isEmpty: Bool {
         personalizedDeals.isEmpty && compareSaveDeals.isEmpty && priceDropDeals.isEmpty
+    }
+}
+
+enum FollowingFeedMode: String, CaseIterable, Identifiable, Codable {
+    case all = "all"
+    case drops = "drops"
+    case newArrivals = "new"
+    case deals = "deals"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "In evidenza"
+        case .drops: return "Ribassi"
+        case .newArrivals: return "Nuovi arrivi"
+        case .deals: return "In sconto"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .all: return "sparkles"
+        case .drops: return "arrow.down.right"
+        case .newArrivals: return "clock.badge.checkmark"
+        case .deals: return "tag"
+        }
+    }
+}
+
+struct FollowingStoreSection: Identifiable, Codable, Equatable {
+    var id: String { store_id }
+    let store_id: String
+    let store_name: String
+    let total_offers: Int
+    let avg_discount: Double
+    let max_discount: Double
+    let discounted_count: Int
+    let atl_count: Int
+    let new_7d_count: Int
+    let matching_count: Int
+    let rating: String?
+    let review_count: String?
+    let logo_url: String?
+    let accent_color: String?
+    let free_shipping_threshold: Double?
+    let products: [StoreShowcaseProduct]
+}
+
+struct FollowingFeedBundle: Codable, Equatable {
+    let highlights: [StoreShowcaseProduct]
+    let stores: [FollowingStoreSection]
+
+    static let empty = FollowingFeedBundle(highlights: [], stores: [])
+
+    var isEmpty: Bool {
+        highlights.isEmpty && stores.isEmpty
+    }
+
+    func section(for storeId: String) -> FollowingStoreSection? {
+        let clean = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        return stores.first { $0.store_id.lowercased() == clean }
     }
 }
 

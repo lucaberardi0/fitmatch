@@ -851,65 +851,76 @@ struct ShopWishlistSkeletonView: View {
 struct ShopFollowingSkeletonView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: ShopLayout.sectionSpacing) {
-            // 1. Stories Avatar Row Skeleton
+            // 1. Followed Stores Avatar Row Skeleton (with short labels)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
-                    ForEach(0..<4, id: \.self) { _ in
-                        ShopSkeletonCircle(size: 62)
-                    }
-                    ShopSkeletonCircle(size: 62)
-                }
-                .padding(.horizontal, 16)
-            }
-            .padding(.top, 6)
-
-            // 2. Store 1 Section Skeleton
-            VStack(alignment: .leading, spacing: 14) {
-                // Header
-                HStack(spacing: 12) {
-                    ShopSkeletonCircle(size: 42)
-                    VStack(alignment: .leading, spacing: 5) {
-                        ShopSkeletonTextLine(width: 140, height: 16, cornerRadius: 6)
-                        ShopSkeletonTextLine(width: 190, height: 12, cornerRadius: 4)
-                    }
-                    Spacer()
-                    ShopSkeletonCircle(size: 20)
-                }
-                .padding(.horizontal, 16)
-
-                // Horizontal Carousel of Products
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
-                        ForEach(0..<3, id: \.self) { _ in
-                            ShopSkeletonBlock(cornerRadius: 18, width: 165, height: 170)
+                    ForEach(0..<5, id: \.self) { _ in
+                        VStack(spacing: 6) {
+                            ShopSkeletonCircle(size: 56)
+                            ShopSkeletonTextLine(width: 46, height: 10, cornerRadius: 4)
                         }
                     }
-                    .padding(.horizontal, 16)
+                }
+                .padding(.horizontal, ShopLayout.screenPadding)
+            }
+            .padding(.top, 2)
+
+            // 2. Mode & Size Filter Chips Skeleton
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ShopSkeletonBlock(cornerRadius: 17, width: 98, height: 33)
+                    ShopSkeletonBlock(cornerRadius: 17, width: 82, height: 33)
+                    ShopSkeletonBlock(cornerRadius: 17, width: 104, height: 33)
+                    ShopSkeletonBlock(cornerRadius: 17, width: 88, height: 33)
+                }
+                .padding(.horizontal, ShopLayout.screenPadding)
+            }
+
+            // 3. Cross-Store Highlights Section Skeleton
+            VStack(alignment: .leading, spacing: 12) {
+                ShopSkeletonTextLine(width: 220, height: 17, cornerRadius: 6)
+                    .padding(.horizontal, ShopLayout.screenPadding)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            VStack(alignment: .leading, spacing: 6) {
+                                ShopSkeletonBlock(cornerRadius: ShopLayout.mediumRadius, width: 160, height: 152)
+                                ShopSkeletonTextLine(width: 90, height: 10, cornerRadius: 4)
+                                ShopSkeletonTextLine(width: 140, height: 12, cornerRadius: 4)
+                                ShopSkeletonTextLine(width: 70, height: 14, cornerRadius: 5)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, ShopLayout.screenPadding)
                 }
             }
 
-            // 3. Store 2 Section Skeleton
-            VStack(alignment: .leading, spacing: 14) {
-                // Header
-                HStack(spacing: 12) {
+            // 4. Store Section Skeleton
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 11) {
                     ShopSkeletonCircle(size: 42)
                     VStack(alignment: .leading, spacing: 5) {
-                        ShopSkeletonTextLine(width: 120, height: 16, cornerRadius: 6)
-                        ShopSkeletonTextLine(width: 170, height: 12, cornerRadius: 4)
+                        ShopSkeletonTextLine(width: 130, height: 16, cornerRadius: 6)
+                        ShopSkeletonTextLine(width: 195, height: 12, cornerRadius: 4)
                     }
                     Spacer()
-                    ShopSkeletonCircle(size: 20)
+                    ShopSkeletonCircle(size: 30)
+                    ShopSkeletonCircle(size: 30)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, ShopLayout.screenPadding)
 
-                // Horizontal Carousel of Products
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
+                    HStack(spacing: 12) {
                         ForEach(0..<3, id: \.self) { _ in
-                            ShopSkeletonBlock(cornerRadius: 18, width: 165, height: 170)
+                            VStack(alignment: .leading, spacing: 6) {
+                                ShopSkeletonBlock(cornerRadius: ShopLayout.mediumRadius, width: 160, height: 152)
+                                ShopSkeletonTextLine(width: 136, height: 12, cornerRadius: 4)
+                                ShopSkeletonTextLine(width: 68, height: 14, cornerRadius: 5)
+                            }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, ShopLayout.screenPadding)
                 }
             }
         }

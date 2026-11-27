@@ -3,22 +3,11 @@ import SwiftUI
 import Combine
 
 struct FollowedStoreItem: Identifiable, Codable, Hashable {
-    var id: String { store_id }
+    var id: String { store_id.lowercased() }
     let store_id: String
     let store_name: String
     let store_logo: String?
     let created_at: String?
-}
-
-struct StorePromoPost: Identifiable, Hashable {
-    let id: String
-    let storeId: String
-    let storeName: String
-    let title: String
-    let badge: String
-    let description: String
-    let bgGradient: [Color]
-    let expiresText: String
 }
 
 @MainActor
@@ -28,28 +17,63 @@ class FollowedStoresManager: ObservableObject {
     @Published var followedStores: [FollowedStoreItem] = []
     @Published var hiddenStoreIds: Set<String> = []
     @Published var isLoading: Bool = false
-    @Published var promoPosts: [StorePromoPost] = []
 
     private let storageKey = "fitmatch_followed_stores_cache"
     private let hiddenStorageKey = "fitmatch_hidden_stores_cache"
+    private var authObserver: NSObjectProtocol?
 
     init() {
         loadFromCache()
         loadHiddenStoresFromCache()
-        purgeLegacyAutoSeededStoresIfNeeded()
-        setupPromoPosts()
+
+        authObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("FitMatchAuthSessionDidChange"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.fetchFollowedStores()
+                await self.fetchHiddenStores()
+            }
+        }
+
         Task {
             await fetchFollowedStores()
             await fetchHiddenStores()
         }
     }
 
-    // MARK: - Local Cache
+    deinit {
+        if let authObserver {
+            NotificationCenter.default.removeObserver(authObserver)
+        }
+    }
+
+    // MARK: - Normalization & Local Cache
+
+    private func deduplicated(_ items: [FollowedStoreItem]) -> [FollowedStoreItem] {
+        var seen = Set<String>()
+        var result: [FollowedStoreItem] = []
+        for item in items {
+            let cleanId = item.store_id.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleanId.isEmpty, seen.insert(cleanId).inserted else { continue }
+            result.append(
+                FollowedStoreItem(
+                    store_id: cleanId,
+                    store_name: item.store_name,
+                    store_logo: item.store_logo,
+                    created_at: item.created_at
+                )
+            )
+        }
+        return result
+    }
 
     private func loadHiddenStoresFromCache() {
         if let data = UserDefaults.standard.data(forKey: hiddenStorageKey),
            let decoded = try? JSONDecoder().decode([String].self, from: data) {
-            self.hiddenStoreIds = Set(decoded)
+            self.hiddenStoreIds = Set(decoded.map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
         }
     }
 
@@ -62,28 +86,9 @@ class FollowedStoresManager: ObservableObject {
     private func loadFromCache() {
         if let data = UserDefaults.standard.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode([FollowedStoreItem].self, from: data) {
-            self.followedStores = decoded
+            self.followedStores = deduplicated(decoded)
         } else {
             self.followedStores = []
-        }
-    }
-
-    private func purgeLegacyAutoSeededStoresIfNeeded() {
-        let purgeKey = "fitmatch_purged_autoseeded_stores_v4"
-        if !UserDefaults.standard.bool(forKey: purgeKey) {
-            UserDefaults.standard.set(true, forKey: purgeKey)
-            let legacySet: Set<String> = ["nike", "cisalfa", "misterrunning", "maxisport"]
-            let onlyLegacy = !self.followedStores.isEmpty && self.followedStores.allSatisfy { legacySet.contains($0.store_id.lowercased()) }
-            if onlyLegacy {
-                let toRemove = self.followedStores
-                self.followedStores = []
-                saveToCache()
-                Task {
-                    for s in toRemove {
-                        _ = try? await SupabaseManager.shared.unfollowStore(storeId: s.store_id)
-                    }
-                }
-            }
         }
     }
 
@@ -136,10 +141,8 @@ class FollowedStoresManager: ObservableObject {
     func fetchHiddenStores() async {
         do {
             let list = try await SupabaseManager.shared.fetchHiddenStores()
-            if !list.isEmpty {
-                self.hiddenStoreIds = Set(list)
-                saveHiddenStoresToCache()
-            }
+            self.hiddenStoreIds = Set(list.map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
+            saveHiddenStoresToCache()
         } catch {
             print("FollowedStoresManager fetchHiddenStores note: \(error)")
         }
@@ -162,7 +165,7 @@ class FollowedStoresManager: ObservableObject {
         gen.impactOccurred()
 
         if isFollowing(storeId: storeId) {
-            unfollowStore(storeId: storeId)
+            _ = unfollowStore(storeId: storeId)
         } else {
             followStore(storeId: storeId, storeName: storeName, storeLogo: storeLogo)
         }
@@ -170,12 +173,13 @@ class FollowedStoresManager: ObservableObject {
 
     func followStore(storeId: String, storeName: String, storeLogo: String? = nil) {
         let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !isFollowing(storeId: cleanId) else { return }
+        guard !cleanId.isEmpty, !isFollowing(storeId: cleanId) else { return }
 
+        let resolvedLogo = storeLogo ?? DynamicCatalogRegistry.shared.storeItem(for: cleanId)?.logo_url
         let item = FollowedStoreItem(
             store_id: cleanId,
             store_name: storeName,
-            store_logo: storeLogo,
+            store_logo: resolvedLogo,
             created_at: ISO8601DateFormatter().string(from: Date())
         )
 
@@ -186,12 +190,14 @@ class FollowedStoresManager: ObservableObject {
 
         // Background Sync directly to Supabase
         Task {
-            _ = try? await SupabaseManager.shared.followStore(storeId: cleanId, storeName: storeName, storeLogo: storeLogo)
+            _ = try? await SupabaseManager.shared.followStore(storeId: cleanId, storeName: storeName, storeLogo: resolvedLogo)
         }
     }
 
-    func unfollowStore(storeId: String) {
+    @discardableResult
+    func unfollowStore(storeId: String) -> FollowedStoreItem? {
         let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let removed = followedStores.first { $0.store_id.lowercased() == cleanId }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
             followedStores.removeAll { $0.store_id.lowercased() == cleanId }
         }
@@ -201,89 +207,39 @@ class FollowedStoresManager: ObservableObject {
         Task {
             _ = try? await SupabaseManager.shared.unfollowStore(storeId: cleanId)
         }
+        return removed
     }
 
     // MARK: - Database Sync
 
     func fetchFollowedStores() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-testFollowing") && !self.followedStores.isEmpty {
+            return
+        }
+        #endif
         isLoading = true
         defer { isLoading = false }
 
-        // 1. Try Supabase direct PostgREST
+        // 1. Primary path: Supabase direct PostgREST (scoped to user_id or device_id)
         do {
             let supaList = try await SupabaseManager.shared.fetchFollowedStores()
-            let legacySet: Set<String> = ["nike", "cisalfa", "misterrunning", "maxisport"]
-            let isOnlyLegacyRemote = !supaList.isEmpty && supaList.allSatisfy { legacySet.contains($0.store_id.lowercased()) }
-
-            // If remote only has the old starter legacy stores and user cleared them locally, keep them cleared
-            if isOnlyLegacyRemote && self.followedStores.isEmpty {
-                for id in legacySet {
-                    _ = try? await SupabaseManager.shared.unfollowStore(storeId: id)
-                }
-                self.followedStores = []
-                saveToCache()
-                return
-            }
-
-            self.followedStores = supaList
+            let cleanList = deduplicated(supaList)
+            self.followedStores = cleanList
             saveToCache()
             return
         } catch {
             print("Supabase fetchFollowedStores: \(error)")
         }
 
-        // 2. Try Backend API
+        // 2. Fallback: Backend API (also scoped to user_id / device_id)
         do {
             let apiList = try await APIService.shared.getFollowedStores()
-            self.followedStores = apiList
+            let cleanList = deduplicated(apiList)
+            self.followedStores = cleanList
             saveToCache()
         } catch {
             print("APIService fetchFollowedStores: \(error)")
         }
-    }
-
-    private func setupPromoPosts() {
-        self.promoPosts = [
-            StorePromoPost(
-                id: "promo_1",
-                storeId: "cisalfa",
-                storeName: "Cisalfa Sport",
-                title: "MID SEASON SALE",
-                badge: "25% OFF SITEWIDE",
-                description: "Usa il codice FINAL25 su tutta la selezione running & outdoor.",
-                bgGradient: [Color(red: 24/255, green: 24/255, blue: 27/255), Color(red: 45/255, green: 25/255, blue: 60/255)],
-                expiresText: "Scade tra 48h"
-            ),
-            StorePromoPost(
-                id: "promo_2",
-                storeId: "misterrunning",
-                storeName: "Mister Running",
-                title: "FLASH DROP CORSA",
-                badge: "EXTRA -20%",
-                description: "Nuovi arrivi Nike Alphafly 3 & Asics Nimbus 26 a prezzo shock.",
-                bgGradient: [Color(red: 30/255, green: 40/255, blue: 55/255), Color(red: 20/255, green: 25/255, blue: 35/255)],
-                expiresText: "Solo per oggi"
-            ),
-            StorePromoPost(
-                id: "promo_3",
-                storeId: "maxisport",
-                storeName: "Maxi Sport",
-                title: "SNEAKER MANIA",
-                badge: "FINO A -50%",
-                description: "Centinaia di sneaker lifestyle Jordan, Samba e New Balance scontate.",
-                bgGradient: [Color(red: 40/255, green: 30/255, blue: 20/255), Color(red: 18/255, green: 18/255, blue: 20/255)],
-                expiresText: "Fino a esaurimento"
-            ),
-            StorePromoPost(
-                id: "promo_4",
-                storeId: "top4running",
-                storeName: "Top4Running",
-                title: "PREZZI GARA",
-                badge: "EXTRA 15€",
-                description: "Risparmia 15€ extra su ordini da 100€ con coupon RUN2026.",
-                bgGradient: [Color(red: 20/255, green: 40/255, blue: 35/255), Color(red: 15/255, green: 20/255, blue: 25/255)],
-                expiresText: "Weekend Special"
-            )
-        ]
     }
 }

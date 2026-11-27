@@ -813,7 +813,7 @@ class SupabaseManager: ObservableObject {
         if let uid = validCurrentUserId {
             urlStr += "&user_id=eq.\(uid)"
         } else {
-            urlStr += "&device_id=eq.\(deviceId)"
+            urlStr += "&device_id=eq.\(encodeQueryValue(deviceId))"
         }
         urlStr += "&order=created_at.desc"
 
@@ -828,10 +828,27 @@ class SupabaseManager: ObservableObject {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
-        return try JSONDecoder().decode([FollowedStoreItem].self, from: data)
+        let decoded = try JSONDecoder().decode([FollowedStoreItem].self, from: data)
+        var seen = Set<String>()
+        var unique: [FollowedStoreItem] = []
+        for item in decoded {
+            let cleanId = item.store_id.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleanId.isEmpty, seen.insert(cleanId).inserted else { continue }
+            unique.append(
+                FollowedStoreItem(
+                    store_id: cleanId,
+                    store_name: item.store_name,
+                    store_logo: item.store_logo,
+                    created_at: item.created_at
+                )
+            )
+        }
+        return unique
     }
 
     func followStore(storeId: String, storeName: String, storeLogo: String? = nil) async throws -> Bool {
+        let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanId.isEmpty else { return false }
         guard let url = URL(string: "\(restURL)/followed_stores?on_conflict=device_id,store_id") else {
             throw URLError(.badURL)
         }
@@ -841,28 +858,31 @@ class SupabaseManager: ObservableObject {
             req.setValue(v, forHTTPHeaderField: k)
         }
         var body: [String: Any] = [
-            "store_id": storeId,
+            "store_id": cleanId,
             "store_name": storeName,
             "device_id": deviceId
         ]
         if let uid = validCurrentUserId {
             body["user_id"] = uid
         }
-        if let logo = storeLogo {
+        if let logo = storeLogo, !logo.isEmpty {
             body["store_logo"] = logo
         }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (_, response) = try await session.data(for: req)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        return [200, 201].contains(code)
+        // 409 can happen if the same authenticated user already followed this store on another device (partial unique index)
+        return [200, 201, 409].contains(code)
     }
 
     func unfollowStore(storeId: String) async throws -> Bool {
-        var urlStr = "\(restURL)/followed_stores?store_id=eq.\(storeId)"
+        let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let encodedId = encodeQueryValue(cleanId)
+        var urlStr = "\(restURL)/followed_stores?store_id=eq.\(encodedId)"
         if let uid = validCurrentUserId {
             urlStr += "&user_id=eq.\(uid)"
         } else {
-            urlStr += "&device_id=eq.\(deviceId)"
+            urlStr += "&device_id=eq.\(encodeQueryValue(deviceId))"
         }
         guard let url = URL(string: urlStr) else {
             throw URLError(.badURL)
@@ -1940,6 +1960,265 @@ class SupabaseManager: ObservableObject {
         )
     }
 
+    // MARK: - Direct Following Feed (`get_following_feed_v2`)
+
+    func fetchFollowingFeedDirect(
+        storeIds: [String],
+        mode: FollowingFeedMode = .all,
+        onlyMySize: Bool = false,
+        shoeSize: String? = nil,
+        apparelSize: String? = nil,
+        sports: [String] = [],
+        brands: [String] = [],
+        perStore: Int = 12,
+        highlightsLimit: Int = 12
+    ) async throws -> FollowingFeedBundle {
+        let cleanStoreIds = storeIds
+            .map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !cleanStoreIds.isEmpty,
+              let rpcUrl = URL(string: "\(restURL)/rpc/get_following_feed_v2") else {
+            return .empty
+        }
+
+        struct FollowingFeedRow: Codable {
+            let row_kind: String
+            let id: String
+            let product_id: String?
+            let store_id: String
+            let store_name: String
+            let raw_title: String?
+            let product_canonical_name: String?
+            let product_brand: String?
+            let product_category: String?
+            let product_gender: String?
+            let current_price: Double?
+            let original_price: Double?
+            let discount_pct: Double?
+            let product_url: String?
+            let image_url: String?
+            let gallery_images: [String]?
+            let available_sizes: [String]?
+            let size_count: Int?
+            let multi_store_count: Int?
+            let market_min_price: Double?
+            let market_max_price: Double?
+            let cross_store_savings: Double?
+            let is_best_market_price: Bool?
+            let is_all_time_low: Bool?
+            let price_drop_eur: Double?
+            let has_free_shipping: Bool?
+            let shipping_cost: Double?
+            let free_shipping_threshold: Double?
+            let courier: String?
+            let deal_score: Double?
+            let last_checked_at: String?
+            let product_created_at: String?
+            let is_new_arrival: Bool?
+            let store_rating: Double?
+            let store_review_count: Int?
+            let store_formatted_review_count: String?
+            let store_card_theme: String?
+            let store_accent_color: String?
+            let store_logo_url: String?
+            let store_total_offers: Int?
+            let store_avg_discount: Double?
+            let store_max_discount: Double?
+            let store_discounted_count: Int?
+            let store_atl_count: Int?
+            let store_new_7d_count: Int?
+            let store_matching_count: Int?
+            let item_rank: Int?
+        }
+
+        var payload: [String: Any] = [
+            "p_store_ids": cleanStoreIds,
+            "p_mode": mode.rawValue,
+            "p_only_my_size": onlyMySize,
+            "p_per_store": perStore,
+            "p_highlights_limit": highlightsLimit
+        ]
+        let cleanShoe = shoeSize?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanApparel = apparelSize?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !cleanShoe.isEmpty { payload["p_shoe_size"] = cleanShoe }
+        if !cleanApparel.isEmpty { payload["p_apparel_size"] = cleanApparel }
+        if !sports.isEmpty { payload["p_sports"] = sports }
+        if !brands.isEmpty { payload["p_brands"] = brands }
+
+        var req = URLRequest(url: rpcUrl)
+        req.httpMethod = "POST"
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+
+        let rows = try JSONDecoder().decode([FollowingFeedRow].self, from: data)
+
+        struct StoreMetaAcc {
+            var name: String
+            var totalOffers: Int
+            var avgDiscount: Double
+            var maxDiscount: Double
+            var discountedCount: Int
+            var atlCount: Int
+            var new7dCount: Int
+            var matchingCount: Int
+            var rating: String?
+            var reviewCount: String?
+            var logoUrl: String?
+            var accentColor: String?
+            var freeShippingThreshold: Double?
+            var products: [StoreShowcaseProduct]
+        }
+
+        var metaByStore: [String: StoreMetaAcc] = [:]
+        var highlightsWithRank: [(rank: Int, product: StoreShowcaseProduct)] = []
+
+        func buildProduct(from r: FollowingFeedRow) -> StoreShowcaseProduct? {
+            guard let price = r.current_price, price > 0,
+                  let rawTitle = r.raw_title, !rawTitle.isEmpty,
+                  let prodUrl = r.product_url, !prodUrl.isEmpty else {
+                return nil
+            }
+            let sId = r.store_id.lowercased()
+            let canonical = (r.product_canonical_name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                ? r.product_canonical_name!
+                : rawTitle
+            let extractedBrand = ProductBrandHelper.extractBrand(from: canonical, fallback: r.product_brand ?? r.store_name)
+            let isFree = r.has_free_shipping
+                ?? ((r.shipping_cost != nil && r.shipping_cost == 0.0)
+                    || (r.free_shipping_threshold != nil && r.free_shipping_threshold! > 0 && price >= r.free_shipping_threshold!))
+            let resolvedShip = isFree ? 0.0 : r.shipping_cost
+            let crossSavings: Double? = {
+                if let cs = r.cross_store_savings, cs > 1.0 { return cs }
+                if (r.multi_store_count ?? 1) >= 2,
+                   let mx = r.market_max_price,
+                   mx > price + 1.0,
+                   mx <= price * 2.35 {
+                    return mx - price
+                }
+                return nil
+            }()
+            return StoreShowcaseProduct(
+                id: r.id,
+                title: rawTitle,
+                brand: extractedBrand,
+                image_url: r.image_url,
+                gallery_images: r.gallery_images,
+                available_sizes: r.available_sizes,
+                current_price: price,
+                original_price: r.original_price,
+                discount_pct: r.discount_pct,
+                product_url: prodUrl,
+                canonical_name: canonical,
+                product_id: r.product_id,
+                shipping_cost: resolvedShip,
+                total_price: resolvedShip.map { price + $0 },
+                is_free_shipping: isFree,
+                shipping_label: isFree ? "Sped. Gratis" : resolvedShip.map { "+ \(String(format: "%.2f", $0)) €" },
+                free_shipping_threshold: r.free_shipping_threshold,
+                courier: r.courier,
+                store_id: sId,
+                store_name: r.store_name,
+                store_rating: r.store_rating.map { String(format: "%.1f", $0) },
+                store_review_count: r.store_formatted_review_count,
+                store_logo_url: r.store_logo_url,
+                product_category: r.product_category,
+                product_gender: r.product_gender,
+                size_count: r.size_count,
+                multi_store_count: r.multi_store_count,
+                market_min_price: r.market_min_price,
+                market_max_price: r.market_max_price,
+                cross_store_savings: crossSavings,
+                is_best_market_price: r.is_best_market_price,
+                is_all_time_low: r.is_all_time_low,
+                price_drop_eur: r.price_drop_eur,
+                deal_score: r.deal_score,
+                last_checked_at: r.last_checked_at,
+                product_created_at: r.product_created_at,
+                is_new_arrival: r.is_new_arrival
+            )
+        }
+
+        func ensureMeta(for r: FollowingFeedRow) {
+            let sId = r.store_id.lowercased()
+            if metaByStore[sId] == nil {
+                let ratingStr = r.store_rating.map { String(format: "%.1f", $0) }
+                let revStr = r.store_formatted_review_count ?? r.store_review_count.map { "\($0)" }
+                metaByStore[sId] = StoreMetaAcc(
+                    name: r.store_name,
+                    totalOffers: r.store_total_offers ?? 0,
+                    avgDiscount: r.store_avg_discount ?? 0.0,
+                    maxDiscount: r.store_max_discount ?? 0.0,
+                    discountedCount: r.store_discounted_count ?? 0,
+                    atlCount: r.store_atl_count ?? 0,
+                    new7dCount: r.store_new_7d_count ?? 0,
+                    matchingCount: r.store_matching_count ?? 0,
+                    rating: ratingStr,
+                    reviewCount: revStr,
+                    logoUrl: r.store_logo_url,
+                    accentColor: r.store_accent_color,
+                    freeShippingThreshold: r.free_shipping_threshold,
+                    products: []
+                )
+            }
+        }
+
+        for r in rows {
+            let sId = r.store_id.lowercased()
+            ensureMeta(for: r)
+            switch r.row_kind {
+            case "store_meta":
+                continue
+            case "highlight":
+                if let prod = buildProduct(from: r) {
+                    highlightsWithRank.append((rank: r.item_rank ?? 999, product: prod))
+                }
+            case "store_item":
+                if let prod = buildProduct(from: r) {
+                    metaByStore[sId]?.products.append(prod)
+                }
+            default:
+                break
+            }
+        }
+
+        let sortedHighlights = highlightsWithRank
+            .sorted { $0.rank < $1.rank }
+            .map(\.product)
+
+        var orderedSections: [FollowingStoreSection] = []
+        var seenStoreIds = Set<String>()
+        for sid in cleanStoreIds where seenStoreIds.insert(sid).inserted {
+            if let acc = metaByStore[sid] {
+                orderedSections.append(
+                    FollowingStoreSection(
+                        store_id: sid,
+                        store_name: acc.name,
+                        total_offers: max(acc.totalOffers, acc.products.count),
+                        avg_discount: acc.avgDiscount,
+                        max_discount: acc.maxDiscount,
+                        discounted_count: acc.discountedCount,
+                        atl_count: acc.atlCount,
+                        new_7d_count: acc.new7dCount,
+                        matching_count: max(acc.matchingCount, acc.products.count),
+                        rating: acc.rating,
+                        review_count: acc.reviewCount,
+                        logo_url: acc.logoUrl,
+                        accent_color: acc.accentColor,
+                        free_shipping_threshold: acc.freeShippingThreshold,
+                        products: acc.products
+                    )
+                )
+            }
+        }
+
+        return FollowingFeedBundle(highlights: sortedHighlights, stores: orderedSections)
+    }
+
     // MARK: - Direct Size Deals Fetcher (Cross-Store In-Stock Deals)
 
     func fetchSizeDealsDirect(size: String, minDiscount: Double = 15, limit: Int = 12) async -> [StoreShowcaseProduct] {
@@ -2007,7 +2286,7 @@ class SupabaseManager: ObservableObject {
 
     func fetchStoreOffersDirect(storeId: String, limit: Int = 12) async throws -> [StoreShowcaseProduct] {
         let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: "\(restURL)/store_offers?store_id=eq.\(cleanId)&order=discount_pct.desc.nullslast,current_price.desc&limit=\(limit)&select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier") else {
+        guard let url = URL(string: "\(restURL)/store_offers?store_id=eq.\(encodeQueryValue(cleanId))&in_stock=neq.false&current_price=gt.0&image_url=not.is.null&image_url=neq.&order=discount_pct.desc.nullslast,current_price.desc&limit=\(limit)&select=id,product_id,store_id,store_name,raw_title,current_price,original_price,discount_pct,product_url,image_url,available_sizes,shipping_cost,free_shipping_threshold,courier,last_checked_at") else {
             throw URLError(.badURL)
         }
         var req = URLRequest(url: url)
@@ -2031,10 +2310,24 @@ class SupabaseManager: ObservableObject {
             let shipping_cost: Double?
             let free_shipping_threshold: Double?
             let courier: String?
+            let last_checked_at: String?
         }
         let rows = try JSONDecoder().decode([OfferRow].self, from: data)
+        let storeShipRule = DynamicCatalogRegistry.shared.shippingRule(for: cleanId)
         return rows.map { r in
             let extractedBrand = ProductBrandHelper.extractBrand(from: r.raw_title, fallback: r.store_name)
+            let effThreshold = r.free_shipping_threshold ?? storeShipRule?.threshold
+            let isFreeShip: Bool = {
+                if let cost = r.shipping_cost, cost == 0.0 { return true }
+                if let thresh = effThreshold, thresh > 0, r.current_price >= thresh { return true }
+                return false
+            }()
+            let resolvedShipCost: Double? = isFreeShip ? 0.0 : (r.shipping_cost ?? storeShipRule?.standard)
+            let shippingLabel: String? = {
+                if isFreeShip { return "Sped. Gratis" }
+                if let cost = resolvedShipCost, cost > 0 { return "+ \(String(format: "%.2f", cost)) €" }
+                return nil
+            }()
             return StoreShowcaseProduct(
                 id: r.id,
                 title: r.raw_title,
@@ -2047,12 +2340,16 @@ class SupabaseManager: ObservableObject {
                 product_url: r.product_url,
                 canonical_name: r.raw_title,
                 product_id: r.product_id,
-                shipping_cost: r.shipping_cost,
-                total_price: r.current_price + (r.shipping_cost ?? 0.0),
-                is_free_shipping: (r.shipping_cost ?? 0.0) == 0.0,
-                shipping_label: (r.shipping_cost ?? 0.0) == 0.0 ? "Sped. Gratis" : "+ \(String(format: "%.2f", r.shipping_cost ?? 0.0)) €",
-                free_shipping_threshold: r.free_shipping_threshold,
-                courier: r.courier
+                shipping_cost: resolvedShipCost,
+                total_price: resolvedShipCost.map { r.current_price + $0 },
+                is_free_shipping: isFreeShip,
+                shipping_label: shippingLabel,
+                free_shipping_threshold: effThreshold,
+                courier: r.courier,
+                store_id: cleanId,
+                store_name: r.store_name,
+                size_count: r.available_sizes?.count,
+                last_checked_at: r.last_checked_at
             )
         }
     }

@@ -32,6 +32,13 @@ class APIService: ObservableObject {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         return caches.appendingPathComponent("fitmatch_home_highlights_v2.json")
     }()
+    // Client-side "Segui già" feed cache (memory + disk SWR) & in-flight deduplication
+    private var followingFeedCache: [String: (bundle: FollowingFeedBundle, expiry: Date)] = [:]
+    private var inFlightFollowingTasks: [String: Task<FollowingFeedBundle, Error>] = [:]
+    private let followingFeedCacheFileURL: URL = {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return caches.appendingPathComponent("fitmatch_following_feed_v2.json")
+    }()
 
     init() {
         let config = URLSessionConfiguration.default
@@ -1874,6 +1881,116 @@ class APIService: ObservableObject {
         return result
     }
 
+    // MARK: - Following Feed ("Segui già") Cache (Memory + Disk SWR)
+
+    private struct DiskFollowingFeedEnvelope: Codable {
+        let key: String
+        let bundle: FollowingFeedBundle
+    }
+
+    func followingFeedCacheKey(
+        storeIds: [String],
+        mode: FollowingFeedMode,
+        onlyMySize: Bool,
+        shoeSize: String?,
+        apparelSize: String?,
+        sports: [String],
+        brands: [String]
+    ) -> String {
+        let st = storeIds.map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: ",")
+        let s = (shoeSize ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let a = (apparelSize ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let sp = sports.map { $0.lowercased() }.sorted().joined(separator: ",")
+        let br = brands.map { $0.lowercased() }.sorted().joined(separator: ",")
+        return "\(st)|\(mode.rawValue)|\(onlyMySize ? "1" : "0")|\(s)|\(a)|\(sp)|\(br)"
+    }
+
+    func cachedFollowingFeed(for key: String) -> FollowingFeedBundle? {
+        if let mem = followingFeedCache[key], !mem.bundle.isEmpty {
+            return mem.bundle
+        }
+        guard let data = try? Data(contentsOf: followingFeedCacheFileURL),
+              let envelope = try? JSONDecoder().decode(DiskFollowingFeedEnvelope.self, from: data),
+              envelope.key == key,
+              !envelope.bundle.isEmpty else {
+            return nil
+        }
+        followingFeedCache[key] = (envelope.bundle, Date().addingTimeInterval(120))
+        return envelope.bundle
+    }
+
+    func isFollowingFeedCacheFresh(for key: String) -> Bool {
+        if let mem = followingFeedCache[key], !mem.bundle.isEmpty {
+            return Date() < mem.expiry
+        }
+        return false
+    }
+
+    private func persistFollowingFeedToDisk(key: String, bundle: FollowingFeedBundle) {
+        guard !bundle.isEmpty else { return }
+        let targetURL = followingFeedCacheFileURL
+        let envelope = DiskFollowingFeedEnvelope(key: key, bundle: bundle)
+        Task.detached(priority: .utility) {
+            if let data = try? JSONEncoder().encode(envelope) {
+                try? data.write(to: targetURL, options: .atomic)
+            }
+        }
+    }
+
+    func getFollowingFeed(
+        storeIds: [String],
+        mode: FollowingFeedMode = .all,
+        onlyMySize: Bool = false,
+        shoeSize: String? = nil,
+        apparelSize: String? = nil,
+        sports: [String] = [],
+        brands: [String] = [],
+        perStore: Int = 12,
+        highlightsLimit: Int = 12,
+        forceRefresh: Bool = false
+    ) async throws -> FollowingFeedBundle {
+        let key = followingFeedCacheKey(
+            storeIds: storeIds,
+            mode: mode,
+            onlyMySize: onlyMySize,
+            shoeSize: shoeSize,
+            apparelSize: apparelSize,
+            sports: sports,
+            brands: brands
+        )
+        if !forceRefresh, let mem = followingFeedCache[key], !mem.bundle.isEmpty, Date() < mem.expiry {
+            return mem.bundle
+        }
+        if !forceRefresh, let existing = inFlightFollowingTasks[key] {
+            return try await existing.value
+        }
+
+        let task = Task<FollowingFeedBundle, Error> {
+            try await SupabaseManager.shared.fetchFollowingFeedDirect(
+                storeIds: storeIds,
+                mode: mode,
+                onlyMySize: onlyMySize,
+                shoeSize: shoeSize,
+                apparelSize: apparelSize,
+                sports: sports,
+                brands: brands,
+                perStore: perStore,
+                highlightsLimit: highlightsLimit
+            )
+        }
+        inFlightFollowingTasks[key] = task
+        defer { inFlightFollowingTasks[key] = nil }
+
+        let result = try await task.value
+        if !result.isEmpty {
+            followingFeedCache[key] = (result, Date().addingTimeInterval(240))
+            if mode == .all && !onlyMySize {
+                persistFollowingFeedToDisk(key: key, bundle: result)
+            }
+        }
+        return result
+    }
+
     func getSizeDeals(size: String, minDiscount: Double = 15, limit: Int = 12) async -> [StoreShowcaseProduct] {
         // 1. Direct Supabase query
         let direct = await SupabaseManager.shared.fetchSizeDealsDirect(size: size, minDiscount: minDiscount, limit: limit)
@@ -2200,7 +2317,15 @@ class APIService: ObservableObject {
     // MARK: - Followed Stores API
 
     func getFollowedStores() async throws -> [FollowedStoreItem] {
-        guard let url = URL(string: "\(baseURL)/api/followed_stores") else { throw URLError(.badURL) }
+        var components = URLComponents(string: "\(baseURL)/api/followed_stores")
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "device_id", value: SupabaseManager.shared.deviceId)
+        ]
+        if let uid = SupabaseManager.shared.validCurrentUserId {
+            items.append(URLQueryItem(name: "user_id", value: uid))
+        }
+        components?.queryItems = items
+        guard let url = components?.url else { throw URLError(.badURL) }
         let (data, response) = try await session.data(from: url)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
         struct StoresResp: Codable {
@@ -2214,7 +2339,14 @@ class APIService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = ["store_id": storeId, "store_name": storeName]
+        var body: [String: Any] = [
+            "store_id": storeId.lowercased(),
+            "store_name": storeName,
+            "device_id": SupabaseManager.shared.deviceId
+        ]
+        if let uid = SupabaseManager.shared.validCurrentUserId {
+            body["user_id"] = uid
+        }
         if let logo = storeLogo { body["store_logo"] = logo }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (_, response) = try await session.data(for: request)
@@ -2222,8 +2354,16 @@ class APIService: ObservableObject {
     }
 
     func unfollowStore(storeId: String) async throws -> Bool {
-        let encoded = storeId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? storeId
-        guard let url = URL(string: "\(baseURL)/api/followed_stores/\(encoded)") else { throw URLError(.badURL) }
+        let encoded = storeId.lowercased().addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? storeId.lowercased()
+        var components = URLComponents(string: "\(baseURL)/api/followed_stores/\(encoded)")
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "device_id", value: SupabaseManager.shared.deviceId)
+        ]
+        if let uid = SupabaseManager.shared.validCurrentUserId {
+            items.append(URLQueryItem(name: "user_id", value: uid))
+        }
+        components?.queryItems = items
+        guard let url = components?.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         let (_, response) = try await session.data(for: request)

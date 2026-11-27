@@ -728,7 +728,7 @@ private struct AccountFollowedStoresDestinationView: View {
                                     HStack(spacing: 12) {
                                         NavigationLink(destination: StoreDetailView(storeId: store.store_id, initialStoreName: store.store_name)) {
                                             HStack(spacing: 12) {
-                                                ShopStoreLogo(storeName: store.store_name, showVerified: false, showLabel: false, size: 36)
+                                                ShopStoreLogo(storeName: store.store_name, showVerified: false, showLabel: false, size: 36, logoURL: store.store_logo)
                                                 VStack(alignment: .leading, spacing: 2) {
                                                     Text(store.store_name)
                                                         .font(.system(size: 15, weight: .bold))

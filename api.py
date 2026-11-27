@@ -2242,9 +2242,12 @@ def delete_collection_endpoint(name: str):
 
 
 @app.get("/api/followed_stores")
-def get_followed_stores_endpoint():
-    """Retrieve all followed stores from the database."""
-    stores = db.get_followed_stores()
+def get_followed_stores_endpoint(
+    device_id: Optional[str] = Query(None, description="Filter followed stores by device_id"),
+    user_id: Optional[str] = Query(None, description="Filter followed stores by authenticated user_id"),
+):
+    """Retrieve followed stores scoped to the requesting user or device."""
+    stores = db.get_followed_stores(device_id=device_id, user_id=user_id)
     return {"stores": stores}
 
 
@@ -2254,16 +2257,28 @@ def follow_store_endpoint(payload: dict):
     store_id = payload.get("store_id", "").strip()
     store_name = payload.get("store_name", "").strip()
     store_logo = payload.get("store_logo")
+    device_id = payload.get("device_id")
+    user_id = payload.get("user_id")
     if not store_id or not store_name:
         raise HTTPException(status_code=400, detail="store_id e store_name sono obbligatori.")
-    success = db.follow_store(store_id, store_name, store_logo)
+    success = db.follow_store(
+        store_id,
+        store_name,
+        store_logo,
+        device_id=device_id,
+        user_id=user_id,
+    )
     return {"status": "ok", "success": success}
 
 
 @app.delete("/api/followed_stores/{store_id}")
-def unfollow_store_endpoint(store_id: str):
+def unfollow_store_endpoint(
+    store_id: str,
+    device_id: Optional[str] = Query(None, description="Scope deletion to device_id"),
+    user_id: Optional[str] = Query(None, description="Scope deletion to authenticated user_id"),
+):
     """Unfollow a partner store."""
-    success = db.unfollow_store(store_id)
+    success = db.unfollow_store(store_id, device_id=device_id, user_id=user_id)
     return {"status": "ok", "success": success}
 
 

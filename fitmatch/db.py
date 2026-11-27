@@ -1924,13 +1924,36 @@ class Database:
             logger.warning(f"[Database] Local SQLite update_wishlist note: {e}")
         return True
 
-    def get_followed_stores(self) -> List[Dict[str, Any]]:
-        """Retrieve all followed stores."""
+    def get_followed_stores(
+        self,
+        device_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve followed stores scoped to a user_id or device_id (never leaking other users' rows)."""
+        from urllib.parse import quote
+
+        clean_uid = (user_id or "").strip() or None
+        clean_dev = (device_id or "").strip() or None
+
         if self.use_supabase and self.supabase:
+            if not clean_uid and not clean_dev:
+                return []
             try:
-                res = self.supabase.client.table("followed_stores").select("*").order("created_at", desc=True).execute()
-                if res.data:
-                    return res.data
+                if clean_uid:
+                    filter_q = f"user_id=eq.{quote(clean_uid, safe='')}"
+                else:
+                    filter_q = f"device_id=eq.{quote(clean_dev, safe='')}"
+                res = self.supabase._request(f"followed_stores?select=*&{filter_q}&order=created_at.desc")
+                rows = res.get("data") if isinstance(res, dict) and isinstance(res.get("data"), list) else []
+                deduped: List[Dict[str, Any]] = []
+                seen = set()
+                for row in rows:
+                    sid = str(row.get("store_id") or "").strip().lower()
+                    if not sid or sid in seen:
+                        continue
+                    seen.add(sid)
+                    deduped.append(row)
+                return deduped
             except Exception as e:
                 logger.error(f"[Database] Error get_followed_stores in Supabase: {e}")
 
@@ -1938,16 +1961,36 @@ class Database:
             rows = conn.execute("SELECT * FROM followed_stores ORDER BY created_at DESC").fetchall()
             return [dict(r) for r in rows]
 
-    def follow_store(self, store_id: str, store_name: str, store_logo: Optional[str] = None) -> bool:
-        """Follow a store."""
+    def follow_store(
+        self,
+        store_id: str,
+        store_name: str,
+        store_logo: Optional[str] = None,
+        device_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Follow a store scoped to device_id / user_id."""
+        clean_sid = store_id.strip().lower()
+        clean_uid = (user_id or "").strip() or None
+        clean_dev = (device_id or "").strip() or "default_device"
+
         if self.use_supabase and self.supabase:
             try:
-                self.supabase.client.table("followed_stores").upsert({
-                    "store_id": store_id,
-                    "store_name": store_name,
-                    "store_logo": store_logo,
-                    "device_id": "default_device"
-                }, on_conflict="device_id,store_id").execute()
+                payload: Dict[str, Any] = {
+                    "store_id": clean_sid,
+                    "store_name": store_name.strip(),
+                    "device_id": clean_dev,
+                }
+                if store_logo:
+                    payload["store_logo"] = store_logo
+                if clean_uid:
+                    payload["user_id"] = clean_uid
+                self.supabase._request(
+                    "followed_stores?on_conflict=device_id,store_id",
+                    method="POST",
+                    data=payload,
+                    upsert=True,
+                )
             except Exception as e:
                 logger.error(f"[Database] Error follow_store in Supabase: {e}")
 
@@ -1956,19 +1999,39 @@ class Database:
                 INSERT INTO followed_stores (id, store_id, store_name, store_logo)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(store_id) DO UPDATE SET store_name=excluded.store_name, store_logo=excluded.store_logo
-            """, (str(uuid.uuid4()), store_id, store_name, store_logo))
+            """, (str(uuid.uuid4()), clean_sid, store_name.strip(), store_logo))
         return True
 
-    def unfollow_store(self, store_id: str) -> bool:
-        """Unfollow a store."""
+    def unfollow_store(
+        self,
+        store_id: str,
+        device_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Unfollow a store scoped to user_id / device_id."""
+        from urllib.parse import quote
+
+        clean_sid = store_id.strip().lower()
+        clean_uid = (user_id or "").strip() or None
+        clean_dev = (device_id or "").strip() or None
+
         if self.use_supabase and self.supabase:
+            if not clean_uid and not clean_dev:
+                return False
             try:
-                self.supabase.client.table("followed_stores").delete().eq("store_id", store_id).execute()
+                if clean_uid:
+                    filter_q = f"user_id=eq.{quote(clean_uid, safe='')}"
+                else:
+                    filter_q = f"device_id=eq.{quote(clean_dev, safe='')}"
+                self.supabase._request(
+                    f"followed_stores?store_id=eq.{quote(clean_sid, safe='')}&{filter_q}",
+                    method="DELETE",
+                )
             except Exception as e:
                 logger.error(f"[Database] Error unfollow_store in Supabase: {e}")
 
         with self.get_connection() as conn:
-            conn.execute("DELETE FROM followed_stores WHERE LOWER(store_id) = LOWER(?)", (store_id,))
+            conn.execute("DELETE FROM followed_stores WHERE LOWER(store_id) = LOWER(?)", (clean_sid,))
         return True
 
     def get_recent_activity(self, limit: int = 30) -> List[Dict[str, Any]]:
