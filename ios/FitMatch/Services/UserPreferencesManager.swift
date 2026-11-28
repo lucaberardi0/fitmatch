@@ -3,14 +3,40 @@ import SwiftUI
 import Combine
 
 @MainActor
+enum ShopHaptics {
+    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .light) {
+        guard UserPreferencesManager.shared.preferences.isHapticFeedbackEnabled else { return }
+        let generator = UIImpactFeedbackGenerator(style: style)
+        generator.impactOccurred()
+    }
+
+    static func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        guard UserPreferencesManager.shared.preferences.isHapticFeedbackEnabled else { return }
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(type)
+    }
+
+    static func selection() {
+        guard UserPreferencesManager.shared.preferences.isHapticFeedbackEnabled else { return }
+        let generator = UISelectionFeedbackGenerator()
+        generator.selectionChanged()
+    }
+}
+
+@MainActor
 class UserPreferencesManager: ObservableObject {
     static let shared = UserPreferencesManager()
 
     private let storageKey = "fitmatch_user_preferences_v1"
     private let onboardingCompletedKey = "fitmatch_has_completed_onboarding_v1"
+    private var authObserver: NSObjectProtocol?
+    private var isApplyingRemoteUpdate: Bool = false
+    private var cloudSaveTask: Task<Void, Never>? = nil
 
     static let shoeSizes: [String] = [
-        "38", "39", "40", "40.5", "41", "42", "42.5", "43", "43.5", "44", "44.5", "45", "45.5", "46", "47", "48"
+        "35", "35.5", "36", "36.5", "37", "37.5", "38", "38.5", "39", "39.5",
+        "40", "40.5", "41", "41.5", "42", "42.5", "43", "43.5", "44", "44.5",
+        "45", "45.5", "46", "46.5", "47", "48"
     ]
     static let apparelSizes: [String] = ["XS", "S", "M", "L", "XL", "XXL"]
 
@@ -47,12 +73,17 @@ class UserPreferencesManager: ObservableObject {
 
     @Published var preferences: UserPreferences {
         didSet {
-            save()
+            guard preferences != oldValue else { return }
+            persistLocally()
+            if !isApplyingRemoteUpdate {
+                scheduleCloudSave()
+            }
         }
     }
 
     @Published var hasCompletedOnboarding: Bool
     @Published var updaterStatus: UpdaterStatusResponse?
+    @Published var accountMonitorStats: AccountMonitorStats?
     @Published var isRefreshingPrices: Bool = false
     @Published var refreshMessage: String?
     @Published var activeStores: [ActiveStoreItem] = []
@@ -75,6 +106,28 @@ class UserPreferencesManager: ObservableObject {
         self.activeStores = DynamicCatalogRegistry.shared.cachedStores
         self.dynamicCategories = DynamicCatalogRegistry.shared.cachedCategories
         self.dynamicBrands = DynamicCatalogRegistry.shared.allBrands
+
+        authObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("FitMatchAuthSessionDidChange"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.syncFromDatabase(force: true)
+                await self.fetchAccountMonitorStats()
+            }
+        }
+
+        Task {
+            await syncFromDatabase()
+        }
+    }
+
+    deinit {
+        if let authObserver {
+            NotificationCenter.default.removeObserver(authObserver)
+        }
     }
 
     var availableSports: [(String, String)] {
@@ -123,12 +176,89 @@ class UserPreferencesManager: ObservableObject {
         hasCompletedOnboarding = false
     }
 
-    func save() {
+    private func persistLocally() {
         if let encoded = try? JSONEncoder().encode(preferences) {
             UserDefaults.standard.set(encoded, forKey: storageKey)
         }
-        Task {
-            _ = try? await SupabaseManager.shared.saveUserPreferences(self.preferences)
+    }
+
+    private func scheduleCloudSave() {
+        cloudSaveTask?.cancel()
+        let snapshot = preferences
+        cloudSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled, self != nil else { return }
+            _ = try? await SupabaseManager.shared.saveUserPreferences(snapshot)
+        }
+    }
+
+    func save() {
+        persistLocally()
+        scheduleCloudSave()
+    }
+
+    /// Updates local preferences without triggering a remote write (used on sign-out, deletion, or remote hydration).
+    func applyWithoutCloudUpload(_ mutate: (inout UserPreferences) -> Void) {
+        cloudSaveTask?.cancel()
+        isApplyingRemoteUpdate = true
+        mutate(&preferences)
+        isApplyingRemoteUpdate = false
+        persistLocally()
+    }
+
+    func resetLocalOnly() {
+        applyWithoutCloudUpload { prefs in
+            prefs = .default
+        }
+        accountMonitorStats = nil
+    }
+
+    /// Pulls the authenticated (permanent or anonymous) user's preferences from Supabase.
+    func syncFromDatabase(force: Bool = false) async {
+        await SupabaseManager.shared.ensureUserSession()
+        guard let remote = await SupabaseManager.shared.fetchUserPreferences() else {
+            // If this is a permanent account with no remote row yet but local prefs exist, upload once
+            if force, SupabaseManager.shared.isAuthenticated {
+                _ = try? await SupabaseManager.shared.saveUserPreferences(preferences)
+            }
+            return
+        }
+
+        let remoteName = remote.user_name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedEmail = SupabaseManager.shared.currentUserEmail ?? ""
+
+        applyWithoutCloudUpload { local in
+            if !remoteName.isEmpty && remoteName.lowercased() != "ospite" {
+                local.userName = remoteName
+            } else if SupabaseManager.shared.isAuthenticated && local.userName == "Ospite", !resolvedEmail.isEmpty {
+                local.userName = (resolvedEmail.components(separatedBy: "@").first ?? "Atleta").capitalized
+            } else if !SupabaseManager.shared.isAuthenticated {
+                local.userName = remoteName.isEmpty ? "Ospite" : remoteName
+            }
+            local.userEmail = resolvedEmail
+            local.preferredShoeSize = remote.preferred_shoe_size ?? ""
+            local.preferredApparelSize = remote.preferred_apparel_size ?? ""
+            local.selectedSports = remote.selected_sports ?? []
+            local.favoriteBrands = remote.favorite_brands ?? []
+            if let disc = remote.min_discount_threshold {
+                local.minDiscountThreshold = max(5, min(60, disc))
+            }
+            if let push = remote.notifications_enabled {
+                local.isPushNotificationEnabled = push
+            }
+            if let haptic = remote.haptic_feedback_enabled {
+                local.isHapticFeedbackEnabled = haptic
+            }
+            if let autoRefresh = remote.auto_refresh_enabled {
+                local.isAutoRefreshEnabled = autoRefresh
+            }
+        }
+    }
+
+    func fetchAccountMonitorStats() async {
+        await SupabaseManager.shared.ensureUserSession()
+        if let stats = await SupabaseManager.shared.fetchAccountMonitorStats() {
+            self.accountMonitorStats = stats
         }
     }
 
@@ -149,13 +279,7 @@ class UserPreferencesManager: ObservableObject {
     }
 
     func calculateTotalWishlistSavings(wishlistItems: [WishlistItem]) -> Double {
-        var total: Double = 0.0
-        for item in wishlistItems {
-            if let drop = item.lastPriceDrop {
-                total += drop
-            }
-        }
-        return total
+        wishlistItems.reduce(0.0) { $0 + $1.droppedAmountSinceSaved }
     }
 
     // MARK: - Personalization & Matching Engine

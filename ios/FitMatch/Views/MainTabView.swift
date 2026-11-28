@@ -55,8 +55,7 @@ final class TabCoordinator: ObservableObject {
     @Published var scrollToTopEvent: TabScrollEvent? = nil
 
     func triggerScrollToTop(for tab: Int) {
-        let gen = UIImpactFeedbackGenerator(style: .light)
-        gen.impactOccurred()
+        ShopHaptics.impact(.light)
         scrollToTopEvent = TabScrollEvent(tab: tab)
     }
 
@@ -64,8 +63,7 @@ final class TabCoordinator: ObservableObject {
         if selectedTab != index {
             previousTab = selectedTab
             searchSource = fromSource
-            let gen = UIImpactFeedbackGenerator(style: .light)
-            gen.impactOccurred()
+            ShopHaptics.impact(.light)
             withAnimation(ShopMotion.tabSwitch) {
                 selectedTab = index
             }

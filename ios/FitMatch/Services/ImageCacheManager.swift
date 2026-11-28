@@ -54,6 +54,47 @@ public final class ImageCacheManager {
         memoryCache.removeAllObjects()
     }
 
+    /// Clears both L1 in-memory image cache and L2 persistent disk image cache.
+    public func clearAllCaches() {
+        memoryCache.removeAllObjects()
+        let fm = FileManager.default
+        if let files = try? fm.contentsOfDirectory(at: diskCacheURL, includingPropertiesForKeys: nil) {
+            for file in files {
+                try? fm.removeItem(at: file)
+            }
+        }
+        URLCache.shared.removeAllCachedResponses()
+    }
+
+    /// Computes total disk footprint (in bytes) of the L2 image cache plus URLCache disk usage.
+    public func totalDiskCacheBytes() -> Int64 {
+        let fm = FileManager.default
+        var total: Int64 = Int64(URLCache.shared.currentDiskUsage)
+        if let enumerator = fm.enumerator(
+            at: diskCacheURL,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let fileURL as URL in enumerator {
+                if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                    total += Int64(size)
+                }
+            }
+        }
+        return total
+    }
+
+    public func formattedDiskCacheSize() -> String {
+        let bytes = totalDiskCacheBytes()
+        if bytes < 1024 * 100 {
+            return "0 MB"
+        }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useKB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
     // MARK: - Fast Synchronous L1 Lookup (0ms overhead)
 
     public func cachedImage(for url: URL?, maxPixelSize: CGFloat = 800) -> UIImage? {

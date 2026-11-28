@@ -2550,8 +2550,22 @@ class SupabaseClient:
                         recent_brands.add(b.lower())
 
         pref_sizes = user_pref.get("preferred_sizes") or []
-        eff_shoe_size = shoe_size or (pref_sizes[0] if len(pref_sizes) > 0 else "42")
-        eff_apparel_size = apparel_size or (pref_sizes[1] if len(pref_sizes) > 1 else "M")
+        db_shoe = (user_pref.get("preferred_shoe_size") or "").strip()
+        db_apparel = (user_pref.get("preferred_apparel_size") or "").strip()
+        if not db_shoe and pref_sizes:
+            for token in pref_sizes:
+                t = str(token).strip()
+                if re.match(r"^\d{2}([.,]\d)?$", t):
+                    db_shoe = t
+                    break
+        if not db_apparel and pref_sizes:
+            for token in pref_sizes:
+                t = str(token).strip().upper()
+                if t in ("XXS", "XS", "S", "M", "L", "XL", "XXL"):
+                    db_apparel = t
+                    break
+        eff_shoe_size = shoe_size or db_shoe or "42"
+        eff_apparel_size = apparel_size or db_apparel or "M"
 
         eff_brands = set([b.lower() for b in brands] if brands else [b.lower() for b in (user_pref.get("favorite_brands") or [])])
         eff_brands.update(recent_brands)

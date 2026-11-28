@@ -142,7 +142,6 @@ struct ProductDetailView: View {
     // Sheets & Navigation
     @State private var showingAlertSheet: Bool = false
     @State private var showingMoveToCollection: Bool = false
-    @State private var showingComparisonSheet: Bool = false
     @State private var showingShareSheet: Bool = false
     @State private var showingReturnPolicySheet: Bool = false
     @State private var showingShippingInfoSheet: Bool = false
@@ -620,9 +619,6 @@ struct ProductDetailView: View {
                 MoveToCollectionSheet(item: item)
             }
         }
-        .sheet(isPresented: $showingComparisonSheet) {
-            ModelCompareView(initialModelA: product.cleanTitle)
-        }
         .sheet(isPresented: $showingShareSheet) {
             let shareUrl = shareAffiliateURL
             let priceText = currentOffer?.formattedPrice ?? product.formattedBestPrice
@@ -1053,10 +1049,6 @@ struct ProductDetailView: View {
 
             Button(action: { showingFullScreenGallery = true }) {
                 Label("Espandi galleria immagini", systemImage: "arrow.up.left.and.arrow.down.right")
-            }
-
-            Button(action: { showingComparisonSheet = true }) {
-                Label("Confronta con altri modelli", systemImage: "square.split.2x1")
             }
 
             Button(action: { showingShareSheet = true }) {

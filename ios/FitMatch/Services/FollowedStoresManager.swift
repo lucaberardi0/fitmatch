@@ -110,10 +110,16 @@ class FollowedStoresManager: ObservableObject {
         return hiddenStoreIds.contains(cleanId)
     }
 
+    func resetLocalOnly() {
+        followedStores.removeAll()
+        hiddenStoreIds.removeAll()
+        UserDefaults.standard.removeObject(forKey: storageKey)
+        UserDefaults.standard.removeObject(forKey: hiddenStorageKey)
+    }
+
     func hideStore(storeId: String, storeName: String? = nil) {
         let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let gen = UIImpactFeedbackGenerator(style: .medium)
-        gen.impactOccurred()
+        ShopHaptics.impact(.medium)
         _ = withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
             hiddenStoreIds.insert(cleanId)
         }
@@ -126,8 +132,7 @@ class FollowedStoresManager: ObservableObject {
 
     func unhideStore(storeId: String) {
         let cleanId = storeId.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let gen = UIImpactFeedbackGenerator(style: .light)
-        gen.impactOccurred()
+        ShopHaptics.impact(.light)
         _ = withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
             hiddenStoreIds.remove(cleanId)
         }
@@ -149,8 +154,7 @@ class FollowedStoresManager: ObservableObject {
     }
 
     func reportStore(storeId: String, storeName: String, reason: String = "Prezzi non aggiornati o violazione", details: String? = nil) {
-        let gen = UINotificationFeedbackGenerator()
-        gen.notificationOccurred(.success)
+        ShopHaptics.notification(.success)
         print("FitMatch Store Report recorded for \(storeName) (\(storeId)): \(reason)")
 
         Task {
@@ -161,8 +165,7 @@ class FollowedStoresManager: ObservableObject {
     // MARK: - Actions
 
     func toggleFollow(storeId: String, storeName: String, storeLogo: String? = nil) {
-        let gen = UIImpactFeedbackGenerator(style: .medium)
-        gen.impactOccurred()
+        ShopHaptics.impact(.medium)
 
         if isFollowing(storeId: storeId) {
             _ = unfollowStore(storeId: storeId)

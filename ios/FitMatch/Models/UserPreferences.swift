@@ -1,6 +1,6 @@
 import Foundation
 
-struct UserPreferences: Codable {
+struct UserPreferences: Codable, Equatable {
     var userName: String
     var userEmail: String
     var preferredShoeSize: String
@@ -27,14 +27,28 @@ struct UserPreferences: Codable {
     var formattedSizeSummary: String {
         switch (hasShoeSize, hasApparelSize) {
         case (true, true):
-            return "EU \(preferredShoeSize) · \(preferredApparelSize)"
+            return "EU\u{00A0}\(preferredShoeSize) · \(preferredApparelSize)"
         case (true, false):
-            return "EU \(preferredShoeSize)"
+            return "EU\u{00A0}\(preferredShoeSize)"
         case (false, true):
             return preferredApparelSize
         case (false, false):
-            return "Facoltative"
+            return "Non impostate"
         }
+    }
+
+    var configuredPreferencesSummary: String {
+        var parts: [String] = []
+        if hasAnySize {
+            parts.append(formattedSizeSummary)
+        }
+        if !selectedSports.isEmpty {
+            parts.append(selectedSports.count == 1 ? selectedSports[0] : "\(selectedSports.count) sport")
+        }
+        if !favoriteBrands.isEmpty {
+            parts.append(favoriteBrands.count == 1 ? favoriteBrands[0] : "\(favoriteBrands.count) brand")
+        }
+        return parts.isEmpty ? "Personalizza" : parts.prefix(2).joined(separator: " · ")
     }
 
     static let `default` = UserPreferences(
@@ -49,6 +63,54 @@ struct UserPreferences: Codable {
         isHapticFeedbackEnabled: true,
         isAutoRefreshEnabled: true
     )
+}
+
+struct RemoteUserPreferencesRow: Codable {
+    let user_name: String?
+    let preferred_shoe_size: String?
+    let preferred_apparel_size: String?
+    let selected_sports: [String]?
+    let favorite_brands: [String]?
+    let min_discount_threshold: Int?
+    let notifications_enabled: Bool?
+    let haptic_feedback_enabled: Bool?
+    let auto_refresh_enabled: Bool?
+    let updated_at: String?
+}
+
+struct AccountMonitorStats: Codable {
+    let latest_catalog_check_at: String?
+    let active_store_count: Int
+    let monitored_wishlist_count: Int
+    let target_alerts_count: Int
+    let recent_drops_7d: Int
+    let unread_notifications_count: Int
+    let chat_sessions_count: Int
+    let hidden_stores_count: Int
+
+    var latestCatalogCheckDate: Date? {
+        SupabaseManager.parseISO8601Date(latest_catalog_check_at)
+    }
+
+    var formattedLastCheckRelative: String {
+        guard let date = latestCatalogCheckDate else {
+            return "Controllo automatico attivo"
+        }
+        let elapsed = Date().timeIntervalSince(date)
+        if elapsed < 120 {
+            return "Aggiornato adesso"
+        } else if elapsed < 3600 {
+            let mins = max(1, Int(elapsed / 60))
+            return "\(mins) min fa"
+        } else if elapsed < 86400 {
+            let hours = max(1, Int(elapsed / 3600))
+            return hours == 1 ? "1 ora fa" : "\(hours) ore fa"
+        }
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "it_IT")
+        df.dateFormat = "d MMM, HH:mm"
+        return df.string(from: date)
+    }
 }
 
 struct UpdaterStatusResponse: Codable {

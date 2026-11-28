@@ -1709,32 +1709,6 @@ class APIService: ObservableObject {
         )
     }
 
-    func getAIAdvice(
-        prompt: String,
-        sessionId: String? = nil,
-        deviceId: String? = nil,
-        userId: String? = nil
-    ) async throws -> AIAdviceResponse {
-        var components = URLComponents(string: "\(edgeFunctionsBaseURL)/ai-advise")!
-        var items = [URLQueryItem(name: "prompt", value: prompt)]
-        if let sid = sessionId, !sid.isEmpty {
-            items.append(URLQueryItem(name: "session_id", value: sid))
-        }
-        if let did = deviceId, !did.isEmpty {
-            items.append(URLQueryItem(name: "device_id", value: did))
-        }
-        let resolvedUid = await resolveUserId(userId)
-        if let uid = resolvedUid, !uid.isEmpty {
-            items.append(URLQueryItem(name: "user_id", value: uid))
-        }
-        components.queryItems = items
-
-        guard let url = components.url else { throw URLError(.badURL) }
-
-        let data = try await fetchEdgeDataWithRetry(url: url)
-        return try JSONDecoder().decode(AIAdviceResponse.self, from: data)
-    }
-
     // MARK: - Persistent Chat History API
 
     func fetchChatSessions(deviceId: String, userId: String? = nil, limit: Int = 20) async -> [ChatSessionSummary] {
@@ -1756,19 +1730,6 @@ class APIService: ObservableObject {
             turnId: turnId,
             feedback: feedback
         )
-    }
-
-    func compareModels(modelA: String, modelB: String) async throws -> ModelComparisonResponse {
-        var components = URLComponents(string: "\(edgeFunctionsBaseURL)/ai-compare")!
-        components.queryItems = [
-            URLQueryItem(name: "model_a", value: modelA),
-            URLQueryItem(name: "model_b", value: modelB)
-        ]
-
-        guard let url = components.url else { throw URLError(.badURL) }
-
-        let data = try await fetchEdgeDataWithRetry(url: url)
-        return try JSONDecoder().decode(ModelComparisonResponse.self, from: data)
     }
 
     func searchCatalog(query: String = "", category: String? = nil, limit: Int = 40) async throws -> [MatchedProduct] {

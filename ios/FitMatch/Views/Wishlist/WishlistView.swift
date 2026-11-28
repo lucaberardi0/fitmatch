@@ -31,12 +31,6 @@ enum WishlistQuickFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-private struct ComparePairTarget: Identifiable {
-    let id = UUID()
-    let modelA: String
-    let modelB: String?
-}
-
 // MARK: - Main Wishlist ("Salvati") View
 
 struct WishlistView: View {
@@ -62,17 +56,12 @@ struct WishlistView: View {
     @State private var collectionForAddSheet: String = ""
     @State private var itemToMoveInCollection: WishlistItem? = nil
     @State private var itemForPriceAlert: WishlistItem? = nil
-    @State private var comparePair: ComparePairTarget? = nil
 
     // Collection Rename / Delete Confirmation
     @State private var showingRenameAlert: Bool = false
     @State private var collectionToRename: String = ""
     @State private var newNameForRename: String = ""
     @State private var collectionPendingDelete: String? = nil
-
-    // Compare Mode (select 2 saved models)
-    @State private var isCompareMode: Bool = false
-    @State private var compareSelection: [String] = []
 
     // Undo Toast
     @State private var toastMessage: String? = nil
@@ -212,9 +201,6 @@ struct WishlistView: View {
         .sheet(item: $itemForPriceAlert) { item in
             PriceAlertSheet(product: item.toMatchedProduct(), existingWishlistItem: item)
         }
-        .sheet(item: $comparePair) { pair in
-            ModelCompareView(initialModelA: pair.modelA, initialModelB: pair.modelB)
-        }
         .sheet(isPresented: $showingCreateCollectionSheet) {
             CreateCollectionSheet(
                 isPresented: $showingCreateCollectionSheet,
@@ -283,19 +269,13 @@ struct WishlistView: View {
         ZStack(alignment: .bottom) {
             mainContent
 
-            if isCompareMode {
-                compareFloatingBar
-                    .padding(.horizontal, ShopLayout.screenPadding)
-                    .padding(.bottom, embedded ? 20 : ShopLayout.toastBottomOffset)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else if let msg = toastMessage {
+            if let msg = toastMessage {
                 undoToastBanner(message: msg)
                     .padding(.horizontal, ShopLayout.screenPadding)
                     .padding(.bottom, embedded ? 20 : ShopLayout.toastBottomOffset)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.84), value: isCompareMode)
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: toastMessage)
     }
 
@@ -321,7 +301,7 @@ struct WishlistView: View {
                             .padding(.top, 2)
 
                         // 2. Dynamic Savings / Target Reached Insight Banner (only when actionable)
-                        if quickFilter == .all && !isCompareMode {
+                        if quickFilter == .all {
                             liveInsightsBanner
                         }
 
@@ -342,7 +322,7 @@ struct WishlistView: View {
                         }
                     }
 
-                    Spacer(minLength: isCompareMode ? ShopLayout.bottomFilterDockClearance + 20 : ShopLayout.bottomDockClearance)
+                    Spacer(minLength: ShopLayout.bottomDockClearance)
                 }
                 .id("wishlist_top")
             }
@@ -737,32 +717,6 @@ struct WishlistView: View {
                     count: activeAlertsCount > 0 ? activeAlertsCount : nil,
                     accentColor: .shopPurple
                 )
-
-                // Compare Mode Toggle (shown when >= 2 saved items are visible)
-                if collectionScopedItems.count >= 2 {
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(ShopMotion.pillSlide) {
-                            isCompareMode.toggle()
-                            if !isCompareMode {
-                                compareSelection.removeAll()
-                            }
-                        }
-                    }) {
-                        HStack(spacing: 5) {
-                            Image(systemName: isCompareMode ? "xmark" : "arrow.left.arrow.right")
-                                .font(.system(size: 11, weight: .bold))
-                            Text(isCompareMode ? "Fine confronto" : "Confronta")
-                                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
-                        }
-                        .foregroundColor(isCompareMode ? .white : .shopPurple)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7.5)
-                        .background(isCompareMode ? Color.shopPurple : Color.shopPurpleLight)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
             }
             .padding(.horizontal, ShopLayout.screenPadding)
         }
@@ -899,16 +853,9 @@ struct WishlistView: View {
             spacing: ShopLayout.gridRowSpacing
         ) {
             ForEach(displayItems) { item in
-                let compareIdx = compareSelection.firstIndex(of: item.canonical_name)
-
                 ShopSavedProductCard(
                     item: item,
                     activeCollectionFilter: selectedCollectionFilter,
-                    isCompareMode: isCompareMode,
-                    compareBadgeNumber: compareIdx.map { $0 + 1 },
-                    onCompareToggle: {
-                        toggleCompareSelection(item.canonical_name)
-                    },
                     onRemove: {
                         performRemoveItem(item)
                     },
@@ -926,9 +873,6 @@ struct WishlistView: View {
                         showToast("Rimosso da «\(col)»") {
                             wishlist.toggleCollection(col, for: item.canonical_name)
                         }
-                    },
-                    onCompareSingle: {
-                        comparePair = ComparePairTarget(modelA: item.canonical_name, modelB: nil)
                     }
                 )
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
@@ -937,52 +881,7 @@ struct WishlistView: View {
         .animation(ShopMotion.gridReflow, value: displayItems.map(\.id))
     }
 
-    // MARK: - Compare Floating Bar & Undo Toast
-
-    private var compareFloatingBar: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(compareSelection.count == 2 ? "Pronto per il confronto IA" : "Seleziona 2 modelli salvati")
-                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-
-                Text("\(compareSelection.count)/2 selezionati")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundColor(.white.opacity(0.75))
-            }
-
-            Spacer()
-
-            Button(action: {
-                guard compareSelection.count == 2 else { return }
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                let a = compareSelection[0]
-                let b = compareSelection[1]
-                isCompareMode = false
-                compareSelection.removeAll()
-                comparePair = ComparePairTarget(modelA: a, modelB: b)
-            }) {
-                HStack(spacing: 5) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 12, weight: .bold))
-                    Text("Confronta")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                }
-                .foregroundColor(compareSelection.count == 2 ? .white : .white.opacity(0.55))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(compareSelection.count == 2 ? Color.shopPurple : Color.white.opacity(0.14))
-                .clipShape(Capsule())
-            }
-            .disabled(compareSelection.count != 2)
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color.shopDark)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: Color.black.opacity(0.22), radius: 14, x: 0, y: 5)
-    }
+    // MARK: - Undo Toast
 
     private func undoToastBanner(message: String) -> some View {
         HStack(spacing: 12) {
@@ -1024,25 +923,12 @@ struct WishlistView: View {
 
     // MARK: - Actions Helpers
 
-    private func toggleCompareSelection(_ canonicalName: String) {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        if let idx = compareSelection.firstIndex(of: canonicalName) {
-            compareSelection.remove(at: idx)
-        } else {
-            if compareSelection.count >= 2 {
-                compareSelection.removeFirst()
-            }
-            compareSelection.append(canonicalName)
-        }
-    }
-
     private func performRemoveItem(_ item: WishlistItem) {
         var removedSnapshot: (item: WishlistItem, index: Int)?
         withAnimation(ShopMotion.gridReflow) {
             removedSnapshot = wishlist.removeFromWishlist(item.canonical_name)
         }
         guard let snap = removedSnapshot else { return }
-        compareSelection.removeAll { $0 == item.canonical_name }
         showToast("Rimosso dai salvati") {
             withAnimation(ShopMotion.gridReflow) {
                 wishlist.restoreItem(snap.item, at: snap.index)
@@ -1403,14 +1289,10 @@ struct ShopCreateCollectionCard: View {
 struct ShopSavedProductCard: View {
     let item: WishlistItem
     let activeCollectionFilter: String
-    var isCompareMode: Bool = false
-    var compareBadgeNumber: Int? = nil
-    var onCompareToggle: (() -> Void)? = nil
     let onRemove: () -> Void
     let onOpenPriceAlert: () -> Void
     var onManageCollections: (() -> Void)? = nil
     var onRemoveFromCurrentCollection: (() -> Void)? = nil
-    var onCompareSingle: (() -> Void)? = nil
 
     private var eyebrowText: String {
         let brandPart = item.effectiveBrand.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -1479,12 +1361,9 @@ struct ShopSavedProductCard: View {
                         .frame(height: 170)
                 }
 
-                // Crisp border (highlighted in Compare Mode when selected)
+                // Crisp border
                 RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
-                    .stroke(
-                        compareBadgeNumber != nil ? Color.shopPurple : Color.shopBorder,
-                        lineWidth: compareBadgeNumber != nil ? 2 : 1
-                    )
+                    .stroke(Color.shopBorder, lineWidth: 1)
                     .frame(maxWidth: .infinity)
                     .frame(height: 170)
 
@@ -1586,41 +1465,23 @@ struct ShopSavedProductCard: View {
 
                         Spacer(minLength: 4)
 
-                        if isCompareMode {
+                        Button(action: {
+                            ShopHaptics.impact(.medium)
+                            onRemove()
+                        }) {
                             ZStack {
                                 Circle()
-                                    .fill(compareBadgeNumber != nil ? Color.shopPurple : Color.black.opacity(0.35))
+                                    .fill(Color.white.opacity(0.94))
                                     .frame(width: 30, height: 30)
+                                    .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 1)
 
-                                if let num = compareBadgeNumber {
-                                    Text("\(num)")
-                                        .font(.system(size: 13, weight: .black, design: .rounded))
-                                        .foregroundColor(.white)
-                                } else {
-                                    Image(systemName: "plus")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(.white)
-                                }
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 12.5, weight: .bold))
+                                    .foregroundColor(.shopRed)
                             }
-                        } else {
-                            Button(action: {
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                onRemove()
-                            }) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.white.opacity(0.94))
-                                        .frame(width: 30, height: 30)
-                                        .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 1)
-
-                                    Image(systemName: "heart.fill")
-                                        .font(.system(size: 12.5, weight: .bold))
-                                        .foregroundColor(.shopRed)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Rimuovi \(item.canonical_name) dai salvati")
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Rimuovi \(item.canonical_name) dai salvati")
                     }
                     .padding(8)
                 }
@@ -1675,54 +1536,43 @@ struct ShopSavedProductCard: View {
 
                 Spacer(minLength: 2)
 
-                if !isCompareMode {
-                    Button(action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        onOpenPriceAlert()
-                    }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: item.isAlertEnabled ? (item.isTargetReachedEffective ? "bell.badge.fill" : "bell.fill") : "bell.slash")
-                                .font(.system(size: 9, weight: .bold))
-                            Text(alertChipLabel)
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                                .lineLimit(1)
-                        }
-                        .foregroundColor(
-                            item.isTargetReachedEffective
-                            ? .shopGreen
-                            : (item.isAlertEnabled && item.targetAlertPrice != nil ? .shopPurple : .shopTextMuted)
-                        )
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3.5)
-                        .background(
-                            item.isTargetReachedEffective
-                            ? Color.shopGreenLight
-                            : (item.isAlertEnabled && item.targetAlertPrice != nil ? Color.shopPurpleLight : Color.shopSurfaceElevated)
-                        )
-                        .clipShape(Capsule())
+                Button(action: {
+                    ShopHaptics.impact(.light)
+                    onOpenPriceAlert()
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: item.isAlertEnabled ? (item.isTargetReachedEffective ? "bell.badge.fill" : "bell.fill") : "bell.slash")
+                            .font(.system(size: 9, weight: .bold))
+                        Text(alertChipLabel)
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .lineLimit(1)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Imposta alert prezzo per \(item.canonical_name)")
+                    .foregroundColor(
+                        item.isTargetReachedEffective
+                        ? .shopGreen
+                        : (item.isAlertEnabled && item.targetAlertPrice != nil ? .shopPurple : .shopTextMuted)
+                    )
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3.5)
+                    .background(
+                        item.isTargetReachedEffective
+                        ? Color.shopGreenLight
+                        : (item.isAlertEnabled && item.targetAlertPrice != nil ? Color.shopPurpleLight : Color.shopSurfaceElevated)
+                    )
+                    .clipShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Imposta alert prezzo per \(item.canonical_name)")
             }
             .padding(.top, 1)
         }
     }
 
     var body: some View {
-        Group {
-            if isCompareMode {
-                Button(action: { onCompareToggle?() }) {
-                    cardContent
-                }
-                .buttonStyle(ShopCardPressStyle(scale: 0.97, pressedOpacity: 0.94))
-            } else {
-                NavigationLink(destination: ProductDetailView(product: item.toMatchedProduct(), initialSize: item.selectedSize)) {
-                    cardContent
-                }
-                .buttonStyle(ShopCardPressStyle(scale: 0.97, pressedOpacity: 0.94))
-            }
+        NavigationLink(destination: ProductDetailView(product: item.toMatchedProduct(), initialSize: item.selectedSize)) {
+            cardContent
         }
+        .buttonStyle(ShopCardPressStyle(scale: 0.97, pressedOpacity: 0.94))
         .contextMenu {
             Button(action: onOpenPriceAlert) {
                 Label(
@@ -1740,12 +1590,6 @@ struct ShopSavedProductCard: View {
             if let onRemoveCol = onRemoveFromCurrentCollection {
                 Button(action: onRemoveCol) {
                     Label("Rimuovi da «\(activeCollectionFilter)»", systemImage: "folder.badge.minus")
-                }
-            }
-
-            if let onCompare = onCompareSingle {
-                Button(action: onCompare) {
-                    Label("Confronta con IA", systemImage: "arrow.left.arrow.right")
                 }
             }
 

@@ -264,9 +264,18 @@ class WishlistManager: ObservableObject {
 
     // MARK: - Mutations
 
+    func resetLocalOnly() {
+        mutationGeneration += 1
+        items.removeAll()
+        collections.removeAll()
+        selectedCollection = "Tutti"
+        lastLiveSyncDate = nil
+        try? FileManager.default.removeItem(at: fileURL)
+        try? FileManager.default.removeItem(at: collectionsFileURL)
+    }
+
     func toggleFavorite(product: MatchedProduct, selectedSize: String? = nil, targetPrice: Double? = nil) {
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
+        ShopHaptics.impact(.medium)
 
         if isFavorite(product.canonical_name) {
             removeFromWishlist(product.canonical_name)

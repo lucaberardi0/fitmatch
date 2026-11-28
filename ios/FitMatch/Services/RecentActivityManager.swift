@@ -664,6 +664,20 @@ class RecentActivityManager: ObservableObject {
         }
     }
 
+    func resetLocalOnly() {
+        pendingClearAll = false
+        pendingDeletedKeys.removeAll()
+        pendingUploadKeys.removeAll()
+        for (_, task) in inFlightDeletes {
+            task.cancel()
+        }
+        inFlightDeletes.removeAll()
+        savePendingFlags()
+        mutationGeneration += 1
+        activities.removeAll()
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
     func clearAll() {
         pendingClearAll = true
         pendingDeletedKeys.removeAll()

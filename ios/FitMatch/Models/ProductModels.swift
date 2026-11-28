@@ -870,34 +870,6 @@ struct SearchResponse: Codable {
     let matched_products: [MatchedProduct]
 }
 
-struct AIRecommendation: Identifiable, Codable, Hashable {
-    var id: String { product_name }
-    let product_name: String
-    let brand: String?
-    let best_price: Double?
-    let best_store: String?
-    let original_price: Double?
-    let discount_pct: Double?
-    let link: String?
-    let image_url: String?
-    let cross_store_savings: Double?
-    let all_offers: [AIOfferOption]
-}
-
-struct AIOfferOption: Identifiable, Codable, Hashable {
-    var id: String { "\(store)_\(price)" }
-    let store: String
-    let price: Double
-    let url: String
-}
-
-struct AIAdviceResponse: Codable {
-    let category_name: String
-    let category_description: String
-    let biomechanical_reasoning: String
-    let recommendations: [AIRecommendation]
-}
-
 struct TopSaving: Identifiable, Codable {
     var id: String { canonical_name }
     let canonical_name: String
@@ -1865,65 +1837,6 @@ struct SearchConversationTurn: Identifiable, Codable, Hashable {
         }
         return Array(prods.prefix(8))
     }
-}
-
-// MARK: - AI Model Comparison Models
-
-struct ModelSpecs: Codable, Hashable {
-    let name: String
-    let brand: String?
-    let drop_mm: Int?
-    let weight_g: Int?
-    let cushioning: String?
-    let midsole: String?
-    let plate: String?
-    let ideal_use: String?
-    let target_runner: String?
-    let pros: [String]
-    let cons: [String]
-}
-
-struct StoreOfferBrief: Codable, Hashable {
-    let store_name: String
-    let price: Double
-    let original_price: Double?
-    let url: String
-    let is_free_shipping: Bool
-    let total_price: Double
-
-    var formattedPrice: String {
-        String(format: "€%.2f", price)
-    }
-}
-
-struct ModelMarketData: Codable, Hashable {
-    let model_name: String
-    let brand: String?
-    let best_price: Double?
-    let highest_price: Double?
-    let best_store: String?
-    let image_url: String?
-    let total_offers: Int
-    let cross_store_savings: Double?
-    let top_offers: [StoreOfferBrief]
-
-    var formattedBestPrice: String {
-        guard let p = best_price else { return "N/D" }
-        return String(format: "€%.2f", p)
-    }
-}
-
-struct ModelComparisonResponse: Codable, Hashable {
-    let model_a_specs: ModelSpecs
-    let model_b_specs: ModelSpecs
-    let model_a_market: ModelMarketData
-    let model_b_market: ModelMarketData
-    let key_differences: [String]
-    let verdict_summary: String
-    let winner_for_value: String
-    let winner_for_performance: String
-    let price_delta: Double?
-    let source: String?
 }
 
 // MARK: - Dedicated Category Filter Matcher for Deals & Search

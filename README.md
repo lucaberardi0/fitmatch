@@ -8,7 +8,7 @@
 
 **FitMatch** è una piattaforma end-to-end per la scoperta, la comparazione prezzi in tempo reale e la consulenza tecnica su scarpe da running, trail, abbigliamento tecnico, sportwatch GPS e attrezzatura sportiva nel mercato italiano ed europeo.
 
-Combina un **motore di ricerca ibrido AI (`FTS + pgvector` con Reciprocal Rank Fusion)** su Supabase Edge Functions, una **pipeline di scraping e normalizzazione su 20 negozi partner** e un'**app iOS nativa in SwiftUI** con ricerca conversazionale Deep Dive, ricerca visiva da foto, coach biomeccanico e monitoraggio cali di prezzo.
+Combina un **motore di ricerca ibrido AI (`FTS + pgvector` con Reciprocal Rank Fusion)** su Supabase Edge Functions, una **pipeline di scraping e normalizzazione su 20 negozi partner** e un'**app iOS nativa in SwiftUI** con ricerca conversazionale Deep Dive, ricerca visiva da foto e monitoraggio cali di prezzo.
 
 ---
 
@@ -28,14 +28,13 @@ Combina un **motore di ricerca ibrido AI (`FTS + pgvector` con Reciprocal Rank F
 ```mermaid
 flowchart TD
     subgraph Client ["📱 Client Layer"]
-        iOS["App iOS Nativa (SwiftUI / MVVM)\niOS 17+ • Deep Dive AI • Modalità Classica\nVisual Search • Advisor • Compare • Wishlist"]
+        iOS["App iOS Nativa (SwiftUI / MVVM)\niOS 17+ • Deep Dive AI • Modalità Classica\nVisual Search • Wishlist"]
     end
 
     subgraph Edge ["⚡ Supabase Edge Functions (Deno / TypeScript)"]
         SmartSearch["smart-search\nSSE Streaming • Hybrid RRF\nMulti-Turn • Fast Load-More"]
         VisualSearch["visual-search\nVision Recognition da Foto"]
-        Advise["ai-advise\nCoach Biomeccanico Multi-Turn"]
-        Compare["ai-compare\nConfronto Modelli Head-to-Head"]
+        DeleteAccount["delete-account\nEliminazione Account GDPR Art. 17"]
         Shared["_shared/catalog.ts\nFiltri • Negazioni • RRF • Gating"]
     end
 
@@ -64,13 +63,10 @@ flowchart TD
 
     iOS -->|HTTPS / SSE| SmartSearch
     iOS -->|HTTPS| VisualSearch
-    iOS -->|HTTPS| Advise
-    iOS -->|HTTPS| Compare
+    iOS -->|HTTPS| DeleteAccount
     iOS -->|PostgREST & Auth| PG
 
     SmartSearch --> Shared
-    Advise --> Shared
-    Compare --> Shared
     Shared --> LLM
     Shared --> Emb
     VisualSearch --> LLM
@@ -105,14 +101,6 @@ Tutte le funzionalità AI girano su **Supabase Edge Functions** a bassa latenza 
 ### 2. Ricerca Visiva (`visual-search`)
 - Riconosce scarpe, capi tecnici, sportwatch e accessori da foto o screenshot caricati dall'utente.
 - Filtra contenuti non sportivi, identifica modello/brand/colore con livello di confidenza e alternative, e avvia una ricerca pulita nel catalogo verificato.
-
-### 3. Coach Biomeccanico Multi-Turn (`ai-advise`)
-- Analizza parametri fisiologici e di utilizzo (peso, superficie, dolori/protezione articolare, passo, budget, taglia, brand esclusi) mantenendo il profilo atleta tra i turni della sessione.
-- Protezione deterministica sulle unità di misura (es. *"Peso 85 kg ... sotto 150 euro"* non confonde mai `85 kg` con `€85`).
-
-### 4. Confronto Modelli Head-to-Head (`ai-compare`)
-- Mette a confronto diretto due modelli reali (es. *Garmin Forerunner 265 vs Coros Pace 3*, *Pegasus 41 vs Nimbus 28*) con matching stretto che esclude accessori, cover e cinturini.
-- Sintetizza specifiche tecniche, pro/contro, delta prezzo cross-store e verdetto d'acquisto.
 
 ---
 
@@ -154,7 +142,6 @@ Sviluppata in **SwiftUI** con architettura **MVVM**, **Swift Concurrency** (`asy
   - **Modalità Classica**: lista a card orizzontali allineate pixel-perfect con badge risparmio cross-store e spedizione gratuita, selettore taglie contestuale (scarpe `36–47` vs abbigliamento `XS–XXL`), foglio filtri avanzati (budget, store, spedizione gratuita, solo in sconto, ordinamento), autocomplete live dal catalogo e paginazione **"Carica altri prodotti"**.
 - **Home, Scoperta & Store (`HomeView.swift`, `DealsView.swift`, `StoreDetailView.swift`)**: vetrina negozi partner, offerte del giorno con sconti verificati, brand seguiti e prodotti visti di recente.
 - **Scheda Prodotto (`ProductDetailView.swift`)**: confronto trasparente di tutte le offerte attive ordinate per prezzo totale reale (prodotto + spedizione), disponibilità taglie e storico sconti.
-- **Coach AI & Confronto (`AIAdvisorView.swift`, `ModelCompareView.swift`)**: consulenza biomeccanica personalizzata e comparazione side-by-side tra due modelli.
 - **Wishlist, Collezioni & Price Alert (`WishlistView.swift`, `PriceAlertSheet.swift`)**: collezioni personalizzate, monitoraggio cali di prezzo, notifiche e preferenze taglie in `AccountView.swift`.
 
 ---
@@ -169,8 +156,7 @@ fitmatch/
 │       │   ├── catalog.ts          # Motore condiviso: filtri, negazioni, RRF, gating categorie, chat history
 │       │   └── catalog_test.ts     # Test unitari Deno del motore di ricerca
 │       ├── smart-search/index.ts   # Ricerca conversazionale Deep Dive, SSE, hybrid RRF & load_more
-│       ├── ai-advise/index.ts      # Coach biomeccanico multi-turn
-│       ├── ai-compare/index.ts     # Confronto head-to-head tra due modelli
+│       ├── delete-account/index.ts # Eliminazione definitiva account e dati (GDPR Art. 17)
 │       └── visual-search/index.ts  # Riconoscimento prodotti sportivi da immagine
 ├── fitmatch/
 │   ├── scrapers/                   # 20 scraper partner (registry.py, shopify_stores.py, store dedicati)
@@ -186,7 +172,7 @@ fitmatch/
 │       ├── Models/                 # ProductModels.swift
 │       ├── Services/               # APIService.swift, SupabaseManager.swift, Manager locali
 │       ├── Components/             # SkeletonLoading.swift, componenti riutilizzabili
-│       └── Views/                  # Home, Search, Deals, AIAdvisor, Wishlist, StoreDetail, Account
+│       └── Views/                  # Home, Search, Deals, Wishlist, StoreDetail, Account
 ├── tests/                          # Suite pytest (test_normalizer.py, ecc.)
 ├── .github/workflows/              # ci.yml & price-sync-cron.yml
 ├── api.py                          # Server FastAPI (Render)
@@ -231,12 +217,11 @@ python3 cli.py worker --immediate --refresh-hours 2
 deno test supabase/functions/_shared/catalog_test.ts
 deno check supabase/functions/_shared/catalog.ts \
   supabase/functions/smart-search/index.ts \
-  supabase/functions/ai-advise/index.ts \
-  supabase/functions/ai-compare/index.ts \
-  supabase/functions/visual-search/index.ts
+  supabase/functions/visual-search/index.ts \
+  supabase/functions/delete-account/index.ts
 
 # Deploy in produzione su Supabase
-supabase functions deploy smart-search ai-advise ai-compare visual-search \
+supabase functions deploy smart-search visual-search delete-account \
   --project-ref <PROJECT_REF> --use-api
 ```
 
@@ -266,7 +251,7 @@ deno test supabase/functions/_shared/catalog_test.ts
 
 | Componente | Provider / Regione | Ruolo |
 | :--- | :--- | :--- |
-| **Edge Functions & Search** | Supabase (`eu-central-1`) | `smart-search`, `ai-advise`, `ai-compare`, `visual-search` |
+| **Edge Functions & Search** | Supabase (`eu-central-1`) | `smart-search`, `visual-search`, `delete-account` |
 | **Database & Vector Index** | Supabase PostgreSQL (`eu-central-1`) | `pgvector` (HNSW), `pg_trgm`, RPC `v4`/`v2`, RLS, trigger spedizioni |
 | **Ingestion & Crawler API** | Render (Docker / Francoforte) | FastAPI + 20 scraper paralleli (`render.yaml`) |
 | **LLM & Embeddings** | OpenRouter | Query planning, merchandising Deep Dive, Vision & `text-embedding-3-small` |

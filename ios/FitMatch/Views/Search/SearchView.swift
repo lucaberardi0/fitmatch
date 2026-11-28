@@ -413,6 +413,16 @@ struct SearchView: View {
                     executeSearch(isFollowUp: false, ignorePriorContext: true)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FitMatchChatHistoryCleared"))) { _ in
+                withAnimation {
+                    savedChatSessions.removeAll()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FitMatchAuthSessionDidChange"))) { _ in
+                Task {
+                    await loadSavedChatSessions()
+                }
+            }
             .onDisappear {
                 hideAllKeyboards()
             }

@@ -15,8 +15,6 @@ from typing import Optional, List, Callable, Dict, Any
 from fitmatch.service import ComparisonService
 from fitmatch.db import Database
 from fitmatch.crawler import CategoryCrawler
-from fitmatch.ai_advisor import AIShoppingAdvisor
-from fitmatch.ai_comparator import AIModelComparator, ModelComparisonResponse
 from fitmatch.smart_search import SmartSearchEngine
 from fitmatch.cache_manager import SearchCacheManager
 from fitmatch.updater import PriceUpdater
@@ -54,8 +52,6 @@ cache_manager = SearchCacheManager.get_instance()
 smart_engine = SmartSearchEngine(cache_manager=cache_manager)
 
 
-advisor = AIShoppingAdvisor(service=service, db=db)
-comparator = AIModelComparator(service=service)
 push_service = APNsPushService()
 price_watcher = PriceDropWatcher(supabase=db.supabase, push_service=push_service)
 
@@ -483,69 +479,6 @@ def get_product_price_history(
         raise HTTPException(status_code=400, detail="Either canonical_name or product_id must be provided")
 
     return db.get_price_history(product_id=product_id, canonical_name=target_name, days=days)
-
-
-@app.get("/api/ai/advise")
-def ai_advise(
-    prompt: str = Query(..., min_length=4, description="Natural language shopper needs (e.g. 'peso 85kg corro su asfalto sotto i 140 euro')"),
-    session_id: Optional[str] = Query(None, description="Optional chat session ID for persistence"),
-    device_id: Optional[str] = Query(None, description="Client device ID for chat history"),
-    user_id: Optional[str] = Query(None, description="Optional authenticated user ID")
-):
-    """AI Shopper: translates natural language runner profiles into optimal models and live bargains."""
-    res = advisor.advise(prompt)
-    eff_sid = session_id.strip() if isinstance(session_id, str) and session_id.strip() else None
-    eff_did = device_id.strip() if isinstance(device_id, str) and device_id.strip() else None
-    eff_uid = user_id.strip() if isinstance(user_id, str) and user_id.strip() else None
-    if eff_sid or eff_did or eff_uid:
-        try:
-            saved = db.save_chat_turn(
-                session_id=eff_sid,
-                device_id=eff_did or "default_device",
-                user_id=eff_uid,
-                chat_type="ai_advisor",
-                query=prompt.strip(),
-                is_follow_up=bool(eff_sid),
-                response_payload={
-                    "conversational_header": res.get("category_name") or "Consulenza IA",
-                    "conversational_summary": res.get("biomechanical_reasoning") or res.get("category_description"),
-                    "is_conversational_advice": True,
-                    "results": [
-                        {
-                            "id": r.get("link") or r.get("product_name", ""),
-                            "canonical_name": r.get("product_name", ""),
-                            "brand": r.get("brand"),
-                            "image_url": r.get("image_url"),
-                            "best_price": r.get("best_price"),
-                            "cross_store_savings": r.get("cross_store_savings"),
-                            "offers": r.get("all_offers") or [],
-                        }
-                        for r in (res.get("recommendations") or [])
-                        if isinstance(r, dict)
-                    ],
-                },
-                context_state={"user_profile": res.get("user_profile")},
-            )
-            res = dict(res)
-            res["session_id"] = saved.get("session_id")
-            res["turn_id"] = saved.get("turn_id")
-        except Exception as e:
-            logger.warning(f"[ai_advise] Failed to persist chat turn: {e}")
-    return res
-
-
-@app.get("/api/ai/compare", response_model=ModelComparisonResponse)
-def compare_models(
-    model_a: str = Query(..., min_length=2, description="First model to compare (e.g. 'Pegasus 41', 'Forerunner 165')"),
-    model_b: str = Query(..., min_length=2, description="Second model to compare (e.g. 'Nimbus 26', 'Forerunner 265')")
-):
-    """AI Side-by-side technical, biomechanical, and live pricing comparison between two sports gear models."""
-    from fitmatch.smart_search import QuerySecurityGuardrail
-    for m in [model_a, model_b]:
-        sec = QuerySecurityGuardrail.evaluate(m)
-        if sec and sec.get("is_blocked"):
-            raise HTTPException(status_code=400, detail="Il confronto tecnico è disponibile esclusivamente per scarpe e attrezzatura sportiva.")
-    return comparator.compare_models(model_a, model_b)
 
 
 def _persist_smart_search_turn(
@@ -2302,7 +2235,7 @@ def record_recent_activity_endpoint(payload: dict):
 def list_chat_sessions_endpoint(
     device_id: Optional[str] = Query(None, description="Filter chats by device_id"),
     user_id: Optional[str] = Query(None, description="Filter chats by authenticated user_id"),
-    chat_type: Optional[str] = Query(None, description="Filter by chat_type: 'smart_search' or 'ai_advisor'"),
+    chat_type: Optional[str] = Query(None, description="Filter by chat_type (e.g. 'smart_search')"),
     limit: int = Query(30, ge=1, le=100),
 ):
     """List saved conversation sessions ordered by most recently updated."""
@@ -2557,7 +2490,7 @@ async def outbound_redirect(
     url: Optional[str] = Query(None, description="Direct target merchant product URL"),
     store_id: Optional[str] = Query(None, description="Store ID, e.g. nike, decathlon, cisalfa"),
     offer_id: Optional[str] = Query(None, description="Offer ID for tracking"),
-    source: Optional[str] = Query("app", description="Source interface: product_detail, ai_advisor, wishlist"),
+    source: Optional[str] = Query("app", description="Source interface: product_detail, smart_search, wishlist"),
     device_id: Optional[str] = Query(None, description="Client device identifier"),
 ):
     """

@@ -11,6 +11,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     @Published var notifications: [AppNotification] = []
     @Published var unreadCount: Int = 0
     @Published var isAuthorized: Bool = false
+    @Published var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @Published var isChecking: Bool = false
     @Published var lastCheckDate: Date? = nil
     @Published var deviceToken: String? = nil
@@ -23,6 +24,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     private let notifiedDateKey = "fitmatch_notified_date_history_v2"
     private var notifiedPriceHistory: [String: Double] = [:]
     private var notifiedDateHistory: [String: Double] = [:]
+    private var authObserver: NSObjectProtocol?
 
     override init() {
         super.init()
@@ -39,6 +41,42 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         if let ts = UserDefaults.standard.object(forKey: lastCheckKey) as? Date {
             self.lastCheckDate = ts
         }
+
+        authObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("FitMatchAuthSessionDidChange"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.reloadRemoteNotificationsForCurrentSession()
+            }
+        }
+    }
+
+    deinit {
+        if let authObserver {
+            NotificationCenter.default.removeObserver(authObserver)
+        }
+    }
+
+    func reloadRemoteNotificationsForCurrentSession() async {
+        let remote = await SupabaseManager.shared.fetchRemoteNotificationsDirect()
+        self.notifications = remote.sorted { $0.timestamp > $1.timestamp }
+        saveNotifications()
+    }
+
+    func resetLocalOnly() {
+        notifications.removeAll()
+        notifiedPriceHistory.removeAll()
+        notifiedDateHistory.removeAll()
+        lastCheckDate = nil
+        deviceToken = nil
+        UserDefaults.standard.removeObject(forKey: storageKey)
+        UserDefaults.standard.removeObject(forKey: lastCheckKey)
+        UserDefaults.standard.removeObject(forKey: notifiedHistoryKey)
+        UserDefaults.standard.removeObject(forKey: notifiedDateKey)
+        UserDefaults.standard.removeObject(forKey: "fitmatch_apns_device_token")
+        updateUnreadCount()
     }
 
     // MARK: - Push Authorization & APNs
@@ -46,7 +84,8 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     func checkAuthorization() {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             Task { @MainActor in
-                self.isAuthorized = (settings.authorizationStatus == .authorized)
+                self.authorizationStatus = settings.authorizationStatus
+                self.isAuthorized = (settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional)
                 if self.isAuthorized {
                     UIApplication.shared.registerForRemoteNotifications()
                 }
@@ -57,6 +96,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     func setupRemoteNotifications() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
             Task { @MainActor in
+                self.checkAuthorization()
                 self.isAuthorized = granted
                 if granted {
                     UIApplication.shared.registerForRemoteNotifications()
@@ -68,6 +108,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     func requestAuthorization(completion: ((Bool) -> Void)? = nil) {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
             Task { @MainActor in
+                self.checkAuthorization()
                 self.isAuthorized = granted
                 if granted {
                     UIApplication.shared.registerForRemoteNotifications()
@@ -148,9 +189,18 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         // 1. Must be a real reduction of at least €0.99
         guard (oldPrice - newPrice) >= 0.99 else { return false }
 
-        // 2. Target price check: if user set a target, newPrice must meet or beat it
-        if let target = targetPrice, newPrice > target {
-            return false
+        // 2. Target price check: if user set a target, newPrice must meet or beat it;
+        //    otherwise enforce user's global minimum discount threshold from Account settings.
+        if let target = targetPrice {
+            if newPrice > target {
+                return false
+            }
+        } else if oldPrice > 0 {
+            let dropPct = ((oldPrice - newPrice) / oldPrice) * 100.0
+            let minPct = Double(UserPreferencesManager.shared.preferences.minDiscountThreshold)
+            if dropPct < minPct {
+                return false
+            }
         }
 
         // 3. Check previously notified price for this canonical product
@@ -264,6 +314,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     // MARK: - Push Dispatch via UNUserNotificationCenter
 
     private func scheduleLocalPush(for notif: AppNotification) {
+        guard UserPreferencesManager.shared.preferences.isPushNotificationEnabled else { return }
         let content = UNMutableNotificationContent()
         content.title = notif.title
         if let sub = notif.subtitle, !sub.isEmpty {

@@ -223,7 +223,7 @@ struct PriceAlertSheet: View {
                                 HStack(spacing: 7) {
                                     ForEach(AlertPreset.allCases, id: \.self) { preset in
                                         Button(action: {
-                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                            ShopHaptics.impact(.light)
                                             selectedPreset = preset
                                             applyPreset(preset)
                                         }) {
@@ -456,7 +456,7 @@ struct PriceAlertSheet: View {
             )
         }
 
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        ShopHaptics.impact(.medium)
         dismiss()
     }
 }
