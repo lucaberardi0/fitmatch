@@ -4406,6 +4406,29 @@ class SupabaseManager: ObservableObject {
     func fetchCatalogSuggestions(prefix: String, limit: Int = 5) async -> [String] {
         let clean = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
         guard clean.count >= 2 else { return [] }
+
+        // 1. Primary: multi-token in-stock Postgres RPC ranked by store count & prefix match
+        if let rpcUrl = URL(string: "\(restURL)/rpc/suggest_products_autocomplete_v1") {
+            var rpcReq = URLRequest(url: rpcUrl)
+            rpcReq.httpMethod = "POST"
+            rpcReq.timeoutInterval = 3.5
+            for (k, v) in makeHeaders(isPublic: true) { rpcReq.setValue(v, forHTTPHeaderField: k) }
+            rpcReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let body: [String: Any] = ["p_query": clean, "p_limit": limit]
+            rpcReq.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+            struct SuggestionRow: Decodable { let suggestion: String }
+            if let (data, resp) = try? await session.data(for: rpcReq),
+               let http = resp as? HTTPURLResponse,
+               (200...299).contains(http.statusCode),
+               let rows = try? JSONDecoder().decode([SuggestionRow].self, from: data) {
+                return rows
+                    .map { $0.suggestion.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { $0.count >= 3 }
+            }
+        }
+
+        // 2. Graceful fallback if RPC is unreachable
         let safePattern = clean.replacingOccurrences(of: "*", with: "").replacingOccurrences(of: "%", with: "")
         guard !safePattern.isEmpty,
               let encoded = "*\(safePattern)*".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),

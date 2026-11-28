@@ -1896,6 +1896,23 @@ class QueryProductGuardrail:
         "pocket", "pockets", "man", "woman", "kids", "junior", "size", "sizes", "price",
         "under", "over", "best", "good", "versus", "compare", "comparison", "between",
         "for", "with", "without", "and", "the", "of", "to", "from", "more", "other", "no", "si", "sì",
+        # Articulated prepositions, pronouns, demonstratives, filter/chip-reset & price-sort words
+        "dello", "della", "dei", "degli", "delle", "allo", "alla", "ai", "agli", "alle",
+        "dal", "dallo", "dalla", "dai", "dagli", "dalle", "nello", "nella", "nei", "negli", "nelle",
+        "sullo", "sulla", "sui", "sugli", "sulle", "col", "coi",
+        "mi", "ti", "ci", "vi", "si", "mio", "mia", "miei", "mie", "tuo", "tua",
+        "questo", "questa", "questi", "queste", "quello", "quella", "quelli", "quelle",
+        "brand", "brands", "marca", "marche", "marchio", "marchi", "genere", "generi",
+        "esclusione", "esclusioni", "ordine", "ordinamento", "consigliato", "consigliati", "consigliata", "consigliate",
+        "rimuovi", "togli", "elimina", "azzera", "reset", "senza", "limite", "limiti", "filtro", "filtri",
+        "tutti", "tutte", "qualsiasi", "includi", "pagamento", "spedizione", "gratuita", "gratis",
+        "minore", "minori", "maggiore", "maggiori", "inferiore", "inferiori", "superiore", "superiori",
+        "elevato", "elevata", "elevati", "elevate", "accessibile", "accessibili", "conveniente", "convenienti",
+        "ridotto", "ridotta", "contenuto", "contenuta", "costa", "costano", "spendere", "care", "cari", "costosi", "costose",
+        "mostra", "mostrami", "mostrane", "mostramene", "mostrameli", "mostramele", "fammi", "dammi", "vedere",
+        "mentre", "invece", "magari", "possibilmente", "preferibilmente", "specifico", "specifica", "specifici", "specifiche",
+        "cappellini", "cappelli", "scaldacolli", "visiere", "prodotti", "prodotto", "articoli", "articolo", "capi", "varianti",
+        "bucato", "bucata", "bucati", "bucate", "traforato", "traforata", "traforati", "traforate",
     }
 
     @classmethod
@@ -1916,9 +1933,16 @@ class QueryProductGuardrail:
         (r"\b(?:calzamaglie)\b", "calzamaglia"),
         (r"\b(?:under\s*armor|underarmour|underarmor)\b", "under armour"),
         (r"\b(?:garmen|gamrin|garmn|garmmin)\b", "garmin"),
+        (r"\b(?:saucing|sauconi|sacony)\b", "saucony"),
         (r"\b(?:forunner|fore\s*runner|forerun|forerunne)\b", "forerunner"),
         (r"\b(?:fennix|fenx)\b", "fenix"),
         (r"\b(?:garmin\s+forerunner|garmin|forerunner)\s*(165|265|965|55|255|955)\b", r"garmin forerunner \1"),
+        (r"\bfasc(?:ia|e|ie)\s+cardo\b", "fascia cardio"),
+        (r"\banti\s+vento\b", "antivento"),
+        (r"\banti\s+pioggia\b", "antipioggia"),
+        (r"\bscalda\s+collo\b", "scaldacollo"),
+        (r"\bk\s+way\b", "k-way"),
+        (r"^mente(?=\s+)", "mentre"),
         (r"\b(?:alpha\s*fl[yie]+|alphafly+)\b", "alphafly"),
         (r"\b(?:vapor\s*fl[yie]+|vaporfly+)\b", "vaporfly"),
         (r"\b(?:ultra\s*fl[yie]+|ultrafly+)\b", "ultrafly"),
@@ -2030,87 +2054,131 @@ class QueryProductGuardrail:
         return cleaned
 
     @classmethod
+    def detect_explicit_product_type(cls, query: str) -> Optional[str]:
+        """Detect ONLY concrete product nouns or unmistakable model lines — NEVER bare multi-category brands."""
+        t = cls.normalize_typo_aliases(query)
+        if not t:
+            return None
+        # 1. Explicit apparel & accessories first (most specific)
+        if re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|t[\s-]*shirt\s*manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|intimo\s*termico|1/2\s*zip|1/4\s*zip|half[\s-]*zip|quarter[\s-]*zip|mezza\s*zip)\b", t):
+            return "long_sleeve_top"
+        if re.search(r"\b(canott[ae]|canottier[ae]|singlet|tank\s*top|sleeveless|smanicat[aoe])\b", t):
+            return "singlet_top"
+        if re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae]+|t[\s-]*shirt|magliett[ae])\b", t):
+            return "short_sleeve_top"
+        if re.search(r"\b(magli[ae](?!\s*(?:cinturin|orolog)))\b", t):
+            return "top"
+        if re.search(r"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way|gilet\s*antivento|guscio)\b", t):
+            return "jacket"
+        if re.search(r"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|leggins|tights?|tight|calzamagli[ae]|fuseaux|pantacollant|collant|pantalon[ie]|corsar[oi]|ciclisti|sprinter|bermuda)\b", t) and not re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b", t):
+            return "pants_shorts"
+        if re.search(r"\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b", t):
+            return "socks"
+        if re.search(r"\b(cappellin[oi]|cappell[oi]|berrett[oi]|visier[ae]|fascia\s*testa|scaldacollo|scaldacolli)\b", t):
+            return "headwear"
+        # 2. Tech & Hardgoods (explicit nouns & model lines ONLY — ZERO bare brand names!)
+        if re.search(r"\b(fasc(?:ia|e|ie)\s*cardio|fasc(?:ia|e|ie)\s*hrm|fasc(?:ia|e|ie)\s*toracic[ae]|sensore\s*(?:cardio|cardiaco|frequenza\s*cardiaca|hr)|polar\s*(?:h10|h9|verity|oh1)|garmin\s*hrm|\bhrm\b(?:[\s-]*(?:pro|dual|200|600|fit|swim|belt))?|wahoo\s*(?:trackr|tickr)|coros\s*(?:heart\s*rate|fasc(?:ia|e)\s*cardio))\b", t):
+            return "heart_rate_monitor"
+        if re.search(r"\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*(?:bici|gps)?|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|wahoo\s*elemnt|bryton\s*rider|igpsport\s*(?:bsc|igs|binavi)|coros\s*dura|hammerhead\s*karoo)\b", t):
+            return "bike_computer"
+        if re.search(r"\b(orologi[o]?|smartwatch|sportwatch|cardiofrequenzimetro|forerunner|fenix|instinct|epix|venu|vivoactive|garmin\s*enduro|coros\s*(?:pace|apex|vertix)|suunto\s*(?:race|vertical|run|9\s*peak)|polar\s*(?:vantage|pacer|grit|ignite|unite)|amazfit\s*(?:t[\s-]*rex|cheetah|balance))\b", t):
+            return "gps_watch"
+        if re.search(r"\bgps\b", t) and not re.search(r"\b(bici|ciclismo|mtb|gravel|manubrio|ciclocomputer|edge)\b", t):
+            return "gps_watch"
+        if re.search(r"\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno)|pinn[ae]\s*(?:da\s*)?nuoto)\b", t):
+            return "swim"
+        if re.search(r"\b(occhial[ie]|sunglasses|eyewear|oakley\s*(?:sutro|radar|jawbreaker|encoder|holbrook)|sutro|radar\s*ev|jawbreaker)\b", t):
+            return "eyewear"
+        if re.search(r"\b(gilet\s*(?:idratazione|trail)|zain[oi]|soft\s*flask|borracc(?:ia|e|ie)|sacca\s*idrica|active\s*skin|adv\s*skin|camelbak\s*(?:podium|circuit|zephyr|ultra|apex))\b", t):
+            return "hydration"
+        if re.search(r"\b(racchett[ae]\s*(?:da\s*)?tennis|pure\s*drive|pure\s*aero|yonex\s*(?:ezone|vcore|percept)|wilson\s*(?:blade|pro\s*staff|clash|ultra)|head\s*(?:speed|radical|gravity|extreme\s*mp)|tecnifibre\s*t[\s-]*fight|pallin[ae]\s*(?:da\s*)?tennis|borsone\s*tennis)\b", t):
+            return "tennis_racket"
+        if re.search(r"\b(scarpon[ei]\s*(?:da\s*)?sci|mascher[ae]\s*(?:da\s*)?sci|casc[oh]\s*(?:da\s*)?sci|attacch[oi]\s*sci|tavol[ae]\s*snowboard|snowboard|scialpinismo|sci\s*alpino|scarpon[ei]\s*snowboard|atomic\s*(?:hawx|redster|bent)|nordica\s*(?:speedmachine|promachine|dobermann)|rossignol\s*(?:hero|alltrack)|tecnica\s*mach|dalbello)\b", t) or (re.search(r"\bsci\b", t) and not re.search(r"\bscarp[ae]\s*(?:da\s*)?running\b", t)):
+            return "winter_sports"
+        if re.search(r"\b(racchett[ae]|pala\s*padel|bullpadel\s*(?:vertex|hack|neuron|xplo|flow|elite)|nox\s*at10)\b", t) and not re.search(r"\bscarp[ae]\b", t):
+            return "padel_racket"
+        if re.search(r"\b(rull[oi]|smart\s*trainer|wahoo\s*kickr|tacx\s*(?:flux|neo))\b", t):
+            return "smart_trainer"
+        if re.search(r"\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis)|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali)\b", t):
+            return "nutrition"
+        # Sport-specific footwear BEFORE generic running shoes
+        if re.search(
+            r"\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|scarpin[oi]|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b",
+            t,
+        ):
+            return "football_boots"
+        if re.search(r"\b(pallon[ei]\s*(?:da\s*)?basket|canott[ae]\s*(?:da\s*)?basket|magli[ae]\s*(?:nba|basket)|spalding|molten)\b", t):
+            return "basketball"
+        if re.search(r"\b(scarp[ae]\s*(?:da\s*)?basket|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b", t) and not re.search(r"\b(magli[ae]|canott[ae]|pantaloncin[oi]|calz[ae]|pallon[ei]|canestro)\b", t):
+            return "basketball_shoes"
+        if re.search(r"\b(scarp[ae]\s*(?:da\s*)?padel|padel\s*(?:shoes?|scarp[ae])|bullpadel\s*(?:hack|vertex|next|pearl|elite)\s*(?:hybrid|vibram|knit|pro)|babolat\s*(?:jet\s*premura|movea|sensa)|nox\s*(?:at10|ml10|nerbo)\s*lux)\b", t) and not re.search(r"\b(racchett[ae]|pala\s*padel|pallin[ae]|bors[ae]|borson[ei]|zain[oi]|overgrip|magli[ae]|pantaloncin[oi])\b", t):
+            return "padel_shoes"
+        if re.search(r"\b(scarp[ae]\s*(?:da\s*)?tennis|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b", t) and not re.search(r"\b(racchett[ae]|pallin[ae]|abbigliamento|pantaloncin[oi]|magli[ae])\b", t):
+            return "tennis_shoes"
+        if re.search(r"\b(scarp[ae]\s*(?:da\s*)?(?:pallavolo|volley)|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b", t) and not re.search(r"\b(ginocchier[ae]|pallon[ei]|magli[ae]|pantaloncin[oi]|manicotti)\b", t):
+            return "volleyball_shoes"
+        # 3. Shoes (explicit word or known shoe model/query)
+        if re.search(
+            r"\b(scarp[ae]|sneakers?|calzatur[ae]|dropset|metcon|pegasus|vomero|alphafly|vaporfly|streakfly|invincible|nimbus|kayano|cumulus|novablast|superblast|metaspeed|clifton|bondi|speedgoat|mach|cielo|glycerin|ghost|hyperion|cascadia|endorphin|triumph|ride|peregrine|deviate|velocity|fast[\s-]*r|magmax|adizero\s*(?:adios|boston|takumi|sl|evo|prime)|ultraboost|supernova|cloudmonster|cloudsurfer|cloudboom|cloudrunner|cloudstratus|wave\s*rider|wave\s*rebellion|wave\s*sky|fresh\s*foam|fuelcell|1080|rebel)\b",
+            t
+        ):
+            return "shoes"
+        return None
+
+    @classmethod
+    def _detect_single_fallback(cls, t: str) -> Optional[str]:
+        explicit = cls.detect_explicit_product_type(t)
+        if explicit:
+            return explicit
+        if not t:
+            return None
+        # Activity-only & bare primary-brand fallbacks (ONLY used when no prior context product type exists!)
+        if re.search(r"\b(nuot[ao]|nuotare|piscina)\b", t):
+            return "swim"
+        if re.search(r"\bpadel\b", t) and not re.search(r"\bscarp[ae]\b", t):
+            return "padel_racket"
+        if re.search(r"\b(calcetto|futsal|calcio\s*a\s*[57])\b", t) and not re.search(r"\b(magli[ae]|kit|pantaloncin[oi]|pallon[ei]|guant[oi])\b", t):
+            return "football_boots"
+        if re.search(r"\b(basket|pallacanestro)\b", t) and not re.search(r"\b(magli[ae]|canott[ae]|pantaloncin[oi]|calz[ae]|pallon[ei]|canestro)\b", t):
+            return "basketball_shoes"
+        if re.search(r"\b(tennis|terra\s*battuta)\b", t) and not re.search(r"\b(racchett[ae]|pallin[ae]|abbigliamento|pantaloncin[oi]|magli[ae])\b", t):
+            return "tennis_shoes"
+        if re.search(r"\b(pallavolo|volley)\b", t) and not re.search(r"\b(ginocchier[ae]|pallon[ei]|magli[ae]|pantaloncin[oi]|manicotti)\b", t):
+            return "volleyball_shoes"
+        if re.search(r"\b(running|corsa|correre|maratona|mezza\s*maratona|trail|sterrato|ammortizzat[ae]|pronazione|supinazione|hyrox)\b", t) and not re.search(r"\b(abbigliamento|completo|kit|accessori|orologi[o]?|smartwatch|ciclocomputer)\b", t):
+            return "shoes"
+        if re.search(r"\b(garmin|coros|suunto|amazfit)\b", t):
+            return "gps_watch"
+        if re.search(r"\b(bryton|igpsport)\b", t):
+            return "bike_computer"
+        if re.search(r"\b(oakley|rudy\s*project|bliz)\b", t):
+            return "eyewear"
+        if re.search(r"\bcamelbak\b", t):
+            return "hydration"
+        if re.search(r"\bbullpadel\b", t):
+            return "padel_racket"
+        if re.search(r"\b(enervit|maurten|namedsport)\b", t):
+            return "nutrition"
+        return None
+
+    @classmethod
     def detect_product_type(cls, query: str, context_query: Optional[str] = None) -> Optional[str]:
         q = cls.normalize_typo_aliases(query)
         ctx = cls.normalize_typo_aliases(context_query)
 
-        def _detect_single(t: str) -> Optional[str]:
-            if not t:
-                return None
-            # 1. Explicit apparel & accessories first (most specific)
-            if re.search(r"\b(long[\s-]*sleeve|manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*(?:a\s*)?manic(?:a|he)\s*lung(?:a|he)+|t[\s-]*shirt\s*manic(?:a|he)\s*lung(?:a|he)+|magli[ae]\s*termic(?:a|he)|intimo\s*termico|1/2\s*zip|1/4\s*zip|half[\s-]*zip|quarter[\s-]*zip|mezza\s*zip)\b", t):
-                return "long_sleeve_top"
-            if re.search(r"\b(canott[ae]|canottier[ae]|singlet|tank\s*top|sleeveless|smanicat[aoe])\b", t):
-                return "singlet_top"
-            if re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae]+|t[\s-]*shirt|magliett[ae]|magli[ae](?!\s*(?:cinturin|orolog)))\b", t):
-                return "short_sleeve_top"
-            if re.search(r"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way|gilet\s*antivento|guscio)\b", t):
-                return "jacket"
-            if re.search(r"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|leggings?|leggins|tights?|tight|calzamagli[ae]|fuseaux|pantacollant|collant|pantalon[ie]|corsar[oi]|ciclisti|sprinter|bermuda)\b", t) and not re.search(r"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b", t):
-                return "pants_shorts"
-            if re.search(r"\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b", t):
-                return "socks"
-            if re.search(r"\b(cappellin[oi]|cappell[oi]|berrett[oi]|visier[ae]|fascia\s*testa|scaldacollo)\b", t):
-                return "headwear"
-            # 2. Tech & Hardgoods (separate heart rate monitors, bike computers, and GPS watches!)
-            if re.search(r"\b(fascia\s*cardio|fasce\s*cardio|fascia\s*hrm|fascia\s*toracica|sensore\s*(?:cardio|cardiaco|frequenza\s*cardiaca)|polar\s*(?:h10|h9|verity|oh1)|garmin\s*hrm|hrm[\s-]*(?:pro|dual|200|600|fit|swim)|wahoo\s*(?:trackr|tickr)|coros\s*(?:heart\s*rate|fascia\s*cardio))\b", t):
-                return "heart_rate_monitor"
-            if re.search(r"\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*(?:bici|gps)?|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|wahoo\s*elemnt|bryton|igpsport|hammerhead\s*karoo)\b", t):
-                return "bike_computer"
-            if re.search(r"\b(orologi[o]?|smartwatch|sportwatch|cardiofrequenzimetro|garmin|forerunner|fenix|instinct|epix|venu|vivoactive|coros|suunto|polar\s*(?:vantage|pacer|grit|ignite)|amazfit)\b", t):
-                return "gps_watch"
-            if re.search(r"\bgps\b", t) and not re.search(r"\b(bici|ciclismo|mtb|gravel|manubrio|ciclocomputer|edge)\b", t):
-                return "gps_watch"
-            if re.search(r"\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|nuot[ao]|nuotare|piscina|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno)|pinn[ae]\s*(?:da\s*)?nuoto)\b", t):
-                return "swim"
-            if re.search(r"\b(occhial[ie]|oakley|sutro|radar\s*ev|jawbreaker)\b", t):
-                return "eyewear"
-            if re.search(r"\b(gilet\s*(?:idratazione|trail)|zain[oi]|soft\s*flask|borracc(?:ia|e|ie)|sacca\s*idrica|active\s*skin|adv\s*skin|camelbak)\b", t):
-                return "hydration"
-            if re.search(r"\b(racchett[ae]\s*(?:da\s*)?tennis|pure\s*drive|pure\s*aero|yonex\s*(?:ezone|vcore|percept)|wilson\s*(?:blade|pro\s*staff|clash|ultra)|head\s*(?:speed|radical|gravity|extreme\s*mp)|tecnifibre\s*t[\s-]*fight|pallin[ae]\s*(?:da\s*)?tennis|borsone\s*tennis)\b", t):
-                return "tennis_racket"
-            if re.search(r"\b(scarpon[ei]\s*(?:da\s*)?sci|mascher[ae]\s*(?:da\s*)?sci|casc[oh]\s*(?:da\s*)?sci|attacch[oi]\s*sci|tavol[ae]\s*snowboard|snowboard|scialpinismo|sci\s*alpino|scarpon[ei]\s*snowboard|atomic\s*(?:hawx|redster|bent)|nordica\s*(?:speedmachine|promachine|dobermann)|rossignol\s*(?:hero|alltrack)|tecnica\s*mach|dalbello)\b", t) or (re.search(r"\bsci\b", t) and not re.search(r"\bscarp[ae]\s*(?:da\s*)?running\b", t)):
-                return "winter_sports"
-            if re.search(r"\b(racchett[ae]|pala\s*padel|bullpadel|nox\s*at10|padel)\b", t) and not re.search(r"\bscarp[ae]\b", t):
-                return "padel_racket"
-            if re.search(r"\b(rull[oi]|smart\s*trainer|wahoo\s*kickr|tacx\s*(?:flux|neo))\b", t):
-                return "smart_trainer"
-            if re.search(r"\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis)|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali|enervit|maurten|namedsport)\b", t):
-                return "nutrition"
-            # Sport-specific footwear BEFORE generic running shoes
-            if re.search(
-                r"\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|scarpin[oi]|calcetto|futsal|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b",
-                t,
-            ) or (re.search(r"\bcalcio\s*a\s*[57]\b", t) and not re.search(r"\b(magli[ae]|kit|pantaloncin[oi]|pallon[ei]|guant[oi])\b", t)):
-                return "football_boots"
-            if re.search(r"\b(pallon[ei]\s*(?:da\s*)?basket|canott[ae]\s*(?:da\s*)?basket|magli[ae]\s*(?:nba|basket)|spalding|molten)\b", t):
-                return "basketball"
-            if re.search(r"\b(basket|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b", t) and not re.search(r"\b(magli[ae]|canott[ae]|pantaloncin[oi]|calz[ae]|pallon[ei]|canestro)\b", t):
-                return "basketball_shoes"
-            if re.search(r"\b(tennis|terra\s*battuta|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b", t) and not re.search(r"\b(racchett[ae]|pallin[ae]|abbigliamento|pantaloncin[oi]|magli[ae])\b", t):
-                return "tennis_shoes"
-            if re.search(r"\b(pallavolo|volley|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b", t) and not re.search(r"\b(ginocchier[ae]|pallon[ei]|magli[ae]|pantaloncin[oi]|manicotti)\b", t):
-                return "volleyball_shoes"
-            # 3. Shoes (explicit word or known shoe model/query)
-            if re.search(
-                r"\b(scarp[ae]|sneakers?|calzatur[ae]|dropset|metcon|pegasus|vomero|alphafly|vaporfly|streakfly|invincible|nimbus|kayano|cumulus|novablast|superblast|metaspeed|clifton|bondi|speedgoat|mach|cielo|glycerin|ghost|hyperion|cascadia|endorphin|triumph|ride|peregrine|deviate|velocity|fast[\s-]*r|magmax|adizero\s*(?:adios|boston|takumi|sl|evo|prime)|ultraboost|supernova|cloudmonster|cloudsurfer|cloudboom|cloudrunner|cloudstratus|wave\s*rider|wave\s*rebellion|wave\s*sky|fresh\s*foam|fuelcell|1080|rebel|hyrox)\b",
-                t
-            ):
-                return "shoes"
-            # 4. Brand + running/trail/marathon/gym without apparel word -> shoes
-            if re.search(r"\b(running|corsa|correre|maratona|mezza\s*maratona|trail|sterrato|ammortizzat[ae]|pronazione|supinazione)\b", t) and not re.search(r"\b(abbigliamento|completo|kit|accessori|orologi[o]?|smartwatch|ciclocomputer)\b", t):
-                return "shoes"
-            return None
-
-        primary = _detect_single(q)
-        if primary:
-            return primary
+        explicit = cls.detect_explicit_product_type(q)
+        if explicit:
+            return explicit
         if ctx:
             for turn in reversed(ctx.split(">>")):
-                turn_ptype = _detect_single(turn.strip())
-                if turn_ptype:
-                    return turn_ptype
-        return None
+                turn_explicit = cls.detect_explicit_product_type(turn.strip())
+                if turn_explicit:
+                    return turn_explicit
+            for turn in reversed(ctx.split(">>")):
+                turn_fb = cls._detect_single_fallback(turn.strip())
+                if turn_fb:
+                    return turn_fb
+        return cls._detect_single_fallback(q)
 
     @staticmethod
     def _normalize_ptype_group(ptype: Optional[str]) -> Optional[str]:
@@ -2145,6 +2213,7 @@ class QueryProductGuardrail:
                 "basketball_shoes": "basketball_shoes",
                 "basketball": "basketball",
                 "tennis_shoes": "tennis_shoes",
+                "padel_shoes": "padel_shoes",
                 "tennis": "tennis_racket",
                 "winter_sports": "winter_sports",
                 "sci": "winter_sports",
@@ -2172,7 +2241,7 @@ class QueryProductGuardrail:
         context_query: Optional[str] = None,
         session_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        cur_ptype = cls.detect_product_type(query, context_query=None)
+        cur_ptype = cls.detect_explicit_product_type(query)
         if not cur_ptype:
             return False
         prev_ptype = cls.detect_previous_product_type(context_query=context_query, session_context=session_context)
@@ -2372,15 +2441,20 @@ class QueryProductGuardrail:
                 return False
             if best_price <= 0:
                 return False
-            # Block watches, bike computers, speed/cadence/power sensors, socks, and apparel
+            if not re.search(r"\b(ricambi[oi]|replacement|cinghi[ae]|cavo|caricabatteri)\b", q_lower):
+                if re.search(r"\b(ricambi[oi]|replacement|cinghi[ae]|cavo\b|ricarica|caricabatteri|usb)\b", full_text):
+                    return False
+                if best_price < 18:
+                    return False
+            # Block watches, bike computers, speed/cadence/power sensors, smart bikes, socks, and apparel
             if re.search(
-                r"\b(forerunner|fenix|instinct|epix|venu|vivoactive|vantage|pacer|grit|ignite|suunto\s*(?:race|vertical|run|9|peak)|coros\s*(?:pace|apex|vertix|nomad)|amazfit|t[\s-]*rex|apple\s*watch|smartwatch|orologi[o]?|ciclocomputer|bike\s*computer|garmin\s*edge|\bedge\s*\d+|bsc\d+|elemnt|cadenza|cadence|velocit|speed\s*sensor|assioma|pedal[ei]|calz[ae]|calzin[oi]|socks?|scarp[ae]|magli[ae]|pantalon[ie]|giacc(?:a|he)|pellicol[ae]|cover|custodi[ae]|supporto|staff[ae])\b",
+                r"\b(forerunner|fenix|instinct|epix|venu|vivoactive|enduro|vantage|pacer|grit|ignite|suunto\s*(?:race|vertical|run|9|peak)|coros\s*(?:pace|apex|vertix|nomad)|amazfit|t[\s-]*rex|apple\s*watch|smartwatch|orologi[o]?|ciclocomputer|bike\s*computer|garmin\s*edge|\bedge\s*\d+|bsc\d+|elemnt|bryton\s*rider|cadenza|cadence|cadense|velocit|speed\s*sensor|assioma|pedal[ei]|zbike|smart\s*bike|fanale|luce\b|radar\b|calz[ae]|calzin[oi]|socks?|scarp[ae]|magli[ae]|pantalon[ie]|giacc(?:a|he)|pellicol[ae]|cover|custodi[ae]|supporto|staff[ae])\b",
                 full_text,
             ):
                 return False
             return bool(
                 re.search(
-                    r"\b(fascia\s*cardio|fascia\s*hrm|hrm|h10|h9|verity|oh1|trackr\s*hr|tickr|heart\s*rate|frequenza\s*cardiaca|sensore\s*cardiaco|cardiofrequenzimetro|viiiiva|hr\d{2})\b",
+                    r"\b(fasc(?:ia|e|ie)\s*cardio|fasc(?:ia|e|ie)\s*hrm|\bhrm\b|h10|h9|verity|oh1|trackr\s*hr|tickr|heart\s*rate|heartrate|frequenza\s*cardiaca|sensore\s*cardiaco|cardiofrequenzimetro|viiiiva|hr\d{2})\b",
                     full_text,
                 )
             )
@@ -2412,7 +2486,7 @@ class QueryProductGuardrail:
             if cat in {"running_shoes", "shoes", "top", "jacket", "pants", "socks", "apparel", "eyewear", "nutrition", "padel", "case", "strap", "mount", "gps_watch", "sensor"}:
                 return False
             if re.search(
-                r"\b(supporto|support\b|staff[ae]|mount|custodi[ae]|cover|pellicol[ae]|idrogel|hydrogel|vetro\s*temp[ea]rato|screen\s*protector|sportenzia|cinturin[oi]|fascia\s*cardio|sensore\s*cadenza|sensore\s*velocit|forerunner|fenix|instinct|venu|vivoactive|scarp[ae]|magli[ae]|casco)\b",
+                r"\b(supporto|support\b|sostegno|staff[ae]|manubrio|mount(?:ing|s)?|closethegap|cockpit|out[\s-]*front|k[\s-]*edge|cassette|vitesses?|pacco\s*pignoni|adattatore|adapter|custodi[ae]|cover|pellicol[ae]|idrogel|hydrogel|vetro\s*temp[ea]rato|screen\s*protector|sportenzia|cinturin[oi]|fascia\s*cardio|sensore\s*cadenza|sensore\s*velocit|forerunner|fenix|instinct|venu|vivoactive|scarp[ae]|magli[ae]|casco)\b",
                 full_text
             ):
                 return False
@@ -2479,6 +2553,15 @@ class QueryProductGuardrail:
             if re.search(r"\b(pantalon[ie]|shorts?|t[\s-]*shirt|magli[ae]|gonn[ae]|felp[ae]|calz[ae]|racchett[ae]|pallin[ae]|bors[ae]|zain[oi]|cappellin[oi]|pegasus|nimbus|bondi|clifton|novablast|ghost|glycerin|speedgoat|trail|calcio|calcetto)\b", full_text):
                 return False
             return bool(re.search(r"\b(tennis|terra\s*battuta|nikecourt|court\s*ff|dedicate|resolution|barricade|vapor\s*pro|vapor\s*cage|propulse|clay)\b", full_text))
+
+        if product_type == "padel_shoes":
+            if cat in {"top", "jacket", "pants", "socks", "underwear", "eyewear", "swim", "gps_watch", "cycling", "nutrition", "hydration", "gear", "pack", "bag", "football_boots", "trail_running", "racket"}:
+                return False
+            if re.search(r"\b(racchett[ae]|pala\s*padel|pallin[ae]|overgrip|hesacore|bors[ae]|borson[ei]|paletero|zain[oi]|pantalon[ie]|shorts?|t[\s-]*shirt|magli[ae]|gonn[ae]|felp[ae]|calz[ae]|cappellin[oi]|pegasus|nimbus|bondi|clifton|novablast|ghost|glycerin|speedgoat|trail|calcio|calcetto)\b", full_text):
+                return False
+            if best_price > 0 and best_price < 30:
+                return False
+            return bool(re.search(r"\b(padel|premura|movea|sensa|hack\s*vibram|vertex\s*vibram|next\s*pro|hybrid\s*fly|sonicsmash|challenger\s*\d*\s*padel|dedicate\s*\d*\s*padel|resolution\s*\d*\s*padel|crazyquick\s*boost|at10\s*lux|ml10\s*lux|nerbo\s*lux|motion\s*pro|sprint\s*pro|revolt\s*pro|hurakn|bela\s*pro|kuikma\s*ps)\b", full_text))
 
         if product_type == "volleyball_shoes":
             if cat in {"top", "jacket", "pants", "socks", "underwear", "eyewear", "swim", "gps_watch", "cycling", "nutrition", "hydration", "gear", "pack", "bag", "football_boots", "trail_running"}:
@@ -2787,6 +2870,11 @@ class QueryProductGuardrail:
                 archetype_models = [
                     "tennis", "nikecourt", "asics dedicate", "asics resolution", "barricade", "vapor pro"
                 ]
+        elif product_type == "padel_shoes":
+            archetype_models = [
+                "padel", "bullpadel hack vibram", "bullpadel vertex vibram",
+                "asics padel", "babolat premura", "head motion pro", "nox at10 lux"
+            ]
         elif product_type == "volleyball_shoes":
             archetype_models = [
                 "pallavolo", "volley", "asics spike", "sky elite", "wave lightning", "netburner"
@@ -2846,7 +2934,7 @@ class QueryProductGuardrail:
 
         for m in archetype_models:
             if brand_low:
-                if product_type in ("shoes", "gps_watch", "heart_rate_monitor", "bike_computer", "padel_racket", "basketball_shoes", "tennis_shoes", "volleyball_shoes"):
+                if product_type in ("shoes", "gps_watch", "heart_rate_monitor", "bike_computer", "padel_racket", "padel_shoes", "basketball_shoes", "tennis_shoes", "volleyball_shoes"):
                     if brand_low in m or any(bv in m for bv in (brand_low.replace("-", " "),)):
                         _add(m)
                 elif not _is_competing_brand_kw(m):
@@ -2856,7 +2944,7 @@ class QueryProductGuardrail:
 
         if product_type == "short_sleeve_top":
             result = [k for k in result if "long sleeve" not in k and "manica lunga" not in k]
-        elif product_type in ("basketball_shoes", "tennis_shoes", "volleyball_shoes"):
+        elif product_type in ("basketball_shoes", "tennis_shoes", "padel_shoes", "volleyball_shoes"):
             running_leak = {"pegasus", "ghost", "novablast", "nimbus", "bondi", "clifton", "supernova", "wave rider"}
             result = [k for k in result if not any(rl in k for rl in running_leak)]
 
@@ -2961,7 +3049,7 @@ class QueryProductGuardrail:
             intent.category = "basketball"
         elif product_type == "winter_sports":
             intent.category = "winter_sports"
-        elif product_type in ("basketball_shoes", "tennis_shoes", "volleyball_shoes"):
+        elif product_type in ("basketball_shoes", "tennis_shoes", "padel_shoes", "volleyball_shoes"):
             intent.category = "shoes"
         elif product_type == "shoes":
             if intent.category not in ("running_shoes", "trail_running", "shoes", "fitness"):
@@ -3221,14 +3309,14 @@ class FitMatchSportsAdvisor:
             r"\b(calzan[oi]|calzata|veston[oi]|vestibilit[aà]|piastr[ae]|carbonio|drop|peso|grammi|duran[oi]|durata|quanti\s*km|batteria|autonomia|amoled|display|schermo|tasch[ae]|taschin[oi]|liner|boxer|intimo|pronator[ei]|supinator[ei]|pronazione|differenz[ae]|confront|ginocchi[ao]|schiena|fascite|tendinit[ei]|periostite|pioggi[ae]|gore[\s-]*tex|gtx|traspirant|comod[oi]|comfort|palestra|mezza\s*maratona|maratona|21\s*km|42\s*km|passo|ritm[oi]|ant\+|bluetooth|dinamiche\s*di\s*corsa|battito|precis[oaie])\b",
             t
         ))
-        # Brand / budget / size / gender filter refinements (even with trailing '?') are catalog searches, not technical Q&A
+        # Brand / budget / size / gender / price-sort filter refinements (even with trailing '?') are catalog searches, not technical Q&A
         if not has_tech_qa and re.search(
-            rf"^(?:e\s+(?:di\s+|invece\s+|per\s+)?|invece\s+(?:di\s+)?|solo\s+|meglio\s+|allora\s+|proviamo\s+|hai\s+(?:qualcosa\s+di\s+)?)?(?:{'|'.join(re.escape(b) for b in sorted(KNOWN_BRANDS, key=len, reverse=True))})\s*\??$",
+            rf"^(?:e\s+(?:di\s+|invece\s+|per\s+)?|invece\s+(?:di\s+)?|solo\s+|marca\s+|brand\s+|meglio\s+|allora\s+|proviamo\s+|hai\s+(?:qualcosa\s+di\s+)?)?(?:{'|'.join(re.escape(b) for b in sorted(KNOWN_BRANDS, key=len, reverse=True))})\s*\??$",
             t,
         ):
             return False
         if not has_tech_qa and re.search(
-            r"\b(?:fino\s*a|sotto\s*i?|meno\s*di|max|massimo|sopra\s*i?|budget|taglia|numero|misura|da\s+uomo|da\s+donna|senza\s+limiti)\b",
+            r"\b(?:fino\s*a|sotto\s*i?|meno\s*di|max|massimo|sopra\s*i?|budget|taglia|numero|misura|da\s+uomo|da\s+donna|senza\s+limiti|prezz[oi]\s+(?:pi[uù]\s+)?(?:bass[oi]|minor[ei]|inferior[ei]|ridott[oi])|pi[uù]\s+(?:economic[hoaie]+|convenient[ei]|accessibil[ei])|costa(?:no)?\s+(?:di\s+)?meno|tutti\s+i\s+(?:brand|generi|colori|negozi)|rimuovi\s+(?:esclusion|limit|filtro)|marca\s+)\b",
             t,
         ):
             return False
@@ -3244,7 +3332,7 @@ class FitMatchSportsAdvisor:
             t
         ))
         has_category_noun = bool(re.search(
-            r"\b(scarp[ae]|scarpin[oi]|orologi[o]?|smartwatch|sportwatch|fasci[ae]\s*cardio|giacc(?:a|he)|magli[ae]|t[\s-]*shirt|canott[ae]|pantaloncin[oi]|shorts?|leggings?|tights?|calz[ae]|calzin[oi]|zain[oi]|occhialin[oi]|occhial[ie]|racchett[ae]|ciclocomputer|borracc(?:ia|e)|cappellin[oi])\b",
+            r"\b(scarp[ae]|scarpin[oi]|orologi[o]?|smartwatch|sportwatch|fasc(?:ia|e|ie)\s*cardio|giacc(?:a|he)|magli[ae]|t[\s-]*shirt|canott[ae]|pantaloncin[oi]|shorts?|leggings?|tights?|calz[ae]|calzin[oi]|zain[oi]|occhialin[oi]|occhial[ie]|racchett[ae]|ciclocomputer|borracc(?:ia|e)|cappellin[oi])\b",
             t
         ))
         is_discovery_or_switch = bool(
@@ -3337,6 +3425,9 @@ class FitMatchSportsAdvisor:
             if re.search(r"\b(under\s*armour|ua)\b", t_str):
                 return "Under Armour"
             for b in sorted(KNOWN_BRANDS, key=len, reverse=True):
+                if b == "scarpa":
+                    if not re.search(r"\b(?:marca\s+scarpa|brand\s+scarpa|scarpa\s+(?:ribelle|spin|golden\s*gate|rush|mojito|mescalito|zodiac|maestrale|rapid))\b", t_str):
+                        continue
                 if re.search(rf"\b{re.escape(b)}\b", t_str):
                     if "maison margiela" in b or "margiela" in b:
                         return "Maison Margiela"
@@ -3359,7 +3450,7 @@ class FitMatchSportsAdvisor:
             brand_in_t = _extract_brand(t)
 
             # Heart Rate Monitor / Fascia Cardio
-            if re.search(r"\b(fasci[ae]\s*cardio|cardiofrequenzimetr[oi]\s*(?:a\s*fascia|toracic[oi])?|sensore\s*(?:cardio|frequenza\s*cardiaca|hr)\b|\bhrm[\s-]*(?:pro|dual|200|600|fit|swim|belt)?\b|polar\s*h(?:9|10)|verity\s*sense|wahoo\s*trackr|coros\s*heart\s*rate)\b", t):
+            if re.search(r"\b(fasc(?:ia|e|ie)\s*card(?:io|o)|cardiofrequenzimetr[oi]\s*(?:a\s*fascia|toracic[oi])?|sensore\s*(?:cardio|frequenza\s*cardiaca|hr)\b|\bhrm[\s-]*(?:pro|dual|200|600|fit|swim|belt)?\b|polar\s*h(?:9|10)|verity\s*sense|wahoo\s*trackr|coros\s*heart\s*rate)\b", t):
                 disp = f"Fascia Cardio {brand_in_t}" if brand_in_t else "Fascia Cardio Toracica (HRM)"
                 kw = f"{brand_in_t.lower()} hrm" if brand_in_t else "fascia cardio"
                 return disp, kw, "heart_rate_monitor", brand_in_t
@@ -3977,6 +4068,9 @@ class LocalHeuristicParser:
         # 4. Brand extraction (longest match first, then sub-brands/lines)
         detected_brand = None
         for b in sorted(KNOWN_BRANDS, key=len, reverse=True):
+            if b == "scarpa":
+                if not re.search(r"\b(?:marca\s+scarpa|brand\s+scarpa|scarpa\s+(?:ribelle|spin|golden\s*gate|rush|mojito|mescalito|zodiac|maestrale|rapid))\b", text):
+                    continue
             if re.search(rf"\b{re.escape(b)}\b", text):
                 if "maison margiela" in b or "margiela" in b:
                     detected_brand = "Maison Margiela"
@@ -4027,7 +4121,7 @@ class LocalHeuristicParser:
             archetype_key = "jacket"
         elif re.search(r"\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b", text):
             archetype_key = "socks"
-        elif re.search(r"\b(fasci[ae]\s*cardio|cardiofrequenzimetr[oi]\s*(?:a\s*fascia|toracic[oi])?|sensore\s*(?:cardio|frequenza\s*cardiaca|hr)\b|\bhrm[\s-]*(?:pro|dual|200|600|fit|swim|belt)?\b|polar\s*h(?:9|10)|verity\s*sense|wahoo\s*trackr|coros\s*heart\s*rate)\b", text):
+        elif re.search(r"\b(fasc(?:ia|e|ie)\s*card(?:io|o)|cardiofrequenzimetr[oi]\s*(?:a\s*fascia|toracic[oi])?|sensore\s*(?:cardio|frequenza\s*cardiaca|hr)\b|\bhrm[\s-]*(?:pro|dual|200|600|fit|swim|belt)?\b|polar\s*h(?:9|10)|verity\s*sense|wahoo\s*trackr|coros\s*heart\s*rate)\b", text):
             archetype_key = "heart_rate_monitor"
             if not detected_brand:
                 if re.search(r"\b(h10|h9|verity\s*sense)\b", text):
@@ -4124,7 +4218,7 @@ class LocalHeuristicParser:
             is_cat_switch = QueryProductGuardrail.is_category_switch(
                 user_query, context_query=ctx_text, session_context=session_context
             )
-            cur_explicit_ptype = QueryProductGuardrail.detect_product_type(user_query, context_query=None)
+            cur_explicit_ptype = QueryProductGuardrail.detect_explicit_product_type(user_query)
 
             # Inherit filters from earlier turns when omitted in the current follow-up
             # (never carry over brand/price/size/category across an explicit product-type switch!)
@@ -4151,9 +4245,10 @@ class LocalHeuristicParser:
             if not gender and not clear_gender and inherited.get("gender"):
                 gender = inherited["gender"]
 
-            # Preserve specific archetype across arbitrary turn depth (e.g. T1 Long Sleeve -> T2 Da uomo -> T3 Sotto 50 euro)
+            # Preserve specific archetype across arbitrary turn depth (e.g. T1 Long Sleeve -> T2 Da uomo -> T3 Sotto 50 euro,
+            # OR T1 Fascia cardio -> T2 Marca Garmin con prezzo minore? where bare brand MUST NOT override prior category!)
             if not is_cat_switch and not is_explicit_road and (cur_explicit_ptype is None or archetype_key == "daily_trainer"):
-                if archetype_key == "daily_trainer" and inherited.get("archetype_key"):
+                if inherited.get("archetype_key") and (cur_explicit_ptype is None or archetype_key == "daily_trainer"):
                     archetype_key = inherited["archetype_key"]
                 elif archetype_key == "daily_trainer" and prev_turns:
                     for ctx_turn in reversed(prev_turns):
@@ -5709,6 +5804,9 @@ class ConversationContextMerger:
             out["gender"] = "Uomo"
 
         for b in sorted(KNOWN_BRANDS, key=len, reverse=True):
+            if b == "scarpa":
+                if not re.search(r"\b(?:marca\s+scarpa|brand\s+scarpa|scarpa\s+(?:ribelle|spin|golden\s*gate|rush|mojito|mescalito|zodiac|maestrale|rapid))\b", t):
+                    continue
             if re.search(rf"\b{re.escape(b)}\b", t):
                 if "maison margiela" in b or "margiela" in b:
                     out["brand"] = "Maison Margiela"
@@ -5757,7 +5855,7 @@ class ConversationContextMerger:
             out["archetype_key"] = "socks"
         elif re.search(r"\b(cappellin[oi]|cappell[oi]|berrett[oi]|visier[ae]|fascia\s*testa|scaldacollo)\b", t):
             out["archetype_key"] = "gear"
-        elif re.search(r"\b(fasci[ae]\s*cardio|cardiofrequenzimetr[oi]\s*(?:a\s*fascia|toracic[oi])?|sensore\s*(?:cardio|frequenza\s*cardiaca|hr)\b|\bhrm[\s-]*(?:pro|dual|200|600|fit|swim|belt)?\b|polar\s*h(?:9|10)|verity\s*sense|wahoo\s*trackr|coros\s*heart\s*rate)\b", t):
+        elif re.search(r"\b(fasc(?:ia|e|ie)\s*card(?:io|o)|cardiofrequenzimetr[oi]\s*(?:a\s*fascia|toracic[oi])?|sensore\s*(?:cardio|frequenza\s*cardiaca|hr)\b|\bhrm[\s-]*(?:pro|dual|200|600|fit|swim|belt)?\b|polar\s*h(?:9|10)|verity\s*sense|wahoo\s*trackr|coros\s*heart\s*rate)\b", t):
             out["archetype_key"] = "heart_rate_monitor"
         elif re.search(r"\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*(?:bici|gps)?|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|wahoo\s*elemnt|bryton|igpsport)\b", t):
             out["archetype_key"] = "bike_computer"
@@ -5896,13 +5994,21 @@ class ConversationContextMerger:
                 merged["archetype_key"] = cat_to_arch[cat_str]
 
         for q in turns:
-            q_ptype = QueryProductGuardrail._normalize_ptype_group(QueryProductGuardrail.detect_product_type(q, context_query=None))
+            q_explicit_ptype = QueryProductGuardrail._normalize_ptype_group(QueryProductGuardrail.detect_explicit_product_type(q))
+            q_ptype = q_explicit_ptype or (
+                QueryProductGuardrail._normalize_ptype_group(QueryProductGuardrail.detect_product_type(q, context_query=None))
+                if not active_ptype
+                else None
+            )
             if q_ptype:
                 if active_ptype and q_ptype != active_ptype:
                     for reset_k in ("brand", "max_price", "min_price", "size", "archetype_key", "features"):
                         merged.pop(reset_k, None)
                 active_ptype = q_ptype
             c = cls.extract_turn_constraints(q)
+            if active_ptype and not q_explicit_ptype and merged.get("archetype_key"):
+                # Don't let bare brand names (e.g. "Garmin" after "Fascia cardio") overwrite the active archetype!
+                c.pop("archetype_key", None)
             if c.pop("__clear_budget__", False):
                 merged.pop("max_price", None)
                 merged.pop("min_price", None)

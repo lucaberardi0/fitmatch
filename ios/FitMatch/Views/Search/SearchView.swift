@@ -107,6 +107,17 @@ struct SearchView: View {
         ) != nil
     }
 
+    private var isCurrentSearchNonWearable: Bool {
+        let probe = "\(rootQuery) \(searchText) \(smartIntent?.category ?? "")".lowercased()
+        return probe.range(
+            of: #"\b(sensor|fasc(?:ia|e|ie)\s*card(?:io|o)|\bhrm\b|gps_watch|orologi[o]?|smartwatch|cycling|ciclocomputer|eyewear|occhial[ie]|hydration|zain[oi]|borracc(?:ia|e)|padel|racchett[ae]|nutrition|gel\s*energetic|barrett[ae]|occhialin[oi]|cuffi[ae]|rull[oi]|smart\s*trainer)\b"#,
+            options: .regularExpression
+        ) != nil && probe.range(
+            of: #"\b(scarp[ae]|shoes?|magli[ae]|pantalon|shorts?|leggings?|tights?|giacc[ae])\b"#,
+            options: .regularExpression
+        ) == nil
+    }
+
     private var contextualAvailableSizes: [String] {
         isCurrentSearchApparel ? apparelSizesList : shoeSizesList
     }
@@ -304,8 +315,8 @@ struct SearchView: View {
                     onSaleOnly: $classicOnSaleOnly,
                     sortMode: $sortMode,
                     availableStores: availableStoresInResults,
-                    onApplyServerRefresh: {
-                        applyClassicFilterRefinement(followUpPrompt: nil)
+                    onApplyServerRefresh: { prompt in
+                        applyClassicFilterRefinement(followUpPrompt: prompt)
                     },
                     onResetAll: {
                         overrideMaxPrice = nil
@@ -821,7 +832,7 @@ struct SearchView: View {
                         self.classicOnSaleOnly = false
                         self.hasMoreClassicResults = last.searchResults.count >= 28
                         self.isLoadingMoreClassic = false
-                        self.activeContextState = nil
+                        self.activeContextState = detail.context_state
                         self.loadMoreErrorMessage = nil
                         self.conversationTurns = restoredTurns
                         self.lastContextQuery = restoredTurns.map(\.query).filter { !$0.isEmpty }.joined(separator: " >> ")
@@ -2363,11 +2374,28 @@ struct SearchView: View {
                             )
                     }
 
-                    // "Ordina ▾" Dropdown Menu (shows active sort mode clearly)
+                    // "Ordina ▾" Dropdown Menu (shows active sort mode clearly & syncs sort with server!)
                     Menu {
                         ForEach(SortMode.allCases) { mode in
                             Button(action: {
+                                let changed = (sortMode != mode)
                                 withAnimation { sortMode = mode }
+                                if changed {
+                                    let sortPrompt: String?
+                                    switch mode {
+                                    case .lowestPrice, .bestTotalPrice:
+                                        sortPrompt = "Prezzo più basso"
+                                    case .maxDiscount:
+                                        sortPrompt = "Sconti più alti"
+                                    case .relevance:
+                                        sortPrompt = "Ordine consigliato"
+                                    case .maxSavings:
+                                        sortPrompt = nil
+                                    }
+                                    if let sortPrompt {
+                                        applyClassicFilterRefinement(followUpPrompt: sortPrompt)
+                                    }
+                                }
                             }) {
                                 HStack {
                                     Text(mode.rawValue)
@@ -2397,7 +2425,8 @@ struct SearchView: View {
                         )
                     }
 
-                    // "Taglia ▾" Contextual Dropdown Menu (EU 36–47 for shoes, XS–XXL for apparel; preserves chat context!)
+                    // "Taglia ▾" Contextual Dropdown Menu (hidden for non-wearable searches like watches, HRM, rackets)
+                    if !isCurrentSearchNonWearable {
                     Menu {
                         let prefSize = isCurrentSearchApparel
                             ? prefs.preferences.preferredApparelSize.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2451,6 +2480,7 @@ struct SearchView: View {
                             RoundedRectangle(cornerRadius: 18)
                                 .stroke(selectedSize != nil ? Color.shopPurple : Color.black.opacity(0.12), lineWidth: 1)
                         )
+                    }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -2706,13 +2736,19 @@ struct SearchView: View {
 
     private func preferredSizeForCurrentSearch(query: String, context: String? = nil) -> String {
         let probe = "\(query) \(context ?? "") \(smartIntent?.category ?? "")".lowercased()
+        let isNonWearable = probe.range(
+            of: #"\b(sensor|fasc(?:ia|e|ie)\s*card(?:io|o)|\bhrm\b|gps_watch|orologi[o]?|smartwatch|cycling|ciclocomputer|eyewear|occhial[ie]|hydration|zain[oi]|borracc(?:ia|e)|padel|racchett[ae]|nutrition|gel\s*energetic|barrett[ae]|occhialin[oi]|cuffi[ae]|rull[oi])\b"#,
+            options: .regularExpression
+        ) != nil && probe.range(of: #"\b(scarp[ae]|shoes?|magli[ae]|pantalon|shorts?|leggings?|tights?|giacc[ae])\b"#, options: .regularExpression) == nil
+        if isNonWearable {
+            return ""
+        }
         let isApparel = probe.range(
             of: #"\b(top|pants|jacket|long\s*sleeve|manica|magli[ae]|t[\s-]*shirt|felp[ae]|fleece|pile|pantalon|shorts|leggings|tights|giacc[ae]|canott[ae])\b"#,
             options: .regularExpression
         ) != nil
         if isApparel {
-            let app = prefs.preferences.preferredApparelSize.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !app.isEmpty { return app }
+            return prefs.preferences.preferredApparelSize.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return prefs.preferences.preferredShoeSize.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -2970,9 +3006,7 @@ struct SearchView: View {
         let mp = overrideMaxPrice
         let sz = selectedSize
         let st = selectedStore
-        let prefSz = isCurrentSearchApparel
-            ? prefs.preferences.preferredApparelSize
-            : prefs.preferences.preferredShoeSize
+        let prefSz = preferredSizeForCurrentSearch(query: baseQuery, context: lastContextQuery)
 
         Task {
             do {
@@ -3651,7 +3685,7 @@ struct ShopClassicFiltersSheet: View {
     @Binding var onSaleOnly: Bool
     @Binding var sortMode: SearchView.SortMode
     let availableStores: [String]
-    let onApplyServerRefresh: () -> Void
+    let onApplyServerRefresh: (String?) -> Void
     let onResetAll: () -> Void
 
     @State private var draftMaxPrice: Double? = nil
@@ -3799,15 +3833,47 @@ struct ShopClassicFiltersSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Applica") {
-                        let needsServerRefresh = (draftMaxPrice != maxPrice) || (draftStore != selectedStore)
+                        var deltaClauses: [String] = []
+                        if draftMaxPrice != maxPrice {
+                            if let p = draftMaxPrice {
+                                deltaClauses.append("Sotto \(Int(p)) euro")
+                            } else {
+                                deltaClauses.append("Rimuovi limite di prezzo")
+                            }
+                        }
+                        if draftStore != selectedStore {
+                            if let st = draftStore {
+                                deltaClauses.append("Su \(st)")
+                            } else {
+                                deltaClauses.append("Tutti i negozi")
+                            }
+                        }
+                        if draftFreeShipping != freeShippingOnly {
+                            deltaClauses.append(draftFreeShipping ? "Con spedizione gratuita" : "Rimuovi filtro spedizione")
+                        }
+                        if draftOnSale != onSaleOnly {
+                            deltaClauses.append(draftOnSale ? "In sconto" : "Rimuovi filtro sconti")
+                        }
+                        if draftSort != sortMode {
+                            switch draftSort {
+                            case .lowestPrice, .bestTotalPrice:
+                                deltaClauses.append("Prezzo più basso")
+                            case .maxDiscount:
+                                deltaClauses.append("Sconti più alti")
+                            case .relevance:
+                                deltaClauses.append("Ordine consigliato")
+                            case .maxSavings:
+                                break
+                            }
+                        }
                         maxPrice = draftMaxPrice
                         selectedStore = draftStore
                         freeShippingOnly = draftFreeShipping
                         onSaleOnly = draftOnSale
                         sortMode = draftSort
                         dismiss()
-                        if needsServerRefresh {
-                            onApplyServerRefresh()
+                        if !deltaClauses.isEmpty {
+                            onApplyServerRefresh(deltaClauses.joined(separator: ", "))
                         }
                     }
                     .fontWeight(.bold)

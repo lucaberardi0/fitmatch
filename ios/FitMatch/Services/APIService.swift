@@ -691,20 +691,39 @@ class APIService: ObservableObject {
             }
         }
 
-        // Determine effective category & keywords
+        // Determine effective category & keywords (respecting follow-up context before bare brand defaults!)
+        let expectedKind = detectExpectedQueryKind(query: query, contextQuery: contextQuery, summary: nil)
         var effectiveCategory = category
         let isShortSleeveCombined = combined.range(of: #"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b"#, options: .regularExpression) != nil
 
         if effectiveCategory == nil || effectiveCategory == "all" || effectiveCategory == "tutti" {
-            if combined.range(of: #"\b(fasci[ae]\s*cardio(?:frequenzimetr[oi])?|cardiofrequenzimetr[oi]|fascia\s*toracica|sensore\s*(?:cardio|frequenza\s*cardiaca|hr)|heart\s*rate\s*(?:monitor|strap|sensor)|\bhrm\b|polar\s*h(?:9|10)|verity\s*sense|wahoo\s*tickr|trackr\s*hr|coros\s*heart\s*rate)\b"#, options: .regularExpression) != nil {
+            if let expectedKind = expectedKind {
+                switch expectedKind {
+                case .heartRateMonitor: effectiveCategory = "sensor"
+                case .gpsWatch: effectiveCategory = "gps_watch"
+                case .bikeComputer: effectiveCategory = "cycling"
+                case .eyewear: effectiveCategory = "eyewear"
+                case .hydration: effectiveCategory = "hydration"
+                case .padelRacket: effectiveCategory = "padel"
+                case .padelShoes: effectiveCategory = "shoes"
+                case .footballBoots: effectiveCategory = "football_boots"
+                case .basketballShoes: effectiveCategory = "basketball"
+                case .tennisShoes: effectiveCategory = "tennis"
+                case .volleyballShoes, .shoes: effectiveCategory = "running_shoes"
+                case .headwear: effectiveCategory = "apparel"
+                case .swim: effectiveCategory = "swim"
+                case .socks: effectiveCategory = "socks"
+                case .jacket: effectiveCategory = "jacket"
+                case .leggings, .pants: effectiveCategory = "pants"
+                case .top: effectiveCategory = "top"
+                }
+            } else if combined.range(of: #"\b(fasc(?:ia|e|ie)\s*card(?:io|o)(?:frequenzimetr[oi])?|cardiofrequenzimetr[oi]|fasc(?:ia|e|ie)\s*toracic[ae]|sensore\s*(?:cardio|frequenza\s*cardiaca|hr)|heart\s*rate\s*(?:monitor|strap|sensor)|\bhrm\b|polar\s*h(?:9|10)|verity\s*sense|wahoo\s*tickr|trackr\s*hr|coros\s*heart\s*rate)\b"#, options: .regularExpression) != nil {
                 effectiveCategory = "sensor"
             } else if combined.range(of: #"\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|nuot[ao]|nuotare|piscina|cuffi[ae]\s*nuoto|costum[ei]\s*(?:nuoto|bagno))\b"#, options: .regularExpression) != nil {
                 effectiveCategory = "swim"
             } else if combined.range(of: #"\b(scarpin[oi]|scarp[ae]\s*(?:da\s*)?calcio|calcetto|calcio\s*a\s*[57]|mercurial|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b"#, options: .regularExpression) != nil {
                 effectiveCategory = "football_boots"
-            } else if combined.contains("garmin") || combined.contains("forerunner") || combined.contains("fenix") ||
-               combined.contains("smartwatch") || combined.contains("orologi") ||
-               combined.contains("suunto") || combined.contains("coros") || combined.contains("polar") {
+            } else if combined.range(of: #"\b(garmin|forerunner|fenix|smartwatch|orologi|suunto|coros|polar)\b"#, options: .regularExpression) != nil {
                 effectiveCategory = "gps_watch"
             } else if combined.range(of: #"\b(padel|racchett[ae]|pala\s*padel|bullpadel|nox\s*at10)\b"#, options: .regularExpression) != nil && !combined.contains("scarp") {
                 effectiveCategory = "padel"
@@ -729,27 +748,48 @@ class APIService: ObservableObject {
         let stopwords: Set<String> = [
             "alternative", "modelli", "funzionalità", "funzionalita", "avanzate",
             "per", "la", "il", "lo", "i", "gli", "le", "un", "una", "uno", "di",
-            "a", "da", "in", "con", "su", "sotto", "meno", "euro", "eur", "corsa", "running",
-            "analisi", "delle", "prestazioni", "confronta", "miglior", "migliori", "prezzo",
+            "del", "dello", "della", "dei", "degli", "delle", "al", "allo", "alla", "ai", "agli", "alle",
+            "dal", "dallo", "dalla", "dai", "dagli", "dalle", "nel", "nello", "nella", "nei", "negli", "nelle",
+            "sul", "sullo", "sulla", "sui", "sugli", "sulle", "a", "da", "in", "con", "su", "sotto", "meno", "euro", "eur", "corsa", "running",
+            "analisi", "prestazioni", "confronta", "miglior", "migliori", "prezzo", "prezzi",
+            "minore", "minori", "maggiore", "maggiori", "inferiore", "superiore", "basso", "bassi", "alto", "alti",
+            "elevato", "elevati", "economico", "economica", "economici", "economiche", "costa", "costano", "spendere",
+            "marca", "marche", "brand", "brands", "genere", "generi", "colore", "colori", "esclusione", "esclusioni",
+            "ordine", "consigliato", "consigliati", "rimuovi", "tutti", "tutte", "filtro", "filtri", "limite", "limiti",
             "smartwatch", "orologi", "uomo", "donna", "men", "man", "women", "woman", "wmns",
-            "ragazzo", "ragazza", "scarpe", "scarpa", "taglia", "misura", "size", "numero",
+            "ragazzo", "ragazza", "scarpe", "scarpa", "taglia", "taglie", "misura", "size", "numero", "mia", "mio",
             "sono", "vanno", "bene", "buone", "buoni", "buon", "comodi", "comodo", "comode",
             "valide", "valido", "adatte", "adatto", "adatti", "usare", "scegliere", "differenza",
-            "vs", "alta", "alte", "alto", "livello", "intermedio", "principiante", "principianti",
+            "vs", "alta", "alte", "livello", "intermedio", "principiante", "principianti",
             "come", "quanto", "quanti", "quante", "ha", "hanno", "ci", "sta", "posso", "puoi",
-            "meglio", "cosa", "quale", "quali", "perche", "perché", "è", "e", "tu", "consigli",
+            "meglio", "cosa", "quale", "quali", "quelle", "quelli", "queste", "questi", "perche", "perché", "è", "e", "tu", "consigli",
             "mi", "consigliami", "iniziare", "correre", "nuotare", "nuoto", "piscina",
             "fammi", "vedere", "più", "piu", "esempi", "altri", "altre", "opzioni", "scarpini",
-            "quindi", "allora", "mostrami", "mostramele", "mostrameli"
+            "quindi", "allora", "mentre", "mente", "solo", "sconto", "sconti", "mostrami", "mostrane", "mostramele", "mostrameli"
         ]
         let genericBrandTokens: Set<String> = [
-            "nike", "adidas", "asics", "hoka", "brooks", "saucony", "new", "balance",
-            "salomon", "mizuno", "puma", "on", "garmin", "oakley", "bullpadel", "nox", "arena", "speedo"
+            "nike", "adidas", "asics", "hoka", "brooks", "saucony", "new", "balance", "under", "armour",
+            "salomon", "mizuno", "puma", "on", "garmin", "polar", "suunto", "coros", "wahoo", "bryton",
+            "igpsport", "oakley", "bullpadel", "nox", "arena", "speedo", "camelbak", "enervit"
         ]
 
+        let wantsPriceAsc = qLower.range(
+            of: #"\b(pi[uù]\s+(?:economic[hoaie]+|convenient[ei]|accessibil[ei])|prezz[oi]\s+(?:pi[uù]\s+)?(?:bass[oi]|minor[ei]|inferior[ei]|ridott[oi])|costa(?:no)?\s+(?:di\s+)?meno|meno\s+(?:car[aeio]|costos[aeio])|dal\s+meno\s+caro)\b"#,
+            options: .regularExpression
+        ) != nil
+        let explicitBrandInQuery: String? = {
+            let knownBrands = ["Under Armour", "New Balance", "The North Face", "La Sportiva", "Rudy Project", "Garmin", "Polar", "Suunto", "Coros", "Wahoo", "Bryton", "iGPSPORT", "Nike", "Adidas", "Asics", "Hoka", "Brooks", "Saucony", "Salomon", "Mizuno", "Puma", "Oakley", "Bullpadel", "Nox", "Arena", "Speedo", "CamelBak", "Enervit"]
+            for b in knownBrands {
+                if qLower.range(of: "\\b\(NSRegularExpression.escapedPattern(for: b.lowercased()))\\b", options: .regularExpression) != nil {
+                    return b
+                }
+            }
+            return nil
+        }()
+
         let isMetaNudge = qLower.range(of: #"^\s*(?:e\s+)?(?:quindi|allora|dunque|ebbene|e\s+allora|quali\s+sono|me\s+l[eio]\s+mostri|mostramel[eio]|fammel[eio]\s+vedere|prodotti|modelli|offerte)\s*[?!.]*\s*$"#, options: .regularExpression) != nil
-        let isMoreExamples = isMetaNudge || qLower.range(of: #"\b(pi[uù]\s*esempi|altri\s*modelli|altri\s*esempi|altr[ae]\s*(?:alternative|opzioni)|mostramene\s*altr[ioe])\b"#, options: .regularExpression) != nil
-        let isQuestion = !isMoreExamples && !isMetaNudge && (qLower.contains("?") || qLower.hasPrefix("sono ") || qLower.hasPrefix("vanno ") || qLower.hasPrefix("come ") || qLower.hasPrefix("quanto ") || qLower.hasPrefix("per che ") || qLower.contains("differenza") || qLower.contains("comodi") || qLower.contains("tasche") || qLower.contains("palestra"))
+        let isMoreExamples = isMetaNudge || qLower.range(of: #"\b(pi[uù]\s*esempi|altri\s*modelli|altri\s*esempi|altr[ae]\s*(?:alternative|opzioni)|mostramene\s*altr[ioe]|mostrane\s*altr[ioe])\b"#, options: .regularExpression) != nil
+        let isQuestion = !isMoreExamples && !isMetaNudge && !wantsPriceAsc && explicitBrandInQuery == nil && (qLower.contains("?") || qLower.hasPrefix("sono ") || qLower.hasPrefix("vanno ") || qLower.hasPrefix("come ") || qLower.hasPrefix("quanto ") || qLower.hasPrefix("per che ") || qLower.contains("differenza") || qLower.contains("comodi") || qLower.contains("tasche") || qLower.contains("palestra"))
 
         let qWithoutDecimalSizes = qLower.replacingOccurrences(of: #"(?<![\d.,])\b(3[5-9]|4[0-9])[.,]5\b(?![\d.,])"#, with: " ", options: .regularExpression)
         // Prioritize explicit model/product tokens in the current query before falling back to context
@@ -824,7 +864,7 @@ class APIService: ObservableObject {
         var prods = await SupabaseManager.shared.fetchSmartProductsDirect(
             category: effectiveCategory,
             keywords: keywordsToSearch,
-            brand: nil,
+            brand: explicitBrandInQuery,
             gender: effectiveGender,
             maxPrice: effectiveMaxPrice,
             size: effectiveSize,
@@ -832,12 +872,13 @@ class APIService: ObservableObject {
             limit: 35
         )
 
-        let expectedKind = detectExpectedQueryKind(query: query, contextQuery: contextQuery, summary: nil)
         if let expectedKind = expectedKind {
             prods = prods.filter { isProductCompatible($0, with: expectedKind) }
         }
-        // Rank direct fallback matches by overlap with specific query/model tokens so exact models outrank unrelated brand matches
-        if !tokens.isEmpty && !prods.isEmpty {
+        // Rank direct fallback matches by price if requested, else by overlap with specific query/model tokens
+        if wantsPriceAsc && !prods.isEmpty {
+            prods.sort { ($0.best_price ?? 99999) < ($1.best_price ?? 99999) }
+        } else if !tokens.isEmpty && !prods.isEmpty {
             let hyroxBoostModels = ["dropset", "deviate nitro", "velocity nitro", "metcon", "hyrox"]
             let wantsHyrox = combined.contains("hyrox")
             prods.sort { lhs, rhs in
@@ -860,12 +901,16 @@ class APIService: ObservableObject {
         }
 
         // Resilient fallback: if exact keywords returned 0 products, fetch general category products
-        if prods.isEmpty && (isQuestion || isMoreExamples || !tokens.isEmpty) {
+        if prods.isEmpty && (isQuestion || isMoreExamples || !tokens.isEmpty || explicitBrandInQuery != nil) {
             let fbKws: [String]
             switch expectedKind {
-            case .heartRateMonitor: fbKws = ["polar h10", "polar h9", "hrm 200", "hrm 600", "fascia cardio"]
+            case .heartRateMonitor:
+                fbKws = explicitBrandInQuery != nil
+                    ? ["\(explicitBrandInQuery!) hrm", "\(explicitBrandInQuery!) fascia cardio", "fascia cardio", "hrm"]
+                    : ["polar h10", "polar h9", "hrm 200", "hrm 600", "fascia cardio"]
             case .basketballShoes: fbKws = ["basket", "luka", "caitlin", "lebron", "jordan"]
             case .tennisShoes: fbKws = ["tennis", "terra battuta", "resolution", "dedicate", "nikecourt"]
+            case .padelShoes: fbKws = ["padel", "bullpadel", "asics padel", "babolat padel", "head padel"]
             case .volleyballShoes: fbKws = ["pallavolo", "volley", "sky elite", "wave lightning", "spike"]
             case .padelRacket: fbKws = ["bullpadel", "nox", "vertex", "hack", "at10"]
             case .hydration: fbKws = ["adv skin", "active skin", "salomon", "camelbak"]
@@ -873,7 +918,10 @@ class APIService: ObservableObject {
             case .socks: fbKws = ["calze", "compressport", "uyn", "asics"]
             default:
                 switch effectiveCategory {
-                case "sensor": fbKws = ["polar h10", "polar h9", "hrm 200", "hrm 600", "fascia cardio"]
+                case "sensor":
+                    fbKws = explicitBrandInQuery != nil
+                        ? ["\(explicitBrandInQuery!) hrm", "\(explicitBrandInQuery!) fascia cardio", "fascia cardio", "hrm"]
+                        : ["polar h10", "polar h9", "hrm 200", "hrm 600", "fascia cardio"]
                 case "pants": fbKws = ["shorts"]
                 case "top": fbKws = ["long sleeve", "manica lunga", "adizero", "odlo", "kiprun"]
                 case "football_boots": fbKws = ["predator", "mercurial", "calcio"]
@@ -884,7 +932,7 @@ class APIService: ObservableObject {
             prods = await SupabaseManager.shared.fetchSmartProductsDirect(
                 category: effectiveCategory,
                 keywords: fbKws,
-                brand: nil,
+                brand: explicitBrandInQuery,
                 gender: effectiveGender,
                 maxPrice: effectiveMaxPrice,
                 size: effectiveSize,
@@ -893,6 +941,9 @@ class APIService: ObservableObject {
             )
             if let expectedKind = expectedKind {
                 prods = prods.filter { isProductCompatible($0, with: expectedKind) }
+            }
+            if wantsPriceAsc && !prods.isEmpty {
+                prods.sort { ($0.best_price ?? 99999) < ($1.best_price ?? 99999) }
             }
         }
 
@@ -1064,6 +1115,7 @@ class APIService: ObservableObject {
         case eyewear
         case hydration
         case padelRacket
+        case padelShoes
         case footballBoots
         case basketballShoes
         case tennisShoes
@@ -1078,51 +1130,57 @@ class APIService: ObservableObject {
         case shoes
     }
 
-    private func detectSingleQueryKind(_ q: String) -> DetectedQueryKind? {
-        if q.range(of: #"\b(fasci[ae]\s*cardio(?:frequenzimetr[oi])?|cardiofrequenzimetr[oi]|fascia\s*toracica|sensore\s*(?:cardio|frequenza\s*cardiaca|hr)|heart\s*rate\s*(?:monitor|strap|sensor)|\bhrm\b|polar\s*h(?:9|10)|verity\s*sense|wahoo\s*tickr|trackr\s*hr|coros\s*heart\s*rate)\b"#, options: .regularExpression) != nil {
+    /// Detects ONLY explicit product nouns or unmistakable model lines — NEVER bare multi-category brands
+    /// ("garmin", "coros", "oakley", "bullpadel", "bryton", "camelbak") or standalone activity words!
+    private func detectExplicitQueryKind(_ q: String) -> DetectedQueryKind? {
+        if q.range(of: #"\b(fasc(?:ia|e|ie)\s*card(?:io|o)(?:frequenzimetr[oi])?|fasc(?:ia|e|ie)\s*hrm|fasc(?:ia|e|ie)\s*toracic[ae]|sensore\s*(?:cardio|cardiaco|frequenza\s*cardiaca|hr)|heart\s*rate\s*(?:monitor|strap|sensor)|chest\s*strap|\bhrm\b|polar\s*h(?:9|10)|verity\s*sense|oh1|wahoo\s*(?:tickr|trackr\s*hr)|coros\s*(?:heart\s*rate|fasc(?:ia|e)\s*cardio))\b"#, options: .regularExpression) != nil {
             return .heartRateMonitor
         }
-        if q.range(of: #"\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|nuot[ao]|nuotare|piscina|cuffi[ae]\s*nuoto|costum[ei]\s*(?:nuoto|bagno))\b"#, options: .regularExpression) != nil {
+        if q.range(of: #"\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno)|pinn[ae]\s*(?:da\s*)?nuoto)\b"#, options: .regularExpression) != nil {
             return .swim
         }
-        if q.range(of: #"\b(scarpin[oi]|scarp[ae]\s*(?:da\s*)?calcio|calcetto|calcio\s*a\s*[57]|mercurial|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b"#, options: .regularExpression) != nil {
+        if q.range(of: #"\b(scarpin[oi]|scarp[ae]\s*(?:da\s*)?(?:calcio|calcetto)|mercurial|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b"#, options: .regularExpression) != nil {
             return .footballBoots
         }
-        if q.range(of: #"\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*bici|garmin\s*edge|wahoo\s*elemnt|bryton|igpsport)\b"#, options: .regularExpression) != nil {
+        if q.range(of: #"\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*bici|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|wahoo\s*elemnt|bryton\s*rider|igpsport\s*(?:bsc|igs)|coros\s*dura)\b"#, options: .regularExpression) != nil {
             return .bikeComputer
         }
-        if q.range(of: #"\b(orologi[o]?|smartwatch|sportwatch|forerunner|fenix|instinct|epix|venu|vivoactive|coros|suunto|polar\s*(?:vantage|pacer|grit)|garmin)\b"#, options: .regularExpression) != nil {
+        if q.range(of: #"\b(orologi[o]?|smartwatch|sportwatch|cardiofrequenzimetr[oi]|forerunner|fenix|instinct|epix|venu|vivoactive|garmin\s*enduro|coros\s*(?:pace|apex|vertix)|suunto\s*(?:race|vertical|run|9\s*peak)|polar\s*(?:vantage|pacer|grit|ignite|unite)|amazfit\s*(?:t[\s-]*rex|cheetah|balance))\b"#, options: .regularExpression) != nil {
             return .gpsWatch
         }
-        if q.range(of: #"\b(occhial[ie]|oakley|sutro|radar\s*ev|jawbreaker)\b"#, options: .regularExpression) != nil {
+        if q.range(of: #"\b(occhial[ie]|sunglasses|eyewear|oakley\s*(?:sutro|radar|jawbreaker|encoder|holbrook)|sutro|radar\s*ev|jawbreaker)\b"#, options: .regularExpression) != nil {
             return .eyewear
         }
-        if q.range(of: #"\b(zain[oi]|gilet\s*(?:idratazione|trail)|active\s*skin|adv\s*skin|borracc(?:ia|e)|soft\s*flask|camelbak|idratazione)\b"#, options: .regularExpression) != nil {
+        if q.range(of: #"\b(zain[oi]|gilet\s*(?:idratazione|trail)|active\s*skin|adv\s*skin|borracc(?:ia|e|ie)|soft\s*flask|idratazione)\b"#, options: .regularExpression) != nil {
             return .hydration
         }
-        if q.range(of: #"\b(racchett[ae]|pala\s*padel|bullpadel|nox\s*at10|padel)\b"#, options: .regularExpression) != nil && !q.contains("scarp") {
+        if q.range(of: #"\b(racchett[ae]|pala\s*padel|bullpadel\s*(?:vertex|hack|neuron|xplo|flow|elite)|nox\s*(?:at10|ml10))\b"#, options: .regularExpression) != nil && !q.contains("scarp") {
             return .padelRacket
         }
-        if q.range(of: #"\b(cappellin[oi]|visier[ae]|berrett[oi]|fascia\s*(?:da\s*)?testa)\b"#, options: .regularExpression) != nil && !q.contains("scarp") {
+        if q.range(of: #"\b(cappellin[oi]|cappell[oi]|visier[ae]|berrett[oi]|scaldacollo|fascia\s*(?:da\s*)?testa)\b"#, options: .regularExpression) != nil && !q.contains("scarp") {
             return .headwear
         }
         if q.range(of: #"\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b"#, options: .regularExpression) != nil {
             return .socks
         }
-        if q.range(of: #"\b(basket|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b"#, options: .regularExpression) != nil &&
+        if q.range(of: #"\b(scarp[ae]\s*(?:da\s*)?basket|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b"#, options: .regularExpression) != nil &&
            q.range(of: #"\b(magli[ae]|canott[ae]|pantaloncin[oi]|calz[ae]|pallon[ei])\b"#, options: .regularExpression) == nil {
             return .basketballShoes
         }
-        if q.range(of: #"\b(tennis|terra\s*battuta|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b"#, options: .regularExpression) != nil &&
+        if q.range(of: #"\b(scarp[ae]\s*(?:da\s*)?padel|padel\s*(?:shoes?|scarp[ae])|bullpadel\s*(?:hack|vertex|next|pearl|elite)\s*(?:hybrid|vibram|knit|pro)|babolat\s*(?:jet\s*premura|movea|sensa)|nox\s*(?:at10|ml10|nerbo)\s*lux)\b"#, options: .regularExpression) != nil &&
+           q.range(of: #"\b(racchett[ae]|pala\s*padel|pallin[ae]|bors[ae]|borson[ei]|zain[oi]|overgrip)\b"#, options: .regularExpression) == nil {
+            return .padelShoes
+        }
+        if q.range(of: #"\b(scarp[ae]\s*(?:da\s*)?tennis|gel[\s-]*resolution|court\s*ff|dedicate|nikecourt|barricade)\b"#, options: .regularExpression) != nil &&
            q.range(of: #"\b(racchett[ae]|pallin[ae]|pantaloncin[oi]|magli[ae])\b"#, options: .regularExpression) == nil {
             return .tennisShoes
         }
-        if q.range(of: #"\b(pallavolo|volley|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b"#, options: .regularExpression) != nil &&
+        if q.range(of: #"\b(scarp[ae]\s*(?:da\s*)?(?:pallavolo|volley)|sky\s*elite|metarise|wave\s*lightning|wave\s*momentum|netburner)\b"#, options: .regularExpression) != nil &&
            q.range(of: #"\b(ginocchier[ae]|manicotti|pallon[ei]|magli[ae]|pantaloncin[oi])\b"#, options: .regularExpression) == nil {
             return .volleyballShoes
         }
         let isShortSleeve = q.range(of: #"\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae])\b"#, options: .regularExpression) != nil
-        if q.range(of: #"\b(giacc(?:a|he)|antivento|windbreaker|k[\s-]*way)\b"#, options: .regularExpression) != nil {
+        if q.range(of: #"\b(giacc(?:a|he)|jacket|antivento|anti\s+vento|windbreaker|k[\s-]*way)\b"#, options: .regularExpression) != nil {
             return .jacket
         }
         if q.range(of: #"\b(leggings?|leggins|legins|tights?|tight|calzamagli[ae]|fuseaux|pantacollant|collant)\b"#, options: .regularExpression) != nil {
@@ -1131,21 +1189,53 @@ class APIService: ObservableObject {
         if !isShortSleeve && q.range(of: #"\b(pantaloncin[oi]|shorts?\b(?!\s*[-]?\s*sleeve)|pantalon[ie]|sprinter|ciclisti|bermuda)\b"#, options: .regularExpression) != nil {
             return .pants
         }
-        if isShortSleeve || q.range(of: #"\b(magli[ae]|t[\s-]*shirt|long\s*sleeve|longsleeve|manic(?:a|he)|canott[ae]|singlet|half\s*zip|1/4\s*zip|quarter\s*zip|intimo\s*termic|termic[ao])\b"#, options: .regularExpression) != nil {
+        if isShortSleeve || q.range(of: #"\b(magli[ae]|magliett[ae]|t[\s-]*shirt|long\s*sleeve|longsleeve|manic(?:a|he)|canott[ae]|singlet|half\s*zip|1/4\s*zip|quarter\s*zip|intimo\s*termic|felp[ae]|hoodie|fleece|pile\b)\b"#, options: .regularExpression) != nil {
             return .top
         }
-        if q.range(of: #"\b(scarp[ae]|sneakers?|running|corsa|maratona|trail|palestra|hyrox|ammortizzat[ae]|pegasus|vomero|vaporfly|alphafly|nimbus|novablast|superblast|cumulus|kayano|clifton|bondi|ghost|glycerin|adizero|dropset|metcon|nano|deviate|velocity|tribase|zoom\s*fly|endorphin)\b"#, options: .regularExpression) != nil {
+        if q.range(of: #"\b(scarp[ae]|shoes?|sneakers?|pegasus|vomero|vaporfly|alphafly|nimbus|novablast|superblast|cumulus|kayano|clifton|bondi|ghost|glycerin|adizero|dropset|metcon|nano|deviate|velocity|tribase|zoom\s*fly|endorphin)\b"#, options: .regularExpression) != nil {
             return .shoes
         }
         return nil
     }
 
-    private func detectExpectedQueryKind(query: String, contextQuery: String?, summary: String?) -> DetectedQueryKind? {
-        if let directKind = detectSingleQueryKind(query.lowercased()) {
-            return directKind
+    private func detectSingleQueryKind(_ q: String) -> DetectedQueryKind? {
+        if let explicit = detectExplicitQueryKind(q) {
+            return explicit
         }
-        let q = "\(query) \(contextQuery ?? "")".lowercased()
-        return detectSingleQueryKind(q)
+        if q.range(of: #"\b(nuot[ao]|nuotare|piscina)\b"#, options: .regularExpression) != nil { return .swim }
+        if q.range(of: #"\b(calcetto|futsal|calcio\s*a\s*[57])\b"#, options: .regularExpression) != nil { return .footballBoots }
+        if q.range(of: #"\bpadel\b"#, options: .regularExpression) != nil && !q.contains("scarp") { return .padelRacket }
+        if q.range(of: #"\b(basket|pallacanestro)\b"#, options: .regularExpression) != nil && q.range(of: #"\b(magli[ae]|canott[ae]|pantaloncin[oi]|calz[ae]|pallon[ei])\b"#, options: .regularExpression) == nil { return .basketballShoes }
+        if q.range(of: #"\b(tennis|terra\s*battuta)\b"#, options: .regularExpression) != nil && q.range(of: #"\b(racchett[ae]|pallin[ae]|pantaloncin[oi]|magli[ae])\b"#, options: .regularExpression) == nil { return .tennisShoes }
+        if q.range(of: #"\b(pallavolo|volley)\b"#, options: .regularExpression) != nil && q.range(of: #"\b(ginocchier[ae]|manicotti|pallon[ei]|magli[ae]|pantaloncin[oi])\b"#, options: .regularExpression) == nil { return .volleyballShoes }
+        if q.range(of: #"\b(running|corsa|maratona|trail|palestra|hyrox|ammortizzat[ae])\b"#, options: .regularExpression) != nil { return .shoes }
+        // Bare primary-brand fallback defaults ONLY for fresh standalone queries
+        if q.range(of: #"\b(garmin|coros|suunto|amazfit)\b"#, options: .regularExpression) != nil { return .gpsWatch }
+        if q.range(of: #"\b(bryton|igpsport)\b"#, options: .regularExpression) != nil { return .bikeComputer }
+        if q.range(of: #"\b(oakley|rudy\s*project|bliz)\b"#, options: .regularExpression) != nil { return .eyewear }
+        if q.range(of: #"\bcamelbak\b"#, options: .regularExpression) != nil { return .hydration }
+        if q.range(of: #"\bbullpadel\b"#, options: .regularExpression) != nil { return .padelRacket }
+        return nil
+    }
+
+    private func detectExpectedQueryKind(query: String, contextQuery: String?, summary: String?) -> DetectedQueryKind? {
+        let qLow = query.lowercased()
+        if let explicitCurrent = detectExplicitQueryKind(qLow) {
+            return explicitCurrent
+        }
+        if let ctx = contextQuery, !ctx.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let turns = ctx.components(separatedBy: ">>")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+                .reversed()
+            for turn in turns {
+                if let pt = detectExplicitQueryKind(turn) { return pt }
+            }
+            for turn in turns {
+                if let pt = detectSingleQueryKind(turn) { return pt }
+            }
+        }
+        return detectSingleQueryKind(qLow)
     }
 
     private func isProductCompatible(_ product: MatchedProduct, with kind: DetectedQueryKind) -> Bool {
@@ -1162,10 +1252,11 @@ class APIService: ObservableObject {
 
         switch kind {
         case .heartRateMonitor:
-            if fullText.range(of: #"\b(scarp[ae]|shoe|magli[ae]|pantaloncin[oi]|shorts?|giacc(?:a|he)|calz[ae]|zain[oi]|occhial[ie]|forerunner|fenix|instinct|epix|venu|vivoactive|coros\s*(?:pace|apex|vertix|nomad)|suunto\s*(?:race|vertical|9\s*peak|run)|polar\s*(?:vantage|pacer|grit|ignite|unite))\b"#, options: .regularExpression) != nil {
+            if bestPrice > 0 && bestPrice < 18 { return false }
+            if fullText.range(of: #"\b(ricambi[oi]|replacement|cinghi[ae]|cavo\b|ricarica|caricabatteri|usb|speed\s*sensor|cadence|cadense|cadenza|zbike|smart\s*bike|bryton\s*rider|fanale|luce\b|radar\b|scarp[ae]|shoe|magli[ae]|pantaloncin[oi]|shorts?|giacc(?:a|he)|calz[ae]|zain[oi]|occhial[ie]|forerunner|fenix|instinct|epix|venu|vivoactive|enduro|coros\s*(?:pace|apex|vertix|nomad)|suunto\s*(?:race|vertical|9\s*peak|run)|polar\s*(?:vantage|pacer|grit|ignite|unite))\b"#, options: .regularExpression) != nil {
                 return false
             }
-            return fullText.range(of: #"\b(hrm|polar\s*h(?:9|10)|verity\s*sense|oh1|fasci[ae]\s*cardio|cardiofrequenzimetr|heart\s*rate|sensore\s*(?:cardio|frequenza\s*cardiaca|hr)|trackr\s*hr|tickr|fascia\s*toracica|chest\s*strap)\b"#, options: .regularExpression) != nil
+            return fullText.range(of: #"\b(hrm|polar\s*h(?:9|10)|verity\s*sense|oh1|fasc(?:ia|e|ie)\s*cardio|cardiofrequenzimetr|heart\s*rate|heartrate|sensore\s*(?:cardio|cardiaco|frequenza\s*cardiaca|hr)|trackr\s*hr|tickr|fasc(?:ia|e|ie)\s*toracic[ae]|chest\s*strap)\b"#, options: .regularExpression) != nil
 
         case .gpsWatch:
             if fullText.range(of: #"\b(igpsport|bsc100|bsc200|bsc300|igs\d+|ciclocomputer|bike\s*computer|contachilometri|contatore|garmin\s*edge|\bedge\s*(?:530|540|830|840|1030|1040|explore)\b|bryton|wahoo\s*elemnt|supporto|staff[ae]|mount|cinturin[oi]|strap|bracelet|quickfit|custodi[ae]|cover|felp[ae]|pile\b|cardigan|polo\b|scarp[ae])\b"#, options: .regularExpression) != nil {
@@ -1175,7 +1266,7 @@ class APIService: ObservableObject {
             return fullText.range(of: #"\b(garmin|forerunner|fenix|instinct|epix|venu|vivoactive|polar|vantage|pacer|grit|ignite|suunto|coros|pace|apex|vertix|amazfit|orologi[o]?|smartwatch)\b"#, options: .regularExpression) != nil
 
         case .bikeComputer:
-            if fullText.range(of: #"\b(supporto|staff[ae]|mount|custodi[ae]|cover|cinturin[oi]|forerunner|fenix|instinct|venu|scarp[ae])\b"#, options: .regularExpression) != nil {
+            if fullText.range(of: #"\b(supporto|sostegno|staff[ae]|manubrio|mount(?:ing|s)?|closethegap|cockpit|out[\s-]*front|k[\s-]*edge|cassette|vitesses?|pacco\s*pignoni|adattatore|adapter|custodi[ae]|cover|cinturin[oi]|forerunner|fenix|instinct|venu|scarp[ae])\b"#, options: .regularExpression) != nil {
                 return false
             }
             if bestPrice > 0 && bestPrice < 38 { return false }
@@ -1244,6 +1335,13 @@ class APIService: ObservableObject {
                 return false
             }
             return fullText.range(of: #"\b(tennis|terra\s*battuta|clay|resolution|court\s*ff|dedicate|nikecourt|barricade|vapor|challenger|rush\s*pro|jet\s*mach)\b"#, options: .regularExpression) != nil
+
+        case .padelShoes:
+            if fullText.range(of: #"\b(racchett[ae]|pala\s*padel|pallin[ae]|overgrip|hesacore|bors[ae]|borson[ei]|paletero|zain[oi]|magli[ae]|pantaloncin[oi]|shorts?|calz[ae]|cappellin[oi]|orologi[o]?|nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|pegasus|speedgoat|trail|calcio|calcetto)\b"#, options: .regularExpression) != nil {
+                return false
+            }
+            if bestPrice > 0 && bestPrice < 30 { return false }
+            return fullText.range(of: #"\b(padel|premura|movea|sensa|hack\s*vibram|vertex\s*vibram|next\s*pro|hybrid\s*fly|sonicsmash|challenger\s*\d*\s*padel|dedicate\s*\d*\s*padel|resolution\s*\d*\s*padel|crazyquick\s*boost|at10\s*lux|ml10\s*lux|nerbo\s*lux|motion\s*pro|sprint\s*pro|revolt\s*pro|hurakn|bela\s*pro|kuikma\s*ps)\b"#, options: .regularExpression) != nil
 
         case .volleyballShoes:
             if fullText.range(of: #"\b(nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|pegasus|speedgoat|magli[ae]|pantaloncin[oi]|calz[ae]|cappellin[oi]|zain[oi]|orologi[o]?|pallon[ei]|ginocchier[ae])\b"#, options: .regularExpression) != nil {
@@ -1439,6 +1537,9 @@ class APIService: ObservableObject {
             case .tennisShoes:
                 fallbackCategory = "running_shoes"
                 fallbackKeywords = ["tennis", "terra battuta", "resolution", "dedicate", "nikecourt"]
+            case .padelShoes:
+                fallbackCategory = "shoes"
+                fallbackKeywords = ["padel", "bullpadel", "asics padel", "babolat padel", "head padel"]
             case .volleyballShoes:
                 fallbackCategory = "running_shoes"
                 fallbackKeywords = ["pallavolo", "volley", "sky elite", "wave lightning", "spike"]

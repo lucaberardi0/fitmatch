@@ -432,3 +432,115 @@ def test_hydration_capacity_keyword_preservation():
     q = "Zaino trail 12L"
     kws = " | ".join(QueryProductGuardrail.expand_keywords(q, "hydration", None, ["12l"])).lower()
     assert "12l" in kws or "12" in kws
+
+
+def test_followup_bare_brand_preserves_category_and_blocks_false_switch():
+    """Regression for 'Fascia cardio' -> 'Marca Garmin con prezzo minore?' and all multi-category brands."""
+    # 1. Turn 1: Fascia cardio -> Turn 2: Marca Garmin con prezzo minore?
+    assert QueryProductGuardrail.is_category_switch("Marca Garmin con prezzo minore?", context_query="Fascia cardio") is False
+    assert QueryProductGuardrail.detect_product_type("Marca Garmin con prezzo minore?", context_query="Fascia cardio") == "heart_rate_monitor"
+    assert QueryProductGuardrail.extract_specific_entity_tokens("Marca Garmin con prezzo minore?", brand="Garmin") == []
+    assert FitMatchSportsAdvisor.is_conversational_query("Marca Garmin con prezzo minore?", has_context=True) is False
+
+    intent = LocalHeuristicParser.parse("Marca Garmin con prezzo minore?", context_query="Fascia cardio")
+    assert intent.category == "sensor"
+    assert intent.brand == "Garmin"
+
+    # 2. Other multi-category brand follow-ups keep prior category
+    assert QueryProductGuardrail.detect_product_type("Solo Garmin sotto 300 euro", context_query="Ciclocomputer") == "bike_computer"
+    assert QueryProductGuardrail.detect_product_type("Oakley", context_query="Giacca antivento") == "jacket"
+    assert QueryProductGuardrail.detect_product_type("Bullpadel", context_query="Scarpe da padel") == "padel_shoes"
+    assert QueryProductGuardrail.detect_product_type("Enervit", context_query="Borraccia running") == "hydration"
+
+    # 3. Standalone fresh 'Garmin' still defaults to gps_watch, and explicit switch works!
+    assert QueryProductGuardrail.detect_product_type("Garmin") == "gps_watch"
+    assert QueryProductGuardrail.is_category_switch("E invece un orologio Garmin?", context_query="Fascia cardio") is True
+    assert QueryProductGuardrail.detect_product_type("E invece un orologio Garmin?", context_query="Fascia cardio") == "gps_watch"
+
+
+def test_italian_plurals_typos_chip_resets_and_scarpa_brand_guard():
+    # Plural 'Fasce cardio' & typo 'Fascia cardo'
+    assert QueryProductGuardrail.detect_product_type("Fasce cardio") == "heart_rate_monitor"
+    assert QueryProductGuardrail.detect_product_type("Fascia cardo Garmin sotto 50 euro") == "heart_rate_monitor"
+    assert QueryProductGuardrail.extract_specific_entity_tokens("Fascia cardo Garmin sotto 50 euro", brand="Garmin") == []
+
+    # Chip-removal / natural conversational queries must produce 0 stray entity tokens
+    for q in [
+        "Tutti i brand",
+        "Tutti i generi",
+        "Tutti i colori",
+        "Rimuovi esclusioni",
+        "Ordine consigliato",
+        "Mostrane altri",
+        "Con sconti elevati",
+        "Under armour long sleeve uomo nella mia taglia",
+    ]:
+        assert QueryProductGuardrail.extract_specific_entity_tokens(q) == [], f"Stray entity tokens for: {q}"
+
+    # Ordinary Italian word 'scarpa' must NEVER trigger brand 'Scarpa'
+    intent_generic = LocalHeuristicParser.parse("Una scarpa da corsa ammortizzata")
+    assert intent_generic.brand is None
+    intent_brand = LocalHeuristicParser.parse("Scarpa Ribelle Run")
+    assert intent_brand.brand == "Scarpa"
+
+    # HRM compatibility rejects replacement straps, smart bikes, speed sensors & watches
+    ricambio = {"id": "p1", "canonical_name": "Garmin Ricambio Hrm", "brand": "Garmin", "category": "strap", "best_price": 27.49, "offers": [{"raw_title": "Garmin Ricambio HRM"}]}
+    speed = {"id": "p2", "canonical_name": "Garmin Bike Speed Sensor 2 And Cadense", "brand": "Garmin", "category": "sensor", "best_price": 69.95, "offers": [{"raw_title": "Garmin Bike Speed Sensor 2"}]}
+    hrm200 = {"id": "p3", "canonical_name": "Garmin Sensore Frequenza Cardiaca Hrm 200", "brand": "Garmin", "category": "sensor", "best_price": 63.99, "offers": [{"raw_title": "Garmin Sensore Frequenza Cardiaca HRM 200"}]}
+    assert QueryProductGuardrail.is_product_compatible(ricambio, "heart_rate_monitor", raw_query="fascia cardio garmin") is False
+    assert QueryProductGuardrail.is_product_compatible(speed, "heart_rate_monitor", raw_query="fascia cardio garmin") is False
+    assert QueryProductGuardrail.is_product_compatible(hrm200, "heart_rate_monitor", raw_query="fascia cardio garmin") is True
+
+
+def test_padel_shoes_and_bike_computer_mount_guardrails():
+    assert QueryProductGuardrail.detect_product_type("Scarpe da padel") == "padel_shoes"
+    assert QueryProductGuardrail.detect_product_type("Bullpadel", context_query="Scarpe da padel") == "padel_shoes"
+
+    padel_shoe = {
+        "id": "ps1",
+        "canonical_name": "Babolat Scarpe Padel Premura 3",
+        "brand": "Babolat",
+        "category": "shoes",
+        "best_price": 129.0,
+        "offers": [{"raw_title": "Babolat Jet Premura 3 Padel"}],
+    }
+    padel_racket = {
+        "id": "pr1",
+        "canonical_name": "Bullpadel Vertex 05",
+        "brand": "Bullpadel",
+        "category": "racket",
+        "best_price": 249.0,
+        "offers": [{"raw_title": "Bullpadel Racchetta Padel Vertex 05"}],
+    }
+    ghost = {
+        "id": "rs1",
+        "canonical_name": "Brooks Ghost 17",
+        "brand": "Brooks",
+        "category": "running_shoes",
+        "best_price": 125.0,
+        "offers": [{"raw_title": "Brooks Ghost 17 Running"}],
+    }
+    assert QueryProductGuardrail.is_product_compatible(padel_shoe, "padel_shoes", raw_query="scarpe da padel") is True
+    assert QueryProductGuardrail.is_product_compatible(padel_racket, "padel_shoes", raw_query="scarpe da padel") is False
+    assert QueryProductGuardrail.is_product_compatible(ghost, "padel_shoes", raw_query="scarpe da padel") is False
+
+    mount = {
+        "id": "m1",
+        "canonical_name": "Garmin Closethegap Mounting Edge 1050",
+        "brand": "Garmin",
+        "category": "cycling",
+        "best_price": 69.99,
+        "offers": [{"raw_title": "CloseTheGap Cockpit Mounting Edge 1050"}],
+    }
+    edge = {
+        "id": "e1",
+        "canonical_name": "Garmin Edge 540",
+        "brand": "Garmin",
+        "category": "cycling",
+        "best_price": 279.0,
+        "offers": [{"raw_title": "Garmin Edge 540 Ciclocomputer"}],
+    }
+    assert QueryProductGuardrail.is_product_compatible(mount, "bike_computer", raw_query="ciclocomputer garmin") is False
+    assert QueryProductGuardrail.is_product_compatible(edge, "bike_computer", raw_query="ciclocomputer garmin") is True
+
+

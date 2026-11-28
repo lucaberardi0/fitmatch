@@ -151,6 +151,7 @@ export type ProductType =
   | "hydration"
   | "swim"
   | "padel_racket"
+  | "padel_shoes"
   | "tennis_racket"
   | "football_boots"
   | "basketball_shoes"
@@ -221,13 +222,19 @@ const TYPO_SUBSTITUTIONS: Array<[RegExp, string]> = [
   [/\b(?:thenorthface)\b/gi, "the north face"],
   [/\b(?:adiddas|addidas)\b/gi, "adidas"],
   [/\b(?:asiks|asiscs)\b/gi, "asics"],
-  [/\b(?:sauconi|sacony)\b/gi, "saucony"],
+  [/\b(?:sauconi|sacony|saucing)\b/gi, "saucony"],
   [/\b(?:salomom|salamon)\b/gi, "salomon"],
   [/\b(?:hokaa)\b/gi, "hoka"],
   [/\b(?:garmen|gamrin|garmn|garmmin)\b/gi, "garmin"],
   [/\b(?:forunner|fore\s*runner|forerun|forerunne)\b/gi, "forerunner"],
   [/\b(?:fennix|fenx)\b/gi, "fenix"],
   [/\b(?:garmin\s+forerunner|garmin|forerunner)\s*(165|265|965|55|255|955|570|970)\b/gi, "garmin forerunner $1"],
+  [/\bfasc(?:ia|e|ie)\s+cardo\b/gi, "fascia cardio"],
+  [/\banti\s+vento\b/gi, "antivento"],
+  [/\banti\s+pioggia\b/gi, "antipioggia"],
+  [/\bscalda\s+collo\b/gi, "scaldacollo"],
+  [/\bk\s+way\b/gi, "k-way"],
+  [/^mente(?=\s+)/gi, "mentre"],
   [/\b(?:alpha\s*fl[yie]+|alphafly+)\b/gi, "alphafly"],
   [/\b(?:vapor\s*fl[yie]+|vaporfly+)\b/gi, "vaporfly"],
   [/\b(?:ultra\s*fl[yie]+|ultrafly+)\b/gi, "ultrafly"],
@@ -350,81 +357,138 @@ export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-const GENERIC_ENTITY_STOPWORDS = new Set([
-  // Italian/English connectors & search verbs
-  "il", "lo", "la", "i", "gli", "le", "un", "una", "uno", "di", "del", "della", "dei", "delle",
-  "a", "al", "da", "dal", "in", "nel", "con", "su", "sul", "per", "tra", "fra", "e", "o", "ed", "od",
-  "the", "of", "to", "from", "for", "with", "without", "and", "or", "in", "on", "at", "by",
-  "cerca", "trova", "cerco", "vorrei", "mostrami", "mostramene", "fammi", "vedere", "filtra",
-  "consiglia", "consigliami", "consiglio", "consigli", "migliori", "migliore", "miglior",
-  "best", "good", "buona", "buone", "buono", "buoni", "ottimo", "ottima", "valide", "valido",
-  "quale", "quali", "come", "cosa", "che", "chi", "dove", "quando", "perche", "perché", "quanto",
-  "sono", "vanno", "bene", "posso", "puoi", "solo", "anche", "altri", "altre", "altro", "altra",
-  "alternativa", "alternative", "opzioni", "esempi", "modelli", "modello", "offerta", "offerte",
-  "prezzo", "prezzi", "sconto", "sconti", "economiche", "economici", "economico", "economica",
-  "sotto", "sopra", "meno", "piu", "più", "fino", "max", "min", "massimo", "minimo", "entro",
-  "budget", "euro", "eur", "taglia", "taglie", "numero", "misura", "size", "sizes", "eu", "us", "uk",
-  "uomo", "uomini", "donna", "donne", "unisex", "men", "mens", "man", "women", "womens", "woman", "wmns",
-  "ragazzo", "ragazza", "bambino", "bambini", "junior", "kids", "kid", "xs", "sm", "md", "lg", "xl", "xxl",
+export const GENERIC_ENTITY_STOPWORDS = new Set([
+  // Italian/English articles, articulated prepositions, pronouns, demonstratives & connectors
+  "il", "lo", "la", "i", "gli", "le", "li", "un", "una", "uno",
+  "di", "del", "dello", "della", "dei", "degli", "delle", "dell",
+  "a", "al", "allo", "alla", "ai", "agli", "alle", "all",
+  "da", "dal", "dallo", "dalla", "dai", "dagli", "dalle", "dall",
+  "in", "nel", "nello", "nella", "nei", "negli", "nelle", "nell",
+  "con", "col", "coi", "su", "sul", "sullo", "sulla", "sui", "sugli", "sulle", "sull",
+  "per", "tra", "fra", "verso", "presso", "e", "o", "ed", "od",
+  "mi", "ti", "ci", "vi", "si", "me", "te", "se", "io", "tu", "lui", "lei", "noi", "voi", "loro",
+  "mio", "mia", "miei", "mie", "tuo", "tua", "tuoi", "tue", "suo", "sua", "suoi", "sue", "nostro", "nostra",
+  "questo", "questa", "questi", "queste", "quello", "quella", "quelli", "quelle", "quel", "quell",
+  "qualcosa", "qualcuno", "alcuni", "alcune", "qualche", "ogni", "nessuno", "nessuna", "entrambi", "entrambe",
+  "stesso", "stessa", "stessi", "stesse",
+  "the", "of", "to", "from", "for", "with", "without", "and", "or", "on", "at", "by", "all", "any", "more", "other", "others", "same", "new",
+  // Conversational search verbs, questions & adverbs
+  "cerca", "cercami", "trova", "trovami", "cerco", "cercando", "vorrei", "voglio", "cercherei", "avrei", "bisogno",
+  "mostra", "mostrami", "mostrane", "mostramene", "mostrameli", "mostramele", "mostrarmi",
+  "fammi", "fammene", "fammeli", "fammele", "dammi", "dammene", "dimmi", "vedi", "vedere", "guarda", "guardare", "filtra",
+  "scegliere", "scelgo", "sceglieresti", "prendere", "comprare", "acquistare",
+  "consiglia", "consigliami", "consiglio", "consigli", "consigliato", "consigliata", "consigliati", "consigliate",
+  "migliori", "migliore", "miglior", "meglio", "peggio", "piuttosto",
+  "best", "good", "buona", "buone", "buono", "buoni", "ottimo", "ottima", "ottimi", "ottime", "valide", "valido", "validi", "valida",
+  "quale", "quali", "come", "cosa", "che", "chi", "dove", "quando", "perche", "perché", "quanto", "quanti", "quante",
+  "sono", "sei", "siamo", "stai", "stanno", "vanno", "bene", "posso", "puoi", "potresti", "sapresti", "devo", "dovrei",
+  "solo", "soltanto", "unicamente", "esclusivamente", "anche", "altri", "altre", "altro", "altra",
+  "mentre", "invece", "quindi", "allora", "sempre", "ancora", "magari", "possibilmente", "preferibilmente", "eventualmente",
+  "comunque", "oppure", "altrimenti", "proprio", "davvero", "molto", "poco", "tanto", "abbastanza", "troppo", "quasi",
+  "specifico", "specifica", "specifici", "specifiche", "particolare", "particolari", "apposito", "apposita", "appositi", "apposite",
+  "dedicato", "dedicata", "dedicati", "dedicate",
+  "nuove", "nuova", "nuovo", "nuovi", "versione", "versioni",
+  "alternativa", "alternative", "opzioni", "opzione", "esempi", "esempio", "modelli", "modello",
+  "prodotto", "prodotti", "articolo", "articoli", "capo", "capi", "variante", "varianti", "paio", "paia", "pezzo", "pezzi",
+  "calza", "calzano", "calzare", "veste", "vestono", "vestire", "dura", "durano", "durare", "durata",
+  "pesa", "pesano", "pesare", "tiene", "tengono", "protegge", "proteggono", "funziona", "funzionano",
+  "conviene", "convengono", "serve", "servono", "esiste", "esistono", "hanno", "abbia", "abbiano",
+  // Brand / category / filter / reset / price / discount / sort filler words
+  "brand", "brands", "marca", "marche", "marchio", "marchi", "genere", "generi", "colore", "colori", "colorazione", "colorazioni", "tinta",
+  "categoria", "categorie", "tipo", "tipi", "linea", "linee", "serie", "gamma",
+  "offerta", "offerte", "prezzo", "prezzi", "costo", "costi", "costa", "costano", "costare", "spesa", "spendere", "risparmiare", "risparmio",
+  "sconto", "sconti", "scontato", "scontata", "scontati", "scontate", "saldo", "saldi", "promo", "promozione", "affare", "affari", "occasione", "occasioni",
+  "ribasso", "ribassi", "ribassato", "ribassata", "ribassati", "ribassate",
+  "minore", "minori", "maggiore", "maggiori", "inferiore", "inferiori", "superiore", "superiori",
+  "elevato", "elevata", "elevati", "elevate", "forte", "forti", "grande", "grandi", "importante", "importanti", "interessante", "interessanti",
+  "accessibile", "accessibili", "conveniente", "convenienti", "ridotto", "ridotta", "ridotti", "ridotte", "contenuto", "contenuta", "contenuti", "contenute",
+  "economiche", "economici", "economico", "economica", "costose", "costosi", "costoso", "costosa", "care", "cari", "caro", "cara",
+  "cheap", "cheapest", "lowest", "highest", "price", "prices", "discount", "discounts", "sale", "sales", "deal", "deals", "entry", "base",
+  "sotto", "sopra", "meno", "piu", "più", "fino", "max", "min", "massimo", "minimo", "entro", "oltre", "almeno", "circa", "intorno", "attorno",
+  "budget", "euro", "eur", "taglia", "taglie", "numero", "numeri", "misura", "misure", "size", "sizes", "eu", "us", "uk",
+  "uomo", "uomini", "maschile", "maschili", "donna", "donne", "femminile", "femminili", "unisex", "men", "mens", "man", "women", "womens", "woman", "wmns",
+  "ragazzo", "ragazza", "bambino", "bambini", "adulto", "adulti", "junior", "kids", "kid", "xs", "sm", "md", "lg", "xl", "xxl",
   "negozi", "negozio", "online", "confronta", "confronto", "differenza", "differenze", "vs", "versus",
-  "invece", "quindi", "allora", "sempre", "ancora", "nuove", "nuova", "nuovo", "nuovi", "versione",
+  "rimuovi", "togli", "elimina", "azzera", "reset", "senza", "limite", "limiti", "filtro", "filtri",
+  "tutti", "tutte", "tutto", "qualsiasi", "spedizione", "consegna", "gratuita", "gratis", "free", "shipping", "spese", "includi", "includendo", "pagamento",
+  "esclusione", "esclusioni", "escludi", "escludendo", "evita", "evitando",
+  "ordine", "ordinamento", "ordina", "ordinate", "ordinati", "ordinato", "ordinata", "crescente", "decrescente", "rilevanza",
+  "cisalfa", "decathlon", "alltricks", "deporvillage", "misterrunning", "top4running",
+  "maxisport", "sportspecialist", "tradeinn", "nencini", "intersport", "nonsolosport",
+  "runningwarehouse", "sportler", "sportit", "bshopzone", "basketballstore",
+  "store", "sito", "siti", "under", "below", "over", "above",
   // Sport & activity context words
-  "running", "corsa", "correre", "trail", "allenamento", "allenamenti", "palestra", "fitness",
-  "sport", "sportivo", "sportiva", "sportivi", "sportive", "gara", "maratona", "mezza", "10k", "5k", "21k", "42k",
-  "strada", "asfalto", "sterrato", "montagna", "sentieri", "sentiero", "bosco", "pista", "campo",
-  "principiante", "principianti", "iniziare", "intermedio", "avanzato", "livello", "runner", "runners",
-  "ammortizzata", "ammortizzate", "ammortizzato", "ammortizzamento", "morbida", "morbide", "comoda", "comode",
-  "reattiva", "reattive", "veloce", "veloci", "leggera", "leggere", "leggero", "leggeri", "stabile", "stabili",
+  "running", "run", "runs", "corsa", "correre", "trail", "allenamento", "allenamenti", "palestra", "fitness", "workout", "training", "gym",
+  "sport", "sportivo", "sportiva", "sportivi", "sportive", "gara", "gare", "maratona", "mezza", "10k", "5k", "21k", "42k",
+  "strada", "asfalto", "sterrato", "montagna", "sentieri", "sentiero", "bosco", "pista", "campo", "indoor", "outdoor", "road",
+  "principiante", "principianti", "iniziare", "intermedio", "avanzato", "livello", "runner", "runners", "amatoriale", "amatoriali", "professionale", "professionali",
+  "ammortizzata", "ammortizzate", "ammortizzato", "ammortizzati", "ammortizzamento", "morbida", "morbide", "morbido", "morbidi", "comoda", "comode", "comodo", "comodi",
+  "reattiva", "reattive", "reattivo", "reattivi", "veloce", "veloci", "leggera", "leggere", "leggero", "leggeri", "stabile", "stabili",
   "traspirante", "traspiranti", "impermeabile", "impermeabili", "antipioggia", "pioggia", "waterproof",
-  "termica", "termiche", "termico", "termici", "invernale", "invernali", "estivo", "estiva", "freddo", "caldo",
+  "termica", "termiche", "termico", "termici", "invernale", "invernali", "estivo", "estiva", "estivi", "estive", "freddo", "caldo", "stagione", "autunno", "primavera", "estate", "inverno",
+  "bucato", "bucata", "bucati", "bucate", "traforato", "traforata", "traforati", "traforate", "forato", "forata", "forati", "forate", "mesh",
+  "elastico", "elastica", "elastici", "elastiche", "aderente", "aderenti",
   "gtx", "gore", "tex", "carbonio", "piastra", "pronazione", "pronatori", "neutro", "neutra", "supporto",
-  "ginocchia", "schiena", "fascite", "peso", "chili", "kg", "km", "tasche", "tasca", "zip", "mezza", "half",
-  "hyrox", "crossfit", "pesi", "sollevamento", "funzionale", "triathlon", "ciclismo", "bici", "bicicletta",
+  "ginocchia", "schiena", "fascite", "peso", "chili", "kg", "km", "tasche", "tasca", "zip", "half",
+  "hyrox", "crossfit", "pesi", "sollevamento", "funzionale", "funzionali", "triathlon", "ciclismo", "bici", "bicicletta",
   "calcio", "calcetto", "futsal", "tennis", "padel", "basket", "pallacanestro", "pallavolo", "volley",
-  "nuoto", "nuotare", "piscina", "sci", "snowboard", "trekking", "hiking", "outdoor", "camminata",
-  // Generic product-category nouns
-  "scarpa", "scarpe", "shoe", "shoes", "sneaker", "sneakers", "calzature", "scarpini", "scarpino", "scarponi",
-  "leggings", "legging", "leggins", "tights", "tight", "calzamaglia", "fuseaux", "pantacollant", "collant",
+  "nuoto", "nuotare", "piscina", "sci", "snowboard", "trekking", "hiking", "camminata",
+  // Generic product-category nouns (singular & plural)
+  "scarpa", "scarpe", "shoe", "shoes", "sneaker", "sneakers", "calzature", "calzatura", "scarpini", "scarpino", "scarponi", "scarpone",
+  "leggings", "legging", "leggins", "tights", "tight", "calzamaglia", "calzamaglie", "fuseaux", "pantacollant", "collant",
   "pantaloncini", "pantaloncino", "shorts", "short", "ciclisti", "bermuda", "sprinter",
-  "pantaloni", "pantalone", "pants", "joggers",
+  "pantaloni", "pantalone", "pants", "joggers", "jogger",
   "maglia", "maglie", "maglietta", "magliette", "t-shirt", "shirt", "shirts", "tee", "top", "tops",
   "manica", "maniche", "lunga", "lunghe", "corta", "corte", "long", "sleeve", "sleeves", "longsleeve",
-  "canotta", "canotte", "canottiera", "singlet", "tank", "smanicato", "smanicata", "sleeveless",
+  "canotta", "canotte", "canottiera", "canottiere", "singlet", "tank", "smanicato", "smanicata", "smanicati", "smanicate", "sleeveless",
   "felpa", "felpe", "hoodie", "giacca", "giacche", "jacket", "jackets", "antivento", "windbreaker", "kway", "guscio",
-  "calze", "calza", "calzini", "calzino", "calzettoni", "socks", "sock",
-  "cappellino", "cappello", "berretto", "visiera", "scaldacollo", "guanti", "abbigliamento", "completo", "kit",
-  "orologio", "orologi", "smartwatch", "sportwatch", "watch", "gps", "ciclocomputer", "computer",
-  "fascia", "fasce", "cardio", "cardiofrequenzimetro", "sensore", "sensori", "toracica",
-  "occhiali", "occhialini", "goggles", "costume", "costumi", "cuffia",
+  "calze", "calza", "calzini", "calzino", "calzettoni", "calzettone", "socks", "sock",
+  "cappellino", "cappellini", "cappello", "cappelli", "berretto", "berretti", "visiera", "visiere", "scaldacollo", "scaldacolli", "guanto", "guanti", "casco", "caschi",
+  "abbigliamento", "completo", "kit",
+  "orologio", "orologi", "smartwatch", "sportwatch", "watch", "gps", "ciclocomputer", "computer", "cinturino", "cinturini",
+  "fascia", "fasce", "cardio", "cardiofrequenzimetro", "cardiofrequenzimetri", "sensore", "sensori", "toracica", "toraciche", "toracico", "toracici", "frequenza", "cardiaca", "battito", "battiti",
+  "occhiale", "occhiali", "occhialino", "occhialini", "goggles", "maschera", "maschere", "costume", "costumi", "cuffia", "cuffie", "pinna", "pinne", "slip", "boxer",
   "zaino", "zaini", "gilet", "borraccia", "borracce", "flask", "idratazione",
-  "racchetta", "racchette", "pala", "rullo", "rulli", "gel", "barretta", "barrette", "integratori",
+  "racchetta", "racchette", "pala", "rullo", "rulli", "gel", "barretta", "barrette", "integratore", "integratori",
   // Descriptive / biomechanical / condition adjectives (never specific model names!)
   "delicata", "delicate", "delicato", "delicati", "sensibile", "sensibili", "pesante", "pesanti",
   "quotidiana", "quotidiane", "quotidiano", "quotidiani", "protettiva", "protettive", "protettivo", "protettivi",
   "ideale", "ideali", "perfetta", "perfette", "perfetto", "perfetti", "adatta", "adatte", "adatto", "adatti",
-  "dolore", "dolori", "articolazione", "articolazioni", "tendinite", "tallonite", "plantare", "pianta", "larga", "largo", "stretta", "stretto", "piatto", "piatti", "appoggio",
-  "esigenze", "livello", "cercando", "cerco", "voglio", "servono", "serve", "durata", "durano", "calzano", "vestono",
-  // Filter / reset / store / promo filler words (never product entity tokens!)
-  "rimuovi", "togli", "elimina", "azzera", "reset", "senza", "limite", "limiti", "filtro", "filtri",
-  "tutti", "tutte", "qualsiasi", "spedizione", "gratuita", "gratis", "free", "shipping",
-  "scontato", "scontata", "scontati", "scontate", "saldo", "saldi", "promo", "promozione",
-  "cisalfa", "decathlon", "alltricks", "deporvillage", "misterrunning", "top4running",
-  "maxisport", "sportspecialist", "tradeinn", "nencini", "intersport", "nonsolosport",
-  "runningwarehouse", "sportler", "sportit", "bshopzone", "basketballstore",
-  "store", "negozi", "negozio", "sito", "siti", "under", "below", "over", "above", "oltre",
-  "almeno", "circa", "intorno", "fascia",
+  "dolore", "dolori", "articolazione", "articolazioni", "tendinite", "tallonite", "plantare", "pianta", "larga", "largo", "larghi", "larghe",
+  "stretta", "stretto", "stretti", "strette", "piatto", "piatti", "appoggio", "esigenze",
   // Colors
-  "nero", "nera", "neri", "nere", "bianco", "bianca", "bianchi", "bianche", "blu", "azzurro", "azzurra",
+  "nero", "nera", "neri", "nere", "bianco", "bianca", "bianchi", "bianche", "blu", "azzurro", "azzurra", "azzurri", "azzurre",
   "rosso", "rossa", "rossi", "rosse", "verde", "verdi", "grigio", "grigia", "grigi", "grigie",
   "giallo", "gialla", "gialli", "gialle", "arancione", "arancioni", "rosa", "viola", "marrone", "marroni", "beige",
   "black", "white", "blue", "red", "green", "grey", "gray", "yellow", "orange", "pink", "purple", "brown",
-  "lungo", "lunghi", "corto", "corti", "alto", "alta", "alti", "alte", "basso", "bassa",
+  "lungo", "lunghi", "corto", "corti", "alto", "alta", "alti", "alte", "basso", "bassa", "bassi", "basse",
   "compressione", "compression", "tecnica", "tecnico", "tecnici", "tecniche", "pro",
-  "non", "tranne", "escluso", "esclusa", "esclusi", "escluse", "eccetto", "senza", "ne", "né",
-  "economiche", "economici", "economico", "economica", "convenienti", "conveniente",
-  "costose", "costosi", "costoso", "costosa", "care", "cari", "basso", "bassi", "alto", "alti",
-  "ordina", "ordinate", "ordinati", "crescente", "decrescente", "piastra", "carbonio", "carbon", "cappuccio",
+  "non", "tranne", "escluso", "esclusa", "esclusi", "escluse", "eccetto", "ne", "né",
+  "carbon", "cappuccio",
 ]);
+
+export function sanitizeEntityTokens(tokens: string[], brand?: string | null): string[] {
+  const brandToks = new Set<string>();
+  const subKeys = new Set(Object.keys(SUB_BRAND_TO_PARENT));
+  if (brand) {
+    for (const bt of brand.toLowerCase().match(/[a-z0-9]+/g) ?? []) {
+      if (bt !== "the" && !subKeys.has(bt)) brandToks.add(bt);
+    }
+  }
+  const out: string[] = [];
+  for (const raw of tokens) {
+    const tok = normalizeQueryTypos(String(raw ?? ""))
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+    if (!tok) continue;
+    if (tok.length < 2 && !/^\d+$/.test(tok)) continue;
+    if (GENERIC_ENTITY_STOPWORDS.has(tok) || brandToks.has(tok)) continue;
+    if (!out.includes(tok)) out.push(tok);
+  }
+  return out;
+}
 
 export const KNOWN_STORES: Array<{ id: string; label: string; regex: RegExp }> = [
   { id: "cisalfa", label: "Cisalfa Sport", regex: /\b(?:cisalfa(?:\s+sport)?)\b/i },
@@ -486,9 +550,10 @@ export function extractSpecificEntityTokens(query: string, brand?: string | null
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
   t = t.replace(/\bs[/\-]lab\b/g, " lab ");
-  // Remove ALL price, budget, range, discount & measurement/unit constraints (including € before or after number!)
+  // Remove ALL price, budget, range, approximate budget, discount & measurement/unit constraints (including € before or after number!)
   t = t.replace(/\b(?:tra|da)\s*(?:€\s*)?\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\s*(?:e|a|-)\s*(?:€\s*)?\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?/gi, " ");
   t = t.replace(/(?:sotto\s*(?:i|ai|gli|le|di|dei)?|al\s+di\s+sotto\s*(?:di|dei|degli)?|sopra\s*(?:i|ai|gli|le|di|dei)?|oltre\s*(?:i|ai|gli|le)?|meno\s*di|pi[uù]\s*di|non\s+(?:oltre|pi[uù]\s*di)|fino\s*a(?:i|gli|lle)?|entro\s*(?:i|ai|gli)?|budget\s*(?:massimo|max|di|sotto)?|prezzo\s*(?:massimo|max|minimo|min|sotto|sopra)?|al\s+massimo|massimo|max|minimo|min|almeno|under|below|over|above|<=?|>=?)\s*(?:€\s*)?\d+(?:[.,]\d+)?\s*(?:€|euro|eur|%)?/gi, " ");
+  t = t.replace(/\b(?:sui|intorno\s+a(?:i|gli|lle)?|attorno\s+a(?:i|gli|lle)?|circa|verso\s+i)\s*(?:€\s*)?\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?/gi, " ");
   t = t.replace(/€\s*\d+(?:[.,]\d+)?/g, " ");
   t = t.replace(/\b\d+(?:[.,]\d+)?\s*(?:€|euro|eur|%)/gi, " ");
   t = t.replace(/\b\d+(?:[.,]\d+)?\s*(?:km|kg|chili|g|gr|mm|cm|l|lt|ml|min|h)\b/gi, " ");
@@ -499,6 +564,9 @@ export function extractSpecificEntityTokens(query: string, brand?: string | null
   t = t.replace(/\b(?:taglia|taglie|numero|num\.?|n\.?|misura|misure|size|eu|us|uk|tg\.?)\s*(?:\d{2}(?:[.,]\d|\s+[12]\/[23])?|[23]?x?[sml]{1,2})\b/gi, " ");
   t = t.replace(/(?<![\d.,])\b(?:3[5-9]|4[0-9])[.,](?:5|3|7|2|8)\b/g, " ");
   t = t.replace(/\b(?:1\s*\/\s*[24]\s*(?:di\s+)?zip|2\s*in\s*1|2in1|calcio\s*a\s*[57])\b/g, " ");
+  // Remove multi-word training/category phrases that contain words also used in real model names (e.g. "tempo run" vs "Nike Tempo")
+  t = t.replace(/\b(?:tempo|long|easy|recovery|daily)\s+run(?:s|ning)?\b/gi, " ");
+  t = t.replace(/\b(?:entry[\s-]*level|top\s+di\s+gamma|fascia\s+(?:bassa|media|alta|superiore)|k[\s-]*way)\b/gi, " ");
   // Remove store names so "su Cisalfa" or "da Mister Running" never become model tokens
   for (const st of KNOWN_STORES) {
     t = t.replace(st.regex, " ");
@@ -531,9 +599,10 @@ export function extractSpecificEntityTokens(query: string, brand?: string | null
 
 /**
  * Detects an EXPLICIT product type ONLY when the text contains a concrete garment, footwear,
- * device, equipment noun, or unmistakable model name — NEVER from standalone activity words
- * like "da corsa", "per running", "per trail", "per maratona" (which refine a previous product
- * type during follow-ups instead of switching categories!).
+ * device, equipment noun, or unmistakable model/line name — NEVER from standalone activity words
+ * ("da corsa", "per trail") OR bare multi-category brand names ("garmin", "coros", "oakley",
+ * "bullpadel", "enervit", "bryton", "camelbak") which refine a previous product type during
+ * follow-ups instead of switching categories!
  */
 export function detectExplicitProductType(rawText: string): ProductType | null {
   const t = normalizeQueryTypos(rawText).toLowerCase();
@@ -546,11 +615,14 @@ export function detectExplicitProductType(rawText: string): ProductType | null {
   if (/\b(canott[ae]|canottier[ae]|singlet|tank\s*top|sleeveless|smanicat[aoe])\b/.test(t)) {
     return "singlet_top";
   }
-  if (/\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae]+|t[\s-]*shirt|magliett[ae]|magli[ae](?!\s*(?:cinturin|orolog)))\b/.test(t)) {
+  if (/\b(short[\s-]*sleeve|manic(?:a|he)\s*cort[ae]+|t[\s-]*shirt|magliett[ae])\b/.test(t)) {
     return "short_sleeve_top";
   }
   if (/\b(felp[ae]|hoodie|sweatshirt|pile\b|fleece\b|maglion[ei]|pullover)\b/.test(t)) {
     return "long_sleeve_top";
+  }
+  if (/\b(magli[ae](?!\s*(?:cinturin|orolog)))\b/.test(t)) {
+    return "top";
   }
   if (/\b(giacc(?:a|he)|jacket|rain\s*jacket|antivento|windbreaker|windproof|k[\s-]*way|gilet\s*antivento|guscio|shell\s*jacket|anorak|antipioggia|piumin[oi])\b/.test(t)) {
     return "jacket";
@@ -569,18 +641,18 @@ export function detectExplicitProductType(rawText: string): ProductType | null {
   if (/\b(calz[ae]|calzin[oi]|calzetton[ei]|socks?)\b/.test(t)) {
     return "socks";
   }
-  if (/\b(cappellin[oi]|cappell[oi]|berrett[oi]|visier[ae]|fascia\s*testa|scaldacollo|guant[oi]|beanie|visor|headband|gloves|neck\s*gaiter|running\s*cap|running\s*hat)\b/.test(t)) {
+  if (/\b(cappellin[oi]|cappell[oi]|berrett[oi]|visier[ae]|fascia\s*testa|scaldacollo|scaldacolli|guant[oi]|beanie|visor|headband|gloves|neck\s*gaiter|running\s*cap|running\s*hat)\b/.test(t)) {
     return "headwear";
   }
 
-  // 2. Tech & Hardgoods
-  if (/\b(fasci[ae]\s*cardio(?:frequenzimetr[oi])?|fascia\s*hrm|fascia\s*toracica|sensore\s*(?:cardio|cardiaco|frequenza\s*cardiaca|hr)|heart\s*rate\s*(?:monitor|strap|sensor)|chest\s*strap|polar\s*(?:h10|h9|verity|oh1)|garmin\s*hrm|hrm[\s-]*(?:pro|dual|200|600|fit|swim)|wahoo\s*(?:trackr|tickr)|coros\s*(?:heart\s*rate|fascia\s*cardio))\b/.test(t)) {
+  // 2. Tech & Hardgoods (concrete nouns & unambiguous model lines ONLY — ZERO bare brand names!)
+  if (/\b(fasc(?:ia|e|ie)\s*cardio(?:frequenzimetr[oi])?|fasc(?:ia|e|ie)\s*hrm|fasc(?:ia|e|ie)\s*toracic[ae]|sensore\s*(?:cardio|cardiaco|frequenza\s*cardiaca|hr)|heart\s*rate\s*(?:monitor|strap|sensor)|chest\s*strap|polar\s*(?:h10|h9|verity|oh1)|garmin\s*hrm|\bhrm\b(?:[\s-]*(?:pro|dual|200|600|fit|swim|belt|run|tri))?|wahoo\s*(?:trackr|tickr)|coros\s*(?:heart\s*rate|fasc(?:ia|e)\s*cardio))\b/.test(t)) {
     return "heart_rate_monitor";
   }
-  if (/\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*(?:bici|gps)?|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|wahoo\s*elemnt|bryton|igpsport|hammerhead\s*karoo)\b/.test(t)) {
+  if (/\b(ciclocomputer|bike\s*computer|contachilometri|contatore\s*(?:bici|gps)?|garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|wahoo\s*elemnt|bryton\s*rider|igpsport\s*(?:bsc|igs|binavi)|coros\s*dura|hammerhead\s*karoo)\b/.test(t)) {
     return "bike_computer";
   }
-  if (/\b(orologi[o]?|smartwatch|sportwatch|cardiofrequenzimetro|garmin|forerunner|fenix|instinct|epix|venu|vivoactive|coros|suunto|polar\s*(?:vantage|pacer|grit|ignite)|amazfit)\b/.test(t)) {
+  if (/\b(orologi[o]?|smartwatch|sportwatch|gps\s*watch|cardiofrequenzimetro|forerunner|fenix|instinct|epix|venu|vivoactive|garmin\s*enduro|marq|tactix|approach\s*s\d+|coros\s*(?:pace|apex|vertix)|suunto\s*(?:race|vertical|run|9\s*peak|5\s*peak|7|ocean)|polar\s*(?:vantage|pacer|grit|ignite|unite)|amazfit\s*(?:t[\s-]*rex|cheetah|balance|active|gtr|gts|bip))\b/.test(t)) {
     return "gps_watch";
   }
   if (/\bgps\b/.test(t) && !/\b(bici|ciclismo|mtb|gravel|manubrio|ciclocomputer|edge)\b/.test(t)) {
@@ -589,10 +661,10 @@ export function detectExplicitProductType(rawText: string): ProductType | null {
   if (/\b(occhialin[oi]|occhial[ie]\s*(?:da\s*)?nuoto|swim(?:ming)?\s*goggles|goggles|swimsuit|cuffi[ae]\s*(?:da\s*)?nuoto|costum[ei]\s*(?:da\s*)?(?:nuoto|bagno)|pinn[ae]\s*(?:da\s*)?nuoto)\b/.test(t)) {
     return "swim";
   }
-  if (/\b(occhial[ie]|sunglasses|eyewear|oakley|sutro|radar\s*ev|jawbreaker|rudy\s*project|bliz)\b/.test(t)) {
+  if (/\b(occhial[ie]|sunglasses|eyewear|oakley\s*(?:sutro|radar|jawbreaker|encoder|bisphaera|sphaera|holbrook|flak|evzero|kato|corridor|hydra)|sutro|radar\s*ev|jawbreaker|rudy\s*project\s*(?:cutline|defender|kelion|astralar|tralyx|spinshield)|bliz\s*(?:matrix|fusion|hero|vision))\b/.test(t)) {
     return "eyewear";
   }
-  if (/\b(gilet\s*(?:idratazione|trail|running)|(?:trail|running|hydration)\s*vest|\bvest\b|zain[oi]|backpack|hydration\s*pack|soft\s*flask|flask|borracc(?:ia|e|ie)|water\s*bottle|sacca\s*idrica|active\s*skin|adv\s*skin|camelbak)\b/.test(t)) {
+  if (/\b(gilet\s*(?:idratazione|trail|running)|(?:trail|running|hydration)\s*vest|\bvest\b|zain[oi]|backpack|hydration\s*pack|soft\s*flask|flask|borracc(?:ia|e|ie)|water\s*bottle|sacca\s*idrica|active\s*skin|adv\s*skin|camelbak\s*(?:podium|circuit|zephyr|ultra|apex|chase|octane|hydrobak))\b/.test(t)) {
     return "hydration";
   }
   if (/\b((?:racchett[ae]|racket|racquet)\s*(?:da\s*)?tennis|tennis\s*(?:racket|racquet)|pure\s*drive|pure\s*aero|yonex\s*(?:ezone|vcore|percept)|wilson\s*(?:blade|pro\s*staff|clash|ultra)|head\s*(?:speed|radical|gravity|extreme\s*mp)|tecnifibre\s*t[\s-]*fight)\b/.test(t)) {
@@ -601,19 +673,23 @@ export function detectExplicitProductType(rawText: string): ProductType | null {
   if (/\b(scarpon[ei]\s*(?:da\s*)?sci|mascher[ae]\s*(?:da\s*)?sci|casc[oh]\s*(?:da\s*)?sci|tavol[ae]\s*snowboard|snowboard|scialpinismo|sci\s*alpino|atomic\s*(?:hawx|redster|bent)|nordica\s*(?:speedmachine|promachine)|rossignol\s*(?:hero|alltrack))\b/.test(t)) {
     return "winter_sports";
   }
-  if (/\b(racchett[ae]|padel\s*(?:racket|racquet)|pala\s*padel|bullpadel|nox\s*at10)\b/.test(t) && !/\b(scarp[ae]|shoes?)\b/.test(t)) {
+  if (/\b(racchett[ae]|padel\s*(?:racket|racquet)|pala\s*padel|bullpadel\s*(?:vertex|hack|neuron|xplo|flow|elite|ionic|indiga|pearl)|nox\s*(?:at10|ml10|la10|tl10))\b/.test(t) && !/\b(scarp[ae]|shoes?)\b/.test(t)) {
     return "padel_racket";
   }
   if (/\b(rull[oi]|smart\s*trainer|wahoo\s*kickr|tacx\s*(?:flux|neo))\b/.test(t)) {
     return "smart_trainer";
   }
-  if (/\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis)|energy\s*gels?|electrolytes?|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali|enervit|maurten|namedsport)\b/.test(t)) {
+  if (/\b(gel\s*(?:energetic[oi]|isotonic[oi]|enervit|maurten|sis|namedsport)|energy\s*gels?|electrolytes?|maltodestrin[ae]|barrett[ae]|integrator[ei]|sali\s*minerali|enervit\s*(?:sport|liquid|isotonic|carbo|gel|bar)|maurten\s*(?:gel|drink\s*mix|solid|bicarb)|namedsport\s*(?:total\s*energy|hydrafit|starbar|aminonam|isonam))\b/.test(t)) {
     return "nutrition";
   }
 
   // 3. Sport-specific footwear (explicit footwear nouns or iconic shoe lines)
   if (/\b(scarp[ae]\s*(?:da\s*)?calcio|scarp[ae]\s*(?:da\s*)?calcetto|football\s*boots?|soccer\s*cleats?|scarpin[oi]|mercurial|superfly|predator|tiempo|phantom|copa\s*pure|top\s*sala|top\s*flex|magnetico)\b/.test(t)) {
     return "football_boots";
+  }
+  if (/\b(scarp[ae]\s*(?:da\s*)?padel|padel\s*shoes?|premura|sonicsmash|jet\s*viva|padel\s*slam|bullpadel\s*(?:hack\s*vibram|vertex\s*vibram|premier\s*major))\b/.test(t) &&
+      !/\b(racchett[ae]|racket|racquet|pala\b|pallin[ae]|overgrip|bors[ae]|borson[ei]|zain[oi]|paletero|magli[ae]|pantaloncin[oi]|shorts?)\b/.test(t)) {
+    return "padel_shoes";
   }
   if (/\b(scarp[ae]\s*(?:da\s*)?basket|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame)\b/.test(t) &&
       !/\b(magli[ae]|jersey|canott[ae]|pantaloncin[oi]|shorts?|calz[ae]|pallon[ei]|canestro)\b/.test(t)) {
@@ -668,20 +744,50 @@ export function detectSingleProductType(rawText: string): ProductType | null {
       !/\b(abbigliamento|completo|kit|accessori|orologi[o]?|smartwatch|watch|ciclocomputer|vest|backpack|pack|jacket|shirt|shorts|tights|gel|belt|marsupio|flask|bottle|poles)\b/.test(t)) {
     return "shoes";
   }
+
+  // Bare primary-brand fallback defaults (used ONLY for fresh queries with no prior product type!)
+  // During follow-ups (e.g. "Fascia cardio" -> "Marca Garmin con prezzo minore?"), prior productType ALWAYS takes precedence!
+  if (/\b(garmin|coros|suunto|amazfit)\b/.test(t)) return "gps_watch";
+  if (/\b(bryton|igpsport)\b/.test(t)) return "bike_computer";
+  if (/\b(oakley|rudy\s*project|bliz)\b/.test(t)) return "eyewear";
+  if (/\bcamelbak\b/.test(t)) return "hydration";
+  if (/\bbullpadel\b/.test(t)) return "padel_racket";
+  if (/\b(enervit|maurten|namedsport)\b/.test(t)) return "nutrition";
+
   return null;
 }
 
 export function detectProductType(query: string, contextQuery?: string | null): ProductType | null {
-  const direct = detectSingleProductType(query);
-  if (direct) return direct;
+  const explicit = detectExplicitProductType(query);
+  if (explicit) return explicit;
+  const singleCurrent = detectSingleProductType(query);
   if (contextQuery && contextQuery.trim()) {
     const turns = contextQuery.split(">>").map((s) => s.trim()).filter(Boolean).reverse();
+    let prevPt: ProductType | null = null;
     for (const turn of turns) {
-      const pt = detectSingleProductType(turn);
-      if (pt) return pt;
+      const pt = detectExplicitProductType(turn);
+      if (pt) {
+        prevPt = pt;
+        break;
+      }
+    }
+    if (!prevPt) {
+      for (const turn of turns) {
+        const pt = detectSingleProductType(turn);
+        if (pt) {
+          prevPt = pt;
+          break;
+        }
+      }
+    }
+    if (prevPt) {
+      if (singleCurrent && normalizeProductTypeGroup(singleCurrent) === normalizeProductTypeGroup(prevPt)) {
+        return singleCurrent;
+      }
+      return prevPt;
     }
   }
-  return null;
+  return singleCurrent;
 }
 
 export function normalizeProductTypeGroup(pt: ProductType | null): string | null {
@@ -728,9 +834,11 @@ export function mapProductTypeToCategory(pt: ProductType | null): string | null 
     case "swim":
       return "swim";
     case "padel_racket":
-      return "padel";
+      return "racket";
+    case "padel_shoes":
+      return "shoes";
     case "tennis_racket":
-      return "tennis";
+      return "racket";
     case "football_boots":
       return "football_boots";
     case "basketball_shoes":
@@ -746,6 +854,71 @@ export function mapProductTypeToCategory(pt: ProductType | null): string | null 
       return "winter_sports";
     case "nutrition":
       return "nutrition";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Returns ALL real DB `products.category` buckets that can hold valid items for a given `ProductType`.
+ * Crucial for browse-only, price-sorted (`price_asc`), and filtered pgvector queries so mis-bucketed
+ * products (e.g. 6,758 shoes in `shoes`, 315 padel rackets in `racket`, 830 caps in `gear`, 35 smart
+ * trainers in `trainer`, Polar H9/H10 in `gear`) are NEVER silently excluded!
+ */
+export function getAllowedCategoriesForProductType(pt: ProductType | null): string[] | null {
+  if (!pt) return null;
+  switch (pt) {
+    case "shoes":
+      return ["running_shoes", "shoes"];
+    case "trail_shoes":
+      return ["trail_running", "running_shoes", "shoes"];
+    case "padel_shoes":
+      return ["shoes", "tennis", "padel"];
+    case "tennis_shoes":
+      return ["tennis", "shoes"];
+    case "basketball_shoes":
+      return ["basketball", "shoes"];
+    case "volleyball_shoes":
+      return ["shoes", "running_shoes"];
+    case "football_boots":
+      return ["football_boots", "shoes"];
+    case "padel_racket":
+      return ["racket", "padel"];
+    case "tennis_racket":
+      return ["racket", "tennis"];
+    case "headwear":
+      return ["gear", "apparel"];
+    case "heart_rate_monitor":
+      return ["sensor", "gear", "strap", "gps_watch"];
+    case "smart_trainer":
+      return ["trainer", "cycling"];
+    case "hydration":
+      return ["hydration", "pack"];
+    case "long_sleeve_top":
+    case "short_sleeve_top":
+    case "singlet_top":
+    case "top":
+      return ["top", "apparel"];
+    case "leggings_tights":
+    case "shorts":
+    case "pants":
+      return ["pants", "apparel"];
+    case "jacket":
+      return ["jacket", "apparel"];
+    case "bike_computer":
+      return ["cycling"];
+    case "gps_watch":
+      return ["gps_watch"];
+    case "eyewear":
+      return ["eyewear"];
+    case "socks":
+      return ["socks"];
+    case "swim":
+      return ["swim"];
+    case "winter_sports":
+      return ["winter_sports"];
+    case "nutrition":
+      return ["nutrition"];
     default:
       return null;
   }
@@ -810,7 +983,7 @@ export function getBlockedCategoriesForProductType(pt: ProductType | null): stri
       return [
         "running_shoes", "trail_running", "shoes", "football_boots", "top", "jacket",
         "pants", "socks", "apparel", "eyewear", "nutrition", "padel", "hydration", "swim", "racket", "case", "mount",
-        "gear", "pack", "winter_sports", "non_sport",
+        "pack", "winter_sports", "non_sport",
       ];
     case "bike_computer":
       return [
@@ -850,10 +1023,11 @@ export function getBlockedCategoriesForProductType(pt: ProductType | null): stri
       ];
     case "basketball_shoes":
     case "tennis_shoes":
+    case "padel_shoes":
     case "volleyball_shoes":
       return [
         "top", "jacket", "pants", "socks", "apparel", "gps_watch", "eyewear", "hydration",
-        "nutrition", "padel", "cycling", "swim", "football_boots", "case", "strap", "mount", "sensor",
+        "nutrition", "cycling", "swim", "football_boots", "case", "strap", "mount", "sensor",
         "gear", "pack", "racket", "winter_sports", "trainer", "non_sport",
       ];
     case "swim":
@@ -1204,8 +1378,8 @@ export function isProductCompatible(
     case "shoes":
     case "trail_shoes": {
       if (isApparelOnlySizes(prod.available_sizes ?? [])) return false;
-      // Block apparel/tech/accessories/mats/insoles/bike racks & tires/headsets/non-shoe gear/slides/kids suffixes
-      if (/\b(t[\s-]*rex|smartwatch|orologi[o]?|garmin|amazfit|polar|suunto|coros|igpsport|bsc\d+|ciclocomputer|bike\s*computer|portabici|biciclett[ae]|antifurto|tappetino|yogamat|yoga\s*mat|solett[ae]|insole|plantar[ei]|lacci\b|stringhe\b|deodorant|impermeabilizzant|asciugascarpe|telo\s*microfibra|asciugaman[oi]|towel|borracc(?:ia|e)|soft\s*flask|zain[oi]|backpack|calz[ae]|calzin[oi]|socks?|socquette|light\s*crew|mid\s*cut|t[\s-]*shirt|magli[ae]|magliett[ae]|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet|snglt|tank\b|crop\b|cropped|tee\b|jsy\b|jersey\b|top\s*ss\b|crew\s*top\b|trk\s*jkt\b|pant\s*kp\b|dry\s*park\d*|park\s*20\b|woven\b|felp[ae]|hoodie|hooded|polare|fleece|giacc(?:a|he)|jacket|jkt\b|piumin[oi]|tuta\b|completo\b|pantaloncin[oi]|shorts?|leggings?|tights?|calzamagli[ae]|fuseaux|pantalon[ie]|pants\b|coscial[ei]|gonn[ae]|skirt|2in1|2\s*in\s*1|cappellin[oi]|cappell[oi]|\bcap\b|berrett[oi]|beanie|besanie|visier[ae]|headband|scaldacollo|scaldamuscoli|balaclava|neck\s*gaiter|gaiter\b|bandana|manicott[oi]|marsupi[oi]|run\s*belt|borson[ei]|bors[ae]|sacca\b|tote\b|duffel|guant[oi]|gloves|occhial[ie]|adattatore\s*ottico|gel\s*energetico|barrett[ae]|isonam|rull[oi]|casc(?:o|hi)|helmet|racchett[ae]|pala\s*padel|reggisen[oi]|\bbra\b|slip\b|boxer\b|bikini|maillot|crankbrothers|cuffi[ae]|scarpin[oi]|calcio|calcetto|futsal|mercurial|predator|copertone|pneumatic|24x1|rig\s*24|pallon[ei]|playground\s*8p|panno\s*pulizia|cintura\s*porta|\bps\b|\btd\b|\bgs\b|infant|toddler)\b/.test(fullText)) {
+      // Block apparel/tech/accessories/mats/insoles/bike racks & tires/headsets/non-shoe gear/slides/kids suffixes/football stud codes
+      if (/\b(t[\s-]*rex|smartwatch|orologi[o]?|garmin|amazfit|polar|suunto|coros|igpsport|bsc\d+|ciclocomputer|bike\s*computer|portabici|biciclett[ae]|antifurto|tappetino|yogamat|yoga\s*mat|solett[ae]|insole|plantar[ei]|lacci\b|stringhe\b|deodorant|impermeabilizzant|asciugascarpe|telo\s*microfibra|asciugaman[oi]|towel|borracc(?:ia|e)|bottigli[ae]|soft\s*flask|zain[oi]|backpack|calz[ae]|calzin[oi]|socks?|socquette|light\s*crew|mid\s*cut|t[\s-]*shirt|magli[ae]|magliett[ae]|long\s*sleeve|manic(?:a|he)|canott[ae]|singlet|snglt|tank\b|crop\b|cropped|tee\b|jsy\b|jersey\b|top\s*ss\b|crew\s*top\b|trk\s*jkt\b|pant\s*kp\b|dry\s*park\d*|park\s*20\b|woven\b|felp[ae]|hoodie|hooded|polare|fleece|giacc(?:a|he)|jacket|jkt\b|piumin[oi]|tuta\b|completo\b|pantaloncin[oi]|shorts?|leggings?|tights?|calzamagli[ae]|fuseaux|pantalon[ie]|pants\b|coscial[ei]|gonn[ae]|skirt|2in1|2\s*in\s*1|cappellin[oi]|cappell[oi]|\bcap\b|berrett[oi]|beanie|besanie|visier[ae]|headband|scaldacollo|scaldamuscoli|balaclava|neck\s*gaiter|gaiter\b|bandana|manicott[oi]|marsupi[oi]|run\s*belt|borson[ei]|bors[ae]|sacca\b|tote\b|duffel|guant[oi]|gloves|occhial[ie]|adattatore\s*ottico|gel\s*energetico|barrett[ae]|isonam|rull[oi]|casc(?:o|hi)|helmet|racchett[ae]|pala\s*padel|reggisen[oi]|\bbra\b|slip\b|boxer\b|bikini|maillot|crankbrothers|cuffi[ae]|scarpin[oi]|calcio|calcetto|futsal|mercurial|predator|\bfg\b|\bag\b|\bsg\b|\btf\b|copertone|pneumatic|24x1|rig\s*24|pallon[ei]|playground\s*8p|panno\s*pulizia|cintura\s*porta|\bps\b|\btd\b|\bgs\b|infant|toddler|neonat[io]|marvel|spider[\s-]*man|disney|minnie|paw\s*patrol)\b/.test(fullText)) {
         return false;
       }
       if (!/\b(ciabatt[ae]|slide|slides|recovery|recupero|sandal[oi]|infradito)\b/.test(qLow)) {
@@ -1306,10 +1480,16 @@ export function isProductCompatible(
 
     case "heart_rate_monitor": {
       if (bestPrice <= 0) return false;
-      if (/\b(forerunner|fenix|instinct|epix|venu|vivoactive|vantage|pacer|grit|ignite|suunto\s*(?:race|vertical|run)|coros\s*(?:pace|apex|vertix)|amazfit|smartwatch|orologi[o]?|ciclocomputer|garmin\s*edge|\bedge\s*\d+|bsc\d+|elemnt|calz[ae]|scarp[ae]|magli[ae]|pantalon[ie]|pellicol[ae]|cover|custodi[ae]|supporto|staff[ae])\b/.test(fullText)) {
+      if (!/\b(ricambi[oi]|replacement|cinghi[ae]|cavo|caricabatteri)\b/.test(qLow)) {
+        if (/\b(ricambi[oi]|replacement|cinghi[ae]|cavo\b|ricarica|caricabatteri|usb)\b/.test(fullText)) {
+          return false;
+        }
+        if (bestPrice < 18) return false;
+      }
+      if (/\b(forerunner|fenix|instinct|epix|venu|vivoactive|enduro|marq|tactix|approach|vantage|pacer|grit|ignite|suunto\s*(?:race|vertical|run)|coros\s*(?:pace|apex|vertix)|amazfit|smartwatch|orologi[o]?|ciclocomputer|garmin\s*edge|\bedge\s*\d+|bsc\d+|elemnt|bryton\s*rider|speed\s*sensor|cadence|cadense|cadenza|power\s*meter|misuratore\s*(?:di\s*)?potenza|zbike|smart\s*bike|rull[oi]|fanale|luce\b|radar\b|calz[ae]|scarp[ae]|magli[ae]|pantalon[ie]|pellicol[ae]|cover|custodi[ae]|supporto|staff[ae])\b/.test(fullText)) {
         return false;
       }
-      return /\b(fascia\s*cardio|fascia\s*hrm|hrm|h10|h9|verity|oh1|trackr\s*hr|tickr|heart\s*rate|frequenza\s*cardiaca|sensore\s*cardiaco|cardiofrequenzimetro)\b/.test(fullText);
+      return /\b(fasc(?:ia|e|ie)\s*cardio|fasc(?:ia|e|ie)\s*hrm|\bhrm\b|h10|h9|verity|oh1|trackr\s*hr|tickr|heart\s*rate|heartrate|frequenza\s*cardiaca|sensore\s*cardiaco|cardiofrequenzimetro)\b/.test(fullText);
     }
 
     case "gps_watch": {
@@ -1321,7 +1501,7 @@ export function isProductCompatible(
     }
 
     case "bike_computer": {
-      if (/\b(supporto|staff[ae]|mount|custodi[ae]|cover|pellicol[ae]|cinturin[oi]|fascia\s*cardio|forerunner|fenix|instinct|venu|scarp[ae]|magli[ae]|casco)\b/.test(fullText)) return false;
+      if (/\b(supporto|support\b|sostegno|staff[ae]|manubrio|mount(?:ing|s)?|closethegap|cockpit|out[\s-]*front|k[\s-]*edge|cassette|vitesses?|pacco\s*pignoni|adattatore|adapter|custodi[ae]|cover|pellicol[ae]|cinturin[oi]|fascia\s*cardio|forerunner|fenix|instinct|venu|scarp[ae]|magli[ae]|casco)\b/.test(fullText)) return false;
       if (bestPrice > 0 && bestPrice < 38) return false;
       return /\b(garmin\s*edge|\bedge\s*(?:130|530|540|830|840|1030|1040|1050|explore|mtb)\b|ciclocomputer|bike\s*computer|contachilometri|wahoo\s*elemnt|bryton|igpsport|bsc\d+|hammerhead|karoo)\b/.test(fullText);
     }
@@ -1359,6 +1539,13 @@ export function isProductCompatible(
       return /\b(basket|pallacanestro|lebron|kobe|giannis|luka|caitlin|sabrina|kd\s*\d+|harden|dame|jordan|curry|kyrie)\b/.test(fullText);
     }
 
+    case "padel_shoes": {
+      if (isApparelOnlySizes(prod.available_sizes ?? [])) return false;
+      if (bestPrice > 0 && bestPrice < 25) return false;
+      if (/\b(nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|pegasus|vomero|vaporfly|alphafly|speedgoat|magli[ae]|pantaloncin[oi]|shorts?|calz[ae]|racchett[ae]|pala\b|pallin[ae]|overgrip|\bgrip\b|bors[ae]|borson[ei]|zain[oi]|paletero|marsupi[oi]|cube\b|telo\b)\b/.test(fullText)) return false;
+      return /\b(padel|premura|sonicsmash|jet\s*viva|premier\s*major|hack\s*vibram|vertex\s*vibram|challenger\s*\d+|slam\b|clay|omni|herringbone)\b/.test(fullText);
+    }
+
     case "tennis_shoes": {
       if (/\b(nimbus|bondi|clifton|novablast|cumulus|kayano|ghost|glycerin|pegasus|speedgoat|magli[ae]|pantaloncin[oi]|calz[ae]|racchett[ae]|pallin[ae])\b/.test(fullText)) return false;
       return /\b(tennis|terra\s*battuta|clay|resolution|court\s*ff|dedicate|nikecourt|barricade|vapor|challenger|rush\s*pro|jet\s*mach)\b/.test(fullText);
@@ -1392,7 +1579,8 @@ export function isProductCompatible(
 // Bilingual Catalog Term Expansion & Sanitization
 // ============================================================================
 
-const CATEGORY_SYNONYMS: Partial<Record<ProductType, string[]>> = {
+// Brand-neutral category synonyms (safe to combine with ANY brand!)
+const GENERIC_CATEGORY_SYNONYMS: Partial<Record<ProductType, string[]>> = {
   leggings_tights: ["leggings", "tights", "calzamaglia", "fuseaux", "tight"],
   shorts: ["shorts", "pantaloncini", "ciclisti"],
   pants: ["pantaloni", "pants", "tights", "leggings"],
@@ -1403,18 +1591,36 @@ const CATEGORY_SYNONYMS: Partial<Record<ProductType, string[]>> = {
   jacket: ["giacca", "jacket", "antivento"],
   socks: ["calze", "socks", "calzini"],
   headwear: ["cappellino", "cap", "berretto", "visiera"],
-  heart_rate_monitor: ["fascia cardio", "hrm", "polar h10", "polar h9", "heart rate"],
-  bike_computer: ["garmin edge", "ciclocomputer", "igpsport", "bryton", "wahoo elemnt"],
+  heart_rate_monitor: ["fascia cardio", "hrm", "sensore frequenza cardiaca", "heart rate"],
+  bike_computer: ["ciclocomputer", "bike computer", "gps bici"],
+  gps_watch: ["orologio gps", "smartwatch", "sportwatch", "orologio"],
+  eyewear: ["occhiali", "sunglasses", "occhiali sportivi"],
+  hydration: ["zaino idratazione", "gilet running", "soft flask", "borraccia"],
+  swim: ["occhialini", "costume nuoto", "cuffia nuoto"],
+  padel_racket: ["racchetta padel", "pala padel"],
+  padel_shoes: ["scarpe padel", "padel"],
+  tennis_racket: ["racchetta tennis"],
+  football_boots: ["scarpe calcio", "scarpini", "calcetto"],
+  basketball_shoes: ["scarpe basket", "basket"],
+  tennis_shoes: ["scarpe tennis", "tennis"],
+  volleyball_shoes: ["scarpe pallavolo", "volley", "pallavolo"],
+};
+
+// Brand-specific flagship seeds used ONLY when no brand filter is active (prevents cross-brand pollution like "Garmin polar h10"!)
+const BRANDLESS_CATEGORY_FLAGSHIPS: Partial<Record<ProductType, string[]>> = {
+  heart_rate_monitor: ["polar h10", "polar h9", "garmin hrm"],
+  bike_computer: ["garmin edge", "igpsport", "bryton", "wahoo elemnt"],
   gps_watch: ["forerunner", "garmin", "fenix", "coros", "suunto", "polar vantage"],
-  eyewear: ["oakley", "occhiali", "sutro", "radar", "rudy project"],
-  hydration: ["active skin", "adv skin", "zaino", "soft flask", "borraccia", "camelbak"],
-  swim: ["occhialini", "arena", "speedo", "costume nuoto"],
-  padel_racket: ["bullpadel", "nox", "racchetta padel", "babolat", "head"],
-  tennis_racket: ["pure drive", "pure aero", "ezone", "wilson blade", "racchetta tennis"],
-  football_boots: ["mercurial", "predator", "phantom", "tiempo", "top sala", "calcio"],
-  basketball_shoes: ["lebron", "luka", "kobe", "giannis", "basket", "jordan"],
-  tennis_shoes: ["tennis", "resolution", "court ff", "nikecourt", "barricade"],
-  volleyball_shoes: ["volley", "pallavolo", "sky elite", "wave lightning"],
+  eyewear: ["oakley", "sutro", "radar", "rudy project"],
+  hydration: ["active skin", "adv skin", "camelbak"],
+  swim: ["arena", "speedo"],
+  padel_racket: ["bullpadel", "nox", "babolat", "head"],
+  padel_shoes: ["babolat premura", "asics sonicsmash", "joma padel slam", "asics padel challenger"],
+  tennis_racket: ["pure drive", "pure aero", "ezone", "wilson blade"],
+  football_boots: ["mercurial", "predator", "phantom", "tiempo", "top sala"],
+  basketball_shoes: ["lebron", "luka", "kobe", "giannis", "jordan"],
+  tennis_shoes: ["resolution", "court ff", "nikecourt", "barricade"],
+  volleyball_shoes: ["sky elite", "wave lightning"],
 };
 
 const APPAREL_SYNONYM_TYPES = new Set<ProductType>([
@@ -1422,7 +1628,7 @@ const APPAREL_SYNONYM_TYPES = new Set<ProductType>([
   "singlet_top", "top", "jacket", "socks", "headwear",
 ]);
 
-const CLEAN_FILLER_RE = /\b(da\s+corsa|per\s+correre|per\s+la\s+corsa|da\s+running|per\s+running|miglior[ie]?|offerte?|prezzo(?:\s+(?:massimo|max|minimo|min))?|sotto\s*(?:i|ai|gli|le|di)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|sopra\s*(?:i|ai|gli|le|di)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|meno\s*di\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|pi[uù]\s*di\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|fino\s*a(?:i|gli)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|entro\s*(?:i|ai|gli)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|non\s+(?:oltre|pi[uù]\s*di)\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|tra\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\s*e\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|taglia\s*\S+|tg\.?\s*\S+|misura\s*\S+|numero\s*\S+|spedizione\s+(?:gratuita|gratis)|in\s+(?:sconto|offerta|saldo)|scontat[aeio]|saldi|uomo|donna|unisex|rimuovi\s+limite\s+di\s+prezzo|senza\s+limiti\s+di\s+budget)\b/gi;
+const CLEAN_FILLER_RE = /\b(da\s+corsa|per\s+correre|per\s+la\s+corsa|da\s+running|per\s+running|miglior[ie]?|offerte?|prezz[oi](?:\s+(?:massimo|max|minimo|min|minore|maggiore|inferiore|superiore|pi[uù]\s+(?:basso|alto)|ridotto|contenuto|accessibile))?|sotto\s*(?:i|ai|gli|le|di)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|sopra\s*(?:i|ai|gli|le|di)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|meno\s*di\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|pi[uù]\s*di\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|fino\s*a(?:i|gli)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|entro\s*(?:i|ai|gli)?\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|non\s+(?:oltre|pi[uù]\s*di)\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|tra\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?\s*e\s*€?\s*\d+(?:[.,]\d+)?\s*(?:€|euro|eur)?|taglia\s*\S+|tg\.?\s*\S+|misura\s*\S+|numero\s*\S+|spedizione\s+(?:gratuita|gratis)|in\s+(?:sconto|offerta|saldo)|scontat[aeio]|saldi|uomo|donna|unisex|rimuovi\s+limite\s+di\s+prezzo|senza\s+limiti\s+di\s+budget|tutti\s+i\s+(?:brand|generi|colori|negozi)|tutte\s+le\s+(?:marche|taglie)|rimuovi\s+(?:le\s+)?esclusion[ei]|ordine\s+consigliato|marca\s+|con\s+prezzo\s+minore)\b/gi;
 
 export function buildCatalogSearchTerms(opts: {
   rawQuery?: string | null;
@@ -1440,6 +1646,12 @@ export function buildCatalogSearchTerms(opts: {
   const out: string[] = [];
   const seen = new Set<string>();
 
+  const hasConflictingBrand = (text: string): boolean => {
+    if (!brandLow || isComparison) return false;
+    const foundBrands = extractAllBrands(text);
+    return foundBrands.some((b) => b.toLowerCase() !== brandLow);
+  };
+
   const add = (term: string) => {
     let clean = normalizeQueryTypos(term)
       .replace(/>>+/g, " ")
@@ -1454,6 +1666,7 @@ export function buildCatalogSearchTerms(opts: {
       clean = clean.replace(/\b(scarp[ae]|shoes?|running|corsa)\b/gi, " ").replace(/\s+/g, " ").trim();
     }
     if (!clean || clean.length < 2) return;
+    if (hasConflictingBrand(clean)) return;
     const low = clean.toLowerCase();
     // NEVER allow bare brand name alone when we know the productType or specific entityTokens!
     if ((pt || entityTokens.length > 0) && brandLow && low === brandLow) return;
@@ -1467,8 +1680,8 @@ export function buildCatalogSearchTerms(opts: {
   // 1. When BOTH an entity/sub-brand (e.g. "acg") AND an apparel productType (e.g. "long_sleeve_top") exist,
   // put SPECIFIC entity + apparel-synonym terms FIRST so hats/caps/bags matching bare "Nike acg" NEVER crowd them out!
   const entityPhrase = entityTokens.join(" ");
-  if (entityTokens.length > 0 && !isComparison && pt && APPAREL_SYNONYM_TYPES.has(pt) && CATEGORY_SYNONYMS[pt]) {
-    for (const syn of CATEGORY_SYNONYMS[pt]!.slice(0, 6)) {
+  if (entityTokens.length > 0 && !isComparison && pt && APPAREL_SYNONYM_TYPES.has(pt) && GENERIC_CATEGORY_SYNONYMS[pt]) {
+    for (const syn of GENERIC_CATEGORY_SYNONYMS[pt]!.slice(0, 6)) {
       add(brand ? `${brand} ${entityPhrase} ${syn}` : `${entityPhrase} ${syn}`);
     }
   }
@@ -1497,13 +1710,14 @@ export function buildCatalogSearchTerms(opts: {
     add(entityPhrase);
   }
 
-  // 4. For category + brand (or pure category) queries without specific model tokens, expand bilingual synonyms!
-  if (entityTokens.length === 0 && pt && CATEGORY_SYNONYMS[pt] && (APPAREL_SYNONYM_TYPES.has(pt) || out.length < 2)) {
-    for (const syn of CATEGORY_SYNONYMS[pt]!) {
-      if (brand) {
-        add(`${brand} ${syn}`);
-      } else {
-        add(syn);
+  // 4. For category + brand (or pure category) queries without specific model tokens, expand brand-safe bilingual synonyms!
+  if (entityTokens.length === 0 && pt && (GENERIC_CATEGORY_SYNONYMS[pt] || BRANDLESS_CATEGORY_FLAGSHIPS[pt]) && (APPAREL_SYNONYM_TYPES.has(pt) || out.length < 3)) {
+    for (const syn of GENERIC_CATEGORY_SYNONYMS[pt] ?? []) {
+      add(brand ? `${brand} ${syn}` : syn);
+    }
+    if (!brand) {
+      for (const flag of BRANDLESS_CATEGORY_FLAGSHIPS[pt] ?? []) {
+        add(flag);
       }
     }
   }
@@ -2129,7 +2343,8 @@ function scoreAndGateProducts(
 
   // 8. Deduplicate / merge identical canonical models (including unclustered brand/title/synonym variants)
   const isNoisyName = (name: string): boolean =>
-    /\b(sneakers?|sollevamento\s+pesi|adulto|gara\s+su\s+strada|competizione|sportiv[oa])\b/i.test(name) ||
+    /\b(sneakers?|sollevamento\s+pesi|adulto|gara\s+su\s+strada|competizione|sportiv[oa]|tracker\s+hrm|tg\.?\s*(?:xs|s|m|l|xl|xxl))\b/i.test(name) ||
+    /\b(?:hrm\s*\d+|h9|h10)\s+(?:hr\s+)?(?:xs|xl|xxl)\b/i.test(name) ||
     /\b(\w+)\s+(?:\S+\s+){0,2}\1\b/i.test(name);
 
   const deduped: InternalProduct[] = [];
@@ -2227,6 +2442,18 @@ export function buildCanonicalMergeKey(canonicalName: string, brand?: string | n
 
   if (bLow === "under armour") {
     s = s.replace(/\bua\b/g, " ");
+  }
+
+  // Collapse fragmented heart-rate monitor variants (e.g. "Garmin Sensore Frequenza Cardiaca Hrm 200",
+  // "Garmin Tracker Hrm 200 Xs", "Garmin Fascia Hrm 200 Xl", "Garmin Fascia Cardio Hrm 200" -> "garmin hrm 200")
+  if (/\b(hrm|h10|h9|verity|oh1|tickr|trackr\s*hr)\b/i.test(s)) {
+    s = s
+      .replace(/\b(?:sensore|misuratore|monitor)\s+(?:di\s+)?(?:frequenza\s+cardiaca|cardiaco)\b/g, " ")
+      .replace(/\b(?:fasc(?:ia|e)\s*cardio|cintura\s*cardio|fasc(?:ia|e)|tracker|bluetooth|ant\+?|optical|armband)\b/g, " ")
+      .replace(/\b(?:tg\.?\s*)?(?:m[\s/-]+x?xl|xs[\s/-]+s|s[\s/-]+m|xs|xxl|xl|m|s|l)\b/g, " ");
+    if (/\b(h9|h10|hrm)\b/i.test(s)) {
+      s = s.replace(/\bhr\b/g, " ");
+    }
   }
 
   if (bLow) {
@@ -2402,33 +2629,26 @@ export async function searchCatalogOffers(
   };
 
   // 1. Primary Product-Level Hybrid Lexical RPC v4 + Parallel Filtered pgvector v2 (RRF)
-  const mappedCategory = mapProductTypeToCategory(productType);
-  const categoryAllowedForProductType = mappedCategory
-    ? (mappedCategory === "running_shoes"
-      ? (opts.sortBy === "price_asc" ? ["running_shoes"] : ["running_shoes", "shoes"])
-      : mappedCategory === "trail_running"
-        ? (opts.sortBy === "price_asc" ? ["trail_running", "running_shoes"] : ["trail_running", "running_shoes", "shoes"])
-        : mappedCategory === "top"
-          ? ["top", "apparel"]
-          : mappedCategory === "pants"
-            ? ["pants", "apparel"]
-            : mappedCategory === "jacket"
-              ? ["jacket", "apparel"]
-              : [mappedCategory])
-    : null;
+  const categoryAllowedForProductType = getAllowedCategoriesForProductType(productType);
   const browseAllowedCategories = searchTerms.length === 0 ? categoryAllowedForProductType : null;
 
   // When browsing cheapest-first (price_asc), apply realistic category floor prices in SQL so
   // €5 laces / €15 slides / €20 kids shoes don't exhaust the SQL LIMIT before reaching real adult products!
   let effectiveSqlMinPrice = opts.minPrice ?? null;
   if (opts.sortBy === "price_asc") {
-    const shoeTypes: ProductType[] = ["shoes", "trail_shoes", "basketball_shoes", "tennis_shoes", "volleyball_shoes", "football_boots"];
+    const shoeTypes: ProductType[] = ["shoes", "trail_shoes", "padel_shoes", "basketball_shoes", "tennis_shoes", "volleyball_shoes", "football_boots"];
     if (productType && shoeTypes.includes(productType)) {
       effectiveSqlMinPrice = Math.max(effectiveSqlMinPrice ?? 0, 35);
     } else if (productType === "gps_watch") {
       effectiveSqlMinPrice = Math.max(effectiveSqlMinPrice ?? 0, 65);
+    } else if (productType === "bike_computer") {
+      effectiveSqlMinPrice = Math.max(effectiveSqlMinPrice ?? 0, 38);
+    } else if (productType === "heart_rate_monitor") {
+      effectiveSqlMinPrice = Math.max(effectiveSqlMinPrice ?? 0, 18);
     } else if (productType === "padel_racket" || productType === "tennis_racket") {
       effectiveSqlMinPrice = Math.max(effectiveSqlMinPrice ?? 0, 38);
+    } else if (productType === "smart_trainer") {
+      effectiveSqlMinPrice = Math.max(effectiveSqlMinPrice ?? 0, 150);
     }
   }
 
@@ -2507,18 +2727,6 @@ export async function searchCatalogOffers(
   const [primaryLexRows, parallelSemRows] = await Promise.all([lexicalPromise, parallelSemanticPromise]);
   ingestRpcRows(primaryLexRows);
   ingestSemanticRows(parallelSemRows);
-
-  // Fallback for price_asc on running_shoes if narrow filters (e.g. store + size) returned < 10 in running_shoes alone
-  if (opts.sortBy === "price_asc" && searchTerms.length === 0 && mappedCategory === "running_shoes" && candidateMap.size < 10) {
-    const { data: rpcRows } = await supabase.rpc("search_products_catalog_v4", {
-      ...rpcBaseParams,
-      search_terms: null,
-      brand_filter: brand,
-      allowed_categories: ["running_shoes", "shoes"],
-      result_limit: 160,
-    });
-    ingestRpcRows(rpcRows as RpcProductRow[] | null);
-  }
 
   // 2. If brand + exact entity tokens returned 0 (e.g. brand spelled differently in DB), retry without brand_filter
   if (candidateMap.size === 0 && entityTokens.length > 0 && brand) {
@@ -2610,6 +2818,37 @@ export interface MultiQuerySearchResult {
   roleById: Record<string, "primary" | "variant" | "complementary">;
   executedLabels: string[];
   hasMore: boolean;
+  generationFallbackUsed: boolean;
+}
+
+/**
+ * Ranks generation-fallback products (e.g. user asked for "Garmin Forerunner 245" or "Brooks Ghost 14"
+ * which is out of stock) by numeric generation proximity, preferring the closest newer successor first
+ * (e.g. Forerunner 255/265 before 165 before 55; Ghost 16/17 before Ghost Max).
+ */
+export function sortByGenerationProximity(
+  products: MatchedProductOut[],
+  requestedDigits: string[],
+): MatchedProductOut[] {
+  const targetNums = requestedDigits.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  if (targetNums.length === 0 || products.length <= 1) return products;
+  const target = targetNums[targetNums.length - 1];
+
+  const distOf = (p: MatchedProductOut): number => {
+    const nums = (p.canonical_name.match(/\b\d+\b/g) ?? [])
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0 && !(n >= 2020 && n <= 2030));
+    if (nums.length === 0) return 9_999;
+    let best = 9_999;
+    for (const n of nums) {
+      // Closer newer generations win cleanly over older/entry-level models
+      const d = n >= target ? (n - target) : (target - n) * 2.5;
+      if (d < best) best = d;
+    }
+    return best;
+  };
+
+  return [...products].sort((a, b) => distOf(a) - distOf(b));
 }
 
 export function modelFamilyKey(p: MatchedProductOut): string {
@@ -2702,12 +2941,13 @@ export async function searchCatalogMultiQuery(
         limit: sq.limit ?? (sq.role === "primary" ? 28 : 18),
       });
 
-      // Graceful generation fallback: if an exact known-brand version is sold out (e.g. "Asics Nimbus 26"),
-      // strip ONLY numeric version tokens and fetch the active line (e.g. "Asics Gel-Nimbus 27/28") strictly without semantic drift.
+      // Graceful generation fallback: if an exact known-brand version is sold out (e.g. "Asics Nimbus 26", "Garmin Forerunner 245"),
+      // strip ONLY numeric version tokens and fetch the active line strictly without semantic drift, ranked by generation proximity!
+      let usedGenFallback = false;
       if (items.length === 0 && sqBrand && sqEntities.length >= 2) {
-        const hasDigit = sqEntities.some((t) => /^\d+$/.test(t));
+        const digitTokens = sqEntities.filter((t) => /^\d+$/.test(t));
         const nonDigit = sqEntities.filter((t) => !/^\d+$/.test(t) && t.length >= 3);
-        if (hasDigit && nonDigit.length > 0) {
+        if (digitTokens.length > 0 && nonDigit.length > 0) {
           const relaxedTerms = Array.from(new Set(
             sq.terms
               .map((t) => t.replace(/\b\d+\b/g, " ").replace(/\s+/g, " ").trim())
@@ -2742,10 +2982,16 @@ export async function searchCatalogMultiQuery(
             allowSemantic: false,
             limit: sq.limit ?? 14,
           });
+          if (items.length > 0) {
+            usedGenFallback = true;
+            if (!opts.sortBy) {
+              items = sortByGenerationProximity(items, digitTokens);
+            }
+          }
         }
       }
 
-      return { spec: sq, items };
+      return { spec: sq, items, usedGenFallback };
     }),
   );
 
@@ -2890,12 +3136,16 @@ export async function searchCatalogMultiQuery(
     merged.sort((a, b) => maxDisc(b) - maxDisc(a) || (a.best_price ?? 99999) - (b.best_price ?? 99999));
   }
 
+  const generationFallbackUsed = perQueryResults.some((r) => r.spec.role === "primary" && r.usedGenFallback) &&
+    !perQueryResults.some((r) => r.spec.role === "primary" && !r.usedGenFallback && r.items.length > 0);
+
   return {
     products: merged,
     primaryIds,
     roleById,
     executedLabels,
     hasMore,
+    generationFallbackUsed,
   };
 }
 
@@ -3126,7 +3376,7 @@ const FAST_PATH_ADVISORY_OR_CONCEPT_RE =
   /\b(miglior[ie]|consigli[ao]|consigliami|iniziare|principiant[ei]?|ginocchi[ao]|schiena|fascite|pronat|supinat|piatt[ae]|larg[ae]|strett[ae]|alternativ[ae]|simil[ie]|maraton[ae]|mezza\s+maratona|gara|ritm[oi]|veloc[ei]|lent[oi]|pesant[ei]|legger[ae]|ammortizzat[aeoi]|reattiv[aeoi]|stabil[ei]|traspirant[ei]|impermeabil[ei]|caldo|freddo|pioggia|neve|fango|sterrato|asfalto|pista|palestra|crossfit|hyrox|squat|allenamento|confronta|confronto|versus|differenz[ae]|\bvs\b|quanto|come|qual[ei]|perch[eé]|peso|\d+\s*kg)\b|\?/i;
 
 const FAST_PATH_FILTER_NOISE_RE =
-  /\b(al\s+di\s+sotto|sotto|sopra|oltre|fino|entro|meno|massimo|minimo|prezzo|prezzi|budget|euro|eur|tra|ed?|da|di|dei|degli|delle|del|dello|della|ai|agli|alle|al|all|il|lo|la|i|gli|le|un|una|uno|con|senza|per|su|in|solo|soltanto|esclusivamente|mostra|mostrami|fammi|vedere|cerca|cercami|trova|voglio|vorrei|dammi|filtra|ordina|rimuovi|togli|azzera|elimina|senza\s+limiti?|tutt[eio]|qualsiasi|limite|filtro|filtri|taglia|taglie|numero|misura|mia|mio|uomo|uomini|maschile|donna|donne|femminile|unisex|spedizione|consegna|gratuita|gratis|free|shipping|sconto|sconti|scontat[aeoi]|offerta|offerte|promo|promozione|saldi|economich[ei]|economic[oi]|car[aeoi]|costos[aeoi]|crescente|decrescente|basso|alto|pi[uù]|non|tranne|esclus[aeoi]|escludi|evita|piastra|carbonio|carbon|cappuccio|modelli?|prodotti?|articoli?|varianti?|color[ei]|ner[oaie]|black|bianc[oa]|bianch[ei]|white|blu|azzurr[oaie]|navy|blue|ross[oaie]|red|verd[ei]|green|grigi[oaie]|grey|gray|rosa|pink|arancion[ei]|orange|giall[oaie]|yellow|marron[ei]|brown|beige|viola|purple|brand|marca|marche|negozio|negozi|store)\b/gi;
+  /\b(al\s+di\s+sotto|sotto|sopra|oltre|fino|entro|meno|massimo|minimo|prezzo|prezzi|budget|euro|eur|tra|ed?|da|di|dei|degli|delle|del|dello|della|ai|agli|alle|al|all|il|lo|la|i|gli|le|un|una|uno|con|senza|per|su|sul|sulla|sui|in|nel|nella|nei|nelle|solo|soltanto|esclusivamente|mostra|mostrami|mostrane|fammi|vedere|cerca|cercami|trova|voglio|vorrei|dammi|filtra|ordina|ordine|ordinamento|consigliato|consigliati|rilevanza|rimuovi|togli|azzera|elimina|includi|pagamento|senza\s+limiti?|tutt[eio]|qualsiasi|limite|limiti|filtro|filtri|taglia|taglie|numero|misura|mia|mio|uomo|uomini|maschile|donna|donne|femminile|unisex|genere|generi|spedizione|consegna|gratuita|gratis|free|shipping|sconto|sconti|scontat[aeoi]|offerta|offerte|promo|promozione|saldi|economich[ei]|economic[oi]|car[aeoi]|costos[aeoi]|costa|costano|spendere|accessibil[ei]|convenient[ei]|ridott[oaie]|contenut[oaie]|minore|minori|maggiore|maggiori|inferiore|inferiori|superiore|superiori|elevat[oaie]|fort[ei]|grand[ei]|crescente|decrescente|basso|bassi|alto|alti|pi[uù]|non|tranne|esclus[aeoi]|esclusion[ei]|escludi|evita|piastra|carbonio|carbon|cappuccio|modelli?|prodotti?|articoli?|varianti?|color[ei]|ner[oaie]|black|bianc[oa]|bianch[ei]|white|blu|azzurr[oaie]|navy|blue|ross[oaie]|red|verd[ei]|green|grigi[oaie]|grey|gray|rosa|pink|arancion[ei]|orange|giall[oaie]|yellow|marron[ei]|brown|beige|viola|purple|brand|brands|marca|marche|negozio|negozi|store|quell[oaie]|quest[oaie]|che)\b/gi;
 
 /**
  * Decides whether a search request can safely bypass Stage-1 Planner LLM and/or Stage-2 Merchandiser LLM

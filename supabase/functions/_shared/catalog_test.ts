@@ -12,11 +12,13 @@ import {
   extractExcludedStores,
   extractSpecificEntityTokens,
   extractStoreFilter,
+  getAllowedCategoriesForProductType,
   getBlockedCategoriesForProductType,
   isProductCompatible,
   modelFamilyKey,
   normalizeProductTypeGroup,
   normalizeSize,
+  sortByGenerationProximity,
 } from "./catalog.ts";
 
 function assert(cond: unknown, msg: string): void {
@@ -390,4 +392,175 @@ Deno.test("evaluateDeterministicFastPath skips Stage-1 on exact brand+model, pur
   });
   assertEq(comparison.skipStage1, false, "Comparison keeps Stage 1");
   assertEq(comparison.skipStage2, false, "Comparison keeps Stage 2");
+});
+
+Deno.test("getAllowedCategoriesForProductType aligns with real production DB buckets", () => {
+  const shoesCats = getAllowedCategoriesForProductType("shoes") ?? [];
+  assert(shoesCats.includes("shoes") && shoesCats.includes("running_shoes"), "shoes scans both shoes and running_shoes");
+  const trailCats = getAllowedCategoriesForProductType("trail_shoes") ?? [];
+  assert(trailCats.includes("trail_running") && trailCats.includes("shoes"), "trail_shoes includes trail_running + shoes");
+  const padelRacketCats = getAllowedCategoriesForProductType("padel_racket") ?? [];
+  assert(padelRacketCats.includes("racket") && padelRacketCats.includes("padel"), "padel_racket scans racket + padel");
+  const padelShoesCats = getAllowedCategoriesForProductType("padel_shoes") ?? [];
+  assert(padelShoesCats.includes("shoes") && !padelShoesCats.includes("racket"), "padel_shoes scans shoes/tennis/padel without racket");
+  const headwearCats = getAllowedCategoriesForProductType("headwear") ?? [];
+  assert(headwearCats.includes("gear") && headwearCats.includes("apparel"), "headwear scans gear + apparel");
+  const hrmCats = getAllowedCategoriesForProductType("heart_rate_monitor") ?? [];
+  assert(hrmCats.includes("sensor") && hrmCats.includes("gear") && hrmCats.includes("strap"), "HRM scans sensor + gear + strap");
+  const hrmBlocked = getBlockedCategoriesForProductType("heart_rate_monitor") ?? [];
+  assert(!hrmBlocked.includes("gear"), "HRM must NOT block gear (Polar H9/H10 live in gear)");
+  const trainerCats = getAllowedCategoriesForProductType("smart_trainer") ?? [];
+  assert(trainerCats.includes("trainer") && trainerCats.includes("cycling"), "smart_trainer scans trainer + cycling");
+});
+
+Deno.test("padel_shoes detection/gating and bike_computer mount rejection", () => {
+  assertEq(detectExplicitProductType("Scarpe da padel uomo"), "padel_shoes", "Scarpe da padel -> padel_shoes");
+  assertEq(detectExplicitProductType("Babolat Jet Premura 3"), "padel_shoes", "Babolat Jet Premura -> padel_shoes");
+  assertEq(detectExplicitProductType("Racchetta padel Bullpadel Vertex 05"), "padel_racket", "Padel racket stays padel_racket");
+
+  const padelShoe = {
+    canonical_name: "Babolat Scarpe Padel Premura 3",
+    brand: "Babolat",
+    category: "shoes",
+    gender: "Uomo",
+    best_price: 129.0,
+    offers: [{ title: "Babolat Jet Premura 3 Scarpe Padel", url: "https://example.com/premura" }],
+  };
+  const padelRacket = {
+    canonical_name: "Bullpadel Racchetta Vertex 05",
+    brand: "Bullpadel",
+    category: "racket",
+    gender: "Unisex",
+    best_price: 249.0,
+    offers: [{ title: "Bullpadel Racchetta Padel Vertex 05", url: "https://example.com/vertex" }],
+  };
+  const runningShoe = {
+    canonical_name: "Brooks Ghost 17 Uomo",
+    brand: "Brooks",
+    category: "running_shoes",
+    gender: "Uomo",
+    best_price: 119.0,
+    offers: [{ title: "Brooks Ghost 17 Scarpe Running", url: "https://example.com/ghost17" }],
+  };
+  assertEq(isProductCompatible(padelShoe, "padel_shoes", "scarpe da padel"), true, "Padel shoe accepted");
+  assertEq(isProductCompatible(padelRacket, "padel_shoes", "scarpe da padel"), false, "Padel racket rejected for padel_shoes");
+  assertEq(isProductCompatible(runningShoe, "padel_shoes", "scarpe da padel"), false, "Running shoe rejected for padel_shoes");
+
+  const bikeMount = {
+    canonical_name: "Garmin Closethegap HideMyBell Raceday Mounting Edge 1050",
+    brand: "Garmin",
+    category: "cycling",
+    gender: "Unisex",
+    best_price: 69.99,
+    offers: [{ title: "CloseTheGap Mounting Edge 1050 Cockpit Out-Front", url: "https://example.com/mount" }],
+  };
+  const bikeComputer = {
+    canonical_name: "Garmin Edge 540 Ciclocomputer GPS",
+    brand: "Garmin",
+    category: "cycling",
+    gender: "Unisex",
+    best_price: 279.0,
+    offers: [{ title: "Garmin Edge 540 Ciclocomputer GPS", url: "https://example.com/edge540" }],
+  };
+  assertEq(isProductCompatible(bikeMount, "bike_computer", "ciclocomputer garmin"), false, "CloseTheGap Mounting rejected for bike_computer");
+  assertEq(
+    isProductCompatible(
+      { canonical_name: "Garmin Pro Sostegno Manubrio Vibe Aero Edge 1000 1030", brand: "Garmin", category: "cycling", gender: "Unisex", best_price: 70.95, offers: [] },
+      "bike_computer",
+      "ciclocomputer garmin",
+    ),
+    false,
+    "Handlebar sostegno mount rejected for bike_computer",
+  );
+  assertEq(
+    isProductCompatible(
+      { canonical_name: "Garmin Edge Cassette 10 Vitesses Csm6010", brand: "Garmin", category: "cycling", gender: "Unisex", best_price: 40.0, offers: [] },
+      "bike_computer",
+      "ciclocomputer garmin",
+    ),
+    false,
+    "Drivetrain cassette rejected for bike_computer",
+  );
+  assertEq(isProductCompatible(bikeComputer, "bike_computer", "ciclocomputer garmin"), true, "Real Garmin Edge 540 accepted");
+  assertEq(
+    isProductCompatible(
+      { canonical_name: "Adidas Marvel Spider Man Runfalcon", brand: "Adidas", category: "shoes", gender: "Unisex", best_price: 35.0, offers: [] },
+      "shoes",
+      "scarpe running più economiche",
+    ),
+    false,
+    "Kids Marvel Spider-Man shoe rejected for adult running shoes",
+  );
+  assertEq(
+    isProductCompatible(
+      { canonical_name: "Joma Aguila Fg", brand: "Joma", category: "shoes", gender: "Uomo", best_price: 35.2, offers: [] },
+      "shoes",
+      "scarpe running più economiche",
+    ),
+    false,
+    "FG football boot rejected for running shoes",
+  );
+});
+
+Deno.test("buildCanonicalMergeKey collapses fragmented HRM variants across stores", () => {
+  const garmin200Variants = [
+    "Garmin Sensore Frequenza Cardiaca Hrm 200",
+    "Garmin Tracker Hrm 200 Xs",
+    "Garmin Hrm 200 Xl",
+    "Garmin Fascia Hrm 200 Xl",
+    "Garmin Fascia Cardio Hrm 200",
+  ];
+  const expected200 = buildCanonicalMergeKey(garmin200Variants[0], "Garmin");
+  for (const title of garmin200Variants) {
+    assertEq(buildCanonicalMergeKey(title, "Garmin"), expected200, `'${title}' collapses to Garmin HRM 200`);
+  }
+  assert(
+    buildCanonicalMergeKey("Garmin Fascia Cardio Hrm 200", "Garmin") !==
+      buildCanonicalMergeKey("Garmin Fascia Cardio Hrm 600", "Garmin"),
+    "HRM 200 stays distinct from HRM 600",
+  );
+  assertEq(
+    buildCanonicalMergeKey("Polar Sensore Frequenza Cardiaca H10 M Xxl", "Polar"),
+    buildCanonicalMergeKey("Polar Fascia Cardio H10", "Polar"),
+    "Polar H10 variants collapse cleanly",
+  );
+});
+
+Deno.test("sortByGenerationProximity ranks closest newer generations first", () => {
+  const mk = (name: string) => ({
+    id: name,
+    canonical_name: name,
+    brand: "Garmin",
+    image_url: null,
+    gallery_images: null,
+    gender: "Unisex",
+    offers: [],
+    best_price: 250,
+    highest_price: 250,
+    cross_store_savings: null,
+  });
+
+  const garminList = [
+    mk("Garmin Forerunner 55"),
+    mk("Garmin Forerunner 965"),
+    mk("Garmin Forerunner 165"),
+    mk("Garmin Forerunner 265"),
+    mk("Garmin Forerunner 255"),
+  ];
+  const rankedGarmin = sortByGenerationProximity(garminList, ["245"]).map((p) => p.canonical_name);
+  assertEq(rankedGarmin[0], "Garmin Forerunner 255", "255 (+10) comes first for 245");
+  assertEq(rankedGarmin[1], "Garmin Forerunner 265", "265 (+20) comes second for 245");
+  assert(
+    rankedGarmin.indexOf("Garmin Forerunner 165") < rankedGarmin.indexOf("Garmin Forerunner 55"),
+    `165 must outrank 55 for 245, got ${JSON.stringify(rankedGarmin)}`,
+  );
+
+  const brooksList = [
+    mk("Brooks Ghost Max 2"),
+    mk("Brooks Ghost 18"),
+    mk("Brooks Ghost 17"),
+  ];
+  const rankedBrooks = sortByGenerationProximity(brooksList, ["14"]).map((p) => p.canonical_name);
+  assertEq(rankedBrooks[0], "Brooks Ghost 17", "Ghost 17 comes first for Ghost 14");
+  assertEq(rankedBrooks[1], "Brooks Ghost 18", "Ghost 18 comes second for Ghost 14");
 });

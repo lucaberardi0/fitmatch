@@ -10,9 +10,9 @@ const corsHeaders = {
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const VISION_SYSTEM = `Sei il sistema di riconoscimento visivo sportivo di FitMatch.
-Analizza la foto caricata dall'utente e identifica l'articolo sportivo principale (scarpe da running/trail/calcio/padel/tennis/basket/sneakers, abbigliamento sportivo, smartwatch GPS, occhiali sportivi, zaini/idratazione, bici/accessori).
+Analizza la foto caricata dall'utente e identifica l'articolo sportivo principale (scarpe da running/trail/calcio/padel/tennis/basket/sneakers, ciabatte recovery sportive come Hoka Ora/Adidas Adilette/Oofos/Salomon Reelax, abbigliamento sportivo, smartwatch GPS, fasce cardio, occhiali sportivi, zaini/idratazione, bici/accessori).
 REGOLE TASSATIVE:
-1. Se la foto NON mostra articoli sportivi/abbigliamento/calzature/accessori atletici (es. cibo, auto, documenti, selfie senza capi sportivi, animali, paesaggi), imposta "is_sport_product": false e spiega brevemente in "note" in italiano.
+1. Se la foto NON mostra articoli sportivi/abbigliamento/calzature/accessori atletici (es. infradito da mare o ciabatte casual come Havaianas, scarpe eleganti/tacchi, cibo, auto, documenti, selfie senza capi sportivi, animali, paesaggi), imposta "is_sport_product": false e spiega brevemente in "note" in italiano che articolo hai riconosciuto e che FitMatch confronta solo articoli sportivi.
 2. Se è un articolo sportivo, indica il modello più probabile ("recognized_model", es. "Nike Pegasus 41", "Hoka Clifton 9", "Garmin Forerunner 265"), il brand, la categoria, il colore principale e una "search_query" pulita e ottimizzata per trovare offerte reali in un comparatore prezzi (2-4 parole chiave sul prodotto, più eventuali vincoli espliciti indicati dall'utente come genere Uomo/Donna, taglia o budget max).
 3. Se l'utente fornisce una descrizione aggiuntiva, usala per disambiguare su quale oggetto concentrarti (es. se ci sono più articoli nella foto), distinguere la versione/edizione o applicare i filtri richiesti in "search_query".
 4. In "confidence" usa SOLO "high", "medium" o "low". Se non sei sicuro del numero esatto di versione (es. Clifton 8 vs 9, Pegasus 40 vs 41), metti le varianti possibili in "alternatives" (max 3 stringhe brevi).
@@ -94,11 +94,9 @@ Deno.serve(async (req: Request) => {
     }
 
     const primaryModel = (Deno.env.get("OPENROUTER_VISION_MODEL") ?? "").trim() ||
-      (Deno.env.get("OPENROUTER_MODEL") ?? "").trim() ||
-      "openai/gpt-4o-mini";
-    const modelsToTry = primaryModel === "google/gemini-2.0-flash-001"
-      ? [primaryModel]
-      : [primaryModel, "google/gemini-2.0-flash-001"];
+      "google/gemini-2.5-flash";
+    const fallbackModel = (Deno.env.get("OPENROUTER_MODEL") ?? "").trim() || "openai/gpt-4o-mini";
+    const modelsToTry = Array.from(new Set([primaryModel, "google/gemini-2.5-flash", fallbackModel, "openai/gpt-4o-mini"]));
 
     let parsed: Record<string, unknown> | null = null;
     for (const model of modelsToTry) {
@@ -117,8 +115,11 @@ Deno.serve(async (req: Request) => {
         temperature: 0.1,
         max_tokens: 450,
       };
-      if (model.startsWith("openai/")) {
+      if (model.startsWith("openai/") || model.startsWith("google/gemini")) {
         payload.response_format = { type: "json_object" };
+      }
+      if (model.startsWith("google/gemini-2.5")) {
+        payload.reasoning = { effort: "none" };
       }
 
       try {
@@ -201,7 +202,7 @@ Deno.serve(async (req: Request) => {
             [searchQuery, recognizedModel].map((s) => s.trim()).filter((s) => s.length >= 2),
           ));
           if (searchTerms.length > 0) {
-            const { data: rpcRows } = await supabase.rpc("search_products_catalog_v3", {
+            const { data: rpcRows } = await supabase.rpc("search_products_catalog_v4", {
               search_terms: searchTerms,
               brand_filter: brand,
               result_limit: 25,
@@ -211,7 +212,7 @@ Deno.serve(async (req: Request) => {
             }
           }
           if (catalogMatchesCount === 0 && brand) {
-            const { data: brandRows } = await supabase.rpc("search_products_catalog_v3", {
+            const { data: brandRows } = await supabase.rpc("search_products_catalog_v4", {
               search_terms: null,
               brand_filter: brand,
               result_limit: 25,
