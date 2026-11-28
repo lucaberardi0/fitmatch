@@ -804,44 +804,84 @@ struct ShopStoreDetailSkeletonView: View {
     }
 }
 
-// MARK: - 6. Wishlist Screen Skeleton
+// MARK: - 6. Wishlist Screen Skeleton (Mirrors Collections Carousel + Filters + 2-Column Grid)
 
 struct ShopWishlistSkeletonView: View {
     private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
+        GridItem(.flexible(), spacing: ShopLayout.gridColumnSpacing),
+        GridItem(.flexible(), spacing: ShopLayout.gridColumnSpacing)
     ]
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                // Collections Card Skeleton
-                ShopSkeletonBlock(
-                    cornerRadius: 22,
-                    width: UIScreen.main.bounds.width - 32,
-                    height: 120
-                )
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-
-                // Filter Pills Skeleton
-                HStack(spacing: 8) {
-                    ShopSkeletonCapsule(width: 70, height: 32)
-                    ShopSkeletonCapsule(width: 90, height: 32)
-                    ShopSkeletonCapsule(width: 80, height: 32)
+        VStack(alignment: .leading, spacing: ShopLayout.sectionSpacing) {
+            // 1. Collections Section Header + Horizontal Cards Carousel
+            VStack(alignment: .leading, spacing: 11) {
+                HStack {
+                    ShopSkeletonTextLine(width: 96, height: 19, cornerRadius: 6)
+                    Spacer()
+                    ShopSkeletonCapsule(width: 72, height: 28)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, ShopLayout.screenPadding)
 
-                // 2-Column Product Cards
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(0..<4, id: \.self) { _ in
-                        ShopProductCardSkeleton()
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            VStack(alignment: .leading, spacing: 7) {
+                                ShopSkeletonBlock(cornerRadius: 14, width: 132, height: 88)
+                                ShopSkeletonTextLine(width: 88, height: 13, cornerRadius: 5)
+                                ShopSkeletonTextLine(width: 58, height: 11, cornerRadius: 4)
+                            }
+                            .padding(6)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(Color.shopBorder, lineWidth: 1)
+                            )
+                        }
+                    }
+                    .padding(.horizontal, ShopLayout.screenPadding)
+                }
+                .disabled(true)
+            }
+            .padding(.top, 2)
+
+            // 2. Section Title + Filter/Sort Pills
+            VStack(alignment: .leading, spacing: 11) {
+                ShopSkeletonTextLine(width: 145, height: 17, cornerRadius: 6)
+                    .padding(.horizontal, ShopLayout.screenPadding)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ShopSkeletonCapsule(width: 88, height: 32)
+                        ShopSkeletonCapsule(width: 76, height: 32)
+                        ShopSkeletonCapsule(width: 108, height: 32)
+                        ShopSkeletonCapsule(width: 72, height: 32)
+                    }
+                    .padding(.horizontal, ShopLayout.screenPadding)
+                }
+                .disabled(true)
+            }
+
+            // 3. 2-Column Product Cards Grid
+            LazyVGrid(columns: columns, spacing: ShopLayout.gridRowSpacing) {
+                ForEach(0..<4, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 6) {
+                        ShopSkeletonBlock(cornerRadius: ShopLayout.mediumRadius, height: 170)
+                            .frame(maxWidth: .infinity)
+                        ShopSkeletonTextLine(width: 84, height: 10, cornerRadius: 4)
+                        ShopSkeletonTextLine(height: 12, cornerRadius: 5)
+                            .frame(maxWidth: .infinity)
+                        ShopSkeletonTextLine(width: 108, height: 12, cornerRadius: 5)
+                        HStack(spacing: 6) {
+                            ShopSkeletonTextLine(width: 62, height: 15, cornerRadius: 5)
+                            Spacer()
+                            ShopSkeletonCapsule(width: 54, height: 20)
+                        }
                     }
                 }
-                .padding(.horizontal, 16)
-
-                Spacer(minLength: 120)
             }
+            .padding(.horizontal, ShopLayout.screenPadding)
         }
     }
 }

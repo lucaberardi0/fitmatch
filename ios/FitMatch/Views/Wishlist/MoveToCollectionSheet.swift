@@ -9,33 +9,54 @@ struct MoveToCollectionSheet: View {
     @State private var newCollectionName: String = ""
     @State private var isCreatingNew: Bool = false
 
-    private var currentCollection: String {
-        item.collectionName ?? "Nessuna collezione"
+    /// Live view of this wishlist item so multi-collection toggles update instantaneously.
+    private var liveItem: WishlistItem {
+        wishlist.getItem(item.canonical_name) ?? item
+    }
+
+    private var currentSummary: String {
+        if liveItem.collectionNames.isEmpty {
+            return "Nessuna collezione"
+        }
+        return liveItem.collectionNames.joined(separator: " · ")
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Header Product Summary
                 productHeader
                     .padding(.horizontal, ShopLayout.screenPadding)
-                    .padding(.vertical, ShopLayout.cardPadding)
+                    .padding(.vertical, ShopLayout.compactCardPadding)
                     .background(Color.shopSurface)
 
                 Divider()
 
-                // Collections List
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        Text("SELEZIONA COLLEZIONE")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.shopTextMuted)
-                            .tracking(0.8)
-                            .padding(.horizontal, ShopLayout.screenPadding)
-                            .padding(.top, ShopLayout.cardPadding)
+                        HStack {
+                            Text("SELEZIONA UNA O PIÙ COLLEZIONI")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.shopTextMuted)
+                                .tracking(0.8)
+
+                            Spacer()
+
+                            if !liveItem.collectionNames.isEmpty {
+                                Button("Rimuovi tutte") {
+                                    withAnimation(.spring(response: 0.25)) {
+                                        wishlist.setCollections([], for: item.canonical_name)
+                                    }
+                                }
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundColor(.shopTextMuted)
+                            }
+                        }
+                        .padding(.horizontal, ShopLayout.screenPadding)
+                        .padding(.top, ShopLayout.cardPadding)
 
                         VStack(spacing: ShopLayout.tightSpacing) {
-                            if wishlist.getAvailableCollections().isEmpty {
+                            let available = wishlist.getAvailableCollections()
+                            if available.isEmpty {
                                 FitMatchInlineEmptyRow(
                                     icon: "folder.badge.plus",
                                     title: "Nessuna collezione",
@@ -43,54 +64,14 @@ struct MoveToCollectionSheet: View {
                                 )
                                 .padding(.vertical, 4)
                             } else {
-                                ForEach(wishlist.getAvailableCollections(), id: \.name) { col in
+                                ForEach(available, id: \.name) { col in
                                     collectionRow(col)
                                 }
-                            }
-
-                            if item.collectionName != nil {
-                                Button(action: {
-                                    wishlist.moveItem(canonicalName: item.canonical_name, toCollection: nil)
-                                    dismiss()
-                                }) {
-                                    HStack(spacing: 12) {
-                                        ZStack {
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .fill(Color.shopSurfaceElevated)
-                                                .frame(width: 36, height: 36)
-
-                                            Image(systemName: "folder.badge.minus")
-                                                .font(.system(size: 15))
-                                                .foregroundColor(.shopTextMuted)
-                                        }
-
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text("Nessuna collezione")
-                                                .font(.system(size: 15, weight: .medium, design: .rounded))
-                                                .foregroundColor(.shopDark)
-
-                                            Text("Rimuovi dalla collezione attuale")
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.shopTextMuted)
-                                        }
-
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal, ShopLayout.compactCardPadding)
-                                    .padding(.vertical, 10)
-                                    .background(Color.white)
-                                    .cornerRadius(ShopLayout.mediumRadius)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
-                                            .stroke(Color.shopBorder, lineWidth: 1)
-                                    )
-                                }
-                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, ShopLayout.screenPadding)
 
-                        // New Collection Creator
+                        // Inline New Collection Creator
                         VStack(spacing: 12) {
                             if isCreatingNew {
                                 HStack(spacing: 10) {
@@ -101,8 +82,13 @@ struct MoveToCollectionSheet: View {
                                     TextField("Nome collezione (es. Maratona)...", text: $newCollectionName)
                                         .font(.system(size: 15))
                                         .textInputAutocapitalization(.words)
+                                        .submitLabel(.done)
+                                        .onSubmit {
+                                            createNewAndAssign()
+                                        }
 
-                                    if !newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    let clean = newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if !clean.isEmpty && !WishlistManager.isReservedCollectionName(clean) {
                                         Button("Aggiungi") {
                                             createNewAndAssign()
                                         }
@@ -113,10 +99,10 @@ struct MoveToCollectionSheet: View {
                                 .padding(.horizontal, ShopLayout.cardPadding)
                                 .padding(.vertical, 12)
                                 .background(Color.shopSurface)
-                                .cornerRadius(ShopLayout.mediumRadius)
+                                .clipShape(RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
-                                        .stroke(Color.shopPurple.opacity(0.3), lineWidth: 1)
+                                        .stroke(Color.shopPurple.opacity(0.35), lineWidth: 1)
                                 )
                             } else {
                                 Button(action: {
@@ -130,7 +116,7 @@ struct MoveToCollectionSheet: View {
                                             .foregroundColor(.shopPurple)
 
                                         Text("Nuova collezione...")
-                                            .font(.system(size: 15, weight: .semibold))
+                                            .font(.system(size: 15, weight: .semibold, design: .rounded))
                                             .foregroundColor(.shopPurple)
 
                                         Spacer()
@@ -138,7 +124,7 @@ struct MoveToCollectionSheet: View {
                                     .padding(.horizontal, ShopLayout.cardPadding)
                                     .padding(.vertical, 12)
                                     .background(Color.shopPurpleLight)
-                                    .cornerRadius(ShopLayout.mediumRadius)
+                                    .clipShape(RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous))
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -149,15 +135,15 @@ struct MoveToCollectionSheet: View {
                     }
                 }
             }
-            .navigationTitle("Organizza in Collezione")
+            .navigationTitle("Organizza in Collezioni")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(Color(red: 180/255, green: 180/255, blue: 190/255))
+                    Button("Fatto") {
+                        dismiss()
                     }
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(.shopPurple)
                 }
             }
         }
@@ -169,17 +155,16 @@ struct MoveToCollectionSheet: View {
 
     private var productHeader: some View {
         HStack(spacing: 14) {
-            // Product image
             ZStack {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color.white)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color(red: 230/255, green: 230/255, blue: 235/255), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.shopBorder, lineWidth: 1)
                     )
 
-                if let urlStr = item.image_url, let url = URL(string: urlStr) {
-                    ShopCachedAsyncImage(url: url, maxPixelSize: 150) { phase in
+                if let urlStr = liveItem.image_url, let url = URL(string: urlStr), !urlStr.isEmpty {
+                    ShopCachedAsyncImage(url: url, maxPixelSize: 160) { phase in
                         if let img = phase.image {
                             img.resizable()
                                 .scaledToFit()
@@ -191,94 +176,90 @@ struct MoveToCollectionSheet: View {
                 } else {
                     Image(systemName: "shoe.fill")
                         .font(.system(size: 20))
-                        .foregroundColor(Color(red: 180/255, green: 180/255, blue: 190/255))
+                        .foregroundColor(.shopTextMuted.opacity(0.5))
                 }
             }
             .frame(width: 56, height: 56)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.canonical_name)
+                Text(liveItem.canonical_name)
                     .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                    .foregroundColor(.shopDark)
                     .lineLimit(1)
 
-                HStack(spacing: 8) {
-                    Text(item.formattedCurrentPrice)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(Color(red: 92/255, green: 60/255, blue: 245/255))
+                HStack(spacing: 6) {
+                    Text(liveItem.formattedCurrentPrice)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundColor(.shopPurple)
 
-                    if let store = item.bestStore {
-                        Text("•  \(store)")
+                    if let store = liveItem.bestStore, !store.isEmpty {
+                        Text("· \(store)")
                             .font(.system(size: 12))
-                            .foregroundColor(Color(red: 120/255, green: 120/255, blue: 130/255))
+                            .foregroundColor(.shopTextMuted)
+                            .lineLimit(1)
                     }
                 }
 
-                Text("Collezione attuale: \(currentCollection)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                Text(currentSummary)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundColor(.shopTextMuted)
+                    .lineLimit(1)
             }
 
             Spacer()
         }
     }
 
-    // MARK: - Collection Row
+    // MARK: - Collection Row (Multi-Select Toggle)
 
     private func collectionRow(_ col: WishlistCollection) -> some View {
-        let isSelected = col.name.caseInsensitiveCompare(currentCollection) == .orderedSame
+        let isSelected = liveItem.belongsToCollection(col.name)
 
         return Button(action: {
-            if isSelected {
-                // Tapping active collection unassigns item
-                wishlist.moveItem(canonicalName: item.canonical_name, toCollection: nil)
-            } else {
-                wishlist.moveItem(canonicalName: item.canonical_name, toCollection: col.name)
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                wishlist.toggleCollection(col.name, for: liveItem.canonical_name)
             }
-            dismiss()
         }) {
             HStack(spacing: 12) {
-                // Icon
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(iconBackgroundColor(for: col.name))
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(isSelected ? Color.shopPurple.opacity(0.15) : Color.shopSurfaceElevated)
                         .frame(width: 36, height: 36)
 
-                    Image(systemName: iconName(for: col.name))
+                    Image(systemName: isSelected ? "folder.fill" : "folder")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(iconColor(for: col.name))
+                        .foregroundColor(isSelected ? .shopPurple : .shopDark)
                 }
 
-                // Name & count
                 VStack(alignment: .leading, spacing: 2) {
                     Text(col.name)
                         .font(.system(size: 15, weight: isSelected ? .bold : .medium, design: .rounded))
-                        .foregroundColor(Color(red: 25/255, green: 25/255, blue: 30/255))
+                        .foregroundColor(.shopDark)
 
-                    Text("\(col.item_count) \(col.item_count == 1 ? "articolo" : "articoli")")
+                    Text(col.item_count == 1 ? "1 articolo" : "\(col.item_count) articoli")
                         .font(.system(size: 12))
-                        .foregroundColor(Color(red: 130/255, green: 130/255, blue: 140/255))
+                        .foregroundColor(.shopTextMuted)
                 }
 
                 Spacer()
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.system(size: 21, weight: .bold))
                         .foregroundColor(.shopPurple)
                 } else {
                     Circle()
-                        .stroke(Color(red: 220/255, green: 220/255, blue: 225/255), lineWidth: 1.5)
-                        .frame(width: 20, height: 20)
+                        .stroke(Color.shopBorder, lineWidth: 1.5)
+                        .frame(width: 21, height: 21)
                 }
             }
             .padding(.horizontal, ShopLayout.compactCardPadding)
             .padding(.vertical, 10)
-            .background(isSelected ? Color.shopPurpleLight : Color.white)
-            .cornerRadius(ShopLayout.mediumRadius)
+            .background(isSelected ? Color.shopPurpleLight.opacity(0.65) : Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: ShopLayout.mediumRadius, style: .continuous)
-                    .stroke(isSelected ? Color.shopPurple.opacity(0.4) : Color.shopBorder, lineWidth: 1)
+                    .stroke(isSelected ? Color.shopPurple.opacity(0.45) : Color.shopBorder, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -286,35 +267,14 @@ struct MoveToCollectionSheet: View {
 
     private func createNewAndAssign() {
         let trimmed = newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, !WishlistManager.isReservedCollectionName(trimmed) else { return }
         wishlist.createCollection(name: trimmed)
-        wishlist.moveItem(canonicalName: item.canonical_name, toCollection: trimmed)
-        dismiss()
-    }
-
-    private func iconName(for name: String) -> String {
-        switch name.lowercased() {
-        case "tutti": return "star.fill"
-        case "scarpe da corsa": return "figure.run"
-        case "smartwatch & gps": return "applewatch"
-        case "trail & outdoor": return "mountain.2.fill"
-        case "offerte speciali": return "tag.fill"
-        default: return "folder.fill"
+        if !liveItem.belongsToCollection(trimmed) {
+            wishlist.toggleCollection(trimmed, for: liveItem.canonical_name)
         }
-    }
-
-    private func iconColor(for name: String) -> Color {
-        switch name.lowercased() {
-        case "tutti": return .shopPurple
-        case "scarpe da corsa": return Color(red: 245/255, green: 110/255, blue: 40/255)
-        case "smartwatch & gps": return Color(red: 40/255, green: 130/255, blue: 245/255)
-        case "trail & outdoor": return Color(red: 34/255, green: 160/255, blue: 95/255)
-        case "offerte speciali": return Color(red: 230/255, green: 50/255, blue: 80/255)
-        default: return Color(red: 120/255, green: 70/255, blue: 240/255)
+        newCollectionName = ""
+        withAnimation(.spring(response: 0.25)) {
+            isCreatingNew = false
         }
-    }
-
-    private func iconBackgroundColor(for name: String) -> Color {
-        iconColor(for: name).opacity(0.12)
     }
 }

@@ -236,7 +236,136 @@ struct FitMatchApp: App {
             } else if ProcessInfo.processInfo.arguments.contains("-testAiSearchMaisonMargiela") {
                 SearchView(initialSearchQuery: "Maison margiela scarpe nere")
             } else if ProcessInfo.processInfo.arguments.contains("-testSalvatiHome") {
-                MainTabView(initialTab: 2)
+                MainTabView(initialTab: 2, skipOnboarding: true)
+            } else if ProcessInfo.processInfo.arguments.contains("-testSalvatiPopulated") {
+                MainTabView(initialTab: 2, skipOnboarding: true)
+                    .onAppear {
+                        let previewItems: [WishlistItem] = [
+                            WishlistItem(
+                                productId: "asics superblast 2 [shoes] [Adult]",
+                                canonical_name: "Asics Superblast 2",
+                                brand: "Asics",
+                                category: "running_shoes",
+                                image_url: "https://i1.t4s.cz/products/1013a142-401/asics-superblast-2-954461-1013a142-405.png",
+                                initialPrice: 220.00,
+                                savedPrice: 165.00,
+                                currentBestPrice: 142.90,
+                                highestPrice: 220.00,
+                                discountPct: 35.0,
+                                bestStoreId: "top4running",
+                                bestStore: "Top4Running",
+                                bestStoreUrl: "https://top4running.it/p/asics-superblast-2-1013a142-401",
+                                offersCount: 14,
+                                storeCount: 6,
+                                selectedSize: "42.5",
+                                collectionNames: ["Maratona", "Gara"],
+                                targetAlertPrice: 145.0,
+                                isAlertEnabled: true,
+                                dateAdded: Date(),
+                                isInStock: true,
+                                availableSizes: ["41.5", "42", "42.5", "43.5", "44"],
+                                monitoredSize: "42.5",
+                                isMonitoredSizeAvailable: true,
+                                histMinPrice: 142.90,
+                                isAllTimeLow: true,
+                                priceChangeSinceSaved: -22.10,
+                                targetReached: true
+                            ),
+                            WishlistItem(
+                                productId: "nike metcon 10 [shoes] [Adult]",
+                                canonical_name: "Nike Metcon 10",
+                                brand: "Nike",
+                                category: "running_shoes",
+                                image_url: "https://static.nike.com/a/images/t_default/u_9ddf04c7-2a9a-4d76-add1-d15af8f0263d,c_scale,fl_relative,w_1.0,h_1.0,fl_layer_apply/898ac37d-5900-4fd6-aaab-a03e7cdb0385/M+NIKE+METCON+10.png",
+                                initialPrice: 139.99,
+                                savedPrice: 99.99,
+                                currentBestPrice: 83.99,
+                                highestPrice: 139.99,
+                                discountPct: 40.0,
+                                bestStoreId: "nike",
+                                bestStore: "Nike",
+                                bestStoreUrl: "https://www.nike.com/it/t/scarpa-da-allenamento-nike-metcon-10-uomo-KVNayU12/HJ1875-500",
+                                offersCount: 9,
+                                storeCount: 4,
+                                selectedSize: "42.5",
+                                collectionNames: ["Hyrox"],
+                                targetAlertPrice: 80.0,
+                                isAlertEnabled: true,
+                                dateAdded: Date().addingTimeInterval(-60),
+                                isInStock: true,
+                                availableSizes: ["40", "41", "42", "42.5", "43"],
+                                monitoredSize: "42.5",
+                                isMonitoredSizeAvailable: true,
+                                isAllTimeLow: false,
+                                priceChangeSinceSaved: -16.00,
+                                targetReached: false
+                            ),
+                            WishlistItem(
+                                productId: "hoka gaviota 6 [shoes] [Adult]",
+                                canonical_name: "Hoka Gaviota 6",
+                                brand: "Hoka",
+                                category: "running_shoes",
+                                image_url: "https://maxi.gumlet.io/media/catalog/product/cache/49229e27a07aec1fba01f3faa4d67bfd/h/o/hoka-1171932-gaviota-6-scarpe-running-uomo-052895401-vtlb_1.jpg",
+                                initialPrice: 179.95,
+                                savedPrice: 125.95,
+                                currentBestPrice: 125.95,
+                                highestPrice: 179.95,
+                                discountPct: 30.0,
+                                bestStoreId: "maxisport",
+                                bestStore: "Maxi Sport",
+                                bestStoreUrl: "https://www.maxisport.com/hoka-1171932-gaviota-6-scarpe-running-uomo-052895401-vtlb",
+                                offersCount: 8,
+                                storeCount: 3,
+                                selectedSize: "42.5",
+                                collectionNames: ["Maratona"],
+                                targetAlertPrice: 110.0,
+                                isAlertEnabled: true,
+                                dateAdded: Date().addingTimeInterval(-120),
+                                isInStock: true,
+                                availableSizes: ["41", "42", "43", "44"],
+                                monitoredSize: "42.5",
+                                isMonitoredSizeAvailable: false,
+                                isAllTimeLow: true,
+                                priceChangeSinceSaved: 0.0,
+                                targetReached: false
+                            ),
+                            WishlistItem(
+                                productId: "asics metarun maglietta [top] [Donna]",
+                                canonical_name: "Asics Metarun Maglietta",
+                                brand: "Asics",
+                                category: "top",
+                                image_url: "https://www.misterrunning.com/media/products/2026-media-06/asics-metarun-maglietta-da-running-donna-cream-2012d418-100_A-600x600.jpg",
+                                initialPrice: 75.00,
+                                savedPrice: 41.17,
+                                currentBestPrice: 41.17,
+                                highestPrice: 75.00,
+                                discountPct: 45.1,
+                                bestStoreId: "misterrunning",
+                                bestStore: "Mister Running",
+                                bestStoreUrl: "https://www.misterrunning.com/it/asics-metarun-maglietta-da-running-donna-cream-2012d418-100.html",
+                                offersCount: 5,
+                                storeCount: 2,
+                                selectedSize: "M",
+                                collectionNames: ["Maratona"],
+                                targetAlertPrice: nil,
+                                isAlertEnabled: true,
+                                dateAdded: Date().addingTimeInterval(-180),
+                                isInStock: true,
+                                availableSizes: ["XS", "S", "M", "L"],
+                                monitoredSize: "M",
+                                isMonitoredSizeAvailable: true,
+                                isAllTimeLow: false,
+                                priceChangeSinceSaved: 0.0,
+                                targetReached: false
+                            )
+                        ]
+                        WishlistManager.shared.items = previewItems
+                        WishlistManager.shared.collections = [
+                            WishlistCollection(name: "Maratona", item_count: 3),
+                            WishlistCollection(name: "Hyrox", item_count: 1),
+                            WishlistCollection(name: "Gara", item_count: 1)
+                        ]
+                    }
             } else if ProcessInfo.processInfo.arguments.contains("-testChartDirect") {
                 NavigationStack {
                     ScrollView {

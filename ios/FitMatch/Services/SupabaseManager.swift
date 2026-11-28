@@ -400,13 +400,26 @@ class SupabaseManager: ObservableObject {
             "store_reports"
         ]
 
+        // Atomically claim anonymous wishlist & collection rows via SECURITY DEFINER RPC
+        if let claimUrl = URL(string: "\(restURL)/rpc/claim_anonymous_wishlist_data_v1") {
+            var claimReq = URLRequest(url: claimUrl)
+            claimReq.httpMethod = "POST"
+            for (k, v) in makeHeaders() { claimReq.setValue(v, forHTTPHeaderField: k) }
+            var claimBody: [String: Any] = ["p_device_id": self.deviceId]
+            if let prevId = previousAnonymousUserId?.lowercased(), prevId != cleanUid {
+                claimBody["p_previous_user_id"] = prevId
+            }
+            claimReq.httpBody = try? JSONSerialization.data(withJSONObject: claimBody)
+            _ = try? await session.data(for: claimReq)
+        }
+
         // If transitioning from a previous Supabase anonymous user ID to a different permanent user ID,
-        // release ownership using the anonymous JWT first so RLS tables (e.g. wishlists, collections) allow claiming.
+        // release ownership using the anonymous JWT first so RLS tables allow claiming.
         if let prevId = previousAnonymousUserId?.lowercased(),
            prevId != cleanUid,
            let prevToken = previousAnonymousToken,
            prevToken.split(separator: ".").count == 3 {
-            for table in tablesToLink {
+            for table in tablesToLink where table != "wishlists" && table != "collections" {
                 guard let releaseUrl = URL(string: "\(restURL)/\(table)?device_id=eq.\(devId)&user_id=eq.\(prevId)") else {
                     continue
                 }
@@ -418,7 +431,7 @@ class SupabaseManager: ObservableObject {
             }
         }
 
-        for table in tablesToLink {
+        for table in tablesToLink where table != "wishlists" && table != "collections" {
             guard let url = URL(string: "\(restURL)/\(table)?device_id=eq.\(devId)&user_id=is.null") else {
                 continue
             }
@@ -607,17 +620,50 @@ class SupabaseManager: ObservableObject {
         return true
     }
 
-    // MARK: - Wishlists API (Direct PostgREST)
+    // MARK: - Wishlists API (Live RPC + Direct PostgREST)
+
+    /// Fetches user's saved items hydrated with live prices, stock, store count, sizes, shipping,
+    /// all-time low status, and genuine price delta since saved via `get_wishlist_live_v1`.
+    func fetchWishlistLive(shoeSize: String? = nil, apparelSize: String? = nil) async throws -> [WishlistItem] {
+        guard validCurrentUserId != nil else {
+            return try await fetchWishlist()
+        }
+        guard let url = URL(string: "\(restURL)/rpc/get_wishlist_live_v1") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        for (k, v) in makeHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+
+        var payload: [String: Any] = [:]
+        let cleanShoe = shoeSize?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanApp = apparelSize?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        payload["p_shoe_size"] = cleanShoe.isEmpty ? NSNull() : cleanShoe
+        payload["p_apparel_size"] = cleanApp.isEmpty ? NSNull() : cleanApp
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            return try await fetchWishlist()
+        }
+
+        let rows = try JSONDecoder().decode([WishlistLiveRow].self, from: data)
+        self.lastSyncDate = Date()
+        self.isCloudConnected = true
+        return rows.map { $0.toWishlistItem() }
+    }
 
     func fetchWishlist(collection: String? = nil) async throws -> [WishlistItem] {
         var urlStr = "\(restURL)/wishlists?select=*"
         if let uid = validCurrentUserId {
             urlStr += "&user_id=eq.\(uid)"
         } else {
-            urlStr += "&device_id=eq.\(deviceId)"
+            urlStr += "&device_id=eq.\(encodeQueryValue(deviceId))"
         }
         if let col = collection, !col.isEmpty && col.lowercased() != "tutti" {
-            let encodedCol = col.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? col
+            let encodedCol = encodeQueryValue(col)
             urlStr += "&collection_name=eq.\(encodedCol)"
         }
         urlStr += "&order=created_at.desc"
@@ -641,7 +687,46 @@ class SupabaseManager: ObservableObject {
     }
 
     func upsertWishlistItem(item: WishlistItem) async throws -> Bool {
-        guard let url = URL(string: "\(restURL)/wishlists?on_conflict=canonical_name") else { throw URLError(.badURL) }
+        // Preferred atomic RPC: scopes strictly to auth.uid(), preserves saved_price, stores product_id,
+        // target_alert_price, and multi-collection array.
+        if validCurrentUserId != nil, let rpcUrl = URL(string: "\(restURL)/rpc/upsert_wishlist_item_v1") {
+            var req = URLRequest(url: rpcUrl)
+            req.httpMethod = "POST"
+            for (k, v) in makeHeaders() {
+                req.setValue(v, forHTTPHeaderField: k)
+            }
+
+            let rpcBody: [String: Any] = [
+                "p_canonical_name": item.canonical_name,
+                "p_product_id": item.productId ?? NSNull(),
+                "p_brand": item.brand ?? NSNull(),
+                "p_category": item.category ?? NSNull(),
+                "p_store_id": item.bestStoreId ?? item.resolvedStoreId,
+                "p_store_name": item.bestStore ?? NSNull(),
+                "p_current_price": item.currentBestPrice,
+                "p_saved_price": item.savedPrice,
+                "p_original_price": item.highestPrice ?? item.initialPrice,
+                "p_discount_pct": item.discountPct ?? NSNull(),
+                "p_image_url": item.image_url ?? NSNull(),
+                "p_product_url": item.bestStoreUrl ?? NSNull(),
+                "p_selected_size": item.selectedSize ?? NSNull(),
+                "p_collection_names": item.collectionNames,
+                "p_target_alert_price": item.targetAlertPrice ?? NSNull(),
+                "p_is_alert_enabled": item.isAlertEnabled,
+                "p_device_id": deviceId
+            ]
+            req.httpBody = try JSONSerialization.data(withJSONObject: rpcBody)
+            let (_, response) = try await session.data(for: req)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if [200, 201, 204].contains(code) {
+                self.lastSyncDate = Date()
+                return true
+            }
+        }
+
+        // Fallback direct PostgREST upsert
+        let conflictCols = validCurrentUserId != nil ? "user_id,canonical_name" : "canonical_name"
+        guard let url = URL(string: "\(restURL)/wishlists?on_conflict=\(conflictCols)") else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         for (k, v) in makeHeaders(upsert: true) {
@@ -651,17 +736,35 @@ class SupabaseManager: ObservableObject {
         var body: [String: Any] = [
             "canonical_name": item.canonical_name,
             "brand": item.brand ?? "",
+            "store_id": item.bestStoreId ?? item.resolvedStoreId,
             "store_name": item.bestStore ?? "",
             "current_price": item.currentBestPrice,
-            "original_price": item.initialPrice,
+            "saved_price": item.savedPrice,
+            "original_price": item.highestPrice ?? item.initialPrice,
             "discount_pct": item.discountPct ?? 0.0,
             "image_url": item.image_url ?? "",
             "product_url": item.bestStoreUrl ?? "",
-            "selected_size": item.selectedSize ?? "Standard",
             "collection_name": item.collectionName ?? "Tutti",
+            "collection_names": item.collectionNames,
             "is_alert_enabled": item.isAlertEnabled,
             "device_id": deviceId
         ]
+        if let pid = item.productId, !pid.isEmpty {
+            body["product_id"] = pid
+        }
+        if let cat = item.category, !cat.isEmpty {
+            body["category"] = cat
+        }
+        if let sz = item.selectedSize, !sz.isEmpty {
+            body["selected_size"] = sz
+        } else {
+            body["selected_size"] = NSNull()
+        }
+        if let target = item.targetAlertPrice {
+            body["target_alert_price"] = target
+        } else {
+            body["target_alert_price"] = NSNull()
+        }
         if let uid = validCurrentUserId {
             body["user_id"] = uid
         }
@@ -677,12 +780,12 @@ class SupabaseManager: ObservableObject {
     }
 
     func deleteWishlistItem(canonicalName: String) async throws -> Bool {
-        let encoded = canonicalName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? canonicalName
+        let encoded = encodeQueryValue(canonicalName)
         var urlStr = "\(restURL)/wishlists?canonical_name=eq.\(encoded)"
         if let uid = validCurrentUserId {
             urlStr += "&user_id=eq.\(uid)"
         } else {
-            urlStr += "&device_id=eq.\(deviceId)"
+            urlStr += "&device_id=eq.\(encodeQueryValue(deviceId))"
         }
         guard let url = URL(string: urlStr) else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
@@ -707,7 +810,7 @@ class SupabaseManager: ObservableObject {
         if let uid = validCurrentUserId {
             urlStr += "&user_id=eq.\(uid)"
         } else {
-            urlStr += "&device_id=eq.\(deviceId)"
+            urlStr += "&device_id=eq.\(encodeQueryValue(deviceId))"
         }
 
         guard let url = URL(string: urlStr) else { throw URLError(.badURL) }
@@ -770,17 +873,40 @@ class SupabaseManager: ObservableObject {
         return [200, 201].contains(code)
     }
 
+    func renameCollection(oldName: String, newName: String) async throws -> Bool {
+        let cleanOld = oldName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanNew = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanOld.isEmpty, !cleanNew.isEmpty,
+              cleanOld.lowercased() != "tutti", cleanNew.lowercased() != "tutti" else {
+            return false
+        }
+        if validCurrentUserId != nil, let url = URL(string: "\(restURL)/rpc/rename_wishlist_collection_v1") {
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            for (k, v) in makeHeaders() { req.setValue(v, forHTTPHeaderField: k) }
+            req.httpBody = try JSONSerialization.data(withJSONObject: [
+                "p_old_name": cleanOld,
+                "p_new_name": cleanNew
+            ])
+            let (_, resp) = try await session.data(for: req)
+            if let http = resp as? HTTPURLResponse, [200, 201, 204].contains(http.statusCode) {
+                return true
+            }
+        }
+        return false
+    }
+
     func deleteCollection(name: String) async throws -> Bool {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanName.isEmpty else { return false }
+        guard !cleanName.isEmpty, cleanName.lowercased() != "tutti" else { return false }
 
-        // 1. Delete collection row
-        let encodedName = cleanName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cleanName
-        var delUrlStr = "\(restURL)/collections?name=eq.\(encodedName)"
+        // 1. Delete collection row(s)
+        let encodedName = encodeQueryValue(cleanName)
+        var delUrlStr = "\(restURL)/collections?name=ilike.\(encodedName)"
         if let uid = validCurrentUserId {
             delUrlStr += "&user_id=eq.\(uid)"
         } else {
-            delUrlStr += "&device_id=eq.\(deviceId)"
+            delUrlStr += "&device_id=eq.\(encodeQueryValue(deviceId))"
         }
         if let url = URL(string: delUrlStr) {
             var req = URLRequest(url: url)
@@ -789,18 +915,12 @@ class SupabaseManager: ObservableObject {
             _ = try? await session.data(for: req)
         }
 
-        // 2. Reassign wishlist items that were in this collection to 'Tutti'
-        var patchUrlStr = "\(restURL)/wishlists?collection_name=eq.\(encodedName)"
-        if let uid = validCurrentUserId {
-            patchUrlStr += "&user_id=eq.\(uid)"
-        } else {
-            patchUrlStr += "&device_id=eq.\(deviceId)"
-        }
-        if let patchUrl = URL(string: patchUrlStr) {
-            var req = URLRequest(url: patchUrl)
-            req.httpMethod = "PATCH"
+        // 2. Atomically remove collection from all user wishlist rows (multi-collection safe)
+        if validCurrentUserId != nil, let rpcUrl = URL(string: "\(restURL)/rpc/remove_collection_from_wishlists_v1") {
+            var req = URLRequest(url: rpcUrl)
+            req.httpMethod = "POST"
             for (k, v) in makeHeaders() { req.setValue(v, forHTTPHeaderField: k) }
-            req.httpBody = try? JSONSerialization.data(withJSONObject: ["collection_name": "Tutti"])
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["p_name": cleanName])
             _ = try? await session.data(for: req)
         }
         return true
@@ -2380,28 +2500,7 @@ class SupabaseManager: ObservableObject {
         let imageUrl: String?
     }
 
-    func findBestLiveOfferDirect(canonicalName: String, requiredSize: String? = nil) async -> LiveOfferResult? {
-        let stopWords: Set<String> = ["scarpe", "scarpa", "donna", "uomo", "modello", "edition"]
-        let rawWords = canonicalName
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.count >= 3 }
-
-        let filteredWords = rawWords.filter { !stopWords.contains($0.lowercased()) }
-        let searchWords = filteredWords.isEmpty ? Array(rawWords.prefix(3)) : Array(filteredWords.prefix(3))
-
-        guard !searchWords.isEmpty else { return nil }
-
-        let pattern = searchWords.joined(separator: "*")
-        guard let encodedPattern = "*\(pattern)*".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(restURL)/store_offers?raw_title=ilike.\(encodedPattern)&order=current_price.asc&limit=15") else {
-            return nil
-        }
-
-        var req = URLRequest(url: url)
-        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
-        guard let (data, resp) = try? await session.data(for: req),
-              let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-
+    func findBestLiveOfferDirect(canonicalName: String, productId: String? = nil, requiredSize: String? = nil) async -> LiveOfferResult? {
         struct OfferMatchRow: Codable {
             let store_id: String
             let store_name: String
@@ -2412,6 +2511,46 @@ class SupabaseManager: ObservableObject {
             let image_url: String?
             let available_sizes: [String]?
         }
+
+        // 1. Resolve exact cluster product_id first so we NEVER cross-match unrelated accessories via loose ILIKE
+        var resolvedProductId = productId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if resolvedProductId == nil || resolvedProductId?.isEmpty == true {
+            let cleanName = canonicalName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanName.isEmpty,
+               let prodUrl = URL(string: "\(restURL)/products?canonical_name=ilike.\(encodeQueryValue(cleanName))&select=id&limit=1") {
+                var pReq = URLRequest(url: prodUrl)
+                for (k, v) in makeHeaders(isPublic: true) { pReq.setValue(v, forHTTPHeaderField: k) }
+                struct ProdIdRow: Codable { let id: String }
+                if let (pData, pResp) = try? await session.data(for: pReq),
+                   let pHttp = pResp as? HTTPURLResponse, pHttp.statusCode == 200,
+                   let pRows = try? JSONDecoder().decode([ProdIdRow].self, from: pData),
+                   let matchedId = pRows.first?.id, !matchedId.isEmpty {
+                    resolvedProductId = matchedId
+                }
+            }
+        }
+
+        let targetURL: URL?
+        if let pid = resolvedProductId, !pid.isEmpty {
+            targetURL = URL(string: "\(restURL)/store_offers?product_id=eq.\(encodeQueryValue(pid))&in_stock=neq.false&current_price=gt.0&order=current_price.asc&limit=40&select=store_id,store_name,current_price,original_price,discount_pct,product_url,image_url,available_sizes")
+        } else {
+            // Safe text fallback: preserve numeric model versions (e.g. "19" in "Ride 19") and require >=2 tokens
+            let stopWords: Set<String> = ["scarpe", "scarpa", "donna", "uomo", "modello", "edition"]
+            let rawWords = canonicalName
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count >= 3 || ($0.count >= 2 && $0.allSatisfy(\.isNumber)) }
+            let filteredWords = rawWords.filter { !stopWords.contains($0.lowercased()) }
+            let searchWords = filteredWords.isEmpty ? Array(rawWords.prefix(4)) : Array(filteredWords.prefix(4))
+            guard searchWords.count >= 2 else { return nil }
+            let pattern = searchWords.joined(separator: "*")
+            targetURL = URL(string: "\(restURL)/store_offers?raw_title=ilike.\(encodeQueryValue("*\(pattern)*"))&in_stock=neq.false&current_price=gt.0&order=current_price.asc&limit=20&select=store_id,store_name,current_price,original_price,discount_pct,product_url,image_url,available_sizes")
+        }
+
+        guard let url = targetURL else { return nil }
+        var req = URLRequest(url: url)
+        for (k, v) in makeHeaders(isPublic: true) { req.setValue(v, forHTTPHeaderField: k) }
+        guard let (data, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
 
         guard let list = try? JSONDecoder().decode([OfferMatchRow].self, from: data), !list.isEmpty else {
             return nil
@@ -2425,8 +2564,11 @@ class SupabaseManager: ObservableObject {
             if let matched = list.first(where: { row in
                 guard let sizes = row.available_sizes else { return false }
                 return sizes.contains { s in
-                    let c = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    return c == cleanSize || c.contains(cleanSize)
+                    let c = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+                        .replacingOccurrences(of: ",", with: ".")
+                    let targetNorm = cleanSize.replacingOccurrences(of: ",", with: ".")
+                    return c == targetNorm || c == "eu \(targetNorm)"
                 }
             }) {
                 selectedOffer = matched

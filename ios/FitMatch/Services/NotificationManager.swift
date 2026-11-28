@@ -410,19 +410,25 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
             }
         }
 
-        // 2. Intelligent Check: Real-time scan of user's saved wishlist items
+        // 2. Intelligent Check: Real-time scan of user's saved wishlist items via authoritative product_id lookup
         let savedItems = WishlistManager.shared.items
         for item in savedItems {
             // Respect user alert toggle
             guard item.isAlertEnabled else { continue }
 
-            // Priority 1: Direct Supabase store_offers lookup (fast, 100% reliable)
+            // Direct Supabase store_offers lookup anchored by product_id (never fuzzy cross-product ILIKE)
             if let directMatch = await SupabaseManager.shared.findBestLiveOfferDirect(
                 canonicalName: item.canonical_name,
+                productId: item.productId,
                 requiredSize: item.selectedSize
             ) {
                 let liveBest = directMatch.price
                 let oldPrice = item.currentBestPrice
+
+                // Sanity guard against accidental cross-category mismatch when productId is absent
+                if item.productId == nil && oldPrice >= 60.0 && liveBest < oldPrice * 0.35 {
+                    continue
+                }
 
                 if liveBest < oldPrice {
                     let savings = oldPrice - liveBest
@@ -449,58 +455,21 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
 
                     if let idx = WishlistManager.shared.items.firstIndex(where: { $0.canonical_name == item.canonical_name }) {
                         WishlistManager.shared.items[idx].currentBestPrice = liveBest
+                        WishlistManager.shared.items[idx].bestStore = store
+                        WishlistManager.shared.items[idx].bestStoreId = directMatch.storeId
+                        WishlistManager.shared.items[idx].bestStoreUrl = directMatch.url
                         WishlistManager.shared.items[idx].lastPriceDrop = savings
+                        let savedRef = WishlistManager.shared.items[idx].savedPrice
+                        if savedRef > 0 {
+                            WishlistManager.shared.items[idx].priceChangeSinceSaved = liveBest - savedRef
+                        }
                         WishlistManager.shared.saveItems()
                         let updated = WishlistManager.shared.items[idx]
                         Task {
                             _ = try? await SupabaseManager.shared.upsertWishlistItem(item: updated)
                         }
                     }
-                    continue
                 }
-            }
-
-            // Priority 2: Fallback to APIService search engine
-            do {
-                let searchResults = try await APIService.shared.search(query: item.canonical_name, size: item.selectedSize)
-                if let matched = searchResults.first, let liveBest = matched.best_price {
-                    let oldPrice = item.currentBestPrice
-                    if liveBest < oldPrice {
-                        let savings = oldPrice - liveBest
-                        let store = matched.bestOffer?.store_name ?? item.bestStore ?? "Negozio Partner"
-
-                        let shouldAlert = shouldNotifyPriceDrop(
-                            canonicalName: item.canonical_name,
-                            oldPrice: oldPrice,
-                            newPrice: liveBest,
-                            targetPrice: item.targetAlertPrice
-                        )
-
-                        if shouldAlert {
-                            sendPriceDropNotification(
-                                productTitle: item.canonical_name,
-                                oldPrice: oldPrice,
-                                newPrice: liveBest,
-                                storeName: store,
-                                targetPrice: item.targetAlertPrice,
-                                url: matched.bestOffer?.url ?? item.bestStoreUrl,
-                                imageUrl: matched.image_url ?? item.image_url
-                            )
-                        }
-
-                        if let idx = WishlistManager.shared.items.firstIndex(where: { $0.canonical_name == item.canonical_name }) {
-                            WishlistManager.shared.items[idx].currentBestPrice = liveBest
-                            WishlistManager.shared.items[idx].lastPriceDrop = savings
-                            WishlistManager.shared.saveItems()
-                            let updated = WishlistManager.shared.items[idx]
-                            Task {
-                                _ = try? await SupabaseManager.shared.upsertWishlistItem(item: updated)
-                            }
-                        }
-                    }
-                }
-            } catch {
-                // Silently skip item if network temporarily fails
             }
         }
     }
